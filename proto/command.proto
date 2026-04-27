@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package sst_cam;
+
+import "telemetry.proto";
+import "match.proto";
+import "recording.proto";
+import "config.proto";
+
+// ---------------------------------------------------------------------------
+// Chunking envelope — wraps every payload on Command Write + Command Response
+// characteristics to handle payloads larger than the negotiated MTU.
+// ---------------------------------------------------------------------------
+message ChunkedPayload {
+  string correlation_id = 1;
+  uint32 chunk_index    = 2;  // 0-based
+  uint32 total_chunks   = 3;
+  bytes  data           = 4;  // serialised Command or CommandResponse bytes
+}
+
+// Sent by the app after receiving each chunk (flow control for large payloads).
+message ChunkAck {
+  string correlation_id = 1;
+  uint32 chunk_index    = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Command — one-of wrapper for every operation the app can request
+// ---------------------------------------------------------------------------
+message Command {
+  // Unique per-request; echoed in CommandResponse so the app can match replies.
+  string correlation_id = 1;
+
+  oneof payload {
+    // Device / info
+    GetDeviceInfoCommand  get_device_info  = 10;
+    ThumbnailRequest      thumbnail        = 11;
+
+    // Polling — app requests these at regular intervals
+    GetTelemetryCommand   get_telemetry    = 12;
+    GetMatchStateCommand  get_match_state  = 13;
+
+    // Match control
+    MatchConfigCommand    match_config     = 20;
+    MatchControlCommand   match_control    = 21;
+    ScoreUpdateCommand    score_update     = 22;
+    BannerEventCommand    banner_event     = 23;
+
+    // Recording / streaming
+    RecordingControlCommand  recording_control  = 30;
+    StreamingControlCommand  streaming_control  = 31;
+    ListRecordingsCommand    list_recordings    = 32;
+    DownloadRequestCommand   download_request   = 33;
+
+    // Configuration
+    SetWifiConfigCommand      set_wifi_config      = 40;
+    SetStreamingConfigCommand set_streaming_config = 41;
+
+    // Admin
+    FactoryResetCommand  factory_reset  = 50;
+    FirmwareUpdateCommand firmware_update = 51;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CommandResponse — firmware reply to every Command
+// ---------------------------------------------------------------------------
+message CommandResponse {
+  string         correlation_id = 1;
+  ResponseStatus status         = 2;
+  string         error_message  = 3;  // non-empty only when status != OK
+
+  oneof payload {
+    DeviceInfoResponse    device_info    = 10;
+    ThumbnailResponse     thumbnail      = 11;
+    RecordingListResponse recording_list = 12;
+    DownloadTokenResponse download_token = 13;
+    DeviceTelemetry       telemetry      = 14;  // response to GetTelemetryCommand
+    MatchState            match_state    = 15;  // response to GetMatchStateCommand
+  }
+}
+
+enum ResponseStatus {
+  OK          = 0;
+  ERROR       = 1;
+  TIMEOUT     = 2;
+  UNSUPPORTED = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Simple parameterless commands
+// ---------------------------------------------------------------------------
+message GetDeviceInfoCommand {}
+message GetTelemetryCommand {}   // app polls ~1 Hz
+message GetMatchStateCommand {}  // app polls ~0.5 Hz
+message ListRecordingsCommand {}
+message FactoryResetCommand {}
+message FirmwareUpdateCommand {}

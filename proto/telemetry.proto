@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package sst_cam;
+
+// ---------------------------------------------------------------------------
+// Device identity — returned in CommandResponse.device_info
+// ---------------------------------------------------------------------------
+message DeviceInfoResponse {
+  string device_id        = 1;
+  string name             = 2;
+  string firmware_version = 3;  // semver string, e.g. "0.2.1"
+  string model            = 4;  // e.g. "Jetson Orin NX"
+  uint32 protocol_version = 5;  // incremented on breaking schema changes
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry — pushed by firmware at ~1 Hz on the Telemetry characteristic
+// ---------------------------------------------------------------------------
+message DeviceTelemetry {
+  // Storage
+  uint64 storage_free_bytes  = 1;
+  uint64 storage_total_bytes = 2;
+
+  // Network
+  WifiState wifi_state         = 3;
+  string    wifi_ssid          = 4;  // empty when disconnected
+  sint32    wifi_signal_dbm    = 5;  // 0 when disconnected
+  bool      internet_reachable = 6;
+
+  // System health
+  float  temp_celsius   = 7;
+  float  ram_used_pct   = 8;  // 0.0–1.0
+  float  cpu_used_pct   = 9;  // 0.0–1.0
+  uint64 uptime_seconds = 10;
+
+  // Recording / streaming state snapshot (mirrors MatchState but lighter weight)
+  bool is_recording = 11;
+  bool is_streaming = 12;
+}
+
+enum WifiState {
+  WIFI_UNKNOWN      = 0;
+  WIFI_DISABLED     = 1;
+  WIFI_DISCONNECTED = 2;
+  WIFI_CONNECTED    = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Camera preview thumbnail (BLE is too slow for video; use stills)
+// ---------------------------------------------------------------------------
+message ThumbnailRequest {
+  // Target size hint — firmware may ignore and use its own optimal resolution.
+  uint32 width  = 1;  // suggested 160
+  uint32 height = 2;  // suggested 90
+  uint32 quality = 3; // JPEG quality 0–100, suggested 60
+}
+
+message ThumbnailResponse {
+  // Chunks are reassembled by the app using ChunkedPayload.
+  bytes  jpeg_bytes        = 1;
+  uint64 capture_timestamp = 2;  // unix millis
+}

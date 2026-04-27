@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package sst_cam;
+
+// ---------------------------------------------------------------------------
+// Recording control
+// ---------------------------------------------------------------------------
+message RecordingControlCommand {
+  RecordingAction action = 1;
+}
+
+enum RecordingAction {
+  RECORDING_ACTION_UNKNOWN = 0;
+  RECORDING_START          = 1;
+  RECORDING_STOP           = 2;
+}
+
+message StreamingControlCommand {
+  StreamingAction action      = 1;
+  string          destination = 2;  // RTMP URL (pre-built with key by the app)
+}
+
+enum StreamingAction {
+  STREAMING_ACTION_UNKNOWN = 0;
+  STREAMING_START          = 1;
+  STREAMING_STOP           = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Recording metadata (one entry per file on the Jetson)
+// ---------------------------------------------------------------------------
+message RecordingMetadata {
+  string id          = 1;
+  uint64 duration_s  = 2;
+  uint64 size_bytes  = 3;
+  uint64 started_at  = 4;  // unix millis
+  string sport       = 5;  // human-readable label
+  string teams       = 6;  // e.g. "Team A vs Team B"
+  string thumbnail_id = 7; // pass to ThumbnailRequest if firmware supports per-recording thumbs
+}
+
+// ---------------------------------------------------------------------------
+// RecordingList response — returned when the app sends ListRecordingsCommand
+// ---------------------------------------------------------------------------
+message RecordingListResponse {
+  repeated RecordingMetadata recordings = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Download — the Jetson serves video over WiFi HTTP; BLE is used only to get
+// the URL and a short-lived auth token.
+// ---------------------------------------------------------------------------
+message DownloadRequestCommand {
+  string recording_id = 1;
+}
+
+message DownloadTokenResponse {
+  string recording_id = 1;
+  string http_url     = 2;   // e.g. "http://192.168.1.42:8080/recordings/abc123.mp4"
+  string auth_token   = 2;   // Bearer token; short-lived (e.g. 15 min)
+  uint64 expires_at   = 3;   // unix millis
+}
