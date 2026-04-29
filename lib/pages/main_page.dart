@@ -11,6 +11,7 @@ import '../state/app_data.dart';
 import '../state/ble_providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
+import '../widgets/live_preview_view.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import 'discovery_page.dart';
@@ -93,7 +94,7 @@ class _HeroCameraCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const ThumbPlaceholder(label: 'LIVE THUMBNAIL'),
+          LivePreviewView(deviceId: deviceId, label: 'LIVE THUMBNAIL'),
           Padding(
             padding: const EdgeInsets.all(14),
             child: Column(

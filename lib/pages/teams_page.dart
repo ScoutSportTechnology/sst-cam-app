@@ -18,7 +18,8 @@ class TeamsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
-    final connected = activeId != null &&
+    final connected =
+        activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
 

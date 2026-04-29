@@ -8,6 +8,7 @@ import '../state/app_data.dart';
 import '../state/ble_providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
+import '../widgets/live_preview_view.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
@@ -43,7 +44,8 @@ class _MatchPageState extends ConsumerState<MatchPage> {
   @override
   Widget build(BuildContext context) {
     final activeId = ref.watch(activeCameraIdProvider);
-    final connected = activeId != null &&
+    final connected =
+        activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
     if (!connected) return const _ConnectCameraScreen();
@@ -112,9 +114,7 @@ class _ConnectCameraScreen extends StatelessWidget {
                 full: true,
                 onPressed: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const DiscoveryPage(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const DiscoveryPage()),
                   );
                 },
               ),
@@ -689,7 +689,7 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _LiveThumb extends StatelessWidget {
+class _LiveThumb extends ConsumerWidget {
   const _LiveThumb({
     required this.homeLabel,
     required this.awayLabel,
@@ -708,10 +708,14 @@ class _LiveThumb extends StatelessWidget {
   final bool isLive;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeId = ref.watch(activeCameraIdProvider);
     return Stack(
       children: [
-        ThumbPlaceholder(label: isLive ? 'LIVE PREVIEW · 1 HZ' : 'PREVIEW'),
+        LivePreviewView(
+          deviceId: activeId,
+          label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
+        ),
         Positioned(
           left: 8,
           right: 8,

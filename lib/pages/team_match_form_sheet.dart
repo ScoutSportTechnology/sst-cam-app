@@ -47,8 +47,18 @@ class _MatchFormState extends State<_MatchForm> {
   }
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   String _formatDate(DateTime d) =>
@@ -256,10 +266,7 @@ class _KindToggle extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            Text(
-              sub,
-              style: const TextStyle(fontSize: 11, color: T.ink2),
-            ),
+            Text(sub, style: const TextStyle(fontSize: 11, color: T.ink2)),
           ],
         ),
       ),
@@ -295,7 +302,11 @@ class _DatePickerRow extends StatelessWidget {
                     style: const TextStyle(color: T.ink, fontSize: 13),
                   ),
                 ),
-                const Icon(Icons.calendar_today_outlined, size: 16, color: T.ink2),
+                const Icon(
+                  Icons.calendar_today_outlined,
+                  size: 16,
+                  color: T.ink2,
+                ),
               ],
             ),
           ),

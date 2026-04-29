@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package sst_cam;
+
+// ---------------------------------------------------------------------------
+// WiFi Direct — group descriptor and live preview / download contracts.
+//
+// BLE is the control channel (commands / telemetry / match state). WiFi
+// Direct is the bulk data channel: low-latency low-res preview from the
+// Jetson back to the phone, and HTTP file downloads of recordings.
+//
+// Pairing flow:
+//   1. App is connected over BLE.
+//   2. App sends StartWifiDirectCommand.
+//   3. Firmware brings up the WiFi Direct group and replies with
+//      WifiDirectGroupResponse (ssid + psk + group-owner ip + ports).
+//   4. App joins the group on the Wi-Fi side and opens the preview / HTTP
+//      sockets at the addresses given.
+//
+// The phone keeps cellular for outbound internet (so the Jetson can reach
+// RTMP servers via the phone's connection). WiFi Direct is local-only.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Pairing / lifecycle commands (sent over BLE)
+// ---------------------------------------------------------------------------
+message StartWifiDirectCommand {}
+
+message StopWifiDirectCommand {}
+
+message WifiDirectGroupResponse {
+  // Credentials for the WPA2 group hosted by the Jetson.
+  string ssid               = 1;
+  string psk                = 2;
+  // Group-owner address that the phone connects to once it joins the group.
+  string group_owner_ip     = 3;
+  // TCP port serving the preview stream (MJPEG over HTTP for v1).
+  uint32 preview_port       = 4;
+  // TCP port serving recording downloads (HTTP/1.1 byte-range requests).
+  uint32 download_port      = 5;
+  // Human-readable role description for diagnostics. e.g. "GROUP_OWNER".
+  string role               = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Preview stream descriptor — also returned in WifiDirectGroupResponse but
+// kept as a separate message so the firmware can update it mid-session
+// (e.g. drop resolution if cellular contention spikes).
+// ---------------------------------------------------------------------------
+message PreviewStreamDescriptor {
+  // Full URL the phone should GET. Server pushes a multipart/x-mixed-replace
+  // MJPEG stream until the connection drops.
+  // e.g. "http://192.168.49.1:8081/preview"
+  string url            = 1;
+  PreviewCodec codec    = 2;
+  uint32 width          = 3;   // suggested 640
+  uint32 height         = 4;   // suggested 360
+  uint32 fps            = 5;   // suggested 15
+  uint32 bitrate_kbps   = 6;   // soft cap; 1000–2000 is typical for 360p15
+}
+
+enum PreviewCodec {
+  PREVIEW_CODEC_UNKNOWN = 0;
+  // Multipart/x-mixed-replace MJPEG over HTTP. Works on every Flutter target
+  // out of the box and survives packet loss without keyframe dependencies.
+  PREVIEW_MJPEG_HTTP    = 1;
+  // WebRTC / H.264 — reserved for v2 once we need lower bandwidth.
+  PREVIEW_WEBRTC_H264   = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Live preview frame — wire format for a single MJPEG part.
+// The MJPEG transport already framing this for us, so this message exists
+// only so the app's mock service can speak the same model as the real impl.
+// ---------------------------------------------------------------------------
+message PreviewFrame {
+  uint64 sequence       = 1;   // monotonic; resets on reconnect
+  uint64 capture_unix_ms = 2;
+  bytes  jpeg_bytes     = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Download — the BLE DownloadRequestCommand returns a DownloadTokenResponse
+// with `http_url` + `auth_token`. The phone then issues an HTTP GET on the
+// WiFi Direct link with `Authorization: Bearer <auth_token>`.
+//
+// The server supports HTTP/1.1 Range requests so an interrupted download
+// can resume from the last byte. No bespoke proto needed for the body.
+// ---------------------------------------------------------------------------

@@ -1,8 +1,21 @@
-# SST-Cam BLE Protocol
+# SST-Cam Protocol
 
-All messages are encoded as Protocol Buffers (proto3). The app writes requests
-and reads responses over a two-characteristic GATT service. This document is
-the authoritative contract for both the app and the firmware team.
+All control messages are encoded as Protocol Buffers (proto3). The app writes
+requests and reads responses over a two-characteristic GATT service for
+control, and pulls bulk data (live preview, recording downloads) over a WiFi
+Direct link. This document is the authoritative contract for both the app and
+the firmware team.
+
+## Channel split
+
+| Channel       | Purpose                                            |
+| ------------- | -------------------------------------------------- |
+| BLE GATT      | Commands, telemetry, match state, thumbnails       |
+| WiFi Direct   | Live preview (MJPEG), recording downloads (HTTP)   |
+
+BLE is always available. The WiFi Direct group is only brought up when the
+app needs preview video or a download — it's negotiated through BLE
+(`StartWifiDirectCommand` → `WifiDirectGroupResponse`). See `wifi.proto`.
 
 ---
 
@@ -96,6 +109,7 @@ until the app acknowledges with a `ChunkAck` write (flow control).
 | `recording.proto` | `RecordingMetadata`, `RecordingListResponse`, `DownloadToken` |
 | `team.proto` | `Team`, `Player`, `TeamMatchSummary`, team / player CRUD commands |
 | `config.proto` | `WifiConfig`, `StreamingConfig` |
+| `wifi.proto` | WiFi Direct group descriptor, preview stream descriptor, preview frame |
 
 ---
 

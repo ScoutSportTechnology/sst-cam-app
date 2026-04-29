@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/wifi.dart';
 import '../state/app_data.dart';
+import '../state/ble_providers.dart';
+import '../state/wifi_providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
 import '../widgets/wf_button.dart';
@@ -536,17 +539,20 @@ class _Footer extends StatelessWidget {
 // Download options sheet
 // ---------------------------------------------------------------------------
 
-class _DownloadSheet extends StatefulWidget {
+class _DownloadSheet extends ConsumerStatefulWidget {
   const _DownloadSheet({required this.match, required this.selectedCount});
   final LibraryMatch match;
   final int selectedCount;
 
   @override
-  State<_DownloadSheet> createState() => _DownloadSheetState();
+  ConsumerState<_DownloadSheet> createState() => _DownloadSheetState();
 }
 
-class _DownloadSheetState extends State<_DownloadSheet> {
+class _DownloadSheetState extends ConsumerState<_DownloadSheet> {
   String _selected = 'hisel';
+  VideoDownloadHandle? _handle;
+  VideoDownloadProgress? _progress;
+  String? _error;
 
   @override
   void initState() {
@@ -555,7 +561,52 @@ class _DownloadSheetState extends State<_DownloadSheet> {
   }
 
   @override
+  void dispose() {
+    // Sheet is closing — if a download is mid-flight, leave it running. The
+    // service holds the handle and global progress is observable via
+    // `allDownloadsProgressProvider`.
+    super.dispose();
+  }
+
+  Future<void> _start() async {
+    final activeId = ref.read(activeCameraIdProvider);
+    if (activeId == null) {
+      setState(() => _error = 'Connect a camera first');
+      return;
+    }
+    setState(() => _error = null);
+    try {
+      // BLE — get short-lived URL + auth token for the recording.
+      final token = await ref
+          .read(bleServiceProvider)
+          .requestDownload(activeId, widget.match.id);
+
+      // WiFi — make sure the group is up, then start the HTTP download.
+      final wifi = ref.read(wifiServiceProvider);
+      await wifi.connectGroup(activeId);
+      final handle = await wifi.startDownload(activeId, token);
+
+      setState(() => _handle = handle);
+      handle.progress.listen(
+        (p) {
+          if (!mounted) return;
+          setState(() => _progress = p);
+        },
+        onError: (Object e) {
+          if (!mounted) return;
+          setState(() => _error = e.toString());
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final running = _handle != null;
+    if (running) return _buildProgress();
     final fullSize = '${widget.match.fullSizeMb} MB';
     final hiSize = '${widget.match.highlightSizeMb} MB';
     final opts = <_Opt>[
@@ -684,9 +735,141 @@ class _DownloadSheetState extends State<_DownloadSheet> {
                 child: WfButton(
                   label: 'Start download',
                   variant: WfButtonVariant.primary,
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: _start,
                 ),
               ),
+            ],
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgress() {
+    final p = _progress;
+    final fraction = p?.fraction ?? 0;
+    final received = ((p?.bytesReceived ?? 0) / 1024 / 1024).toStringAsFixed(1);
+    final total = ((p?.bytesTotal ?? 0) / 1024 / 1024).toStringAsFixed(1);
+    final kbps = (p?.kbps ?? 0).toStringAsFixed(0);
+    final status = switch (p?.status) {
+      DownloadStatus.queued => 'Queued',
+      DownloadStatus.running => 'Downloading',
+      DownloadStatus.paused => 'Paused',
+      DownloadStatus.completed => 'Completed',
+      DownloadStatus.failed => 'Failed',
+      DownloadStatus.cancelled => 'Cancelled',
+      null => 'Starting',
+    };
+    final terminal = p?.isTerminal ?? false;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: T.fillMid,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            status,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: T.ink,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${widget.match.date} · ${widget.match.opponent}',
+            style: const TextStyle(fontSize: 12, color: T.ink2),
+          ),
+          const SizedBox(height: 18),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: fraction,
+              minHeight: 6,
+              backgroundColor: T.fillMid,
+              valueColor: const AlwaysStoppedAnimation<Color>(T.accent),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '$received / $total MB',
+                style: const TextStyle(
+                  fontFamily: T.mono,
+                  fontSize: 11,
+                  color: T.ink2,
+                ),
+              ),
+              Text(
+                '$kbps KB/s',
+                style: const TextStyle(
+                  fontFamily: T.mono,
+                  fontSize: 11,
+                  color: T.ink2,
+                ),
+              ),
+              Text(
+                '${(fraction * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(
+                  fontFamily: T.mono,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: T.ink,
+                ),
+              ),
+            ],
+          ),
+          if (p?.errorMessage != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              p!.errorMessage!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
+          ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: WfButton(
+                  label: terminal ? 'Close' : 'Cancel',
+                  onPressed: () async {
+                    if (!terminal) await _handle?.cancel();
+                    if (mounted) Navigator.of(context).pop();
+                  },
+                ),
+              ),
+              if (terminal && p?.status == DownloadStatus.completed) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: WfButton(
+                    label: 'Done',
+                    variant: WfButtonVariant.primary,
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ],
             ],
           ),
         ],

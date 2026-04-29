@@ -334,9 +334,7 @@ class _RosterTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (team.roster.isEmpty) {
-      return const Center(
-        child: WfNote('No players yet — tap + to add one'),
-      );
+      return const Center(child: WfNote('No players yet — tap + to add one'));
     }
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -466,9 +464,7 @@ class _MatchesTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (matches.isEmpty) {
-      return const Center(
-        child: WfNote('No matches yet — tap + to add one'),
-      );
+      return const Center(child: WfNote('No matches yet — tap + to add one'));
     }
     return ListView.separated(
       padding: EdgeInsets.zero,
@@ -476,11 +472,9 @@ class _MatchesTab extends ConsumerWidget {
       separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
       itemBuilder: (context, i) => _MatchRow(
         match: matches[i],
-        onDelete: () =>
-            ref.read(teamsControllerProvider.notifier).removeMatch(
-                  teamId,
-                  matches[i].id,
-                ),
+        onDelete: () => ref
+            .read(teamsControllerProvider.notifier)
+            .removeMatch(teamId, matches[i].id),
       ),
     );
   }
