@@ -28,9 +28,7 @@ class DeviceTelemetry {
   final bool isStreaming;
 
   double get storageUsedPct =>
-      storageTotalBytes == 0
-          ? 0
-          : 1 - (storageFreeBytes / storageTotalBytes);
+      storageTotalBytes == 0 ? 0 : 1 - (storageFreeBytes / storageTotalBytes);
 }
 
 enum WifiState { unknown, disabled, disconnected, connected }

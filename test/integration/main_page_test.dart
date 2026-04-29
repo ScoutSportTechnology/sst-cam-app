@@ -10,8 +10,9 @@ import '../ble/mock_ble_service.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Main page: scan discovers mock devices and connect works',
-      (tester) async {
+  testWidgets('Main page: scan discovers mock devices and connect works', (
+    tester,
+  ) async {
     final mock = MockBleService(
       scanDeviceAppearDelays: [
         const Duration(milliseconds: 100),

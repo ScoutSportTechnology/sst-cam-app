@@ -11,4 +11,6 @@ services:
       - ..:/workspace:cached
       - claude:/root/.claude
       - ~/.local/bin/claude:/root/.local/bin/claude:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: sleep infinity

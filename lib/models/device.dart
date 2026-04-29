@@ -16,14 +16,18 @@ class ScoutDevice {
   final int protocolVersion;
 
   @override
-  bool operator ==(Object other) =>
-      other is ScoutDevice && other.id == id;
+  bool operator ==(Object other) => other is ScoutDevice && other.id == id;
 
   @override
   int get hashCode => id.hashCode;
 }
 
-enum CameraConnectionState { disconnected, connecting, connected, disconnecting }
+enum CameraConnectionState {
+  disconnected,
+  connecting,
+  connected,
+  disconnecting,
+}
 
 class ThumbnailResult {
   const ThumbnailResult({required this.jpegBytes, required this.capturedAt});

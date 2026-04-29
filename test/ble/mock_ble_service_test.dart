@@ -50,8 +50,7 @@ void main() {
       await svc.stopScan();
       await sub.cancel();
 
-      final devices = emitted.lastWhere((l) => l.isNotEmpty,
-          orElse: () => []);
+      final devices = emitted.lastWhere((l) => l.isNotEmpty, orElse: () => []);
       for (final d in devices) {
         expect(d.name.toLowerCase(), startsWith('sst-cam-'));
       }
@@ -73,10 +72,13 @@ void main() {
       await svc.connect(id);
       await sub.cancel();
 
-      expect(states, containsAllInOrder([
-        CameraConnectionState.connecting,
-        CameraConnectionState.connected,
-      ]));
+      expect(
+        states,
+        containsAllInOrder([
+          CameraConnectionState.connecting,
+          CameraConnectionState.connected,
+        ]),
+      );
     });
 
     test('disconnect emits disconnected', () async {
@@ -143,19 +145,13 @@ void main() {
 
   group('Commands', () {
     test('GetTelemetryCommand returns telemetry payload', () async {
-      final resp = await svc.sendCommand(
-        'SST-CAM-001',
-        GetTelemetryCommand(),
-      );
+      final resp = await svc.sendCommand('SST-CAM-001', GetTelemetryCommand());
       expect(resp.isOk, isTrue);
       expect(resp.payload, isNotNull);
     });
 
     test('GetMatchStateCommand returns match state payload', () async {
-      final resp = await svc.sendCommand(
-        'SST-CAM-001',
-        GetMatchStateCommand(),
-      );
+      final resp = await svc.sendCommand('SST-CAM-001', GetMatchStateCommand());
       expect(resp.isOk, isTrue);
       expect(resp.payload, isNotNull);
     });

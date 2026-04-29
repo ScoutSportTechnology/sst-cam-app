@@ -86,10 +86,7 @@ abstract class BleService {
 
   Future<List<RecordingMetadata>> listRecordings(String deviceId);
 
-  Future<DownloadToken> requestDownload(
-    String deviceId,
-    String recordingId,
-  );
+  Future<DownloadToken> requestDownload(String deviceId, String recordingId);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

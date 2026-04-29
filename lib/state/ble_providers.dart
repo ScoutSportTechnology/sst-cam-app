@@ -32,20 +32,24 @@ final discoveredDevicesProvider = StreamProvider<List<ScoutDevice>>((ref) {
 
 final connectionStateProvider =
     StreamProvider.family<CameraConnectionState, String>((ref, deviceId) {
-  return ref.watch(bleServiceProvider).connectionStateStream(deviceId);
-});
+      return ref.watch(bleServiceProvider).connectionStateStream(deviceId);
+    });
 
-final telemetryProvider =
-    StreamProvider.family<DeviceTelemetry, String>((ref, deviceId) {
+final telemetryProvider = StreamProvider.family<DeviceTelemetry, String>((
+  ref,
+  deviceId,
+) {
   return ref.watch(bleServiceProvider).telemetryStream(deviceId);
 });
 
-final matchStateProvider =
-    StreamProvider.family<MatchState, String>((ref, deviceId) {
+final matchStateProvider = StreamProvider.family<MatchState, String>((
+  ref,
+  deviceId,
+) {
   return ref.watch(bleServiceProvider).matchStateStream(deviceId);
 });
 
 final recordingsProvider =
     FutureProvider.family<List<RecordingMetadata>, String>((ref, deviceId) {
-  return ref.watch(bleServiceProvider).listRecordings(deviceId);
-});
+      return ref.watch(bleServiceProvider).listRecordings(deviceId);
+    });

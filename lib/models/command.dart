@@ -14,7 +14,11 @@ class GetMatchStateCommand extends BleCommand {}
 
 // Thumbnail
 class RequestThumbnailCommand extends BleCommand {
-  RequestThumbnailCommand({this.width = 160, this.height = 90, this.quality = 60});
+  RequestThumbnailCommand({
+    this.width = 160,
+    this.height = 90,
+    this.quality = 60,
+  });
   final int width;
   final int height;
   final int quality;
@@ -44,6 +48,7 @@ class BannerEventCommand extends BleCommand {
 
 // Recording / streaming
 class StartRecordingCommand extends BleCommand {}
+
 class StopRecordingCommand extends BleCommand {}
 
 class StartStreamingCommand extends BleCommand {
@@ -52,6 +57,7 @@ class StartStreamingCommand extends BleCommand {
 }
 
 class StopStreamingCommand extends BleCommand {}
+
 class ListRecordingsCommand extends BleCommand {}
 
 class DownloadRequestCommand extends BleCommand {
@@ -78,6 +84,7 @@ class SetStreamingConfigCommand extends BleCommand {
 }
 
 class FactoryResetCommand extends BleCommand {}
+
 class FirmwareUpdateCommand extends BleCommand {}
 
 // ---------------------------------------------------------------------------
@@ -101,9 +108,9 @@ class BleCommandResponse<T> {
       BleCommandResponse(status: BleResponseStatus.ok, payload: payload);
 
   factory BleCommandResponse.error(String message) => BleCommandResponse(
-        status: BleResponseStatus.error,
-        errorMessage: message,
-      );
+    status: BleResponseStatus.error,
+    errorMessage: message,
+  );
 
   factory BleCommandResponse.timeout() =>
       BleCommandResponse(status: BleResponseStatus.timeout);

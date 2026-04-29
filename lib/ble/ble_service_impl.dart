@@ -19,8 +19,7 @@ final _cmdResponseUuid = Guid('A1B2C3D401200000800000805F9B34FB');
 const _kNamePrefix = 'sst-cam-';
 
 class BleServiceImpl implements BleService {
-  final _discoveryController =
-      StreamController<List<ScoutDevice>>.broadcast();
+  final _discoveryController = StreamController<List<ScoutDevice>>.broadcast();
   final Map<String, _ConnectedDevice> _connected = {};
   bool _isScanning = false;
 
@@ -97,9 +96,7 @@ class BleServiceImpl implements BleService {
       await device.requestMtu(512);
 
       final services = await device.discoverServices();
-      final svc = services
-          .where((s) => s.uuid == _serviceUuid)
-          .firstOrNull;
+      final svc = services.where((s) => s.uuid == _serviceUuid).firstOrNull;
 
       if (svc == null) {
         await device.disconnect();
@@ -116,7 +113,8 @@ class BleServiceImpl implements BleService {
       if (conn._cmdWrite == null || conn._cmdResponse == null) {
         await device.disconnect();
         throw BleConnectionException(
-            'Required characteristics not found on $deviceId');
+          'Required characteristics not found on $deviceId',
+        );
       }
 
       await conn._cmdResponse!.setNotifyValue(true);
@@ -186,7 +184,9 @@ class BleServiceImpl implements BleService {
       RequestThumbnailCommand(width: width, height: height, quality: quality),
     );
     if (!resp.isOk || resp.payload == null) {
-      throw BleTimeoutException('Thumbnail request failed: ${resp.errorMessage}');
+      throw BleTimeoutException(
+        'Thumbnail request failed: ${resp.errorMessage}',
+      );
     }
     return resp.payload!;
   }
@@ -215,7 +215,9 @@ class BleServiceImpl implements BleService {
     String deviceId,
     BleCommand command,
   ) async {
-    throw UnimplementedError('Phase 7: proto encoding + BLE write not yet implemented');
+    throw UnimplementedError(
+      'Phase 7: proto encoding + BLE write not yet implemented',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -272,8 +274,7 @@ class _ConnectedDevice {
   _ConnectedDevice(this.device);
 
   final BluetoothDevice device;
-  final _connController =
-      StreamController<CameraConnectionState>.broadcast();
+  final _connController = StreamController<CameraConnectionState>.broadcast();
   final _telemetryController = StreamController<DeviceTelemetry>.broadcast();
   final _matchStateController = StreamController<MatchState>.broadcast();
 
@@ -305,8 +306,7 @@ class _ConnectedDevice {
   void _startMatchStatePolling(
     Future<BleCommandResponse<MatchState>> Function(BleCommand) send,
   ) {
-    _matchStateTimer ??=
-        Timer.periodic(const Duration(seconds: 2), (_) async {
+    _matchStateTimer ??= Timer.periodic(const Duration(seconds: 2), (_) async {
       try {
         final resp = await send(GetMatchStateCommand());
         if (resp.isOk && resp.payload != null) {

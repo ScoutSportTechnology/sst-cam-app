@@ -1,5 +1,12 @@
 {
   "permissions": {
+    "allow": [
+      "Read(//tmp/designdir/sst-cam-app/chats/**)",
+      "Read(//tmp/designdir/sst-cam-app/project/**)",
+      "Bash(flutter analyze *)",
+      "Bash(dart format *)",
+      "Bash(flutter test *)"
+    ],
     "additionalDirectories": [
       "/root/.vscode-server/data/Machine"
     ]
