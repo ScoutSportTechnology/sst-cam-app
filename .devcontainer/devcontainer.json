@@ -34,7 +34,7 @@
   "postStartCommand": "script/post-start.sh",
   "waitFor": "postStartCommand",
   "remoteEnv": {
-    "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037"
+    "ADB_SERVER_SOCKET": "tcp:127.0.0.1:5037"
   },
   "features": {}
 }

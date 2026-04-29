@@ -359,8 +359,9 @@ class MockBleService implements BleService {
     state.telemetryTimer?.cancel();
     state.telemetryTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_devices[deviceId]?.connectionState !=
-          CameraConnectionState.connected)
+          CameraConnectionState.connected) {
         return;
+      }
       final t = state.telemetryTick++;
       state.telemetryController.add(_makeTelemetry(t));
     });
