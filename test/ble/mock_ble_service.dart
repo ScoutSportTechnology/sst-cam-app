@@ -7,6 +7,7 @@ import 'package:scout_camera/models/command.dart';
 import 'package:scout_camera/models/device.dart';
 import 'package:scout_camera/models/match.dart';
 import 'package:scout_camera/models/recording.dart';
+import 'package:scout_camera/models/team.dart';
 import 'package:scout_camera/models/telemetry.dart';
 
 // Minimal 1×1 white JPEG
@@ -234,6 +235,147 @@ class MockBleService implements BleService {
     ),
   ];
 
+  // ---------------------------------------------------------------------------
+  // Team store — process-global so the wireframe persists across hot reloads
+  // and "preview" (no active connection) deviceIds. The contract still passes
+  // deviceId; in a real firmware impl each camera would own a separate store.
+  // ---------------------------------------------------------------------------
+  static const _seedRoster = <Player>[
+    Player(number: 7, name: 'A. Patel', position: 'Forward', captain: true),
+    Player(number: 10, name: 'B. Okafor', position: 'Mid'),
+    Player(number: 4, name: 'C. Nguyen', position: 'Defender'),
+    Player(number: 1, name: 'D. Reyes', position: 'Keeper'),
+    Player(number: 11, name: 'E. Mahmoud', position: 'Forward'),
+    Player(number: 8, name: 'F. Lopez', position: 'Mid'),
+    Player(number: 5, name: 'G. Singh', position: 'Defender'),
+  ];
+
+  static final List<TeamRecord> _teams = [
+    const TeamRecord(
+      id: 'nr-u14',
+      name: 'Northside Rovers U14',
+      shortName: 'NR U14',
+      initials: 'NR',
+      sport: 'Soccer',
+      roster: _seedRoster,
+      played: 6,
+      wins: 3,
+      draws: 1,
+      losses: 2,
+      goalsFor: 13,
+      goalsAgainst: 9,
+      cleanSheets: 2,
+      cards: 7,
+      lastMatchDate: 'Mar 12',
+    ),
+    const TeamRecord(
+      id: 'nr-u12',
+      name: 'Northside Rovers U12',
+      shortName: 'NR U12',
+      initials: 'NR',
+      sport: 'Soccer',
+      roster: [],
+      played: 4,
+      wins: 2,
+      draws: 1,
+      losses: 1,
+      goalsFor: 8,
+      goalsAgainst: 6,
+      cleanSheets: 1,
+      cards: 3,
+      lastMatchDate: 'Mar 09',
+    ),
+    const TeamRecord(
+      id: 'efc-r',
+      name: 'Eastfield FC Reserves',
+      shortName: 'EFC R',
+      initials: 'EF',
+      sport: 'Soccer',
+      roster: [],
+      played: 5,
+      wins: 1,
+      draws: 1,
+      losses: 3,
+      goalsFor: 6,
+      goalsAgainst: 11,
+      cleanSheets: 0,
+      cards: 8,
+      lastMatchDate: 'Feb 28',
+    ),
+    const TeamRecord(
+      id: 'rd-utd',
+      name: 'Riverdale United',
+      shortName: 'RD Utd',
+      initials: 'RU',
+      sport: 'Soccer',
+      roster: [],
+      played: 3,
+      wins: 2,
+      draws: 0,
+      losses: 1,
+      goalsFor: 7,
+      goalsAgainst: 4,
+      cleanSheets: 1,
+      cards: 2,
+      lastMatchDate: 'Feb 14',
+    ),
+  ];
+
+  static final Map<String, List<TeamMatch>> _teamMatches = {
+    'nr-u14': const [
+      TeamMatch(
+        id: 'nr-u14-m1',
+        opponent: 'vs Eastfield FC',
+        date: 'Mar 12',
+        result: 'W 3–1',
+        clips: 2,
+        sizeMb: 380,
+      ),
+      TeamMatch(
+        id: 'nr-u14-m2',
+        opponent: 'vs Riverdale Utd',
+        date: 'Mar 05',
+        result: 'L 0–2',
+        clips: 2,
+        sizeMb: 180,
+      ),
+      TeamMatch(
+        id: 'nr-u14-m3',
+        opponent: 'vs Lakeside',
+        date: 'Feb 26',
+        result: 'D 1–1',
+        clips: 2,
+        sizeMb: 540,
+      ),
+      TeamMatch(
+        id: 'nr-u14-m4',
+        opponent: 'vs Brookfield',
+        date: 'Feb 19',
+        result: 'W 2–0',
+        clips: 2,
+        sizeMb: 220,
+      ),
+      TeamMatch(
+        id: 'nr-u14-m5',
+        opponent: 'vs Hillcrest',
+        date: 'Feb 12',
+        result: 'L 1–3',
+        clips: 2,
+        sizeMb: 410,
+      ),
+      TeamMatch(
+        id: 'nr-u14-m6',
+        opponent: 'vs Glenview',
+        date: 'Feb 05',
+        result: 'W 4–2',
+        clips: 2,
+        sizeMb: 620,
+      ),
+    ],
+  };
+
+  int _teamIdCounter = 0;
+
   static final _fakeRecordings = [
     RecordingMetadata(
       id: 'rec-001',
@@ -451,6 +593,175 @@ class MockBleService implements BleService {
       expiresAt: DateTime.now().add(const Duration(minutes: 15)),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Teams / roster — in-memory store, deviceId-agnostic in the mock.
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<List<TeamRecord>> listTeams(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    return List.unmodifiable(_teams);
+  }
+
+  @override
+  Future<List<TeamMatch>> listTeamMatches(
+    String deviceId,
+    String teamId,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    return List.unmodifiable(_teamMatches[teamId] ?? const []);
+  }
+
+  @override
+  Future<TeamRecord> createTeam(String deviceId, TeamDraft draft) async {
+    await Future.delayed(const Duration(milliseconds: 120));
+    final id =
+        'team-${++_teamIdCounter}-${DateTime.now().millisecondsSinceEpoch}';
+    final record = TeamRecord(
+      id: id,
+      name: draft.name,
+      shortName: draft.shortName,
+      initials: draft.initials,
+      sport: draft.sport,
+      roster: const [],
+      played: 0,
+      wins: 0,
+      draws: 0,
+      losses: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      cleanSheets: 0,
+      cards: 0,
+      lastMatchDate: '—',
+    );
+    _teams.add(record);
+    return record;
+  }
+
+  @override
+  Future<TeamRecord> updateTeam(String deviceId, TeamDraft draft) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final i = _teams.indexWhere((t) => t.id == draft.id);
+    if (i == -1) throw StateError('Team ${draft.id} not found');
+    final updated = _teams[i].copyWith(
+      name: draft.name,
+      shortName: draft.shortName,
+      initials: draft.initials,
+      sport: draft.sport,
+    );
+    _teams[i] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deleteTeam(String deviceId, String teamId) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    _teams.removeWhere((t) => t.id == teamId);
+    _teamMatches.remove(teamId);
+  }
+
+  @override
+  Future<TeamRecord> setTeamHidden(
+    String deviceId,
+    String teamId, {
+    required bool hidden,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    final i = _teams.indexWhere((t) => t.id == teamId);
+    if (i == -1) throw StateError('Team $teamId not found');
+    final updated = _teams[i].copyWith(hidden: hidden);
+    _teams[i] = updated;
+    return updated;
+  }
+
+  @override
+  Future<Player> addPlayer(
+    String deviceId,
+    String teamId,
+    PlayerDraft draft,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final i = _teams.indexWhere((t) => t.id == teamId);
+    if (i == -1) throw StateError('Team $teamId not found');
+    final team = _teams[i];
+    if (team.roster.any((p) => p.number == draft.number)) {
+      throw StateError('Jersey #${draft.number} already taken on this team');
+    }
+    final player = Player(
+      number: draft.number,
+      name: draft.name,
+      position: draft.position,
+      captain: draft.captain,
+    );
+    final newRoster = List<Player>.from(team.roster)
+      ..add(player)
+      ..sort((a, b) => a.number.compareTo(b.number));
+    // Captain is exclusive — clear any other captain when promoting one.
+    final cleaned = draft.captain
+        ? newRoster
+              .map(
+                (p) => p.number == player.number ? p : _withCaptain(p, false),
+              )
+              .toList()
+        : newRoster;
+    _teams[i] = team.copyWith(roster: cleaned);
+    return player;
+  }
+
+  @override
+  Future<Player> updatePlayer(
+    String deviceId,
+    String teamId,
+    int currentNumber,
+    PlayerDraft draft,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final i = _teams.indexWhere((t) => t.id == teamId);
+    if (i == -1) throw StateError('Team $teamId not found');
+    final team = _teams[i];
+    final pi = team.roster.indexWhere((p) => p.number == currentNumber);
+    if (pi == -1) throw StateError('Player #$currentNumber not found');
+    if (draft.number != currentNumber &&
+        team.roster.any((p) => p.number == draft.number)) {
+      throw StateError('Jersey #${draft.number} already taken on this team');
+    }
+    final updated = Player(
+      number: draft.number,
+      name: draft.name,
+      position: draft.position,
+      captain: draft.captain,
+    );
+    final newRoster = List<Player>.from(team.roster);
+    newRoster[pi] = updated;
+    final cleaned = draft.captain
+        ? newRoster
+              .map(
+                (p) => p.number == updated.number ? p : _withCaptain(p, false),
+              )
+              .toList()
+        : newRoster;
+    cleaned.sort((a, b) => a.number.compareTo(b.number));
+    _teams[i] = team.copyWith(roster: cleaned);
+    return updated;
+  }
+
+  @override
+  Future<void> removePlayer(String deviceId, String teamId, int number) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    final i = _teams.indexWhere((t) => t.id == teamId);
+    if (i == -1) return;
+    final team = _teams[i];
+    final newRoster = team.roster.where((p) => p.number != number).toList();
+    _teams[i] = team.copyWith(roster: newRoster);
+  }
+
+  static Player _withCaptain(Player p, bool captain) => Player(
+    number: p.number,
+    name: p.name,
+    position: p.position,
+    captain: captain,
+  );
 
   @override
   Future<void> dispose() async {

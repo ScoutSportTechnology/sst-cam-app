@@ -13,10 +13,8 @@ class VideoTeamMatchesPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final team = ref
-        .watch(teamsProvider)
-        .where((t) => t.id == teamId)
-        .firstOrNull;
+    final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+    final team = teams.where((t) => t.id == teamId).firstOrNull;
     final matches = ref
         .watch(libraryProvider)
         .where((m) => m.teamId == teamId)

@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package sst_cam;
+
+// ---------------------------------------------------------------------------
+// Team / roster data — owned by the camera. Only one phone is connected to
+// a camera at a time, so no multi-writer concurrency is modelled.
+// ---------------------------------------------------------------------------
+
+enum Sport {
+  SPORT_UNKNOWN    = 0;
+  SPORT_SOCCER     = 1;
+  SPORT_BASKETBALL = 2;
+  SPORT_HOCKEY     = 3;
+  SPORT_RUGBY      = 4;
+  SPORT_VOLLEYBALL = 5;
+  SPORT_OTHER      = 99;
+}
+
+enum PlayerPosition {
+  POSITION_UNKNOWN  = 0;
+  POSITION_KEEPER   = 1;
+  POSITION_DEFENDER = 2;
+  POSITION_MID      = 3;
+  POSITION_FORWARD  = 4;
+  POSITION_OTHER    = 99;
+}
+
+message Player {
+  uint32         number   = 1;  // jersey number, unique within team
+  string         name     = 2;
+  PlayerPosition position = 3;
+  bool           captain  = 4;
+}
+
+message Team {
+  string         id          = 1;  // assigned by firmware on create
+  string         name        = 2;
+  string         short_name  = 3;  // e.g. "NR U14" — used in compact rows
+  string         initials    = 4;  // 2-3 chars for avatar fallback
+  Sport          sport       = 5;
+  bool           hidden      = 6;  // soft-hide; firmware keeps the team
+  repeated Player roster     = 7;
+  TeamSeasonStats stats      = 8;  // optional cached season totals
+  string         last_match  = 9;  // human-readable date of latest match, may be empty
+}
+
+message TeamSeasonStats {
+  uint32 played        = 1;
+  uint32 wins          = 2;
+  uint32 draws         = 3;
+  uint32 losses        = 4;
+  uint32 goals_for     = 5;
+  uint32 goals_against = 6;
+  uint32 clean_sheets  = 7;
+  uint32 cards         = 8;
+}
+
+// ---------------------------------------------------------------------------
+// Per-team match history — opaque ID + summary fields. The video library is
+// pulled separately via ListRecordingsCommand.
+// ---------------------------------------------------------------------------
+message TeamMatchSummary {
+  string id        = 1;
+  string opponent  = 2;
+  string date      = 3;  // human-readable; firmware decides format
+  string result    = 4;  // 'W 3–1', 'L 0–2', 'D 1–1'
+  uint32 clips     = 5;
+  uint32 size_mb   = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Commands — every team mutation round-trips through Command/CommandResponse.
+// ---------------------------------------------------------------------------
+message ListTeamsCommand {}
+
+message ListTeamMatchesCommand {
+  string team_id = 1;
+}
+
+// Fields used by both create and update. On create, `id` is empty and the
+// firmware assigns one; on update, `id` is required.
+message TeamDraft {
+  string id         = 1;  // empty on create
+  string name       = 2;
+  string short_name = 3;
+  string initials   = 4;
+  Sport  sport      = 5;
+}
+
+message CreateTeamCommand {
+  TeamDraft draft = 1;
+}
+
+message UpdateTeamCommand {
+  TeamDraft draft = 1;  // id required
+}
+
+message DeleteTeamCommand {
+  string team_id = 1;
+}
+
+message SetTeamHiddenCommand {
+  string team_id = 1;
+  bool   hidden  = 2;
+}
+
+message PlayerDraft {
+  uint32         number   = 1;
+  string         name     = 2;
+  PlayerPosition position = 3;
+  bool           captain  = 4;
+}
+
+message AddPlayerCommand {
+  string      team_id = 1;
+  PlayerDraft draft   = 2;
+}
+
+message UpdatePlayerCommand {
+  string      team_id        = 1;
+  uint32      current_number = 2;  // identifies player; allows re-numbering
+  PlayerDraft draft          = 3;
+}
+
+message RemovePlayerCommand {
+  string team_id = 1;
+  uint32 number  = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Response payloads
+// ---------------------------------------------------------------------------
+message TeamListResponse {
+  repeated Team teams = 1;
+}
+
+message TeamMatchListResponse {
+  repeated TeamMatchSummary matches = 1;
+}
+
+message TeamResponse {
+  Team team = 1;
+}
+
+message PlayerResponse {
+  Player player = 1;
+}

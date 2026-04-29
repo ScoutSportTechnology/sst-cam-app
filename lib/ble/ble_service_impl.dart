@@ -7,6 +7,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
+import '../models/team.dart';
 import '../models/telemetry.dart';
 
 // UUIDs defined in proto/README.md
@@ -248,6 +249,75 @@ class BleServiceImpl implements BleService {
       throw BleTimeoutException('requestDownload failed: ${resp.errorMessage}');
     }
     return resp.payload!;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Teams / roster — Phase 7 wires these to proto Command/CommandResponse.
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<List<TeamRecord>> listTeams(String deviceId) async {
+    throw UnimplementedError('Phase 7: listTeams not yet wired to firmware');
+  }
+
+  @override
+  Future<List<TeamMatch>> listTeamMatches(
+    String deviceId,
+    String teamId,
+  ) async {
+    throw UnimplementedError(
+      'Phase 7: listTeamMatches not yet wired to firmware',
+    );
+  }
+
+  @override
+  Future<TeamRecord> createTeam(String deviceId, TeamDraft draft) async {
+    throw UnimplementedError('Phase 7: createTeam not yet wired to firmware');
+  }
+
+  @override
+  Future<TeamRecord> updateTeam(String deviceId, TeamDraft draft) async {
+    throw UnimplementedError('Phase 7: updateTeam not yet wired to firmware');
+  }
+
+  @override
+  Future<void> deleteTeam(String deviceId, String teamId) async {
+    throw UnimplementedError('Phase 7: deleteTeam not yet wired to firmware');
+  }
+
+  @override
+  Future<TeamRecord> setTeamHidden(
+    String deviceId,
+    String teamId, {
+    required bool hidden,
+  }) async {
+    throw UnimplementedError(
+      'Phase 7: setTeamHidden not yet wired to firmware',
+    );
+  }
+
+  @override
+  Future<Player> addPlayer(
+    String deviceId,
+    String teamId,
+    PlayerDraft draft,
+  ) async {
+    throw UnimplementedError('Phase 7: addPlayer not yet wired to firmware');
+  }
+
+  @override
+  Future<Player> updatePlayer(
+    String deviceId,
+    String teamId,
+    int currentNumber,
+    PlayerDraft draft,
+  ) async {
+    throw UnimplementedError('Phase 7: updatePlayer not yet wired to firmware');
+  }
+
+  @override
+  Future<void> removePlayer(String deviceId, String teamId, int number) async {
+    throw UnimplementedError('Phase 7: removePlayer not yet wired to firmware');
   }
 
   // ---------------------------------------------------------------------------

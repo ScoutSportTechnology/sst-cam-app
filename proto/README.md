@@ -94,6 +94,7 @@ until the app acknowledges with a `ChunkAck` write (flow control).
 | `telemetry.proto` | `DeviceTelemetry`, `DeviceInfoResponse`, `WifiState`, `ThumbnailRequest/Response` |
 | `match.proto` | `MatchConfig`, `MatchControlCommand`, `ScoreUpdate`, `BannerEvent`, `MatchState` |
 | `recording.proto` | `RecordingMetadata`, `RecordingListResponse`, `DownloadToken` |
+| `team.proto` | `Team`, `Player`, `TeamMatchSummary`, team / player CRUD commands |
 | `config.proto` | `WifiConfig`, `StreamingConfig` |
 
 ---

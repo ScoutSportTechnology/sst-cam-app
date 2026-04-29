@@ -1,80 +1,16 @@
-// Local app data — teams, library, match state.
+// Local app data — library, live match state, team controller.
 //
-// In-memory only for now. Phase 3 will swap the team store for a drift DB
-// and the library/match clips will come from BLE + WiFi blob transfer.
-// Keeping the providers stable here means the UI can already exercise
-// every flow end-to-end.
+// Team / roster / per-team match data is owned by the camera. The app reads
+// and writes it through `BleService`. Library + LiveMatch are still local —
+// the library will move to BLE in Phase 7 once recordings are wired up.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class Player {
-  const Player({
-    required this.number,
-    required this.name,
-    required this.position,
-    this.captain = false,
-  });
-  final int number;
-  final String name;
-  final String position;
-  final bool captain;
-}
+import '../models/team.dart';
+import 'ble_providers.dart';
 
-class TeamRecord {
-  const TeamRecord({
-    required this.id,
-    required this.name,
-    required this.shortName,
-    required this.initials,
-    required this.sport,
-    required this.roster,
-    required this.played,
-    required this.wins,
-    required this.draws,
-    required this.losses,
-    required this.goalsFor,
-    required this.goalsAgainst,
-    required this.cleanSheets,
-    required this.cards,
-    required this.lastMatchDate,
-  });
-
-  final String id;
-  final String name;
-  final String shortName;
-  final String initials;
-  final String sport;
-  final List<Player> roster;
-  final int played;
-  final int wins;
-  final int draws;
-  final int losses;
-  final int goalsFor;
-  final int goalsAgainst;
-  final int cleanSheets;
-  final int cards;
-  final String lastMatchDate;
-}
-
-class TeamMatch {
-  const TeamMatch({
-    required this.id,
-    required this.opponent,
-    required this.date,
-    required this.result, // 'W 3–1' / 'L 0–2' / 'D 1–1'
-    required this.clips,
-    required this.sizeMb,
-  });
-  final String id;
-  final String opponent;
-  final String date;
-  final String result;
-  final int clips;
-  final int sizeMb;
-
-  String get outcome => result.substring(0, 1); // W / L / D
-}
+export '../models/team.dart';
 
 class LibraryEvent {
   const LibraryEvent({
@@ -118,142 +54,6 @@ class LibraryMatch {
   final List<LibraryEvent> events;
   final String downloadState; // 'all-local', 'partial', 'remote'
 }
-
-// ---------------------------------------------------------------------------
-// Seed data (mirrors the wireframe content so the screens look familiar).
-// ---------------------------------------------------------------------------
-
-const _nrU14Roster = <Player>[
-  Player(number: 7, name: 'A. Patel', position: 'Forward', captain: true),
-  Player(number: 10, name: 'B. Okafor', position: 'Mid'),
-  Player(number: 4, name: 'C. Nguyen', position: 'Defender'),
-  Player(number: 1, name: 'D. Reyes', position: 'Keeper'),
-  Player(number: 11, name: 'E. Mahmoud', position: 'Forward'),
-  Player(number: 8, name: 'F. Lopez', position: 'Mid'),
-  Player(number: 5, name: 'G. Singh', position: 'Defender'),
-];
-
-const _seedTeams = <TeamRecord>[
-  TeamRecord(
-    id: 'nr-u14',
-    name: 'Northside Rovers U14',
-    shortName: 'NR U14',
-    initials: 'NR',
-    sport: 'Soccer',
-    roster: _nrU14Roster,
-    played: 6,
-    wins: 3,
-    draws: 1,
-    losses: 2,
-    goalsFor: 13,
-    goalsAgainst: 9,
-    cleanSheets: 2,
-    cards: 7,
-    lastMatchDate: 'Mar 12',
-  ),
-  TeamRecord(
-    id: 'nr-u12',
-    name: 'Northside Rovers U12',
-    shortName: 'NR U12',
-    initials: 'NR',
-    sport: 'Soccer',
-    roster: [],
-    played: 4,
-    wins: 2,
-    draws: 1,
-    losses: 1,
-    goalsFor: 8,
-    goalsAgainst: 6,
-    cleanSheets: 1,
-    cards: 3,
-    lastMatchDate: 'Mar 09',
-  ),
-  TeamRecord(
-    id: 'efc-r',
-    name: 'Eastfield FC Reserves',
-    shortName: 'EFC R',
-    initials: 'EF',
-    sport: 'Soccer',
-    roster: [],
-    played: 5,
-    wins: 1,
-    draws: 1,
-    losses: 3,
-    goalsFor: 6,
-    goalsAgainst: 11,
-    cleanSheets: 0,
-    cards: 8,
-    lastMatchDate: 'Feb 28',
-  ),
-  TeamRecord(
-    id: 'rd-utd',
-    name: 'Riverdale United',
-    shortName: 'RD Utd',
-    initials: 'RU',
-    sport: 'Soccer',
-    roster: [],
-    played: 3,
-    wins: 2,
-    draws: 0,
-    losses: 1,
-    goalsFor: 7,
-    goalsAgainst: 4,
-    cleanSheets: 1,
-    cards: 2,
-    lastMatchDate: 'Feb 14',
-  ),
-];
-
-const _nrU14Matches = <TeamMatch>[
-  TeamMatch(
-    id: 'nr-u14-m1',
-    opponent: 'vs Eastfield FC',
-    date: 'Mar 12',
-    result: 'W 3–1',
-    clips: 2,
-    sizeMb: 380,
-  ),
-  TeamMatch(
-    id: 'nr-u14-m2',
-    opponent: 'vs Riverdale Utd',
-    date: 'Mar 05',
-    result: 'L 0–2',
-    clips: 2,
-    sizeMb: 180,
-  ),
-  TeamMatch(
-    id: 'nr-u14-m3',
-    opponent: 'vs Lakeside',
-    date: 'Feb 26',
-    result: 'D 1–1',
-    clips: 2,
-    sizeMb: 540,
-  ),
-  TeamMatch(
-    id: 'nr-u14-m4',
-    opponent: 'vs Brookfield',
-    date: 'Feb 19',
-    result: 'W 2–0',
-    clips: 2,
-    sizeMb: 220,
-  ),
-  TeamMatch(
-    id: 'nr-u14-m5',
-    opponent: 'vs Hillcrest',
-    date: 'Feb 12',
-    result: 'L 1–3',
-    clips: 2,
-    sizeMb: 410,
-  ),
-  TeamMatch(
-    id: 'nr-u14-m6',
-    opponent: 'vs Glenview',
-    date: 'Feb 05',
-    result: 'W 4–2',
-    clips: 2,
-    sizeMb: 620,
-  ),
-];
 
 const _seedLibrary = <LibraryMatch>[
   LibraryMatch(
@@ -346,17 +146,138 @@ const _seedLibrary = <LibraryMatch>[
 ];
 
 // ---------------------------------------------------------------------------
-// Providers
+// Camera handle — `activeCameraIdProvider` is set by the discovery flow on a
+// successful connect and cleared on disconnect. While disconnected, team
+// queries fall back to a `'preview-cam'` sentinel so the wireframe is still
+// clickable; the mock service's team store is process-global and ignores the
+// id, while the real impl will require an active connection.
 // ---------------------------------------------------------------------------
 
-final teamsProvider = Provider<List<TeamRecord>>((ref) => _seedTeams);
+const _kPreviewDeviceId = 'preview-cam';
 
-final teamMatchesProvider = Provider.family<List<TeamMatch>, String>((
+final activeCameraIdProvider = StateProvider<String?>((ref) => null);
+
+String _resolveDeviceId(Ref ref) =>
+    ref.watch(activeCameraIdProvider) ?? _kPreviewDeviceId;
+
+// ---------------------------------------------------------------------------
+// Teams — controller + filter providers. The controller is the only writer;
+// UI mutates by calling its methods.
+// ---------------------------------------------------------------------------
+
+class TeamsController extends AsyncNotifier<List<TeamRecord>> {
+  String get _deviceId => _resolveDeviceId(ref);
+
+  @override
+  Future<List<TeamRecord>> build() async {
+    final svc = ref.watch(bleServiceProvider);
+    return svc.listTeams(_deviceId);
+  }
+
+  Future<void> _refresh() async {
+    final svc = ref.read(bleServiceProvider);
+    state = AsyncValue.data(await svc.listTeams(_deviceId));
+  }
+
+  Future<TeamRecord> create(TeamDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    final created = await svc.createTeam(_deviceId, draft);
+    await _refresh();
+    return created;
+  }
+
+  Future<void> edit(TeamDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.updateTeam(_deviceId, draft);
+    await _refresh();
+  }
+
+  Future<void> delete(String teamId) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.deleteTeam(_deviceId, teamId);
+    await _refresh();
+  }
+
+  Future<void> setHidden(String teamId, {required bool hidden}) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.setTeamHidden(_deviceId, teamId, hidden: hidden);
+    await _refresh();
+  }
+
+  Future<void> addPlayer(String teamId, PlayerDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.addPlayer(_deviceId, teamId, draft);
+    await _refresh();
+  }
+
+  Future<void> updatePlayer(
+    String teamId,
+    int currentNumber,
+    PlayerDraft draft,
+  ) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.updatePlayer(_deviceId, teamId, currentNumber, draft);
+    await _refresh();
+  }
+
+  Future<void> removePlayer(String teamId, int number) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.removePlayer(_deviceId, teamId, number);
+    await _refresh();
+  }
+}
+
+final teamsControllerProvider =
+    AsyncNotifierProvider<TeamsController, List<TeamRecord>>(
+      TeamsController.new,
+    );
+
+// Per-team match list — fetched fresh per page mount.
+final teamMatchesProvider = FutureProvider.family<List<TeamMatch>, String>((
   ref,
   teamId,
-) {
-  return teamId == 'nr-u14' ? _nrU14Matches : const [];
+) async {
+  final svc = ref.watch(bleServiceProvider);
+  return svc.listTeamMatches(_resolveDeviceId(ref), teamId);
 });
+
+// ---------------------------------------------------------------------------
+// Filter / search state for the Teams page.
+// ---------------------------------------------------------------------------
+
+final teamsSearchQueryProvider = StateProvider<String>((_) => '');
+final teamsSportFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
+final teamsShowHiddenProvider = StateProvider<bool>((_) => false);
+
+/// Sports actually present in the current team set, in `kSports` order.
+/// Used to drive the filter chip row so we never show a chip with zero teams.
+final availableSportsProvider = Provider<List<String>>((ref) {
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final present = teams.map((t) => t.sport).toSet();
+  return kSports.where(present.contains).toList();
+});
+
+/// Teams after applying search + sport filter + hidden toggle.
+final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final query = ref.watch(teamsSearchQueryProvider).trim().toLowerCase();
+  final sport = ref.watch(teamsSportFilterProvider);
+  final showHidden = ref.watch(teamsShowHiddenProvider);
+
+  return teams.where((t) {
+    if (!showHidden && t.hidden) return false;
+    if (sport != null && t.sport != sport) return false;
+    if (query.isEmpty) return true;
+    return t.name.toLowerCase().contains(query) ||
+        t.shortName.toLowerCase().contains(query);
+  }).toList();
+});
+
+// ---------------------------------------------------------------------------
+// Library (recordings) — still local; will move to BLE in Phase 7.
+// ---------------------------------------------------------------------------
 
 final libraryProvider = Provider<List<LibraryMatch>>((ref) => _seedLibrary);
 
@@ -617,8 +538,3 @@ class LiveMatchController extends Notifier<LiveMatchState> {
 final liveMatchProvider = NotifierProvider<LiveMatchController, LiveMatchState>(
   LiveMatchController.new,
 );
-
-// Currently-connected camera id. UI screens pull telemetry/match streams via
-// this. Set by the discovery flow on a successful connect; cleared on
-// disconnect.
-final activeCameraIdProvider = StateProvider<String?>((ref) => null);

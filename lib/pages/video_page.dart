@@ -12,7 +12,7 @@ class VideoPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final library = ref.watch(libraryProvider);
-    final teams = ref.watch(teamsProvider);
+    final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
 
     final byTeam =
         <String, ({int matches, int clips, int sizeMb, String date})>{};

@@ -6,6 +6,8 @@ import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
+import 'player_form_sheet.dart';
+import 'team_form_sheet.dart';
 
 class TeamDetailPage extends ConsumerStatefulWidget {
   const TeamDetailPage({super.key, required this.teamId});
@@ -33,29 +35,38 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    final team = ref
-        .watch(teamsProvider)
-        .where((t) => t.id == widget.teamId)
-        .firstOrNull;
+    final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+    final team = teams.where((t) => t.id == widget.teamId).firstOrNull;
     if (team == null) {
       return const Scaffold(body: Center(child: Text('Team not found')));
     }
-    final matches = ref.watch(teamMatchesProvider(widget.teamId));
+    final matches =
+        ref.watch(teamMatchesProvider(widget.teamId)).valueOrNull ?? const [];
 
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(
         title: Text(team.name, overflow: TextOverflow.ellipsis),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 8),
-            child: Icon(Icons.more_vert),
+        actions: [
+          PopupMenuButton<_DetailMenuAction>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (a) => _onMenu(context, ref, team, a),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: _DetailMenuAction.toggleHidden,
+                child: Text(team.hidden ? 'Unhide team' : 'Hide team'),
+              ),
+              const PopupMenuItem(
+                value: _DetailMenuAction.delete,
+                child: Text('Delete team', style: TextStyle(color: T.danger)),
+              ),
+            ],
           ),
         ],
       ),
       body: Column(
         children: [
-          _TeamHeader(team: team),
+          _TeamHeader(team: team, onEdit: () => _onEdit(context, ref, team)),
           TabBar(
             controller: _tabs,
             tabs: const [
@@ -78,11 +89,92 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
       ),
     );
   }
+
+  Future<void> _onMenu(
+    BuildContext context,
+    WidgetRef ref,
+    TeamRecord team,
+    _DetailMenuAction action,
+  ) async {
+    final notifier = ref.read(teamsControllerProvider.notifier);
+    switch (action) {
+      case _DetailMenuAction.toggleHidden:
+        try {
+          await notifier.setHidden(team.id, hidden: !team.hidden);
+        } catch (e) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Could not update: $e')));
+        }
+      case _DetailMenuAction.delete:
+        final ok = await _confirmDelete(context, team);
+        if (!ok) return;
+        try {
+          await notifier.delete(team.id);
+          if (!context.mounted) return;
+          Navigator.of(context).pop();
+        } catch (e) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Could not delete: $e')));
+        }
+    }
+  }
+
+  Future<void> _onEdit(
+    BuildContext context,
+    WidgetRef ref,
+    TeamRecord team,
+  ) async {
+    final draft = await showTeamFormSheet(context, existing: team);
+    if (draft == null) return;
+    try {
+      await ref.read(teamsControllerProvider.notifier).edit(draft);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save changes: $e')));
+    }
+  }
+}
+
+enum _DetailMenuAction { toggleHidden, delete }
+
+Future<bool> _confirmDelete(BuildContext context, TeamRecord team) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: T.surface,
+      title: const Text('Delete team?'),
+      content: Text(
+        '${team.name} and its match history will be removed from the camera. '
+        'Recordings on the camera storage are not affected.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: const Text(
+            'Delete',
+            style: TextStyle(color: T.danger, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    ),
+  );
+  return ok ?? false;
 }
 
 class _TeamHeader extends StatelessWidget {
-  const _TeamHeader({required this.team});
+  const _TeamHeader({required this.team, required this.onEdit});
   final TeamRecord team;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -116,7 +208,15 @@ class _TeamHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const WfNote('This season'),
+                Row(
+                  children: [
+                    const WfNote('This season'),
+                    if (team.hidden) ...[
+                      const SizedBox(width: 8),
+                      const WfChip(label: 'Hidden'),
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '${team.played} played · ${team.wins}W ${team.draws}D ${team.losses}L',
@@ -129,7 +229,7 @@ class _TeamHeader extends StatelessWidget {
               ],
             ),
           ),
-          const WfButton(label: 'Edit', size: WfButtonSize.sm),
+          WfButton(label: 'Edit', size: WfButtonSize.sm, onPressed: onEdit),
         ],
       ),
     );
@@ -140,14 +240,26 @@ extension on Border {
   BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
 }
 
-class _RosterTab extends StatelessWidget {
+class _RosterTab extends ConsumerWidget {
   const _RosterTab({required this.team});
   final TeamRecord team;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (team.roster.isEmpty) {
-      return const Center(child: WfNote('No players added yet'));
+      return Column(
+        children: [
+          const Expanded(child: Center(child: WfNote('No players added yet'))),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: WfButton(
+              label: '+ Add player',
+              full: true,
+              onPressed: () => _addPlayer(context, ref),
+            ),
+          ),
+        ],
+      );
     }
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -155,64 +267,145 @@ class _RosterTab extends StatelessWidget {
       separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
       itemBuilder: (context, i) {
         if (i == team.roster.length) {
-          return const Padding(
-            padding: EdgeInsets.all(14),
+          return Padding(
+            padding: const EdgeInsets.all(14),
             child: WfButton(
               label: '+ Add player',
               full: true,
-              size: WfButtonSize.md,
+              onPressed: () => _addPlayer(context, ref),
             ),
           );
         }
         final p = team.roster[i];
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  border: Border.all(color: T.ring, width: 1.4),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  p.number.toString().padLeft(2, '0'),
-                  style: const TextStyle(
-                    fontFamily: T.mono,
+        return Dismissible(
+          key: ValueKey('player-${team.id}-${p.number}'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            color: T.danger,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delete_outline, color: T.dangerInk, size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Remove',
+                  style: TextStyle(
+                    color: T.dangerInk,
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: T.ink,
+                    letterSpacing: 0.4,
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      p.name,
+              ],
+            ),
+          ),
+          onDismissed: (_) async {
+            try {
+              await ref
+                  .read(teamsControllerProvider.notifier)
+                  .removePlayer(team.id, p.number);
+            } catch (e) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Could not remove player: $e')),
+              );
+            }
+          },
+          child: InkWell(
+            onTap: () => _editPlayer(context, ref, p),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: T.ring, width: 1.4),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      p.number.toString().padLeft(2, '0'),
                       style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                        fontFamily: T.mono,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
                         color: T.ink,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      p.position,
-                      style: const TextStyle(fontSize: 11, color: T.ink2),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.name,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: T.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          p.position,
+                          style: const TextStyle(fontSize: 11, color: T.ink2),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  if (p.captain) const WfChip(label: 'C', active: true),
+                ],
               ),
-              if (p.captain) const WfChip(label: 'C', active: true),
-            ],
+            ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _addPlayer(BuildContext context, WidgetRef ref) async {
+    final draft = await showPlayerFormSheet(
+      context,
+      takenNumbers: team.roster.map((p) => p.number).toSet(),
+    );
+    if (draft == null) return;
+    try {
+      await ref
+          .read(teamsControllerProvider.notifier)
+          .addPlayer(team.id, draft);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not add player: $e')));
+    }
+  }
+
+  Future<void> _editPlayer(
+    BuildContext context,
+    WidgetRef ref,
+    Player player,
+  ) async {
+    final draft = await showPlayerFormSheet(
+      context,
+      existing: player,
+      takenNumbers: team.roster.map((p) => p.number).toSet(),
+    );
+    if (draft == null) return;
+    try {
+      await ref
+          .read(teamsControllerProvider.notifier)
+          .updatePlayer(team.id, player.number, draft);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not update player: $e')));
+    }
   }
 }
 
@@ -414,8 +607,6 @@ class _LeaderboardTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Demo stats — derived deterministically from jersey number so the screen
-    // looks alive without a real stats store.
     int goals(int n) => (n * 3 % 7);
     int assists(int n) => (n * 2 % 5);
     int mins(int n) => 380 + (n * 17 % 160);

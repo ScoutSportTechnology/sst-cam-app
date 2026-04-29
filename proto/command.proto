@@ -6,6 +6,7 @@ import "telemetry.proto";
 import "match.proto";
 import "recording.proto";
 import "config.proto";
+import "team.proto";
 
 // ---------------------------------------------------------------------------
 // Chunking envelope — wraps every payload on Command Write + Command Response
@@ -56,6 +57,17 @@ message Command {
     SetWifiConfigCommand      set_wifi_config      = 40;
     SetStreamingConfigCommand set_streaming_config = 41;
 
+    // Teams / roster
+    ListTeamsCommand        list_teams         = 60;
+    ListTeamMatchesCommand  list_team_matches  = 61;
+    CreateTeamCommand       create_team        = 62;
+    UpdateTeamCommand       update_team        = 63;
+    DeleteTeamCommand       delete_team        = 64;
+    SetTeamHiddenCommand    set_team_hidden    = 65;
+    AddPlayerCommand        add_player         = 66;
+    UpdatePlayerCommand     update_player      = 67;
+    RemovePlayerCommand     remove_player      = 68;
+
     // Admin
     FactoryResetCommand  factory_reset  = 50;
     FirmwareUpdateCommand firmware_update = 51;
@@ -77,6 +89,10 @@ message CommandResponse {
     DownloadTokenResponse download_token = 13;
     DeviceTelemetry       telemetry      = 14;  // response to GetTelemetryCommand
     MatchState            match_state    = 15;  // response to GetMatchStateCommand
+    TeamListResponse      team_list      = 16;
+    TeamMatchListResponse team_match_list = 17;
+    TeamResponse          team           = 18;  // create / update reply
+    PlayerResponse        player         = 19;  // add / update player reply
   }
 }
 

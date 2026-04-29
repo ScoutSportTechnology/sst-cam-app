@@ -1,8 +1,8 @@
-
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
+import '../models/team.dart';
 import '../models/telemetry.dart';
 
 /// Abstract BLE interface. Injected via Riverpod so the real and mock
@@ -86,6 +86,38 @@ abstract class BleService {
   Future<List<RecordingMetadata>> listRecordings(String deviceId);
 
   Future<DownloadToken> requestDownload(String deviceId, String recordingId);
+
+  // ---------------------------------------------------------------------------
+  // Teams / roster — camera-owned. Every mutation returns the updated team
+  // (or list) so the app doesn't need to refetch after a write.
+  // ---------------------------------------------------------------------------
+
+  Future<List<TeamRecord>> listTeams(String deviceId);
+
+  Future<List<TeamMatch>> listTeamMatches(String deviceId, String teamId);
+
+  Future<TeamRecord> createTeam(String deviceId, TeamDraft draft);
+
+  Future<TeamRecord> updateTeam(String deviceId, TeamDraft draft);
+
+  Future<void> deleteTeam(String deviceId, String teamId);
+
+  Future<TeamRecord> setTeamHidden(
+    String deviceId,
+    String teamId, {
+    required bool hidden,
+  });
+
+  Future<Player> addPlayer(String deviceId, String teamId, PlayerDraft draft);
+
+  Future<Player> updatePlayer(
+    String deviceId,
+    String teamId,
+    int currentNumber,
+    PlayerDraft draft,
+  );
+
+  Future<void> removePlayer(String deviceId, String teamId, int number);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

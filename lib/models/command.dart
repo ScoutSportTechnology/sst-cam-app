@@ -87,6 +87,58 @@ class FactoryResetCommand extends BleCommand {}
 
 class FirmwareUpdateCommand extends BleCommand {}
 
+// Teams / roster — every mutation round-trips through the firmware.
+class ListTeamsCommand extends BleCommand {}
+
+class ListTeamMatchesCommand extends BleCommand {
+  ListTeamMatchesCommand({required this.teamId});
+  final String teamId;
+}
+
+class CreateTeamCommand extends BleCommand {
+  CreateTeamCommand(this.draft);
+  final dynamic draft; // models/team.dart TeamDraft
+}
+
+class UpdateTeamCommand extends BleCommand {
+  UpdateTeamCommand(this.draft);
+  final dynamic draft; // models/team.dart TeamDraft, id required
+}
+
+class DeleteTeamCommand extends BleCommand {
+  DeleteTeamCommand({required this.teamId});
+  final String teamId;
+}
+
+class SetTeamHiddenCommand extends BleCommand {
+  SetTeamHiddenCommand({required this.teamId, required this.hidden});
+  final String teamId;
+  final bool hidden;
+}
+
+class AddPlayerCommand extends BleCommand {
+  AddPlayerCommand({required this.teamId, required this.draft});
+  final String teamId;
+  final dynamic draft; // models/team.dart PlayerDraft
+}
+
+class UpdatePlayerCommand extends BleCommand {
+  UpdatePlayerCommand({
+    required this.teamId,
+    required this.currentNumber,
+    required this.draft,
+  });
+  final String teamId;
+  final int currentNumber;
+  final dynamic draft;
+}
+
+class RemovePlayerCommand extends BleCommand {
+  RemovePlayerCommand({required this.teamId, required this.number});
+  final String teamId;
+  final int number;
+}
+
 // ---------------------------------------------------------------------------
 
 enum BleResponseStatus { ok, error, timeout, unsupported }
