@@ -1,10 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scout_camera/ble/ble_service.dart';
+import 'package:scout_camera/ble/mock_ble_service.dart';
 import 'package:scout_camera/models/command.dart';
 import 'package:scout_camera/models/device.dart';
 import 'package:scout_camera/models/recording.dart';
-import 'package:scout_camera/ble/ble_service.dart';
-
-import 'mock_ble_service.dart';
 
 void main() {
   late MockBleService svc;

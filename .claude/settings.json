@@ -8,7 +8,8 @@
       "Bash(flutter test *)",
       "Bash(just analyze *)",
       "Bash(just format *)",
-      "Bash(just test *)"
+      "Bash(just test *)",
+      "Bash(dart analyze *)"
     ],
     "additionalDirectories": [
       "/root/.vscode-server/data/Machine"

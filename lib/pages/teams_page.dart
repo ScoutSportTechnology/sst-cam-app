@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/app_data.dart';
 import '../theme/tokens.dart';
+import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
 import 'team_detail_page.dart';
@@ -50,12 +51,19 @@ class TeamsPage extends ConsumerWidget {
             loading: () => const Expanded(
               child: Center(child: CircularProgressIndicator()),
             ),
-            error: (e, _) => Expanded(
-              child: Center(child: WfNote('Failed to load teams: $e')),
-            ),
-            data: (_) => Expanded(
-              child: _TeamsList(teams: filtered, totalShown: filtered.length),
-            ),
+            error: (e, _) => Expanded(child: _TeamsErrorState(error: e)),
+            data: (rawTeams) {
+              if (rawTeams.isEmpty) {
+                return Expanded(
+                  child: _NoTeamsYet(
+                    onAdd: () => _showAddTeamSheet(context, ref),
+                  ),
+                );
+              }
+              return Expanded(
+                child: _TeamsList(teams: filtered, totalShown: filtered.length),
+              );
+            },
           ),
         ],
       ),
@@ -187,6 +195,96 @@ class _SportFilterChips extends ConsumerWidget {
           child: WfChip(label: s ?? 'All', active: active),
         );
       },
+    );
+  }
+}
+
+class _NoTeamsYet extends StatelessWidget {
+  const _NoTeamsYet({required this.onAdd});
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: T.fillSoft,
+                shape: BoxShape.circle,
+                border: Border.all(color: T.hair),
+              ),
+              child: const Icon(Icons.groups_outlined, color: T.ink2, size: 28),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No teams yet',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: T.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Teams live on the camera. Add your first one to start '
+              'recording matches.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            WfButton(
+              label: '+ Add a new team',
+              variant: WfButtonVariant.primary,
+              full: true,
+              onPressed: onAdd,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TeamsErrorState extends StatelessWidget {
+  const _TeamsErrorState({required this.error});
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, color: T.ink2, size: 32),
+            const SizedBox(height: 12),
+            const Text(
+              'Could not reach the camera',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: T.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '$error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, color: T.ink3),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:scout_camera/ble/ble_service.dart';
-import 'package:scout_camera/models/command.dart';
-import 'package:scout_camera/models/device.dart';
-import 'package:scout_camera/models/match.dart';
-import 'package:scout_camera/models/recording.dart';
-import 'package:scout_camera/models/team.dart';
-import 'package:scout_camera/models/telemetry.dart';
+import '../models/command.dart';
+import '../models/device.dart';
+import '../models/match.dart';
+import '../models/recording.dart';
+import '../models/team.dart';
+import '../models/telemetry.dart';
+import 'ble_service.dart';
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [
