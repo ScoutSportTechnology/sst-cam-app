@@ -25,4 +25,6 @@ RUN sdkmanager --install \
     "build-tools;35.0.0" \
     2>/dev/null || true
 
+ENV PATH="/root/.local/bin:${PATH}"
+
 WORKDIR /workspace
