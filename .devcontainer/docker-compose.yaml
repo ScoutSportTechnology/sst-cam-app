@@ -11,5 +11,10 @@ services:
       - ..:/workspace:cached
       - claude:/root/.claude
       - ~/.local/bin/claude:/root/.local/bin/claude:ro
+      - ~/.android:/root/.android
+    devices:
+      - /dev/kvm
+    group_add:
+      - "992"
     network_mode: host
     command: sleep infinity
