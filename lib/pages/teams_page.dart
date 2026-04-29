@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/device.dart';
 import '../state/app_data.dart';
+import '../state/ble_providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
+import 'discovery_page.dart';
 import 'team_detail_page.dart';
 import 'team_form_sheet.dart';
 
@@ -14,6 +17,22 @@ class TeamsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final activeId = ref.watch(activeCameraIdProvider);
+    final connected = activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
+
+    // Teams, rosters, and match history all live on the camera; the app has
+    // no local copy. Without a connection there's nothing truthful to show,
+    // so we render the same connect-camera prompt the Match tab uses.
+    if (!connected) {
+      return Scaffold(
+        backgroundColor: T.bg,
+        appBar: AppBar(title: const Text('Teams')),
+        body: const _ConnectCameraEmptyState(),
+      );
+    }
+
     final teamsAsync = ref.watch(teamsControllerProvider);
     final filtered = ref.watch(filteredTeamsProvider);
     final showHidden = ref.watch(teamsShowHiddenProvider);
@@ -108,6 +127,68 @@ class TeamsPage extends ConsumerWidget {
 }
 
 enum _TeamsMenuAction { toggleHidden, refresh }
+
+class _ConnectCameraEmptyState extends StatelessWidget {
+  const _ConnectCameraEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: T.fillSoft,
+                shape: BoxShape.circle,
+                border: Border.all(color: T.hair),
+              ),
+              child: const Icon(
+                Icons.videocam_off_outlined,
+                color: T.ink2,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No camera connected',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: T.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Teams, rosters, and match history live on the camera. '
+              'Connect a camera to view or edit them.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            WfButton(
+              label: 'Connect camera',
+              variant: WfButtonVariant.primary,
+              full: true,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const DiscoveryPage()),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _SearchField extends ConsumerStatefulWidget {
   const _SearchField();

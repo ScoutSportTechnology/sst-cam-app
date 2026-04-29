@@ -147,18 +147,14 @@ const _seedLibrary = <LibraryMatch>[
 
 // ---------------------------------------------------------------------------
 // Camera handle — `activeCameraIdProvider` is set by the discovery flow on a
-// successful connect and cleared on disconnect. While disconnected, team
-// queries fall back to a `'preview-cam'` sentinel so the wireframe is still
-// clickable; the mock service's team store is process-global and ignores the
-// id, while the real impl will require an active connection.
+// successful connect and cleared on disconnect. Team data lives on the
+// camera, so every team query is gated on this id: if there's no active
+// camera, the controllers return empty and the UI prompts to connect.
 // ---------------------------------------------------------------------------
-
-const _kPreviewDeviceId = 'preview-cam';
 
 final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 
-String _resolveDeviceId(Ref ref) =>
-    ref.watch(activeCameraIdProvider) ?? _kPreviewDeviceId;
+String? _resolveDeviceId(Ref ref) => ref.watch(activeCameraIdProvider);
 
 // ---------------------------------------------------------------------------
 // Teams — controller + filter providers. The controller is the only writer;
@@ -166,47 +162,61 @@ String _resolveDeviceId(Ref ref) =>
 // ---------------------------------------------------------------------------
 
 class TeamsController extends AsyncNotifier<List<TeamRecord>> {
-  String get _deviceId => _resolveDeviceId(ref);
+  String? get _deviceId => _resolveDeviceId(ref);
+
+  /// Throws when callers try to mutate without an active connection. UI is
+  /// expected to gate these calls behind `activeCameraIdProvider`, so this is
+  /// a safety net rather than a routine error path.
+  String _requireDevice() {
+    final id = _deviceId;
+    if (id == null) {
+      throw StateError('No camera connected');
+    }
+    return id;
+  }
 
   @override
   Future<List<TeamRecord>> build() async {
     final svc = ref.watch(bleServiceProvider);
-    return svc.listTeams(_deviceId);
+    final id = _deviceId;
+    if (id == null) return const [];
+    return svc.listTeams(id);
   }
 
   Future<void> _refresh() async {
     final svc = ref.read(bleServiceProvider);
-    state = AsyncValue.data(await svc.listTeams(_deviceId));
+    final id = _deviceId;
+    state = AsyncValue.data(id == null ? const [] : await svc.listTeams(id));
   }
 
   Future<TeamRecord> create(TeamDraft draft) async {
     final svc = ref.read(bleServiceProvider);
-    final created = await svc.createTeam(_deviceId, draft);
+    final created = await svc.createTeam(_requireDevice(), draft);
     await _refresh();
     return created;
   }
 
   Future<void> edit(TeamDraft draft) async {
     final svc = ref.read(bleServiceProvider);
-    await svc.updateTeam(_deviceId, draft);
+    await svc.updateTeam(_requireDevice(), draft);
     await _refresh();
   }
 
   Future<void> delete(String teamId) async {
     final svc = ref.read(bleServiceProvider);
-    await svc.deleteTeam(_deviceId, teamId);
+    await svc.deleteTeam(_requireDevice(), teamId);
     await _refresh();
   }
 
   Future<void> setHidden(String teamId, {required bool hidden}) async {
     final svc = ref.read(bleServiceProvider);
-    await svc.setTeamHidden(_deviceId, teamId, hidden: hidden);
+    await svc.setTeamHidden(_requireDevice(), teamId, hidden: hidden);
     await _refresh();
   }
 
   Future<void> addPlayer(String teamId, PlayerDraft draft) async {
     final svc = ref.read(bleServiceProvider);
-    await svc.addPlayer(_deviceId, teamId, draft);
+    await svc.addPlayer(_requireDevice(), teamId, draft);
     await _refresh();
   }
 
@@ -216,26 +226,26 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     PlayerDraft draft,
   ) async {
     final svc = ref.read(bleServiceProvider);
-    await svc.updatePlayer(_deviceId, teamId, currentNumber, draft);
+    await svc.updatePlayer(_requireDevice(), teamId, currentNumber, draft);
     await _refresh();
   }
 
   Future<void> removePlayer(String teamId, int number) async {
     final svc = ref.read(bleServiceProvider);
-    await svc.removePlayer(_deviceId, teamId, number);
+    await svc.removePlayer(_requireDevice(), teamId, number);
     await _refresh();
   }
 
   Future<TeamMatch> addMatch(String teamId, TeamMatchDraft draft) async {
     final svc = ref.read(bleServiceProvider);
-    final created = await svc.addTeamMatch(_deviceId, teamId, draft);
+    final created = await svc.addTeamMatch(_requireDevice(), teamId, draft);
     ref.invalidate(teamMatchesProvider(teamId));
     return created;
   }
 
   Future<void> removeMatch(String teamId, String matchId) async {
     final svc = ref.read(bleServiceProvider);
-    await svc.removeTeamMatch(_deviceId, teamId, matchId);
+    await svc.removeTeamMatch(_requireDevice(), teamId, matchId);
     ref.invalidate(teamMatchesProvider(teamId));
   }
 }
@@ -245,13 +255,16 @@ final teamsControllerProvider =
       TeamsController.new,
     );
 
-// Per-team match list — fetched fresh per page mount.
+/// Per-team match list — fetched fresh per page mount, empty while no
+/// camera is connected.
 final teamMatchesProvider = FutureProvider.family<List<TeamMatch>, String>((
   ref,
   teamId,
 ) async {
   final svc = ref.watch(bleServiceProvider);
-  return svc.listTeamMatches(_resolveDeviceId(ref), teamId);
+  final id = _resolveDeviceId(ref);
+  if (id == null) return const [];
+  return svc.listTeamMatches(id, teamId);
 });
 
 // ---------------------------------------------------------------------------

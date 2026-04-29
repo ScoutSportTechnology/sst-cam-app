@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/app_data.dart';
 import '../theme/tokens.dart';
+import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
+import 'discovery_page.dart';
 import 'video_team_matches_page.dart';
 
 class VideoPage extends ConsumerWidget {
@@ -55,15 +57,7 @@ class VideoPage extends ConsumerWidget {
           ),
           Expanded(
             child: tiles.isEmpty
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: WfNote(
-                        'No videos on this phone yet. Connect the camera '
-                        'to download recordings.',
-                      ),
-                    ),
-                  )
+                ? const _NoVideosEmptyState()
                 : ListView.builder(
                     itemCount: tiles.length,
                     itemBuilder: (context, i) {
@@ -175,6 +169,68 @@ class _TeamLibraryRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NoVideosEmptyState extends StatelessWidget {
+  const _NoVideosEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: T.fillSoft,
+                shape: BoxShape.circle,
+                border: Border.all(color: T.hair),
+              ),
+              child: const Icon(
+                Icons.video_library_outlined,
+                color: T.ink2,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No videos on this phone',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: T.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Connect a camera to browse recordings and download them '
+              'to this phone.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            WfButton(
+              label: 'Connect camera',
+              variant: WfButtonVariant.primary,
+              full: true,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const DiscoveryPage()),
+                );
+              },
+            ),
           ],
         ),
       ),
