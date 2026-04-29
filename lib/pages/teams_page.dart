@@ -458,7 +458,7 @@ class _TeamRow extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    team.initials,
+                    team.shortName,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 12,
@@ -497,10 +497,6 @@ class _TeamRow extends StatelessWidget {
                       ),
                     ],
                   ),
-                ),
-                Text(
-                  team.lastMatchDate,
-                  style: const TextStyle(fontSize: 11, color: T.ink2),
                 ),
               ],
             ),

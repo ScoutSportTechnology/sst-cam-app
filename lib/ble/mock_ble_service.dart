@@ -254,70 +254,30 @@ class MockBleService implements BleService {
     const TeamRecord(
       id: 'nr-u14',
       name: 'Northside Rovers U14',
-      shortName: 'NR U14',
-      initials: 'NR',
+      shortName: 'NRA',
       sport: 'Soccer',
       roster: _seedRoster,
-      played: 6,
-      wins: 3,
-      draws: 1,
-      losses: 2,
-      goalsFor: 13,
-      goalsAgainst: 9,
-      cleanSheets: 2,
-      cards: 7,
-      lastMatchDate: 'Mar 12',
     ),
     const TeamRecord(
       id: 'nr-u12',
       name: 'Northside Rovers U12',
-      shortName: 'NR U12',
-      initials: 'NR',
+      shortName: 'NRB',
       sport: 'Soccer',
       roster: [],
-      played: 4,
-      wins: 2,
-      draws: 1,
-      losses: 1,
-      goalsFor: 8,
-      goalsAgainst: 6,
-      cleanSheets: 1,
-      cards: 3,
-      lastMatchDate: 'Mar 09',
     ),
     const TeamRecord(
       id: 'efc-r',
       name: 'Eastfield FC Reserves',
-      shortName: 'EFC R',
-      initials: 'EF',
+      shortName: 'EFC',
       sport: 'Soccer',
       roster: [],
-      played: 5,
-      wins: 1,
-      draws: 1,
-      losses: 3,
-      goalsFor: 6,
-      goalsAgainst: 11,
-      cleanSheets: 0,
-      cards: 8,
-      lastMatchDate: 'Feb 28',
     ),
     const TeamRecord(
       id: 'rd-utd',
       name: 'Riverdale United',
-      shortName: 'RD Utd',
-      initials: 'RU',
+      shortName: 'RDU',
       sport: 'Soccer',
       roster: [],
-      played: 3,
-      wins: 2,
-      draws: 0,
-      losses: 1,
-      goalsFor: 7,
-      goalsAgainst: 4,
-      cleanSheets: 1,
-      cards: 2,
-      lastMatchDate: 'Feb 14',
     ),
   ];
 
@@ -347,34 +307,11 @@ class MockBleService implements BleService {
         clips: 2,
         sizeMb: 540,
       ),
-      TeamMatch(
-        id: 'nr-u14-m4',
-        opponent: 'vs Brookfield',
-        date: 'Feb 19',
-        result: 'W 2–0',
-        clips: 2,
-        sizeMb: 220,
-      ),
-      TeamMatch(
-        id: 'nr-u14-m5',
-        opponent: 'vs Hillcrest',
-        date: 'Feb 12',
-        result: 'L 1–3',
-        clips: 2,
-        sizeMb: 410,
-      ),
-      TeamMatch(
-        id: 'nr-u14-m6',
-        opponent: 'vs Glenview',
-        date: 'Feb 05',
-        result: 'W 4–2',
-        clips: 2,
-        sizeMb: 620,
-      ),
     ],
   };
 
   int _teamIdCounter = 0;
+  int _matchIdCounter = 0;
 
   static final _fakeRecordings = [
     RecordingMetadata(
@@ -622,18 +559,8 @@ class MockBleService implements BleService {
       id: id,
       name: draft.name,
       shortName: draft.shortName,
-      initials: draft.initials,
       sport: draft.sport,
       roster: const [],
-      played: 0,
-      wins: 0,
-      draws: 0,
-      losses: 0,
-      goalsFor: 0,
-      goalsAgainst: 0,
-      cleanSheets: 0,
-      cards: 0,
-      lastMatchDate: '—',
     );
     _teams.add(record);
     return record;
@@ -647,7 +574,6 @@ class MockBleService implements BleService {
     final updated = _teams[i].copyWith(
       name: draft.name,
       shortName: draft.shortName,
-      initials: draft.initials,
       sport: draft.sport,
     );
     _teams[i] = updated;
@@ -754,6 +680,42 @@ class MockBleService implements BleService {
     final team = _teams[i];
     final newRoster = team.roster.where((p) => p.number != number).toList();
     _teams[i] = team.copyWith(roster: newRoster);
+  }
+
+  @override
+  Future<TeamMatch> addTeamMatch(
+    String deviceId,
+    String teamId,
+    TeamMatchDraft draft,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final id =
+        'match-${++_matchIdCounter}-${DateTime.now().millisecondsSinceEpoch}';
+    final match = TeamMatch(
+      id: id,
+      opponent: draft.opponent,
+      date: draft.date,
+      result: draft.kind == MatchKind.past ? draft.result : '',
+      kind: draft.kind,
+      clips: 0,
+      sizeMb: 0,
+    );
+    final list = List<TeamMatch>.from(_teamMatches[teamId] ?? const []);
+    list.insert(0, match);
+    _teamMatches[teamId] = list;
+    return match;
+  }
+
+  @override
+  Future<void> removeTeamMatch(
+    String deviceId,
+    String teamId,
+    String matchId,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    final list = _teamMatches[teamId];
+    if (list == null) return;
+    _teamMatches[teamId] = list.where((m) => m.id != matchId).toList();
   }
 
   static Player _withCaptain(Player p, bool captain) => Player(

@@ -2,18 +2,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../ble/ble_service.dart';
 import '../ble/ble_service_impl.dart';
+import '../ble/mock_ble_service.dart';
+import '../env.dart';
 import '../models/device.dart';
 import '../models/telemetry.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
 
 // ---------------------------------------------------------------------------
-// Service
-// To inject a mock in tests: bleServiceProvider.overrideWithValue(MockBleService())
+// Service — backend chosen by `kAppEnv` (see lib/env.dart). Tests still
+// override via `bleServiceProvider.overrideWithValue(MockBleService())`.
 // ---------------------------------------------------------------------------
 
 final bleServiceProvider = Provider<BleService>((ref) {
-  final svc = BleServiceImpl();
+  final BleService svc = kAppEnv.isMock
+      ? MockBleService(failureRate: 0)
+      : BleServiceImpl();
   ref.onDispose(svc.dispose);
   return svc;
 });

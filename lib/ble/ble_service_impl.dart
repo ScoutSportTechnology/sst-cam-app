@@ -320,6 +320,26 @@ class BleServiceImpl implements BleService {
     throw UnimplementedError('Phase 7: removePlayer not yet wired to firmware');
   }
 
+  @override
+  Future<TeamMatch> addTeamMatch(
+    String deviceId,
+    String teamId,
+    TeamMatchDraft draft,
+  ) async {
+    throw UnimplementedError('Phase 7: addTeamMatch not yet wired to firmware');
+  }
+
+  @override
+  Future<void> removeTeamMatch(
+    String deviceId,
+    String teamId,
+    String matchId,
+  ) async {
+    throw UnimplementedError(
+      'Phase 7: removeTeamMatch not yet wired to firmware',
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------

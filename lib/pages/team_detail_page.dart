@@ -8,6 +8,7 @@ import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
 import 'player_form_sheet.dart';
 import 'team_form_sheet.dart';
+import 'team_match_form_sheet.dart';
 
 class TeamDetailPage extends ConsumerStatefulWidget {
   const TeamDetailPage({super.key, required this.teamId});
@@ -24,7 +25,10 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 3, vsync: this)
+      ..addListener(() {
+        if (!_tabs.indexIsChanging) setState(() {});
+      });
   }
 
   @override
@@ -42,6 +46,7 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
     }
     final matches =
         ref.watch(teamMatchesProvider(widget.teamId)).valueOrNull ?? const [];
+    final stats = TeamStats.fromMatches(matches);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -66,7 +71,11 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
       ),
       body: Column(
         children: [
-          _TeamHeader(team: team, onEdit: () => _onEdit(context, ref, team)),
+          _TeamHeader(
+            team: team,
+            stats: stats,
+            onEdit: () => _onEdit(context, ref, team),
+          ),
           TabBar(
             controller: _tabs,
             tabs: const [
@@ -80,13 +89,24 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
               controller: _tabs,
               children: [
                 _RosterTab(team: team),
-                _MatchesTab(matches: matches),
-                _StatsTab(team: team),
+                _MatchesTab(teamId: team.id, matches: matches),
+                _StatsTab(team: team, matches: matches, stats: stats),
               ],
             ),
           ),
         ],
       ),
+      floatingActionButton: switch (_tabs.index) {
+        0 => _AddFab(
+          tooltip: 'Add player',
+          onPressed: () => _addPlayer(context, ref, team),
+        ),
+        1 => _AddFab(
+          tooltip: 'Add match',
+          onPressed: () => _addMatch(context, ref, team.id),
+        ),
+        _ => null,
+      },
     );
   }
 
@@ -139,6 +159,45 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
       ).showSnackBar(SnackBar(content: Text('Could not save changes: $e')));
     }
   }
+
+  Future<void> _addPlayer(
+    BuildContext context,
+    WidgetRef ref,
+    TeamRecord team,
+  ) async {
+    final draft = await showPlayerFormSheet(
+      context,
+      takenNumbers: team.roster.map((p) => p.number).toSet(),
+    );
+    if (draft == null) return;
+    try {
+      await ref
+          .read(teamsControllerProvider.notifier)
+          .addPlayer(team.id, draft);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not add player: $e')));
+    }
+  }
+
+  Future<void> _addMatch(
+    BuildContext context,
+    WidgetRef ref,
+    String teamId,
+  ) async {
+    final draft = await showTeamMatchFormSheet(context);
+    if (draft == null) return;
+    try {
+      await ref.read(teamsControllerProvider.notifier).addMatch(teamId, draft);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not add match: $e')));
+    }
+  }
 }
 
 enum _DetailMenuAction { toggleHidden, delete }
@@ -171,9 +230,35 @@ Future<bool> _confirmDelete(BuildContext context, TeamRecord team) async {
   return ok ?? false;
 }
 
+class _AddFab extends StatelessWidget {
+  const _AddFab({required this.tooltip, required this.onPressed});
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      backgroundColor: T.accent,
+      foregroundColor: T.accentInk,
+      elevation: 0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(4)),
+      ),
+      child: const Icon(Icons.add, size: 28),
+    );
+  }
+}
+
 class _TeamHeader extends StatelessWidget {
-  const _TeamHeader({required this.team, required this.onEdit});
+  const _TeamHeader({
+    required this.team,
+    required this.stats,
+    required this.onEdit,
+  });
   final TeamRecord team;
+  final TeamStats stats;
   final VoidCallback onEdit;
 
   @override
@@ -195,10 +280,10 @@ class _TeamHeader extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Text(
-              team.initials,
+              team.shortName,
               style: const TextStyle(
                 fontWeight: FontWeight.w700,
-                fontSize: 18,
+                fontSize: 16,
                 color: T.ink,
               ),
             ),
@@ -219,7 +304,9 @@ class _TeamHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${team.played} played · ${team.wins}W ${team.draws}D ${team.losses}L',
+                  stats.played == 0
+                      ? 'No matches yet'
+                      : '${stats.played} played · ${stats.wins}W ${stats.draws}D ${stats.losses}L',
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
@@ -247,35 +334,15 @@ class _RosterTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (team.roster.isEmpty) {
-      return Column(
-        children: [
-          const Expanded(child: Center(child: WfNote('No players added yet'))),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: WfButton(
-              label: '+ Add player',
-              full: true,
-              onPressed: () => _addPlayer(context, ref),
-            ),
-          ),
-        ],
+      return const Center(
+        child: WfNote('No players yet — tap + to add one'),
       );
     }
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: team.roster.length + 1,
+      itemCount: team.roster.length,
       separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
       itemBuilder: (context, i) {
-        if (i == team.roster.length) {
-          return Padding(
-            padding: const EdgeInsets.all(14),
-            child: WfButton(
-              label: '+ Add player',
-              full: true,
-              onPressed: () => _addPlayer(context, ref),
-            ),
-          );
-        }
         final p = team.roster[i];
         return Dismissible(
           key: ValueKey('player-${team.id}-${p.number}'),
@@ -367,24 +434,6 @@ class _RosterTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _addPlayer(BuildContext context, WidgetRef ref) async {
-    final draft = await showPlayerFormSheet(
-      context,
-      takenNumbers: team.roster.map((p) => p.number).toSet(),
-    );
-    if (draft == null) return;
-    try {
-      await ref
-          .read(teamsControllerProvider.notifier)
-          .addPlayer(team.id, draft);
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not add player: $e')));
-    }
-  }
-
   Future<void> _editPlayer(
     BuildContext context,
     WidgetRef ref,
@@ -409,57 +458,38 @@ class _RosterTab extends ConsumerWidget {
   }
 }
 
-class _MatchesTab extends StatelessWidget {
-  const _MatchesTab({required this.matches});
+class _MatchesTab extends ConsumerWidget {
+  const _MatchesTab({required this.teamId, required this.matches});
+  final String teamId;
   final List<TeamMatch> matches;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (matches.isEmpty) {
-      return const Center(child: WfNote('No matches yet'));
+      return const Center(
+        child: WfNote('No matches yet — tap + to add one'),
+      );
     }
-    return Column(
-      children: [
-        SizedBox(
-          height: 36,
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            scrollDirection: Axis.horizontal,
-            children: const [
-              WfChip(label: 'All', active: true),
-              SizedBox(width: 6),
-              WfChip(label: 'Wins'),
-              SizedBox(width: 6),
-              WfChip(label: 'Losses'),
-              SizedBox(width: 6),
-              WfChip(label: 'This month'),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: EdgeInsets.zero,
-            itemCount: matches.length + 1,
-            separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
-            itemBuilder: (context, i) {
-              if (i == matches.length) {
-                return const Padding(
-                  padding: EdgeInsets.all(14),
-                  child: WfButton(label: '+ New match', full: true),
-                );
-              }
-              return _MatchRow(match: matches[i]);
-            },
-          ),
-        ),
-      ],
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: matches.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
+      itemBuilder: (context, i) => _MatchRow(
+        match: matches[i],
+        onDelete: () =>
+            ref.read(teamsControllerProvider.notifier).removeMatch(
+                  teamId,
+                  matches[i].id,
+                ),
+      ),
     );
   }
 }
 
 class _MatchRow extends StatelessWidget {
-  const _MatchRow({required this.match});
+  const _MatchRow({required this.match, required this.onDelete});
   final TeamMatch match;
+  final Future<void> Function() onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -469,84 +499,142 @@ class _MatchRow extends StatelessWidget {
         : outcome == 'L'
         ? T.ink2
         : T.ink;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              border: Border.all(color: T.hair, width: 1.4),
+    final isUpcoming = match.kind == MatchKind.upcoming;
+    return Dismissible(
+      key: ValueKey('match-${match.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        color: T.danger,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: const Icon(Icons.delete_outline, color: T.dangerInk, size: 18),
+      ),
+      onDismissed: (_) async {
+        try {
+          await onDelete();
+        } catch (e) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Could not delete match: $e')));
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: isUpcoming ? T.accent : T.hair,
+                  width: 1.4,
+                ),
+              ),
+              alignment: Alignment.center,
+              child: isUpcoming
+                  ? const Icon(Icons.event_outlined, color: T.accent, size: 18)
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          outcome,
+                          style: TextStyle(
+                            fontFamily: T.mono,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: color,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        if (match.result.length > 2)
+                          Text(
+                            match.result.substring(2),
+                            style: const TextStyle(
+                              fontFamily: T.mono,
+                              fontSize: 9,
+                              color: T.ink2,
+                              height: 1,
+                            ),
+                          ),
+                      ],
+                    ),
             ),
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  outcome,
-                  style: TextStyle(
-                    fontFamily: T.mono,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                    color: color,
-                    height: 1,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          match.opponent,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: T.ink,
+                          ),
+                        ),
+                      ),
+                      if (isUpcoming) ...[
+                        const SizedBox(width: 8),
+                        const WfChip(label: 'Upcoming', active: true),
+                      ],
+                    ],
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  match.result.substring(2),
-                  style: const TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 9,
-                    color: T.ink2,
-                    height: 1,
+                  const SizedBox(height: 2),
+                  Text(
+                    isUpcoming
+                        ? match.date
+                        : '${match.date} · ${match.clips} clips · ${match.sizeMb} MB',
+                    style: const TextStyle(fontSize: 11, color: T.ink2),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  match.opponent,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: T.ink,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${match.date} · ${match.clips} clips · ${match.sizeMb} MB',
-                  style: const TextStyle(fontSize: 11, color: T.ink2),
-                ),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right, color: T.ink3, size: 18),
-        ],
+            const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+          ],
+        ),
       ),
     );
   }
 }
 
 class _StatsTab extends StatelessWidget {
-  const _StatsTab({required this.team});
+  const _StatsTab({
+    required this.team,
+    required this.matches,
+    required this.stats,
+  });
   final TeamRecord team;
+  final List<TeamMatch> matches;
+  final TeamStats stats;
 
   @override
   Widget build(BuildContext context) {
+    if (stats.played == 0) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 32),
+          child: WfNote(
+            'No played matches yet. Add a past match in the Matches tab '
+            'to start collecting stats.',
+          ),
+        ),
+      );
+    }
+
     final totals = <(String, String)>[
-      ('Played', '${team.played}'),
-      ('Record', '${team.wins}–${team.draws}–${team.losses}'),
-      ('Goals for', '${team.goalsFor}'),
-      ('Goals against', '${team.goalsAgainst}'),
-      ('Clean sheets', '${team.cleanSheets}'),
-      ('Cards', '${team.cards}'),
+      ('Played', '${stats.played}'),
+      ('Record', '${stats.wins}–${stats.draws}–${stats.losses}'),
+      ('Goals for', '${stats.goalsFor}'),
+      ('Goals against', '${stats.goalsAgainst}'),
+      ('Clean sheets', '${stats.cleanSheets}'),
+      ('Goal diff', '${stats.goalsFor - stats.goalsAgainst}'),
     ];
 
     return ListView(

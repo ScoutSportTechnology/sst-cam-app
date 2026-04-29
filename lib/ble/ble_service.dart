@@ -120,6 +120,20 @@ abstract class BleService {
   Future<void> removePlayer(String deviceId, String teamId, int number);
 
   // ---------------------------------------------------------------------------
+  // Per-team matches — past results and scheduled upcoming matches.
+  // Both kinds count toward stats; upcoming additionally drive the camera's
+  // recording / streaming schedule.
+  // ---------------------------------------------------------------------------
+
+  Future<TeamMatch> addTeamMatch(
+    String deviceId,
+    String teamId,
+    TeamMatchDraft draft,
+  );
+
+  Future<void> removeTeamMatch(String deviceId, String teamId, String matchId);
+
+  // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
 

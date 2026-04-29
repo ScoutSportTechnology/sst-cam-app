@@ -225,6 +225,19 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     await svc.removePlayer(_deviceId, teamId, number);
     await _refresh();
   }
+
+  Future<TeamMatch> addMatch(String teamId, TeamMatchDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    final created = await svc.addTeamMatch(_deviceId, teamId, draft);
+    ref.invalidate(teamMatchesProvider(teamId));
+    return created;
+  }
+
+  Future<void> removeMatch(String teamId, String matchId) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.removeTeamMatch(_deviceId, teamId, matchId);
+    ref.invalidate(teamMatchesProvider(teamId));
+  }
 }
 
 final teamsControllerProvider =

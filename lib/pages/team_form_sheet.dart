@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/team.dart';
 import '../theme/tokens.dart';
@@ -36,7 +37,6 @@ class _TeamForm extends StatefulWidget {
 class _TeamFormState extends State<_TeamForm> {
   late final TextEditingController _name;
   late final TextEditingController _shortName;
-  late final TextEditingController _initials;
   late String _sport;
   String? _error;
 
@@ -46,7 +46,6 @@ class _TeamFormState extends State<_TeamForm> {
     final e = widget.existing;
     _name = TextEditingController(text: e?.name ?? '');
     _shortName = TextEditingController(text: e?.shortName ?? '');
-    _initials = TextEditingController(text: e?.initials ?? '');
     _sport = e?.sport ?? kSports.first;
   }
 
@@ -54,24 +53,22 @@ class _TeamFormState extends State<_TeamForm> {
   void dispose() {
     _name.dispose();
     _shortName.dispose();
-    _initials.dispose();
     super.dispose();
   }
 
   void _submit() {
     final name = _name.text.trim();
-    final shortName = _shortName.text.trim();
-    final initials = _initials.text.trim();
+    final shortName = _shortName.text.trim().toUpperCase();
     if (name.isEmpty) {
       setState(() => _error = 'Team name is required');
       return;
     }
+    final resolvedShort = shortName.isEmpty ? _autoShort(name) : shortName;
     Navigator.of(context).pop(
       TeamDraft(
         id: widget.existing?.id ?? '',
         name: name,
-        shortName: shortName.isEmpty ? _autoShort(name) : shortName,
-        initials: initials.isEmpty ? _autoInitials(name) : initials,
+        shortName: resolvedShort,
         sport: _sport,
       ),
     );
@@ -115,16 +112,14 @@ class _TeamFormState extends State<_TeamForm> {
             ),
             const SizedBox(height: 10),
             _LabeledField(
-              label: 'Short name',
+              label: 'Short name (max 3)',
               controller: _shortName,
-              hint: 'NR U14',
-            ),
-            const SizedBox(height: 10),
-            _LabeledField(
-              label: 'Initials',
-              controller: _initials,
-              hint: 'NR',
-              maxLength: 3,
+              hint: 'NRA',
+              maxLength: kShortNameMaxLength,
+              inputFormatters: [
+                LengthLimitingTextInputFormatter(kShortNameMaxLength),
+                _UpperCaseFormatter(),
+              ],
             ),
             const SizedBox(height: 14),
             const WfNote('SPORT'),
@@ -201,6 +196,7 @@ class _LabeledField extends StatelessWidget {
     this.hint,
     this.autofocus = false,
     this.maxLength,
+    this.inputFormatters,
   });
 
   final String label;
@@ -208,6 +204,7 @@ class _LabeledField extends StatelessWidget {
   final String? hint;
   final bool autofocus;
   final int? maxLength;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -226,6 +223,7 @@ class _LabeledField extends StatelessWidget {
             controller: controller,
             autofocus: autofocus,
             maxLength: maxLength,
+            inputFormatters: inputFormatters,
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: const TextStyle(color: T.ink3, fontSize: 13),
@@ -243,13 +241,19 @@ class _LabeledField extends StatelessWidget {
 }
 
 String _autoShort(String name) {
-  final words = name.trim().split(RegExp(r'\s+'));
-  if (words.length == 1) return words.first;
-  return words.take(2).join(' ');
-}
-
-String _autoInitials(String name) {
   final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
   final letters = words.map((w) => w[0].toUpperCase()).join();
-  return letters.length > 3 ? letters.substring(0, 3) : letters;
+  return letters.length > kShortNameMaxLength
+      ? letters.substring(0, kShortNameMaxLength)
+      : letters;
+}
+
+class _UpperCaseFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    return newValue.copyWith(text: newValue.text.toUpperCase());
+  }
 }

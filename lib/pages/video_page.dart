@@ -11,7 +11,13 @@ class VideoPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final library = ref.watch(libraryProvider);
+    // Phone-side only: the app cannot enumerate camera storage when the
+    // device isn't connected, so the library shows only matches with at
+    // least one clip already on the phone (`all-local` or `partial`).
+    final library = ref
+        .watch(libraryProvider)
+        .where((m) => m.downloadState != 'remote')
+        .toList();
     final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
 
     final byTeam =
@@ -45,23 +51,33 @@ class VideoPage extends ConsumerWidget {
         children: [
           const Padding(
             padding: EdgeInsets.fromLTRB(14, 12, 14, 6),
-            child: WfNote('Pick a team'),
+            child: WfNote('Videos saved on this phone'),
           ),
           Expanded(
-            child: ListView.builder(
-              itemCount: tiles.length,
-              itemBuilder: (context, i) {
-                final t = tiles[i];
-                final stats = byTeam[t.id]!;
-                return _TeamLibraryRow(
-                  team: t,
-                  matches: stats.matches,
-                  clips: stats.clips,
-                  sizeGb: stats.sizeMb / 1024,
-                  recent: stats.date,
-                );
-              },
-            ),
+            child: tiles.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: WfNote(
+                        'No videos on this phone yet. Connect the camera '
+                        'to download recordings.',
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: tiles.length,
+                    itemBuilder: (context, i) {
+                      final t = tiles[i];
+                      final stats = byTeam[t.id]!;
+                      return _TeamLibraryRow(
+                        team: t,
+                        matches: stats.matches,
+                        clips: stats.clips,
+                        sizeGb: stats.sizeMb / 1024,
+                        recent: stats.date,
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -109,7 +125,7 @@ class _TeamLibraryRow extends StatelessWidget {
               ),
               alignment: Alignment.center,
               child: Text(
-                team.initials,
+                team.shortName,
                 style: const TextStyle(
                   fontFamily: T.mono,
                   fontWeight: FontWeight.w700,

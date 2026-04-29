@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/device.dart';
 import '../state/app_data.dart';
+import '../state/ble_providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
+import 'discovery_page.dart';
 
 /// The Match tab routes between Setup, Pre-match, Live and Final based on
 /// the live match phase. Drives a 1 Hz tick into the controller while the
@@ -39,6 +42,12 @@ class _MatchPageState extends ConsumerState<MatchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final activeId = ref.watch(activeCameraIdProvider);
+    final connected = activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
+    if (!connected) return const _ConnectCameraScreen();
+
     final phase = ref.watch(liveMatchProvider).phase;
     return switch (phase) {
       MatchPhase.idle => const _SetupOrPreMatchSwitcher(),
@@ -47,6 +56,73 @@ class _MatchPageState extends ConsumerState<MatchPage> {
       MatchPhase.secondHalf ||
       MatchPhase.ended => const _LiveScreen(),
     };
+  }
+}
+
+class _ConnectCameraScreen extends StatelessWidget {
+  const _ConnectCameraScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: T.bg,
+      appBar: AppBar(title: const Text('Match')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: T.fillSoft,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: T.hair),
+                ),
+                child: const Icon(
+                  Icons.videocam_off_outlined,
+                  color: T.ink2,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'No camera connected',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: T.ink,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Connect a camera to set up a match, record, and stream.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              WfButton(
+                label: 'Connect camera',
+                variant: WfButtonVariant.primary,
+                full: true,
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const DiscoveryPage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

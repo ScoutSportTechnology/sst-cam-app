@@ -6,6 +6,8 @@
 
 import 'package:flutter/foundation.dart';
 
+const int kShortNameMaxLength = 3;
+
 @immutable
 class Player {
   const Player({
@@ -26,42 +28,24 @@ class TeamRecord {
     required this.id,
     required this.name,
     required this.shortName,
-    required this.initials,
     required this.sport,
     required this.roster,
-    required this.played,
-    required this.wins,
-    required this.draws,
-    required this.losses,
-    required this.goalsFor,
-    required this.goalsAgainst,
-    required this.cleanSheets,
-    required this.cards,
-    required this.lastMatchDate,
     this.hidden = false,
   });
 
   final String id;
   final String name;
+
+  /// Short label used in row avatars and score overlays. Capped at
+  /// [kShortNameMaxLength] characters.
   final String shortName;
-  final String initials;
   final String sport;
   final List<Player> roster;
-  final int played;
-  final int wins;
-  final int draws;
-  final int losses;
-  final int goalsFor;
-  final int goalsAgainst;
-  final int cleanSheets;
-  final int cards;
-  final String lastMatchDate;
   final bool hidden;
 
   TeamRecord copyWith({
     String? name,
     String? shortName,
-    String? initials,
     String? sport,
     List<Player>? roster,
     bool? hidden,
@@ -70,22 +54,17 @@ class TeamRecord {
       id: id,
       name: name ?? this.name,
       shortName: shortName ?? this.shortName,
-      initials: initials ?? this.initials,
       sport: sport ?? this.sport,
       roster: roster ?? this.roster,
-      played: played,
-      wins: wins,
-      draws: draws,
-      losses: losses,
-      goalsFor: goalsFor,
-      goalsAgainst: goalsAgainst,
-      cleanSheets: cleanSheets,
-      cards: cards,
-      lastMatchDate: lastMatchDate,
       hidden: hidden ?? this.hidden,
     );
   }
 }
+
+/// Whether a match has already been played (counts toward stats only) or is
+/// scheduled in the future (counts toward stats AND will be recorded /
+/// streamed when the camera fires).
+enum MatchKind { past, upcoming }
 
 @immutable
 class TeamMatch {
@@ -93,18 +72,104 @@ class TeamMatch {
     required this.id,
     required this.opponent,
     required this.date,
-    required this.result, // 'W 3–1' / 'L 0–2' / 'D 1–1'
+    required this.result,
     required this.clips,
     required this.sizeMb,
+    this.kind = MatchKind.past,
   });
   final String id;
   final String opponent;
   final String date;
+
+  /// `'W 3–1'` / `'L 0–2'` / `'D 1–1'` for past matches, empty for upcoming.
   final String result;
   final int clips;
   final int sizeMb;
+  final MatchKind kind;
 
-  String get outcome => result.substring(0, 1); // W / L / D
+  /// `'W'` / `'L'` / `'D'` — empty for upcoming matches with no result yet.
+  String get outcome => result.isEmpty ? '' : result.substring(0, 1);
+
+  bool get isPlayed => kind == MatchKind.past && result.isNotEmpty;
+}
+
+/// Aggregate stats computed from a team's match list. The camera no longer
+/// stores these — they're derived from [TeamMatch] entries each time.
+@immutable
+class TeamStats {
+  const TeamStats({
+    required this.played,
+    required this.wins,
+    required this.draws,
+    required this.losses,
+    required this.goalsFor,
+    required this.goalsAgainst,
+    required this.cleanSheets,
+    required this.lastMatchDate,
+  });
+
+  final int played;
+  final int wins;
+  final int draws;
+  final int losses;
+  final int goalsFor;
+  final int goalsAgainst;
+  final int cleanSheets;
+  final String lastMatchDate;
+
+  static const empty = TeamStats(
+    played: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
+    goalsFor: 0,
+    goalsAgainst: 0,
+    cleanSheets: 0,
+    lastMatchDate: '—',
+  );
+
+  static TeamStats fromMatches(List<TeamMatch> matches) {
+    int wins = 0, draws = 0, losses = 0, gf = 0, ga = 0, cs = 0;
+    String lastDate = '—';
+    var played = 0;
+    for (final m in matches) {
+      if (!m.isPlayed) continue;
+      played++;
+      switch (m.outcome) {
+        case 'W':
+          wins++;
+        case 'L':
+          losses++;
+        case 'D':
+          draws++;
+      }
+      final score = _parseScore(m.result);
+      if (score != null) {
+        gf += score.$1;
+        ga += score.$2;
+        if (score.$2 == 0) cs++;
+      }
+      if (lastDate == '—') lastDate = m.date;
+    }
+    return TeamStats(
+      played: played,
+      wins: wins,
+      draws: draws,
+      losses: losses,
+      goalsFor: gf,
+      goalsAgainst: ga,
+      cleanSheets: cs,
+      lastMatchDate: lastDate,
+    );
+  }
+
+  /// Parse `"W 3–1"` (en-dash) into `(3, 1)`. Returns null if the format
+  /// doesn't match — e.g. the result is empty for upcoming matches.
+  static (int, int)? _parseScore(String result) {
+    final m = RegExp(r'(\d+)[–\-](\d+)').firstMatch(result);
+    if (m == null) return null;
+    return (int.parse(m.group(1)!), int.parse(m.group(2)!));
+  }
 }
 
 /// Mutable inputs for create/update. `id` is empty on create — firmware
@@ -114,14 +179,12 @@ class TeamDraft {
   const TeamDraft({
     required this.name,
     required this.shortName,
-    required this.initials,
     required this.sport,
     this.id = '',
   });
   final String id;
   final String name;
   final String shortName;
-  final String initials;
   final String sport;
 }
 
@@ -137,6 +200,24 @@ class PlayerDraft {
   final String name;
   final String position;
   final bool captain;
+}
+
+@immutable
+class TeamMatchDraft {
+  const TeamMatchDraft({
+    required this.opponent,
+    required this.date,
+    required this.kind,
+    this.result = '',
+    this.id = '',
+  });
+  final String id;
+  final String opponent;
+  final String date;
+  final MatchKind kind;
+
+  /// Required when [kind] is [MatchKind.past]; ignored for upcoming.
+  final String result;
 }
 
 /// The fixed sport vocabulary the app exposes to the user. Mirrors
