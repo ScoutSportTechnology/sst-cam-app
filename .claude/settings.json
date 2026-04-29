@@ -5,7 +5,8 @@
       "Read(//tmp/designdir/sst-cam-app/project/**)",
       "Bash(flutter analyze *)",
       "Bash(dart format *)",
-      "Bash(flutter test *)"
+      "Bash(flutter test *)",
+      "Bash(just analyze *)"
     ],
     "additionalDirectories": [
       "/root/.vscode-server/data/Machine"

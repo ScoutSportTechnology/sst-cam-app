@@ -117,16 +117,3 @@ Dark by default (`ThemeMode.dark`). Seed color `#4FC3F7` (light blue).
 Surface stack: `#0A0A0A` → `#111111` → `#1A1A1A`. Zero elevation on cards and AppBar.
 All theme tokens live in `lib/app.dart` `_buildTheme`.
 
-### Phase plan
-
-| Phase | Scope |
-| ----- | ----- |
-| 0 | Bootstrap: devcontainer, skeleton, CI green |
-| 1 | **Current** — protos, BleService interface, test double, unit tests |
-| 2 | Main page: device list, connect, telemetry display, thumbnail polling |
-| 3 | Teams page: drift DB, CRUD |
-| 4 | Match page: setup, live controls, banner events |
-| 5 | Video page: recording list via BLE, WiFi download, playback |
-| 6 | Settings page |
-| 7 | BleServiceImpl with flutter_blue_plus; hand proto/ to firmware team |
-| 8 | Hardware integration tests (needs firmware BLE ready) |

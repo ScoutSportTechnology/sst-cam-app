@@ -1,3 +1,7 @@
+// ignore_for_file: constant_identifier_names
+
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,15 +13,29 @@ import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
+import 'discovery_page.dart';
 
 /// Main tab — hero camera card + telemetry grid.
-/// Discovery is intentionally not here; it lives in Settings.
+/// Layout is identical whether or not a camera is connected; the hero card
+/// swaps its action row and the telemetry tiles fall back to placeholders.
 class MainPage extends ConsumerWidget {
   const MainPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
+    final telemetry = activeId == null
+        ? null
+        : ref.watch(telemetryProvider(activeId)).valueOrNull;
+    final connState = activeId == null
+        ? null
+        : ref.watch(connectionStateProvider(activeId)).valueOrNull;
+    final discovered =
+        ref.watch(discoveredDevicesProvider).valueOrNull ??
+        const <ScoutDevice>[];
+    final device = activeId == null
+        ? null
+        : discovered.where((d) => d.id == activeId).firstOrNull;
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -30,68 +48,21 @@ class MainPage extends ConsumerWidget {
           ),
         ],
       ),
-      body: activeId == null
-          ? const _NoCameraState()
-          : _ConnectedView(deviceId: activeId),
-    );
-  }
-}
-
-class _NoCameraState extends StatelessWidget {
-  const _NoCameraState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.videocam_off_outlined, size: 56, color: T.ink3),
-            const SizedBox(height: 14),
-            const Text(
-              'No camera connected',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: T.ink,
-              ),
-            ),
-            const SizedBox(height: 6),
-            const WfNote(
-              'Pair a ScoutCam from Settings to see live telemetry.',
-            ),
-          ],
-        ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+        children: [
+          _HeroCameraCard(
+            deviceId: activeId,
+            device: device,
+            isLive: connState == CameraConnectionState.connected,
+          ),
+          const SizedBox(height: 14),
+          const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
+          _TelemetryGrid(telemetry: telemetry),
+          const SizedBox(height: 16),
+          const Center(child: WfNote('One camera at a time')),
+        ],
       ),
-    );
-  }
-}
-
-class _ConnectedView extends ConsumerWidget {
-  const _ConnectedView({required this.deviceId});
-  final String deviceId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final telemetry = ref.watch(telemetryProvider(deviceId)).valueOrNull;
-    final connState = ref.watch(connectionStateProvider(deviceId)).valueOrNull;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-      children: [
-        _HeroCameraCard(
-          deviceId: deviceId,
-          isLive: connState == CameraConnectionState.connected,
-          isRecording: telemetry?.isRecording ?? false,
-        ),
-        const SizedBox(height: 14),
-        const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
-        _TelemetryGrid(telemetry: telemetry),
-        const SizedBox(height: 16),
-        const Center(child: WfNote('One camera at a time · pull-model BLE')),
-      ],
     );
   }
 }
@@ -99,15 +70,21 @@ class _ConnectedView extends ConsumerWidget {
 class _HeroCameraCard extends ConsumerWidget {
   const _HeroCameraCard({
     required this.deviceId,
+    required this.device,
     required this.isLive,
-    required this.isRecording,
   });
-  final String deviceId;
+  final String? deviceId;
+  final ScoutDevice? device;
   final bool isLive;
-  final bool isRecording;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final connected = deviceId != null && isLive;
+    final name = device?.name ?? 'No camera';
+    final id = deviceId ?? '—';
+    final fwRaw = device?.firmwareVersion ?? '';
+    final fw = fwRaw.isEmpty ? '—' : fwRaw;
+
     return Container(
       decoration: BoxDecoration(
         color: T.surface,
@@ -129,7 +106,7 @@ class _HeroCameraCard extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'sst-cam-01',
+                            name,
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -138,9 +115,9 @@ class _HeroCameraCard extends ConsumerWidget {
                             ),
                           ),
                           const SizedBox(height: 2),
-                          const Text(
-                            'XX:XX:XX:01 · fw 0.3.2',
-                            style: TextStyle(
+                          Text(
+                            '$id · fw $fw',
+                            style: const TextStyle(
                               fontSize: 11,
                               color: T.ink2,
                               fontFamily: T.mono,
@@ -156,17 +133,17 @@ class _HeroCameraCard extends ConsumerWidget {
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: isLive ? T.accent : T.ink3,
+                            color: connected ? T.accent : T.ink3,
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          isLive ? 'LIVE' : 'IDLE',
+                          connected ? 'LIVE' : 'IDLE',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: isLive ? T.accent : T.ink3,
+                            color: connected ? T.accent : T.ink3,
                             letterSpacing: 0.6,
                           ),
                         ),
@@ -175,26 +152,42 @@ class _HeroCameraCard extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: WfButton(
-                        label: 'Open match',
-                        variant: WfButtonVariant.primary,
-                        onPressed: () =>
-                            DefaultTabController.maybeOf(context)?.animateTo(2),
+                if (connected)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: WfButton(
+                          label: 'Open match',
+                          variant: WfButtonVariant.primary,
+                          onPressed: () => DefaultTabController.maybeOf(
+                            context,
+                          )?.animateTo(2),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    WfButton(
-                      label: 'Disconnect',
-                      onPressed: () {
-                        ref.read(bleServiceProvider).disconnect(deviceId);
-                        ref.read(activeCameraIdProvider.notifier).state = null;
-                      },
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 8),
+                      WfButton(
+                        label: 'Disconnect',
+                        onPressed: () {
+                          ref.read(bleServiceProvider).disconnect(deviceId!);
+                          ref.read(activeCameraIdProvider.notifier).state =
+                              null;
+                        },
+                      ),
+                    ],
+                  )
+                else
+                  WfButton(
+                    label: 'Connect camera',
+                    variant: WfButtonVariant.primary,
+                    full: true,
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DiscoveryPage(),
+                        ),
+                      );
+                    },
+                  ),
               ],
             ),
           ),
@@ -207,6 +200,7 @@ class _HeroCameraCard extends ConsumerWidget {
 class _TelemetryGrid extends StatelessWidget {
   const _TelemetryGrid({required this.telemetry});
   final DeviceTelemetry? telemetry;
+  static const IconSize = 15.0;
 
   @override
   Widget build(BuildContext context) {
@@ -219,22 +213,47 @@ class _TelemetryGrid extends StatelessWidget {
       crossAxisCount: 2,
       crossAxisSpacing: 8,
       mainAxisSpacing: 8,
-      childAspectRatio: 2.2,
+      childAspectRatio: 2.0,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
         _TelemetryTile(
           label: 'Battery',
           value: battery.value,
-          accessory: BatteryIndicator(level: battery.level),
+          accessory: BatteryIndicator(
+            level: battery.level,
+            size: _TelemetryGrid.IconSize,
+          ),
         ),
-        _TelemetryTile(label: 'Storage', value: storage),
+        _TelemetryTile(
+          label: 'Storage',
+          value: storage,
+          accessory: const Icon(
+            Icons.perm_media_outlined,
+            size: _TelemetryGrid.IconSize * 1.8,
+            color: T.ink2,
+          ),
+        ),
         _TelemetryTile(
           label: 'WiFi',
           value: wifi.value,
-          accessory: SignalIndicator(bars: wifi.bars),
+          accessory: SignalIndicator(
+            bars: wifi.bars,
+            size: _TelemetryGrid.IconSize,
+          ),
         ),
-        _TelemetryTile(label: 'Temp', value: temp),
+        _TelemetryTile(
+          label: 'Temp',
+          value: temp,
+          accessory: Transform.rotate(
+            angle: -math.pi / 2,
+            child: const Icon(
+              Icons.thermostat_outlined,
+              size: _TelemetryGrid.IconSize * 1.8,
+              color: T.ink2,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -253,9 +272,8 @@ class _TelemetryGrid extends StatelessWidget {
   }
 
   ({String value, int bars}) _wifi(DeviceTelemetry? t) {
-    if (t == null || t.wifiState != WifiState.connected) {
-      return (value: 'Off', bars: 0);
-    }
+    if (t == null) return (value: '—', bars: 0);
+    if (t.wifiState != WifiState.connected) return (value: 'Off', bars: 0);
     final dbm = t.wifiSignalDbm ?? -90;
     final bars = dbm > -55
         ? 4
@@ -291,12 +309,20 @@ class _TelemetryTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [WfNote(label), if (accessory != null) accessory!],
+          SizedBox(
+            height: _TelemetryGrid.IconSize * 1.8,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: WfNote(label)),
+                if (accessory != null) accessory!,
+              ],
+            ),
           ),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,

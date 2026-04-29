@@ -619,6 +619,6 @@ final liveMatchProvider = NotifierProvider<LiveMatchController, LiveMatchState>(
 );
 
 // Currently-connected camera id. UI screens pull telemetry/match streams via
-// this. For now we hard-code the first mock device id; once Settings exposes
-// a real connect flow, this becomes a setter.
-final activeCameraIdProvider = StateProvider<String?>((ref) => 'SST-CAM-001');
+// this. Set by the discovery flow on a successful connect; cleared on
+// disconnect.
+final activeCameraIdProvider = StateProvider<String?>((ref) => null);

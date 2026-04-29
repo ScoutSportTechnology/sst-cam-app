@@ -44,7 +44,7 @@ class SignalIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: size * 1.4,
+      width: size * 1.8,
       height: size,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
