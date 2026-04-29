@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/root/.vscode-server/data/Machine"
+    ]
+  }
+}

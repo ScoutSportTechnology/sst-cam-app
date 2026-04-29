@@ -26,14 +26,13 @@
             80
           ]
         },
-        "dart.flutterSdkPath": "/opt/flutter",
-        "dart.sdkPath": "/opt/flutter/bin/cache/dart-sdk"
+        "dart.flutterSdkPath": "/sdks/flutter",
+        "dart.sdkPath": "/sdks/flutter/bin/cache/dart-sdk"
       }
     }
   },
   "postCreateCommand": "script/post-create.sh",
   "postStartCommand": "script/post-start.sh",
   "waitFor": "postStartCommand",
-  "remoteUser": "root",
   "features": {}
 }

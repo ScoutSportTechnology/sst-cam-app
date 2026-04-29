@@ -1,3 +1,7 @@
+volumes:
+  claude:
+    name: claude
+
 services:
   workspace:
     build:
@@ -5,6 +9,6 @@ services:
       dockerfile: .devcontainer/Dockerfile
     volumes:
       - ..:/workspace:cached
-      - ~/.claude:/root/.claude
+      - claude:/root/.claude
       - ~/.local/bin/claude:/root/.local/bin/claude:ro
     command: sleep infinity
