@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 /// State of the WiFi Direct group between the phone and the camera.
 /// Independent of [CameraConnectionState] — the BLE link can be live while
 /// WiFi Direct is still idle, and vice versa during teardown.
@@ -24,15 +22,15 @@ class WifiDirectGroup {
   final int downloadPort;
   final String role;
 
-  /// MJPEG preview URL derived from the group descriptor.
+  /// RTSP H.264 preview URL derived from the group descriptor.
   String previewUrl({String path = '/preview'}) =>
-      'http://$groupOwnerIp:$previewPort$path';
+      'rtsp://$groupOwnerIp:$previewPort$path';
 
   /// Base URL for HTTP recording downloads.
   String downloadBaseUrl() => 'http://$groupOwnerIp:$downloadPort';
 }
 
-enum PreviewCodec { unknown, mjpegHttp, webrtcH264 }
+enum PreviewCodec { unknown, rtspH264 }
 
 class PreviewStreamDescriptor {
   const PreviewStreamDescriptor({
@@ -52,21 +50,14 @@ class PreviewStreamDescriptor {
   final int bitrateKbps;
 }
 
-/// One MJPEG frame received from the camera.
+/// Heartbeat tick from the preview pipeline. Pixel data lives inside the
+/// VLC player; this just carries a sequence number + timestamp so other UI
+/// surfaces (badge, frame counter) have a "frames flowing" signal.
 class PreviewFrame {
-  const PreviewFrame({
-    required this.sequence,
-    required this.capturedAt,
-    required this.jpegBytes,
-    required this.width,
-    required this.height,
-  });
+  const PreviewFrame({required this.sequence, required this.capturedAt});
 
   final int sequence;
   final DateTime capturedAt;
-  final Uint8List jpegBytes;
-  final int width;
-  final int height;
 }
 
 /// Rolling stats for the preview stream — useful in diagnostics and the

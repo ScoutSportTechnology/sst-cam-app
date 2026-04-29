@@ -1,21 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 
 import '../models/wifi.dart';
 import '../state/wifi_providers.dart';
 import '../theme/tokens.dart';
 import 'wf_card.dart';
 
-/// 16:9 live preview surface. Subscribes to the WiFi Direct preview stream
-/// for [deviceId] and shows the latest frame. When the group is not yet
-/// connected, shows the wireframe placeholder with a status label so users
-/// understand why nothing is moving yet.
+/// 16:9 live preview surface. Plays the camera's RTSP H.264 stream via VLC
+/// when the WiFi Direct group is up and the descriptor URL is reachable;
+/// falls back to the wireframe striped placeholder otherwise (no descriptor,
+/// VLC error, or dev-mock with a fake RTSP URL).
 ///
-/// In dev-mock the underlying [MockWifiService] emits placeholder JPEG bytes
-/// without meaningful image content, so this widget renders a stylized
-/// stripe placeholder with the live frame counter and fps overlay rather
-/// than `Image.memory`. The real impl will swap to `Image.memory(frame.jpegBytes)`
-/// once the camera is producing real frames.
+/// Lifecycle of the WiFi Direct group is owned by `wifiHandoffProvider` —
+/// this widget only reads state and the preview URL. Pass `autoStart: true`
+/// when using the widget outside the orchestrated app shell (e.g. tests).
 class LivePreviewView extends ConsumerStatefulWidget {
   const LivePreviewView({
     super.key,
@@ -23,17 +22,13 @@ class LivePreviewView extends ConsumerStatefulWidget {
     this.label,
     this.height,
     this.aspect,
-    this.autoStart = true,
+    this.autoStart = false,
   });
 
   final String? deviceId;
   final String? label;
   final double? height;
   final double? aspect;
-
-  /// When true, the widget triggers `connectGroup` on the WiFi service as
-  /// soon as it mounts with a non-null [deviceId]. Set to false when the
-  /// caller is managing the group's lifecycle elsewhere.
   final bool autoStart;
 
   @override
@@ -41,19 +36,52 @@ class LivePreviewView extends ConsumerStatefulWidget {
 }
 
 class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
-  String? _connectedFor;
+  String? _autoStartedFor;
+  VlcPlayerController? _vlc;
+  String? _vlcUrl;
+  bool _vlcError = false;
+
+  @override
+  void dispose() {
+    _vlc?.removeListener(_onVlcChange);
+    _vlc?.dispose();
+    super.dispose();
+  }
+
+  void _onVlcChange() {
+    final hasError = _vlc?.value.hasError ?? false;
+    if (hasError != _vlcError && mounted) {
+      setState(() => _vlcError = hasError);
+    }
+  }
+
+  void _swapVlcController(String url) {
+    _vlc?.removeListener(_onVlcChange);
+    // ignore: discarded_futures
+    _vlc?.dispose();
+    final controller = VlcPlayerController.network(
+      url,
+      hwAcc: HwAcc.full,
+      autoPlay: true,
+      options: VlcPlayerOptions(),
+    );
+    controller.addListener(_onVlcChange);
+    _vlc = controller;
+    _vlcUrl = url;
+    _vlcError = false;
+  }
 
   @override
   Widget build(BuildContext context) {
     final deviceId = widget.deviceId;
 
-    // Trigger group connect lazily once we know the deviceId. Idempotent —
-    // MockWifiService.connectGroup returns the existing group on re-call.
-    if (widget.autoStart && deviceId != null && _connectedFor != deviceId) {
-      _connectedFor = deviceId;
+    // Optional fallback for callers that aren't using the orchestrator (e.g.
+    // tests that mount the widget without `wifiHandoffProvider`). Idempotent
+    // because MockWifiService.connectGroup returns the existing group.
+    if (widget.autoStart && deviceId != null && _autoStartedFor != deviceId) {
+      _autoStartedFor = deviceId;
       // ignore: unawaited_futures, discarded_futures
       ref.read(wifiServiceProvider).connectGroup(deviceId).catchError((_) {
-        // State stream surfaces the failure; UI reads it via the provider.
         return const WifiDirectGroup(
           ssid: '',
           psk: '',
@@ -78,8 +106,25 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         .valueOrNull;
     final frame = ref.watch(previewFrameProvider(deviceId)).valueOrNull;
     final stats = ref.watch(previewStatsProvider(deviceId)).valueOrNull;
+    final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
-    final connected = wifiState == WifiDirectState.connected && frame != null;
+    // Spin up / replace the VLC controller whenever the descriptor URL changes.
+    final url = descriptor?.url;
+    if (url != null && url != _vlcUrl) {
+      _swapVlcController(url);
+    } else if (url == null && _vlc != null) {
+      _vlc?.removeListener(_onVlcChange);
+      // ignore: discarded_futures
+      _vlc?.dispose();
+      _vlc = null;
+      _vlcUrl = null;
+      _vlcError = false;
+    }
+
+    final wifiConnected = wifiState == WifiDirectState.connected;
+    final liveBadgeOn = wifiConnected && frame != null;
+    final showVlc = wifiConnected && _vlc != null && !_vlcError;
+
     final statusLabel = switch (wifiState) {
       WifiDirectState.starting => 'WIFI · LINKING',
       WifiDirectState.failed => 'WIFI · FAILED',
@@ -92,10 +137,17 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final body = Stack(
       fit: StackFit.expand,
       children: [
-        ThumbPlaceholder(label: connected ? null : statusLabel),
-        if (connected)
+        if (showVlc)
+          VlcPlayer(
+            controller: _vlc!,
+            aspectRatio: 16 / 9,
+            placeholder: const ThumbPlaceholder(),
+          )
+        else
+          ThumbPlaceholder(label: liveBadgeOn ? null : statusLabel),
+        if (liveBadgeOn)
           Positioned(left: 8, top: 8, child: _LiveBadge(stats: stats)),
-        if (connected)
+        if (liveBadgeOn)
           Positioned(
             right: 8,
             top: 8,

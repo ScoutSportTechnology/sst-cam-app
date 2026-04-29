@@ -47,6 +47,15 @@ final previewStatsProvider = StreamProvider.family<PreviewStats, String>((
   return ref.watch(wifiServiceProvider).previewStats(deviceId);
 });
 
+/// Current preview stream descriptor for [deviceId], or null when the WiFi
+/// Direct group isn't up. Re-evaluates whenever the WiFi connection state
+/// changes (descriptor lives behind the same group lifecycle).
+final previewDescriptorProvider =
+    Provider.family<PreviewStreamDescriptor?, String>((ref, deviceId) {
+      ref.watch(wifiConnectionStateProvider(deviceId));
+      return ref.watch(wifiServiceProvider).previewDescriptor(deviceId);
+    });
+
 /// Cross-cutting feed of every download's progress events. UI surfaces that
 /// need a "downloads in flight" badge can listen here without needing the
 /// individual handle returned by `startDownload`.

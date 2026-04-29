@@ -581,9 +581,13 @@ class _DownloadSheetState extends ConsumerState<_DownloadSheet> {
           .read(bleServiceProvider)
           .requestDownload(activeId, widget.match.id);
 
-      // WiFi — make sure the group is up, then start the HTTP download.
+      // WiFi — group lifecycle is owned by `wifiHandoffProvider`, but in
+      // case the user opens this sheet before the orchestrator's first tick
+      // has landed, defensively bring the group up here. Idempotent.
       final wifi = ref.read(wifiServiceProvider);
-      await wifi.connectGroup(activeId);
+      if (wifi.currentGroup(activeId) == null) {
+        await wifi.connectGroup(activeId);
+      }
       final handle = await wifi.startDownload(activeId, token);
 
       setState(() => _handle = handle);

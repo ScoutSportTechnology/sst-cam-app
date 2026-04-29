@@ -8,11 +8,14 @@ import 'wifi_service.dart';
 ///
 /// Phase 7 will wire this to:
 ///   * platform channels for WiFi Direct group negotiation
-///     (Android: WifiP2pManager; iOS: NEHotspotConfiguration + Multipeer)
-///   * an MJPEG client (`dio` streamed response, multipart parser) for the
-///     preview channel
+///     (Android: WifiP2pManager; iOS: NEHotspotConfiguration + Multipeer).
+///     Group credentials are received over BLE in `WifiDirectGroupResponse`
+///     (see proto/wifi.proto) — the handshake is not duplicated here.
+///   * RTSP H.264 playback via `flutter_vlc_player` driven by
+///     [previewDescriptor]; the heartbeat stream is generated locally on
+///     keyframe arrival so the UI's liveness badge has a tick source.
 ///   * a chunked HTTP download client for `startDownload`, with byte-range
-///     resume support against the Jetson's recording HTTP server
+///     resume support against the Jetson's recording HTTP server.
 class WifiServiceImpl implements WifiService {
   @override
   Future<WifiDirectGroup> connectGroup(String deviceId) {

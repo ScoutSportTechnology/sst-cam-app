@@ -10,7 +10,11 @@ import '../models/recording.dart';
 import '../models/team.dart';
 import '../models/telemetry.dart';
 
-// UUIDs defined in proto/README.md
+// UUIDs defined in proto/README.md.
+//
+// When wiring proto encoding (Phase 7), regenerate Dart bindings from
+// `proto/bluetooth.proto` (the schema was consolidated from six smaller
+// files; see proto/README.md history note).
 final _serviceUuid = Guid('A1B2C3D401000000800000805F9B34FB');
 final _cmdWriteUuid = Guid('A1B2C3D401100000800000805F9B34FB');
 final _cmdResponseUuid = Guid('A1B2C3D401200000800000805F9B34FB');

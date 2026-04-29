@@ -7,6 +7,7 @@ import 'pages/match_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/teams_page.dart';
 import 'pages/video_page.dart';
+import 'state/wifi_handoff.dart';
 import 'theme/tokens.dart';
 
 class ScoutCameraApp extends StatelessWidget {
@@ -224,6 +225,10 @@ class _AppShellState extends ConsumerState<_AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep the WiFi-Direct lifecycle controller alive for the app's lifetime.
+    // It listens to BLE connection state and auto-connects / disconnects the
+    // WiFi group; lazy NotifierProviders need a reader to run.
+    ref.watch(wifiHandoffProvider);
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
       bottomNavigationBar: NavigationBar(

@@ -24,6 +24,8 @@ dependencies:
   # Video / HTTP
   dio: ^5.7.0
   video_player: ^2.9.2
+  # RTSP H.264 preview from the camera (libVLC). Used by LivePreviewView.
+  flutter_vlc_player: ^7.4.2
 
   # Storage
   drift: ^2.20.2

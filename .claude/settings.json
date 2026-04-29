@@ -9,7 +9,8 @@
       "Bash(just analyze *)",
       "Bash(just format *)",
       "Bash(just test *)",
-      "Bash(dart analyze *)"
+      "Bash(dart analyze *)",
+      "Bash(just format-check *)"
     ],
     "additionalDirectories": [
       "/root/.vscode-server/data/Machine"

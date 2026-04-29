@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:typed_data';
 
 import '../models/recording.dart';
 import '../models/wifi.dart';
@@ -46,12 +45,12 @@ class _DownloadState {
 }
 
 /// Test double for [WifiService]. Fakes WiFi Direct pairing, emits a steady
-/// MJPEG-style frame stream at ~15 fps with synthetic frame counters, and
+/// preview-heartbeat stream at ~15 fps with synthetic sequence numbers, and
 /// drives mock recording downloads to completion at a configurable speed.
 ///
-/// Frames carry a tiny placeholder JPEG byte payload so the wire-up is
-/// end-to-end real; the UI is expected to render its own animated overlay
-/// rather than decoding the bytes.
+/// Frames carry no pixel data — RTSP H.264 frames live inside the VLC
+/// pipeline. The heartbeat is just a "frames flowing" signal for the UI's
+/// liveness badge / frame counter.
 class MockWifiService implements WifiService {
   MockWifiService({
     this.pairingDelay = const Duration(milliseconds: 900),
@@ -71,162 +70,6 @@ class MockWifiService implements WifiService {
   final Map<String, _DownloadState> _downloads = {};
   final _allProgressController =
       StreamController<VideoDownloadProgress>.broadcast();
-
-  // 1×1 white JPEG — kept tiny because the mock UI overlays its own visual.
-  // The point is wire format parity: real impl pushes JPEG bytes too.
-  static final _placeholderJpeg = Uint8List.fromList(const [
-    0xFF,
-    0xD8,
-    0xFF,
-    0xE0,
-    0x00,
-    0x10,
-    0x4A,
-    0x46,
-    0x49,
-    0x46,
-    0x00,
-    0x01,
-    0x01,
-    0x00,
-    0x00,
-    0x01,
-    0x00,
-    0x01,
-    0x00,
-    0x00,
-    0xFF,
-    0xDB,
-    0x00,
-    0x43,
-    0x00,
-    0x08,
-    0x06,
-    0x06,
-    0x07,
-    0x06,
-    0x05,
-    0x08,
-    0x07,
-    0x07,
-    0x07,
-    0x09,
-    0x09,
-    0x08,
-    0x0A,
-    0x0C,
-    0x14,
-    0x0D,
-    0x0C,
-    0x0B,
-    0x0B,
-    0x0C,
-    0x19,
-    0x12,
-    0x13,
-    0x0F,
-    0x14,
-    0x1D,
-    0x1A,
-    0x1F,
-    0x1E,
-    0x1D,
-    0x1A,
-    0x1C,
-    0x1C,
-    0x20,
-    0x24,
-    0x2E,
-    0x27,
-    0x20,
-    0x22,
-    0x2C,
-    0x23,
-    0x1C,
-    0x1C,
-    0x28,
-    0x37,
-    0x29,
-    0x2C,
-    0x30,
-    0x31,
-    0x34,
-    0x34,
-    0x34,
-    0x1F,
-    0x27,
-    0x39,
-    0x3D,
-    0x38,
-    0x32,
-    0x3C,
-    0x2E,
-    0x33,
-    0x34,
-    0x32,
-    0xFF,
-    0xC0,
-    0x00,
-    0x0B,
-    0x08,
-    0x00,
-    0x01,
-    0x00,
-    0x01,
-    0x01,
-    0x01,
-    0x11,
-    0x00,
-    0xFF,
-    0xC4,
-    0x00,
-    0x1F,
-    0x00,
-    0x00,
-    0x01,
-    0x05,
-    0x01,
-    0x01,
-    0x01,
-    0x01,
-    0x01,
-    0x01,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x01,
-    0x02,
-    0x03,
-    0x04,
-    0x05,
-    0x06,
-    0x07,
-    0x08,
-    0x09,
-    0x0A,
-    0x0B,
-    0xFF,
-    0xDA,
-    0x00,
-    0x08,
-    0x01,
-    0x01,
-    0x00,
-    0x00,
-    0x3F,
-    0x00,
-    0xFB,
-    0x26,
-    0xA2,
-    0x8A,
-    0xFF,
-    0xD9,
-  ]);
 
   // ---------------------------------------------------------------------------
   // Group lifecycle
@@ -254,14 +97,14 @@ class MockWifiService implements WifiService {
       ssid: 'DIRECT-${deviceId.substring(deviceId.length - 4)}',
       psk: 'mock-${_rng.nextInt(0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
       groupOwnerIp: '192.168.49.1',
-      previewPort: 8081,
+      previewPort: 8554,
       downloadPort: 8080,
       role: 'GROUP_OWNER',
     );
     state.group = group;
     state.previewDescriptor = PreviewStreamDescriptor(
       url: group.previewUrl(),
-      codec: PreviewCodec.mjpegHttp,
+      codec: PreviewCodec.rtspH264,
       width: 640,
       height: 360,
       fps: previewFps,
@@ -323,15 +166,8 @@ class MockWifiService implements WifiService {
     final periodMs = (1000 / previewFps).round();
     state.frameTimer = Timer.periodic(Duration(milliseconds: periodMs), (_) {
       if (state.state != WifiDirectState.connected) return;
-      final desc = state.previewDescriptor;
       state.previewController.add(
-        PreviewFrame(
-          sequence: state.sequence++,
-          capturedAt: DateTime.now(),
-          jpegBytes: _placeholderJpeg,
-          width: desc?.width ?? 640,
-          height: desc?.height ?? 360,
-        ),
+        PreviewFrame(sequence: state.sequence++, capturedAt: DateTime.now()),
       );
     });
 

@@ -8,14 +8,16 @@ the firmware team.
 
 ## Channel split
 
-| Channel       | Purpose                                            |
-| ------------- | -------------------------------------------------- |
-| BLE GATT      | Commands, telemetry, match state, thumbnails       |
-| WiFi Direct   | Live preview (MJPEG), recording downloads (HTTP)   |
+| Channel       | Purpose                                                      |
+| ------------- | ------------------------------------------------------------ |
+| BLE GATT      | Commands, telemetry, match state, thumbnails                 |
+| WiFi Direct   | Live preview (RTSP H.264 over WiFi Direct), recording downloads (HTTP) |
 
-BLE is always available. The WiFi Direct group is only brought up when the
-app needs preview video or a download — it's negotiated through BLE
-(`StartWifiDirectCommand` → `WifiDirectGroupResponse`). See `wifi.proto`.
+BLE is always available. The WiFi Direct group is brought up automatically
+once BLE pairs (the app sends `StartWifiDirectCommand` and receives
+credentials in `WifiDirectGroupResponse`). The phone joins the group on the
+WiFi side, then opens an RTSP connection to `rtsp://<group_owner_ip>:8554/preview`.
+See `wifi.proto`.
 
 ---
 
@@ -101,15 +103,17 @@ until the app acknowledges with a `ChunkAck` write (flow control).
 
 ## Schema files
 
+The BLE control schema previously lived in six files (`command`, `telemetry`,
+`match`, `recording`, `team`, `config`). They were consolidated into a single
+`bluetooth.proto` to mirror the unified `wifi.proto` style. During the merge,
+the `Sport` enum was deduplicated (the previous match.proto / team.proto
+copies disagreed on integer values — the wider match.proto set won) and
+`PlayerInfo.position` was retyped from `string` to the `PlayerPosition` enum.
+
 | File | Contents |
 | ---- | -------- |
-| `command.proto` | `Command`, `CommandResponse`, `ChunkedPayload`, `ChunkAck` |
-| `telemetry.proto` | `DeviceTelemetry`, `DeviceInfoResponse`, `WifiState`, `ThumbnailRequest/Response` |
-| `match.proto` | `MatchConfig`, `MatchControlCommand`, `ScoreUpdate`, `BannerEvent`, `MatchState` |
-| `recording.proto` | `RecordingMetadata`, `RecordingListResponse`, `DownloadToken` |
-| `team.proto` | `Team`, `Player`, `TeamMatchSummary`, team / player CRUD commands |
-| `config.proto` | `WifiConfig`, `StreamingConfig` |
-| `wifi.proto` | WiFi Direct group descriptor, preview stream descriptor, preview frame |
+| `bluetooth.proto` | All BLE control schema: framing (`ChunkedPayload`, `ChunkAck`), `Command` / `CommandResponse` envelopes, telemetry, match, recording / streaming, teams + roster, configuration |
+| `wifi.proto` | WiFi Direct group descriptor, RTSP H.264 preview descriptor, preview heartbeat |
 
 ---
 
