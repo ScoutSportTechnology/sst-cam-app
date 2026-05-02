@@ -10,7 +10,7 @@ services:
     volumes:
       - ..:/workspace:cached
       - claude:/root/.claude
-      - ~/.local/bin/claude:/root/.local/bin/claude:ro
+      #- ~/.local/bin/claude:/root/.local/bin/claude:ro
     network_mode: host
     mem_limit: 16g
     command: sleep infinity
