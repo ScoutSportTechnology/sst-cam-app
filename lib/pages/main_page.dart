@@ -316,7 +316,7 @@ class _TelemetryTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(child: WfNote(label)),
-                if (accessory != null) accessory!,
+                ?accessory,
               ],
             ),
           ),
