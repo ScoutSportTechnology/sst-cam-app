@@ -1,0 +1,557 @@
+syntax = "proto3";
+
+package sst_cam;
+
+// ---------------------------------------------------------------------------
+// SST-Cam Bluetooth (BLE GATT) protocol — single source of truth.
+//
+// Channel role:
+//   * BLE = control plane. Every command/response in this file rides the
+//     two GATT characteristics defined in proto/README.md (Command Write +
+//     Command Response Notify), wrapped in `ChunkedPayload` for MTU framing.
+//   * WiFi Direct = data plane. See wifi.proto for the bulk-data contracts
+//     (RTSP H.264 preview, HTTP recording downloads). The BLE side
+//     negotiates the WiFi group via StartWifiDirectCommand →
+//     WifiDirectGroupResponse (in wifi.proto).
+//
+// History:
+//   This file was consolidated from six smaller files (command, telemetry,
+//   match, recording, team, config). During the merge:
+//     * Sport was deduplicated to match.proto's superset (UNKNOWN, SOCCER,
+//       BASKETBALL, AMERICAN_FOOTBALL, VOLLEYBALL, HOCKEY, BASEBALL, RUGBY,
+//       OTHER). team.proto's smaller set was wire-incompatible with this
+//       superset — recompile both sides when integrating.
+//     * PlayerInfo.position retyped from `string` to the `PlayerPosition`
+//       enum. Wire-incompatible; acceptable now because the firmware speaks
+//       opaque bytes (proto integration deferred per device-OS team).
+//     * DownloadTokenResponse field numbers fixed (auth_token was 2 like
+//       http_url in the original — now 3, expires_at bumped to 4).
+//
+// Versioning policy:
+//   * Use `reserved <numbers>` and `reserved "names"` to tombstone removed
+//     fields so they are never reused.
+//   * Adding optional fields is backward-compatible.
+//   * Removing / renaming / renumbering fields requires a coordinated
+//     firmware + app release. Bump DeviceInfoResponse.protocol_version.
+// ---------------------------------------------------------------------------
+
+// ===========================================================================
+// 1. Envelope and framing
+// ===========================================================================
+
+// All payloads are wrapped in `ChunkedPayload` to handle proto messages
+// larger than the negotiated MTU (typically 512 bytes after MTU exchange).
+message ChunkedPayload {
+  string correlation_id = 1;
+  uint32 chunk_index    = 2;  // 0-based
+  uint32 total_chunks   = 3;
+  bytes  data           = 4;  // serialised Command or CommandResponse bytes
+}
+
+// Sent by the app after receiving each chunk (flow control for large
+// payloads such as thumbnails).
+message ChunkAck {
+  string correlation_id = 1;
+  uint32 chunk_index    = 2;
+}
+
+// ===========================================================================
+// 2. Top-level command / response envelopes
+// ===========================================================================
+
+message Command {
+  // Unique per-request; echoed in CommandResponse so the app can match
+  // replies. App-generated UUID v4 string.
+  string correlation_id = 1;
+
+  oneof payload {
+    // Device / info
+    GetDeviceInfoCommand  get_device_info  = 10;
+    ThumbnailRequest      thumbnail        = 11;
+
+    // Polling — app requests these at regular intervals
+    GetTelemetryCommand   get_telemetry    = 12;
+    GetMatchStateCommand  get_match_state  = 13;
+
+    // Match control
+    MatchConfigCommand    match_config     = 20;
+    MatchControlCommand   match_control    = 21;
+    ScoreUpdateCommand    score_update     = 22;
+    BannerEventCommand    banner_event     = 23;
+
+    // Recording / streaming
+    RecordingControlCommand  recording_control  = 30;
+    StreamingControlCommand  streaming_control  = 31;
+    ListRecordingsCommand    list_recordings    = 32;
+    DownloadRequestCommand   download_request   = 33;
+
+    // Configuration
+    SetWifiConfigCommand      set_wifi_config      = 40;
+    SetStreamingConfigCommand set_streaming_config = 41;
+
+    // Admin
+    FactoryResetCommand   factory_reset    = 50;
+    FirmwareUpdateCommand firmware_update  = 51;
+
+    // Teams / roster
+    ListTeamsCommand        list_teams         = 60;
+    ListTeamMatchesCommand  list_team_matches  = 61;
+    CreateTeamCommand       create_team        = 62;
+    UpdateTeamCommand       update_team        = 63;
+    DeleteTeamCommand       delete_team        = 64;
+    SetTeamHiddenCommand    set_team_hidden    = 65;
+    AddPlayerCommand        add_player         = 66;
+    UpdatePlayerCommand     update_player      = 67;
+    RemovePlayerCommand     remove_player      = 68;
+    AddTeamMatchCommand     add_team_match     = 69;
+    RemoveTeamMatchCommand  remove_team_match  = 70;
+
+    // Sport setups (per-camera time presets)
+    ListSportPresetsCommand   list_sport_presets   = 80;
+    CreateSportPresetCommand  create_sport_preset  = 81;
+    UpdateSportPresetCommand  update_sport_preset  = 82;
+    DeleteSportPresetCommand  delete_sport_preset  = 83;
+  }
+}
+
+message CommandResponse {
+  string         correlation_id = 1;
+  ResponseStatus status         = 2;
+  string         error_message  = 3;  // non-empty only when status != OK
+
+  oneof payload {
+    DeviceInfoResponse    device_info     = 10;
+    ThumbnailResponse     thumbnail       = 11;
+    RecordingListResponse recording_list  = 12;
+    DownloadTokenResponse download_token  = 13;
+    DeviceTelemetry       telemetry       = 14;  // GetTelemetryCommand reply
+    MatchState            match_state     = 15;  // GetMatchStateCommand reply
+    TeamListResponse      team_list       = 16;
+    TeamMatchListResponse team_match_list = 17;
+    TeamResponse          team            = 18;  // create / update reply
+    PlayerResponse        player          = 19;  // add / update player reply
+    TeamMatchResponse     team_match      = 20;  // add team match reply
+    SportPresetListResponse sport_preset_list = 21;
+    SportPresetResponse     sport_preset      = 22;
+  }
+}
+
+enum ResponseStatus {
+  OK          = 0;
+  ERROR       = 1;
+  TIMEOUT     = 2;
+  UNSUPPORTED = 3;
+}
+
+// ===========================================================================
+// 3. Parameterless commands
+// ===========================================================================
+
+message GetDeviceInfoCommand  {}
+message GetTelemetryCommand   {}  // app polls ~1 Hz
+message GetMatchStateCommand  {}  // app polls ~0.5 Hz
+message ListRecordingsCommand {}
+message ListTeamsCommand      {}
+message FactoryResetCommand   {}
+message FirmwareUpdateCommand {}
+
+// ===========================================================================
+// 4. Telemetry / device info
+// ===========================================================================
+
+// Returned in CommandResponse.device_info.
+message DeviceInfoResponse {
+  string device_id        = 1;
+  string name             = 2;
+  string firmware_version = 3;  // semver, e.g. "0.2.1"
+  string model            = 4;  // e.g. "Jetson Orin NX"
+  uint32 protocol_version = 5;  // bumped on breaking schema changes
+}
+
+// Returned in CommandResponse.telemetry. App polls at ~1 Hz.
+message DeviceTelemetry {
+  // Storage
+  uint64 storage_free_bytes  = 1;
+  uint64 storage_total_bytes = 2;
+
+  // Network
+  WifiState wifi_state         = 3;
+  string    wifi_ssid          = 4;  // empty when disconnected
+  sint32    wifi_signal_dbm    = 5;  // 0 when disconnected
+  bool      internet_reachable = 6;
+
+  // System health
+  float  temp_celsius   = 7;
+  float  ram_used_pct   = 8;  // 0.0–1.0
+  float  cpu_used_pct   = 9;  // 0.0–1.0
+  uint64 uptime_seconds = 10;
+
+  // Recording / streaming snapshot (mirrors MatchState but lighter weight)
+  bool is_recording = 11;
+  bool is_streaming = 12;
+}
+
+enum WifiState {
+  WIFI_UNKNOWN      = 0;
+  WIFI_DISABLED     = 1;
+  WIFI_DISCONNECTED = 2;
+  WIFI_CONNECTED    = 3;
+}
+
+// Camera preview thumbnail — BLE is too slow for video, so the app pulls
+// stills here and uses the WiFi Direct RTSP stream for live preview.
+message ThumbnailRequest {
+  uint32 width   = 1;  // suggested 160
+  uint32 height  = 2;  // suggested 90
+  uint32 quality = 3;  // JPEG quality 0–100, suggested 60
+}
+
+message ThumbnailResponse {
+  // Chunks are reassembled by the app using ChunkedPayload.
+  bytes  jpeg_bytes        = 1;
+  uint64 capture_timestamp = 2;  // unix millis
+}
+
+// ===========================================================================
+// 5. Shared enums
+// ===========================================================================
+
+// Canonical Sport enum (superset of historical match.proto values).
+enum Sport {
+  SPORT_UNKNOWN           = 0;
+  SPORT_SOCCER            = 1;
+  SPORT_BASKETBALL        = 2;
+  SPORT_AMERICAN_FOOTBALL = 3;
+  SPORT_VOLLEYBALL        = 4;
+  SPORT_HOCKEY            = 5;
+  SPORT_BASEBALL          = 6;
+  SPORT_RUGBY             = 7;
+  SPORT_OTHER             = 99;
+}
+
+enum PlayerPosition {
+  POSITION_UNKNOWN  = 0;
+  POSITION_KEEPER   = 1;
+  POSITION_DEFENDER = 2;
+  POSITION_MID      = 3;
+  POSITION_FORWARD  = 4;
+  POSITION_OTHER    = 99;
+}
+
+// ===========================================================================
+// 6. Match
+// ===========================================================================
+
+message MatchConfigCommand {
+  Sport               sport           = 1;
+  uint32              period_length_s = 2;
+  uint32              num_periods     = 3;
+  TeamInfo            team_a          = 4;
+  TeamInfo            team_b          = 5;
+  repeated PlayerInfo roster_a        = 6;
+  repeated PlayerInfo roster_b        = 7;
+}
+
+message TeamInfo {
+  string id        = 1;
+  string name      = 2;
+  string color_hex = 3;  // e.g. "#1A73E8"
+}
+
+message PlayerInfo {
+  string         id       = 1;
+  string         name     = 2;
+  uint32         number   = 3;
+  PlayerPosition position = 4;
+}
+
+message MatchControlCommand {
+  MatchControlAction action = 1;
+}
+
+enum MatchControlAction {
+  MATCH_ACTION_UNKNOWN = 0;
+  MATCH_START          = 1;
+  MATCH_STOP           = 2;
+  MATCH_PAUSE          = 3;
+  MATCH_RESUME         = 4;
+  MATCH_NEXT_PERIOD    = 5;
+}
+
+message ScoreUpdateCommand {
+  string team_id = 1;  // must match TeamInfo.id from MatchConfigCommand
+  sint32 delta   = 2;  // +1 goal, -1 disallowed goal, etc.
+}
+
+message BannerEventCommand {
+  string              template_id = 1;  // e.g. "goal", "foul", "substitution"
+  map<string, string> params      = 2;  // {"player_name": "Raul", "number": "10"}
+  uint32              duration_s  = 3;
+  string              player_id   = 4;  // optional; links to PlayerInfo
+}
+
+// Returned via GetMatchStateCommand polling.
+message MatchState {
+  MatchStatus status          = 1;
+  uint32      current_period  = 2;  // 1-based
+  uint32      time_remaining_s = 3;
+  uint32      score_a         = 4;
+  uint32      score_b         = 5;
+  string      team_a_id       = 6;
+  string      team_b_id       = 7;
+  uint64      updated_at      = 8;  // unix millis
+}
+
+enum MatchStatus {
+  MATCH_STATUS_UNKNOWN = 0;
+  MATCH_NOT_STARTED    = 1;
+  MATCH_ACTIVE         = 2;
+  MATCH_PAUSED         = 3;
+  MATCH_HALF_TIME      = 4;
+  MATCH_FINISHED       = 5;
+}
+
+// ===========================================================================
+// 7. Recording / streaming
+// ===========================================================================
+
+message RecordingControlCommand {
+  RecordingAction action = 1;
+}
+
+enum RecordingAction {
+  RECORDING_ACTION_UNKNOWN = 0;
+  RECORDING_START          = 1;
+  RECORDING_STOP           = 2;
+}
+
+message StreamingControlCommand {
+  StreamingAction action      = 1;
+  string          destination = 2;  // RTMP URL (pre-built with key by the app)
+}
+
+enum StreamingAction {
+  STREAMING_ACTION_UNKNOWN = 0;
+  STREAMING_START          = 1;
+  STREAMING_STOP           = 2;
+}
+
+// One entry per recorded file on the Jetson.
+message RecordingMetadata {
+  string id           = 1;
+  uint64 duration_s   = 2;
+  uint64 size_bytes   = 3;
+  uint64 started_at   = 4;  // unix millis
+  string sport        = 5;  // human-readable label
+  string teams        = 6;  // e.g. "Team A vs Team B"
+  string thumbnail_id = 7;  // optional per-recording thumbnail handle
+}
+
+message RecordingListResponse {
+  repeated RecordingMetadata recordings = 1;
+}
+
+// The Jetson serves video over WiFi Direct (HTTP/1.1 with byte-range support);
+// BLE is used only to obtain a short-lived URL + bearer token.
+message DownloadRequestCommand {
+  string recording_id = 1;
+}
+
+message DownloadTokenResponse {
+  string recording_id = 1;
+  string http_url     = 2;  // e.g. "http://192.168.49.1:8080/recordings/abc.mp4"
+  string auth_token   = 3;  // Bearer token; short-lived (~15 min)
+  uint64 expires_at   = 4;  // unix millis
+}
+
+// ===========================================================================
+// 8. Teams / roster — camera-owned data, only one phone connected at a time
+// ===========================================================================
+
+message Player {
+  uint32         number   = 1;  // jersey number, unique within team
+  string         name     = 2;
+  PlayerPosition position = 3;
+  bool           captain  = 4;
+}
+
+message Team {
+  string          id         = 1;  // assigned by firmware on create
+  string          name       = 2;
+  string          short_name = 3;  // e.g. "NR U14" — used in compact rows
+  string          initials   = 4;  // 2-3 chars for avatar fallback
+  Sport           sport      = 5;
+  bool            hidden     = 6;  // soft-hide; firmware keeps the team
+  repeated Player roster     = 7;
+  TeamSeasonStats stats      = 8;  // optional cached season totals
+  string          last_match = 9;  // human-readable date of latest match
+}
+
+message TeamSeasonStats {
+  uint32 played        = 1;
+  uint32 wins          = 2;
+  uint32 draws         = 3;
+  uint32 losses        = 4;
+  uint32 goals_for     = 5;
+  uint32 goals_against = 6;
+  uint32 clean_sheets  = 7;
+  uint32 cards         = 8;
+}
+
+// Per-team match history — the video library is pulled separately via
+// ListRecordingsCommand.
+//
+// `kind` distinguishes past results from upcoming/scheduled matches.
+// `num_periods` and `period_length_s` carry the materialized time config
+// (copied from the chosen SportPreset, or supplied directly when the user
+// picks a custom config); both are 0 for past entries that pre-date the
+// field.
+message TeamMatchSummary {
+  string id              = 1;
+  string opponent        = 2;
+  string date            = 3;  // human-readable; firmware decides format
+  string result          = 4;  // 'W 3–1', 'L 0–2', 'D 1–1' — empty for upcoming
+  uint32 clips           = 5;
+  uint32 size_mb         = 6;
+  TeamMatchKind kind     = 7;
+  uint32 num_periods     = 8;
+  uint32 period_length_s = 9;
+}
+
+enum TeamMatchKind {
+  TEAM_MATCH_KIND_UNKNOWN = 0;
+  TEAM_MATCH_PAST         = 1;
+  TEAM_MATCH_UPCOMING     = 2;
+}
+
+message ListTeamMatchesCommand {
+  string team_id = 1;
+}
+
+// Used by both create and update. On create, `id` is empty and the firmware
+// assigns one; on update, `id` is required.
+message TeamDraft {
+  string id         = 1;  // empty on create
+  string name       = 2;
+  string short_name = 3;
+  string initials   = 4;
+  Sport  sport      = 5;
+}
+
+message CreateTeamCommand { TeamDraft draft = 1; }
+message UpdateTeamCommand { TeamDraft draft = 1; }  // id required
+
+message DeleteTeamCommand    { string team_id = 1; }
+message SetTeamHiddenCommand {
+  string team_id = 1;
+  bool   hidden  = 2;
+}
+
+message PlayerDraft {
+  uint32         number   = 1;
+  string         name     = 2;
+  PlayerPosition position = 3;
+  bool           captain  = 4;
+}
+
+message AddPlayerCommand {
+  string      team_id = 1;
+  PlayerDraft draft   = 2;
+}
+
+message UpdatePlayerCommand {
+  string      team_id        = 1;
+  uint32      current_number = 2;  // identifies player; allows re-numbering
+  PlayerDraft draft          = 3;
+}
+
+message RemovePlayerCommand {
+  string team_id = 1;
+  uint32 number  = 2;
+}
+
+message TeamListResponse      { repeated Team teams = 1; }
+message TeamMatchListResponse { repeated TeamMatchSummary matches = 1; }
+message TeamResponse          { Team   team   = 1; }
+message PlayerResponse        { Player player = 1; }
+message TeamMatchResponse     { TeamMatchSummary match = 1; }
+
+// Inputs for scheduling/recording a team match. `id` is empty on create.
+// `num_periods` / `period_length_s` are required for upcoming matches,
+// ignored for past entries that only count toward stats.
+message TeamMatchDraft {
+  string id              = 1;
+  string opponent        = 2;
+  string date            = 3;
+  string result          = 4;  // ignored when kind = TEAM_MATCH_UPCOMING
+  TeamMatchKind kind     = 5;
+  uint32 num_periods     = 6;
+  uint32 period_length_s = 7;
+}
+
+message AddTeamMatchCommand    {
+  string team_id = 1;
+  TeamMatchDraft draft = 2;
+}
+
+message RemoveTeamMatchCommand {
+  string team_id  = 1;
+  string match_id = 2;
+}
+
+// ===========================================================================
+// 8b. Sport setups (presets) — saved per-camera time configurations grouped
+// by base sport. Picked at match-schedule time to materialize the match's
+// num_periods + period_length_s.
+// ===========================================================================
+
+message SportPreset {
+  string id              = 1;  // assigned by firmware on create
+  string name            = 2;
+  Sport  sport           = 3;
+  uint32 num_periods     = 4;
+  uint32 period_length_s = 5;
+  bool   built_in        = 6;  // factory defaults; not editable / deletable
+}
+
+message SportPresetDraft {
+  string id              = 1;  // empty on create
+  string name            = 2;
+  Sport  sport           = 3;
+  uint32 num_periods     = 4;
+  uint32 period_length_s = 5;
+}
+
+message ListSportPresetsCommand   {}
+message CreateSportPresetCommand  { SportPresetDraft draft = 1; }
+message UpdateSportPresetCommand  { SportPresetDraft draft = 1; }  // id required
+message DeleteSportPresetCommand  { string preset_id = 1; }
+
+message SportPresetListResponse { repeated SportPreset presets = 1; }
+message SportPresetResponse     { SportPreset preset = 1; }
+
+// ===========================================================================
+// 9. Configuration — credentials never logged by the app
+// ===========================================================================
+
+// WiFi credentials for the Jetson's outbound (cellular-tethered) network.
+// Stored on device; not used for the WiFi Direct group between phone and
+// camera (those credentials are returned in WifiDirectGroupResponse).
+message SetWifiConfigCommand {
+  string ssid     = 1;
+  string password = 2;
+}
+
+// Streaming destinations — the app collects keys and sends them to the
+// Jetson. Keys are NOT stored in the app or in version control; the Jetson
+// holds them.
+message SetStreamingConfigCommand {
+  StreamingConfig config = 1;
+}
+
+message StreamingConfig {
+  // Provide whichever destinations are configured; leave others empty.
+  string youtube_stream_key   = 1;
+  string instagram_stream_key = 2;
+  string custom_rtmp_url      = 3;  // full RTMP URL including key
+}

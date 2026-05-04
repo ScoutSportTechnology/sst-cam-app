@@ -1,30 +1,33 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// Smoke test — verifies the app boots in dev-mock with the mock BLE backend.
 
-import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:scout_camera/main.dart';
+import 'package:scout_camera/app.dart';
+import 'package:scout_camera/ble/mock_ble_service.dart';
+import 'package:scout_camera/state/ble_providers.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('app boots and shows the bottom-nav tabs', (
+    WidgetTester tester,
+  ) async {
+    final mock = MockBleService(
+      scanDeviceAppearDelays: [Duration.zero, Duration.zero],
+      connectionDelay: Duration.zero,
+      failureRate: 0.0,
+    );
+    addTearDown(mock.dispose);
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [bleServiceProvider.overrideWithValue(mock)],
+        child: const ScoutCameraApp(),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(milliseconds: 200));
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Teams'), findsOneWidget);
+    expect(find.text('Match'), findsOneWidget);
+    expect(find.text('Video'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
   });
 }

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//tmp/designdir/sst-cam-app/chats/**)",
+      "Read(//tmp/designdir/sst-cam-app/project/**)",
+      "Bash(flutter analyze *)",
+      "Bash(dart format *)",
+      "Bash(flutter test *)",
+      "Bash(just analyze *)",
+      "Bash(just format *)",
+      "Bash(just test *)",
+      "Bash(dart analyze *)",
+      "Bash(just format-check *)",
+      "Bash(git stash *)"
+    ],
+    "additionalDirectories": [
+      "/root/.vscode-server/data/Machine",
+      "/opt/android-sdk-linux/ndk/28.2.13676358"
+    ]
+  }
+}

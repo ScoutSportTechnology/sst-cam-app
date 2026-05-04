@@ -1,0 +1,40 @@
+{
+  "name": "Scout Camera — Flutter Dev",
+  "dockerComposeFile": [
+    "docker-compose.yaml"
+  ],
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dart-code.flutter",
+        "dart-code.dart-code",
+        "drblury.protobuf-vsc",
+        "dbcode.dbcode",
+        "hanwang.android-adb-wlan",
+        "diemasmichiels.emulate",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "Dart-Code.dart-code",
+        "[dart]": {
+          "editor.formatOnSave": true,
+          "editor.rulers": [
+            80
+          ]
+        },
+        "dart.flutterSdkPath": "/sdks/flutter",
+        "dart.sdkPath": "/sdks/flutter/bin/cache/dart-sdk"
+      }
+    }
+  },
+  "postCreateCommand": "script/post-create.sh",
+  "postStartCommand": "script/post-start.sh",
+  "waitFor": "postStartCommand",
+  "remoteEnv": {
+    "ADB_SERVER_SOCKET": "tcp:127.0.0.1:5037"
+  },
+  "features": {}
+}

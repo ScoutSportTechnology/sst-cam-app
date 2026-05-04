@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package sst_cam;
+
+// ---------------------------------------------------------------------------
+// SST-Cam WiFi Direct — group descriptor and live preview / download
+// contracts. BLE is the control channel (see bluetooth.proto). WiFi Direct
+// is the bulk-data channel: low-latency low-res preview from the Jetson to
+// the phone, and HTTP file downloads of recordings.
+//
+// Auto-handoff:
+//   1. App is connected over BLE.
+//   2. As soon as the BLE connection is up, the app sends
+//      StartWifiDirectCommand (defined in bluetooth.proto's Command oneof —
+//      reserved field number to be added when the device-OS team integrates).
+//   3. Firmware brings up the WiFi Direct group via wpa_supplicant and
+//      replies with WifiDirectGroupResponse below: ssid + psk + group-owner
+//      ip + ports.
+//   4. App joins the group on the Wi-Fi side and opens the preview / HTTP
+//      sockets at the addresses given.
+//
+// The phone keeps cellular for outbound internet (so the Jetson can reach
+// RTMP servers via the phone's connection). WiFi Direct is local-only.
+//
+// Stack (locked by the device-OS team):
+//   * Live preview: RTSP H.264 (NVENC) via gst-rtsp-server, served at
+//     rtsp://<group_owner_ip>:8554/preview.
+//   * BLE peripheral: BlueZ via D-Bus (sdbus-c++).
+//   * WiFi management: wpa_supplicant ctrl_iface (UNIX socket).
+//   * Wire format: opaque bytes for now; proto integration deferred.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Pairing / lifecycle commands (sent over BLE)
+// ---------------------------------------------------------------------------
+message StartWifiDirectCommand {}
+
+message StopWifiDirectCommand {}
+
+message WifiDirectGroupResponse {
+  // Credentials for the WPA2 group hosted by the Jetson. The PSK is
+  // generated per-session and shared over BLE; never hardcoded in either
+  // codebase.
+  string ssid           = 1;
+  string psk            = 2;
+  // Group-owner address that the phone connects to once it joins the group.
+  string group_owner_ip = 3;
+  // TCP port serving the RTSP H.264 preview stream (default 8554).
+  uint32 preview_port   = 4;
+  // TCP port serving recording downloads (HTTP/1.1 byte-range requests).
+  uint32 download_port  = 5;
+  // Human-readable role description for diagnostics. e.g. "GROUP_OWNER".
+  string role           = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Preview stream descriptor — also returned in WifiDirectGroupResponse but
+// kept as a separate message so the firmware can update it mid-session
+// (e.g. drop bitrate if cellular contention spikes).
+// ---------------------------------------------------------------------------
+message PreviewStreamDescriptor {
+  // Full URL the phone hands to its RTSP client.
+  // e.g. "rtsp://192.168.49.1:8554/preview"
+  string       url          = 1;
+  PreviewCodec codec        = 2;
+  uint32       width        = 3;  // suggested 640
+  uint32       height       = 4;  // suggested 360
+  uint32       fps          = 5;  // suggested 15
+  uint32       bitrate_kbps = 6;  // soft cap; 1000–2000 typical for 360p15
+}
+
+enum PreviewCodec {
+  PREVIEW_CODEC_UNKNOWN  = 0;
+  // RTSP H.264 (NVENC on Jetson) via gst-rtsp-server. Decoded by the app's
+  // RTSP client (libVLC via flutter_vlc_player).
+  PREVIEW_CODEC_RTSP_H264 = 1;
+
+  // Tombstoned older transports — never reuse these values.
+  reserved 2;
+  reserved "PREVIEW_MJPEG_HTTP", "PREVIEW_WEBRTC_H264";
+}
+
+// ---------------------------------------------------------------------------
+// Preview heartbeat — sent app-side at the codec's nominal frame rate so
+// other UI surfaces have a "frames flowing" signal without subscribing to
+// the RTSP byte stream itself. The actual H.264 frames are decoded inside
+// the RTSP client; this message carries no pixel data.
+// ---------------------------------------------------------------------------
+message PreviewFrame {
+  uint64 sequence        = 1;  // monotonic; resets on reconnect
+  uint64 capture_unix_ms = 2;
+
+  // Older drafts carried the JPEG bytes of an MJPEG frame here. RTSP H.264
+  // doesn't expose per-frame JPEG payloads at this layer — bytes live
+  // inside the VLC pipeline — so this field was removed.
+  reserved 3;
+  reserved "jpeg_bytes";
+}
+
+// ---------------------------------------------------------------------------
+// Download — the BLE DownloadRequestCommand returns a DownloadTokenResponse
+// (see bluetooth.proto) with `http_url` + `auth_token`. The phone then
+// issues an HTTP GET on the WiFi Direct link with
+// `Authorization: Bearer <auth_token>`.
+//
+// The server supports HTTP/1.1 Range requests so an interrupted download
+// can resume from the last byte. No bespoke proto needed for the body.
+// ---------------------------------------------------------------------------

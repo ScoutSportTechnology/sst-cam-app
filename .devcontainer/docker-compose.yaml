@@ -1,0 +1,16 @@
+volumes:
+  claude:
+    name: claude
+
+services:
+  workspace:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspace:cached
+      - claude:/root/.claude
+      - ~/.local/bin/claude:/root/.local/bin/claude:ro # Mount the claude CLI binary as read-only this is optional but can be useful if you have the claude CLI installed locally and want to use it inside the container without installing it again. Make sure to adjust the path if your claude CLI binary is located elsewhere.
+    network_mode: host
+    mem_limit: 16g
+    command: sleep infinity
