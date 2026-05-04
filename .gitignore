@@ -46,3 +46,6 @@ app.*.map.json
 
 # Generated protobuf Dart bindings — run `just gen-proto` to regenerate
 lib/models/proto/
+
+# Lock files
+pubspec.lock
