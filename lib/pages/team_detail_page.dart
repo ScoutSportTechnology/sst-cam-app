@@ -103,7 +103,7 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
         ),
         1 => _AddFab(
           tooltip: 'Add match',
-          onPressed: () => _addMatch(context, ref, team.id),
+          onPressed: () => _addMatch(context, ref, team),
         ),
         _ => null,
       },
@@ -185,12 +185,12 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
   Future<void> _addMatch(
     BuildContext context,
     WidgetRef ref,
-    String teamId,
+    TeamRecord team,
   ) async {
-    final draft = await showTeamMatchFormSheet(context);
+    final draft = await showTeamMatchFormSheet(context, team: team);
     if (draft == null) return;
     try {
-      await ref.read(teamsControllerProvider.notifier).addMatch(teamId, draft);
+      await ref.read(teamsControllerProvider.notifier).addMatch(team.id, draft);
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(

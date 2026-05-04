@@ -76,6 +76,8 @@ class TeamMatch {
     required this.clips,
     required this.sizeMb,
     this.kind = MatchKind.past,
+    this.numPeriods = 0,
+    this.periodLengthSeconds = 0,
   });
   final String id;
   final String opponent;
@@ -86,6 +88,12 @@ class TeamMatch {
   final int clips;
   final int sizeMb;
   final MatchKind kind;
+
+  /// Materialized time config for this match — copied from the chosen
+  /// `SportPreset` (or supplied directly when the user picks "Custom"). Both
+  /// fields are 0 for past matches that pre-date this field.
+  final int numPeriods;
+  final int periodLengthSeconds;
 
   /// `'W'` / `'L'` / `'D'` — empty for upcoming matches with no result yet.
   String get outcome => result.isEmpty ? '' : result.substring(0, 1);
@@ -210,6 +218,8 @@ class TeamMatchDraft {
     required this.kind,
     this.result = '',
     this.id = '',
+    this.numPeriods = 0,
+    this.periodLengthSeconds = 0,
   });
   final String id;
   final String opponent;
@@ -218,6 +228,12 @@ class TeamMatchDraft {
 
   /// Required when [kind] is [MatchKind.past]; ignored for upcoming.
   final String result;
+
+  /// Materialized time config — copied from the picked `SportPreset` or
+  /// entered directly when the user chose "Custom". Required for upcoming
+  /// matches; 0 for past entries that only count toward stats.
+  final int numPeriods;
+  final int periodLengthSeconds;
 }
 
 /// The fixed sport vocabulary the app exposes to the user. Mirrors

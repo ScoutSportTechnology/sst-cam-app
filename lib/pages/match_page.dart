@@ -13,10 +13,11 @@ import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
 import 'discovery_page.dart';
+import 'team_match_form_sheet.dart';
 
-/// The Match tab routes between Setup, Pre-match, Live and Final based on
-/// the live match phase. Drives a 1 Hz tick into the controller while the
-/// match is running.
+/// The Match tab routes between Landing, Setup, Pre-match, Live and Final
+/// based on user selection and the live match phase. While the match is
+/// running it drives a 1 Hz tick into the controller.
 class MatchPage extends ConsumerStatefulWidget {
   const MatchPage({super.key});
 
@@ -26,6 +27,15 @@ class MatchPage extends ConsumerStatefulWidget {
 
 class _MatchPageState extends ConsumerState<MatchPage> {
   Timer? _tick;
+
+  /// The upcoming match the user has chosen to set up / play. Null = on the
+  /// landing screen. Cleared when the user navigates back or the match ends.
+  UpcomingMatch? _selected;
+
+  /// True once the user has tapped "Start match" on the setup screen.
+  /// Drives transition Setup → Pre-match. Reset by `_reset()` when leaving
+  /// the match.
+  bool _setupConfirmed = false;
 
   @override
   void initState() {
@@ -41,6 +51,22 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     super.dispose();
   }
 
+  void _select(UpcomingMatch up) {
+    ref.read(liveMatchProvider.notifier).loadFromUpcoming(up);
+    setState(() {
+      _selected = up;
+      _setupConfirmed = false;
+    });
+  }
+
+  void _reset() {
+    ref.read(liveMatchProvider.notifier).reset();
+    setState(() {
+      _selected = null;
+      _setupConfirmed = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final activeId = ref.watch(activeCameraIdProvider);
@@ -51,15 +77,32 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     if (!connected) return const _ConnectCameraScreen();
 
     final phase = ref.watch(liveMatchProvider).phase;
-    return switch (phase) {
-      MatchPhase.idle => const _SetupOrPreMatchSwitcher(),
-      MatchPhase.firstHalf ||
-      MatchPhase.halftime ||
-      MatchPhase.secondHalf ||
-      MatchPhase.ended => const _LiveScreen(),
-    };
+    if (phase != MatchPhase.idle) {
+      return _LiveScreen(onLeave: _reset);
+    }
+
+    final selected = _selected;
+    if (selected == null) {
+      return _UpcomingListScreen(onSelect: _select);
+    }
+
+    if (!_setupConfirmed) {
+      return _SetupScreen(
+        match: selected,
+        onBack: () => setState(() => _selected = null),
+        onStart: () => setState(() => _setupConfirmed = true),
+      );
+    }
+
+    return _PreMatchScreen(
+      onBack: () => setState(() => _setupConfirmed = false),
+    );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Connect-camera empty state
+// ---------------------------------------------------------------------------
 
 class _ConnectCameraScreen extends StatelessWidget {
   const _ConnectCameraScreen();
@@ -103,7 +146,7 @@ class _ConnectCameraScreen extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Connect a camera to set up a match, record, and stream.',
+                'Connect a camera to schedule and run matches.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
               ),
@@ -126,37 +169,348 @@ class _ConnectCameraScreen extends StatelessWidget {
   }
 }
 
-class _SetupOrPreMatchSwitcher extends ConsumerStatefulWidget {
-  const _SetupOrPreMatchSwitcher();
+// ---------------------------------------------------------------------------
+// LANDING — upcoming matches list across all teams
+// ---------------------------------------------------------------------------
+
+class _UpcomingListScreen extends ConsumerWidget {
+  const _UpcomingListScreen({required this.onSelect});
+  final ValueChanged<UpcomingMatch> onSelect;
 
   @override
-  ConsumerState<_SetupOrPreMatchSwitcher> createState() =>
-      _SetupOrPreMatchSwitcherState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(upcomingMatchesProvider);
+    return Scaffold(
+      backgroundColor: T.bg,
+      appBar: AppBar(title: const Text('Match')),
+      body: async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'Could not load matches: $e',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: T.ink2, fontSize: 12),
+            ),
+          ),
+        ),
+        data: (matches) {
+          if (matches.isEmpty) {
+            return _NoUpcomingState(onSchedule: () => _schedule(context, ref));
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 80),
+            itemCount: matches.length,
+            separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
+            itemBuilder: (_, i) => _UpcomingRow(
+              match: matches[i],
+              onTap: () => onSelect(matches[i]),
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _schedule(context, ref),
+        backgroundColor: T.accent,
+        foregroundColor: T.accentInk,
+        elevation: 0,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(4)),
+        ),
+        icon: const Icon(Icons.add),
+        label: const Text('Schedule match'),
+      ),
+    );
+  }
+
+  Future<void> _schedule(BuildContext context, WidgetRef ref) async {
+    final teams =
+        ref.read(teamsControllerProvider).valueOrNull ?? const <TeamRecord>[];
+    final visible = teams.where((t) => !t.hidden).toList();
+    if (visible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add a team in the Teams tab before scheduling.'),
+        ),
+      );
+      return;
+    }
+    final team = await _pickTeam(context, visible);
+    if (team == null || !context.mounted) return;
+    final draft = await showTeamMatchFormSheet(context, team: team);
+    if (draft == null) return;
+    try {
+      await ref.read(teamsControllerProvider.notifier).addMatch(team.id, draft);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not add match: $e')));
+    }
+  }
 }
 
-class _SetupOrPreMatchSwitcherState
-    extends ConsumerState<_SetupOrPreMatchSwitcher> {
-  bool _setupConfirmed = false;
+Future<TeamRecord?> _pickTeam(BuildContext context, List<TeamRecord> teams) {
+  return showModalBottomSheet<TeamRecord>(
+    context: context,
+    backgroundColor: T.bg,
+    isScrollControlled: true,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(0, 12, 0, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: T.fillMid,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Pick a team',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: T.ink,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final t in teams)
+              InkWell(
+                onTap: () => Navigator.of(ctx).pop(t),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: T.fillSoft,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: T.hair),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          t.shortName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: T.ink2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              t.name,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: T.ink,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              t.sport,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: T.ink2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _UpcomingRow extends StatelessWidget {
+  const _UpcomingRow({required this.match, required this.onTap});
+  final UpcomingMatch match;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    if (!_setupConfirmed) {
-      return _SetupScreen(
-        onStart: () => setState(() => _setupConfirmed = true),
-      );
-    }
-    return _PreMatchScreen(
-      onBack: () => setState(() => _setupConfirmed = false),
+    final m = match.match;
+    final t = match.team;
+    final mins = m.periodLengthSeconds ~/ 60;
+    final summary = m.numPeriods > 0 && mins > 0
+        ? '${m.numPeriods} × $mins min · ${t.sport}'
+        : t.sport;
+    return Material(
+      color: T.bg,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: Border.all(color: T.accent, width: 1.4),
+                ),
+                child: const Icon(Icons.event_outlined, color: T.accent),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '${t.shortName} ${m.opponent}',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: T.ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${m.date} · $summary',
+                      style: const TextStyle(fontSize: 11, color: T.ink2),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NoUpcomingState extends StatelessWidget {
+  const _NoUpcomingState({required this.onSchedule});
+  final VoidCallback onSchedule;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: T.fillSoft,
+                shape: BoxShape.circle,
+                border: Border.all(color: T.hair),
+              ),
+              child: const Icon(
+                Icons.event_available_outlined,
+                color: T.ink2,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No upcoming matches',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: T.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Schedule a match to set it up and run it from this tab. '
+              'Past matches live in the Video and Teams tabs.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            WfButton(
+              label: 'Schedule a match',
+              variant: WfButtonVariant.primary,
+              full: true,
+              onPressed: onSchedule,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// SETUP
+// SETUP — review a scheduled match before going live
 // ---------------------------------------------------------------------------
 
+enum _Quality {
+  hd720p30('720p · 30 fps'),
+  fhd1080p30('1080p · 30 fps'),
+  fhd1080p60('1080p · 60 fps'),
+  uhd4k30('4K · 30 fps');
+
+  const _Quality(this.label);
+  final String label;
+}
+
+enum _StreamMethod {
+  youtube('YouTube Live', 'NR U14 channel · 1080p'),
+  instagram('Instagram Live', 'Connected account · 720p'),
+  local('Local network', 'mDNS · for parents on WiFi'),
+  custom('Custom RTMP', '');
+
+  const _StreamMethod(this.label, this.defaultSub);
+  final String label;
+  final String defaultSub;
+}
+
 class _SetupScreen extends ConsumerStatefulWidget {
-  const _SetupScreen({required this.onStart});
+  const _SetupScreen({
+    required this.match,
+    required this.onBack,
+    required this.onStart,
+  });
+  final UpcomingMatch match;
+  final VoidCallback onBack;
   final VoidCallback onStart;
 
   @override
@@ -166,122 +520,136 @@ class _SetupScreen extends ConsumerStatefulWidget {
 class _SetupScreenState extends ConsumerState<_SetupScreen> {
   bool _autoStart = true;
   bool _pauseOnHt = true;
-  bool _resolution = false;
-  bool _streamYoutube = true;
-  bool _streamRtmp = false;
-  bool _streamLocal = false;
+  _Quality _quality = _Quality.fhd1080p30;
+  // null = Custom (use _customPeriods + _customMinutes from match init).
+  SportPreset? _preset;
+  int _customPeriods = 2;
+  int _customPeriodSeconds = 35 * 60;
+  bool _initialized = false;
+
+  // Streaming destinations.
+  final Set<_StreamMethod> _streamMethods = {};
+  String _customRtmpUrl = '';
 
   @override
   Widget build(BuildContext context) {
     final live = ref.watch(liveMatchProvider);
     final ctl = ref.read(liveMatchProvider.notifier);
+    final team = widget.match.team;
+    final m = widget.match.match;
+    final presets = ref.watch(sportPresetsForSportProvider(team.sport));
+
+    if (!_initialized) {
+      _customPeriods = m.numPeriods > 0 ? m.numPeriods : 2;
+      _customPeriodSeconds = m.periodLengthSeconds > 0
+          ? m.periodLengthSeconds
+          : 35 * 60;
+      // Preselect a preset that matches the scheduled time config, if any.
+      _preset = presets
+          .where(
+            (p) =>
+                p.numPeriods == _customPeriods &&
+                p.periodLengthSeconds == _customPeriodSeconds,
+          )
+          .firstOrNull;
+      _initialized = true;
+    }
+
+    final periods = _preset?.numPeriods ?? _customPeriods;
+    final periodMinutes =
+        (_preset?.periodLengthSeconds ?? _customPeriodSeconds) ~/ 60;
 
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(
-        title: const Text('New match'),
+        title: const Text('Match setup'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.maybePop(context),
+          onPressed: widget.onBack,
         ),
-        actions: [TextButton(onPressed: () {}, child: const Text('Save'))],
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
-          const WfSection('Teams'),
+          const WfSection('Match'),
           _RowItem(
-            leading: const Icon(Icons.shield_outlined),
-            title: live.homeName,
-            subtitle: 'Home',
-            trailing: const Text(
-              'Change',
-              style: TextStyle(color: T.ink2, fontSize: 12),
+            leading: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: T.fillSoft,
+                shape: BoxShape.circle,
+                border: Border.all(color: T.hair),
+              ),
+              child: Text(
+                team.shortName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                  color: T.ink2,
+                ),
+              ),
             ),
+            title: team.name,
+            subtitle: 'Home',
           ),
           const Divider(height: 1, color: T.rule),
           _RowItem(
             leading: const Icon(Icons.shield_outlined),
-            title: live.awayName,
-            subtitle: 'Away',
-            trailing: const Text(
-              'Change',
-              style: TextStyle(color: T.ink2, fontSize: 12),
-            ),
+            title: m.opponent,
+            subtitle: 'Away · ${m.date}',
           ),
           const WfSection('Format'),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
             child: Wrap(
               spacing: 6,
-              children: const [
-                WfChip(label: 'Soccer', active: true),
-                WfChip(label: 'Basketball'),
-                WfChip(label: 'Hockey'),
-              ],
+              children: [WfChip(label: team.sport, active: true)],
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: WfCard(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        WfNote('Halves'),
-                        SizedBox(height: 4),
-                        Text(
-                          '2 × 35 min',
-                          style: TextStyle(
-                            color: T.ink,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+            child: WfCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const WfNote('Sport setup'),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final p in presets)
+                        GestureDetector(
+                          onTap: () => setState(() => _preset = p),
+                          child: WfChip(
+                            label: p.name,
+                            active: _preset?.id == p.id,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: WfCard(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        WfNote('Stoppage'),
-                        SizedBox(height: 4),
-                        Text(
-                          'Manual',
-                          style: TextStyle(
-                            color: T.ink,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      GestureDetector(
+                        onTap: () => _editCustom(context),
+                        child: WfChip(
+                          label: 'Custom…',
+                          active: _preset == null,
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '$periods × $periodMinutes min',
+                    style: const TextStyle(
+                      color: T.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const WfSection('Camera'),
-          _RowItem(
-            leading: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: T.accent,
-                borderRadius: BorderRadius.circular(4),
+                ],
               ),
             ),
-            title: 'sst-cam-01',
-            subtitle: 'Connected · 78% battery · 142 GB free',
-            trailing: const Icon(Icons.chevron_right, color: T.ink3, size: 18),
           ),
           const WfSection('Recording'),
           Padding(
@@ -308,10 +676,12 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
                     onChanged: (v) => setState(() => _pauseOnHt = v),
                   ),
                   const Divider(height: 1, color: T.rule),
-                  _ToggleRow(
-                    label: '1080p / 30 fps',
-                    value: _resolution,
-                    onChanged: (v) => setState(() => _resolution = v),
+                  _DropdownRow<_Quality>(
+                    label: 'Quality',
+                    value: _quality,
+                    items: _Quality.values,
+                    labelOf: (q) => q.label,
+                    onChanged: (v) => setState(() => _quality = v),
                   ),
                 ],
               ),
@@ -330,39 +700,17 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
                     value: live.streamingEnabled,
                     onChanged: ctl.setStreamingEnabled,
                   ),
-                  const Divider(height: 1, color: T.rule),
-                  _ToggleRow(
-                    label: 'YouTube Live',
-                    sub: 'NR U14 channel · 1080p',
-                    value: _streamYoutube,
-                    onChanged: (v) => setState(() => _streamYoutube = v),
-                  ),
-                  const Divider(height: 1, color: T.rule),
-                  _ToggleRow(
-                    label: 'Custom RTMP',
-                    sub: 'rtmp://stream.team.club/...',
-                    value: _streamRtmp,
-                    onChanged: (v) => setState(() => _streamRtmp = v),
-                  ),
-                  const Divider(height: 1, color: T.rule),
-                  _ToggleRow(
-                    label: 'Local network',
-                    sub: 'mDNS · for parents on WiFi',
-                    value: _streamLocal,
-                    onChanged: (v) => setState(() => _streamLocal = v),
-                  ),
+                  if (live.streamingEnabled) ...[
+                    const Divider(height: 1, color: T.rule),
+                    _StreamMethodPicker(
+                      selected: _streamMethods,
+                      customRtmpUrl: _customRtmpUrl,
+                      onSelect: _toggleStreamMethod,
+                    ),
+                  ],
                 ],
               ),
             ),
-          ),
-          _RowItem(
-            leading: const Icon(Icons.add),
-            title: 'Add destination',
-            trailing: const Text(
-              '+',
-              style: TextStyle(color: T.ink2, fontSize: 18),
-            ),
-            dense: true,
           ),
           Padding(
             padding: const EdgeInsets.all(14),
@@ -378,6 +726,363 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
       ),
     );
   }
+
+  Future<void> _toggleStreamMethod(_StreamMethod method) async {
+    final isOn = _streamMethods.contains(method);
+    if (method == _StreamMethod.custom) {
+      // Custom requires a URL — open the config modal whether enabling or
+      // editing an existing entry.
+      final url = await _showCustomRtmpModal(context, initial: _customRtmpUrl);
+      if (url == null) return; // cancelled
+      setState(() {
+        if (url.isEmpty) {
+          _streamMethods.remove(_StreamMethod.custom);
+          _customRtmpUrl = '';
+        } else {
+          _streamMethods.add(_StreamMethod.custom);
+          _customRtmpUrl = url;
+        }
+      });
+      return;
+    }
+    setState(() {
+      if (isOn) {
+        _streamMethods.remove(method);
+      } else {
+        _streamMethods.add(method);
+      }
+    });
+  }
+
+  Future<void> _editCustom(BuildContext context) async {
+    final result = await showDialog<(int, int)>(
+      context: context,
+      builder: (ctx) => _CustomFormatDialog(
+        initialPeriods: _customPeriods,
+        initialMinutes: _customPeriodSeconds ~/ 60,
+      ),
+    );
+    if (result == null) return;
+    setState(() {
+      _preset = null;
+      _customPeriods = result.$1;
+      _customPeriodSeconds = result.$2 * 60;
+    });
+  }
+}
+
+class _DropdownRow<V> extends StatelessWidget {
+  const _DropdownRow({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.labelOf,
+    required this.onChanged,
+  });
+  final String label;
+  final V value;
+  final List<V> items;
+  final String Function(V) labelOf;
+  final ValueChanged<V> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                color: T.ink,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<V>(
+              value: value,
+              isDense: true,
+              dropdownColor: T.surface,
+              style: const TextStyle(fontSize: 13, color: T.ink),
+              icon: const Icon(Icons.expand_more, size: 16, color: T.ink2),
+              items: [
+                for (final item in items)
+                  DropdownMenuItem(value: item, child: Text(labelOf(item))),
+              ],
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StreamMethodPicker extends StatelessWidget {
+  const _StreamMethodPicker({
+    required this.selected,
+    required this.customRtmpUrl,
+    required this.onSelect,
+  });
+  final Set<_StreamMethod> selected;
+  final String customRtmpUrl;
+  final void Function(_StreamMethod) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const WfNote('DESTINATIONS'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final m in _StreamMethod.values)
+                GestureDetector(
+                  onTap: () => onSelect(m),
+                  child: WfChip(
+                    label: m == _StreamMethod.custom && customRtmpUrl.isNotEmpty
+                        ? 'Custom RTMP · configured'
+                        : m.label,
+                    active: selected.contains(m),
+                  ),
+                ),
+            ],
+          ),
+          if (selected.isEmpty) ...[
+            const SizedBox(height: 8),
+            const WfNote('Pick one or more destinations to stream to.'),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+Future<String?> _showCustomRtmpModal(
+  BuildContext context, {
+  required String initial,
+}) {
+  final controller = TextEditingController(text: initial);
+  String? error;
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: T.bg,
+    isScrollControlled: true,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setSt) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: T.fillMid,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Custom RTMP',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: T.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Full RTMP URL including stream key. Stored on the camera, '
+                    'never logged by the app.',
+                    style: TextStyle(fontSize: 11, color: T.ink2, height: 1.4),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: T.fillSoft,
+                      border: Border.all(color: T.hair),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: TextField(
+                      controller: controller,
+                      autofocus: true,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        hintText: 'rtmp://stream.example.com/app/key',
+                        hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                        border: InputBorder.none,
+                        isCollapsed: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      style: const TextStyle(color: T.ink, fontSize: 13),
+                    ),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      error!,
+                      style: const TextStyle(color: T.danger, fontSize: 12),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      if (initial.isNotEmpty)
+                        Expanded(
+                          child: WfButton(
+                            label: 'Remove',
+                            variant: WfButtonVariant.danger,
+                            onPressed: () => Navigator.of(ctx).pop(''),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: WfButton(
+                            label: 'Cancel',
+                            onPressed: () => Navigator.of(ctx).pop(),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: WfButton(
+                          label: 'Save',
+                          variant: WfButtonVariant.primary,
+                          onPressed: () {
+                            final url = controller.text.trim();
+                            if (!url.startsWith('rtmp://') &&
+                                !url.startsWith('rtmps://')) {
+                              setSt(
+                                () => error =
+                                    'URL must start with rtmp:// or rtmps://',
+                              );
+                              return;
+                            }
+                            Navigator.of(ctx).pop(url);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _CustomFormatDialog extends StatefulWidget {
+  const _CustomFormatDialog({
+    required this.initialPeriods,
+    required this.initialMinutes,
+  });
+  final int initialPeriods;
+  final int initialMinutes;
+
+  @override
+  State<_CustomFormatDialog> createState() => _CustomFormatDialogState();
+}
+
+class _CustomFormatDialogState extends State<_CustomFormatDialog> {
+  late final TextEditingController _periods = TextEditingController(
+    text: '${widget.initialPeriods}',
+  );
+  late final TextEditingController _minutes = TextEditingController(
+    text: '${widget.initialMinutes}',
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _periods.dispose();
+    _minutes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: T.surface,
+      title: const Text('Custom format'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _periods,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Periods'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _minutes,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Period length (min)',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: const TextStyle(color: T.danger, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            final p = int.tryParse(_periods.text.trim());
+            final m = int.tryParse(_minutes.text.trim());
+            if (p == null || p < 1 || p > 9) {
+              setState(() => _error = 'Periods must be 1–9');
+              return;
+            }
+            if (m == null || m < 1 || m > 120) {
+              setState(() => _error = 'Period length must be 1–120 min');
+              return;
+            }
+            Navigator.of(context).pop((p, m));
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +1096,7 @@ class _PreMatchScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ctl = ref.read(liveMatchProvider.notifier);
+    final live = ref.watch(liveMatchProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -404,8 +1110,8 @@ class _PreMatchScreen extends ConsumerWidget {
               onBack: onBack,
             ),
             _LiveThumb(
-              homeLabel: 'NR',
-              awayLabel: 'EFC',
+              homeLabel: live.homeName,
+              awayLabel: live.awayName,
               homeScore: 0,
               awayScore: 0,
               phaseLabel: 'PRE',
@@ -499,7 +1205,8 @@ class _IdleControlGroup extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _LiveScreen extends ConsumerWidget {
-  const _LiveScreen();
+  const _LiveScreen({required this.onLeave});
+  final VoidCallback onLeave;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -529,7 +1236,7 @@ class _LiveScreen extends ConsumerWidget {
       _ => _HalfButton(
         label: 'Match ended',
         variant: WfButtonVariant.outline,
-        onPressed: ctl.reset,
+        onPressed: onLeave,
       ),
     };
 
@@ -1479,27 +2186,19 @@ class _ToggleRow extends StatelessWidget {
 }
 
 class _RowItem extends StatelessWidget {
-  const _RowItem({
-    required this.title,
-    this.subtitle,
-    this.leading,
-    this.trailing,
-    this.dense = false,
-  });
+  const _RowItem({required this.title, this.subtitle, this.leading});
   final String title;
   final String? subtitle;
   final Widget? leading;
-  final Widget? trailing;
-  final bool dense;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14, vertical: dense ? 10 : 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
           if (leading != null) ...[
-            SizedBox(width: 24, child: Center(child: leading)),
+            SizedBox(width: 36, child: Center(child: leading)),
             const SizedBox(width: 12),
           ],
           Expanded(
@@ -1521,7 +2220,6 @@ class _RowItem extends StatelessWidget {
               ],
             ),
           ),
-          if (trailing != null) trailing!,
         ],
       ),
     );

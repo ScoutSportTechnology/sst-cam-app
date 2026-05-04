@@ -7,6 +7,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
+import '../models/sport_preset.dart';
 import '../models/team.dart';
 import '../models/telemetry.dart';
 
@@ -341,6 +342,44 @@ class BleServiceImpl implements BleService {
   ) async {
     throw UnimplementedError(
       'Phase 7: removeTeamMatch not yet wired to firmware',
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sport setups (presets) — Phase 7 wires these to proto Command/Response.
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<List<SportPreset>> listSportPresets(String deviceId) async {
+    throw UnimplementedError(
+      'Phase 7: listSportPresets not yet wired to firmware',
+    );
+  }
+
+  @override
+  Future<SportPreset> createSportPreset(
+    String deviceId,
+    SportPresetDraft draft,
+  ) async {
+    throw UnimplementedError(
+      'Phase 7: createSportPreset not yet wired to firmware',
+    );
+  }
+
+  @override
+  Future<SportPreset> updateSportPreset(
+    String deviceId,
+    SportPresetDraft draft,
+  ) async {
+    throw UnimplementedError(
+      'Phase 7: updateSportPreset not yet wired to firmware',
+    );
+  }
+
+  @override
+  Future<void> deleteSportPreset(String deviceId, String presetId) async {
+    throw UnimplementedError(
+      'Phase 7: deleteSportPreset not yet wired to firmware',
     );
   }
 

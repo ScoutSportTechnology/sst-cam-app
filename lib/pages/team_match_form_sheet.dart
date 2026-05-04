@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/team.dart';
+import '../state/app_data.dart';
 import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
+import '../widgets/wf_chip.dart';
 
 /// Show the add-match form. Returns the entered draft, or null on cancel.
 /// User picks `Past match` (only counts toward stats) or `Upcoming match`
 /// (counts toward stats AND will be recorded / streamed).
-Future<TeamMatchDraft?> showTeamMatchFormSheet(BuildContext context) {
+///
+/// `team` provides the base sport used to filter sport-setup options for
+/// upcoming matches.
+Future<TeamMatchDraft?> showTeamMatchFormSheet(
+  BuildContext context, {
+  required TeamRecord team,
+}) {
   return showModalBottomSheet<TeamMatchDraft>(
     context: context,
     backgroundColor: T.bg,
@@ -18,24 +26,30 @@ Future<TeamMatchDraft?> showTeamMatchFormSheet(BuildContext context) {
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: const _MatchForm(),
+      child: _MatchForm(team: team),
     ),
   );
 }
 
-class _MatchForm extends StatefulWidget {
-  const _MatchForm();
+class _MatchForm extends ConsumerStatefulWidget {
+  const _MatchForm({required this.team});
+  final TeamRecord team;
 
   @override
-  State<_MatchForm> createState() => _MatchFormState();
+  ConsumerState<_MatchForm> createState() => _MatchFormState();
 }
 
-class _MatchFormState extends State<_MatchForm> {
+class _MatchFormState extends ConsumerState<_MatchForm> {
   final _opponent = TextEditingController();
   final _scoreFor = TextEditingController();
   final _scoreAgainst = TextEditingController();
+  final _customPeriods = TextEditingController(text: '2');
+  final _customMinutes = TextEditingController(text: '20');
   DateTime _date = DateTime.now();
-  MatchKind _kind = MatchKind.past;
+  MatchKind _kind = MatchKind.upcoming;
+  // null => "Custom" (read time config from the two text controllers).
+  SportPreset? _preset;
+  bool _initialized = false;
   String? _error;
 
   @override
@@ -43,6 +57,8 @@ class _MatchFormState extends State<_MatchForm> {
     _opponent.dispose();
     _scoreFor.dispose();
     _scoreAgainst.dispose();
+    _customPeriods.dispose();
+    _customMinutes.dispose();
     super.dispose();
   }
 
@@ -81,7 +97,9 @@ class _MatchFormState extends State<_MatchForm> {
       setState(() => _error = 'Opponent is required');
       return;
     }
-    String result = '';
+    var result = '';
+    var numPeriods = 0;
+    var periodLengthSeconds = 0;
     if (_kind == MatchKind.past) {
       final sf = int.tryParse(_scoreFor.text.trim());
       final sa = int.tryParse(_scoreAgainst.text.trim());
@@ -91,6 +109,25 @@ class _MatchFormState extends State<_MatchForm> {
       }
       final outcome = sf > sa ? 'W' : (sf < sa ? 'L' : 'D');
       result = '$outcome $sf–$sa';
+    } else {
+      // Upcoming → require time config (preset or custom).
+      if (_preset != null) {
+        numPeriods = _preset!.numPeriods;
+        periodLengthSeconds = _preset!.periodLengthSeconds;
+      } else {
+        final p = int.tryParse(_customPeriods.text.trim());
+        final m = int.tryParse(_customMinutes.text.trim());
+        if (p == null || p < 1 || p > 9) {
+          setState(() => _error = 'Periods must be 1–9');
+          return;
+        }
+        if (m == null || m < 1 || m > 120) {
+          setState(() => _error = 'Period length must be 1–120 min');
+          return;
+        }
+        numPeriods = p;
+        periodLengthSeconds = m * 60;
+      }
     }
     final opp = opponent.startsWith('vs ') ? opponent : 'vs $opponent';
     Navigator.of(context).pop(
@@ -99,14 +136,22 @@ class _MatchFormState extends State<_MatchForm> {
         date: _formatDate(_date),
         kind: _kind,
         result: result,
+        numPeriods: numPeriods,
+        periodLengthSeconds: periodLengthSeconds,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final presets = ref.watch(sportPresetsForSportProvider(widget.team.sport));
+    if (!_initialized && presets.isNotEmpty) {
+      _preset = presets.first;
+      _initialized = true;
+    }
+
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -130,6 +175,11 @@ class _MatchFormState extends State<_MatchForm> {
                 fontWeight: FontWeight.w600,
                 color: T.ink,
               ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${widget.team.name} · ${widget.team.sport}',
+              style: const TextStyle(fontSize: 12, color: T.ink2),
             ),
             const SizedBox(height: 14),
             _KindToggle(
@@ -176,6 +226,60 @@ class _MatchFormState extends State<_MatchForm> {
                   ),
                 ],
               ),
+            ] else ...[
+              const SizedBox(height: 14),
+              const WfNote('SPORT SETUP'),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final p in presets)
+                    GestureDetector(
+                      onTap: () => setState(() => _preset = p),
+                      child: WfChip(
+                        label: '${p.name} · ${p.summary}',
+                        active: _preset?.id == p.id,
+                      ),
+                    ),
+                  GestureDetector(
+                    onTap: () => setState(() => _preset = null),
+                    child: WfChip(label: 'Custom…', active: _preset == null),
+                  ),
+                ],
+              ),
+              if (_preset == null) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LabeledField(
+                        label: 'Periods',
+                        controller: _customPeriods,
+                        hint: '2',
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(1),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _LabeledField(
+                        label: 'Period length (min)',
+                        controller: _customMinutes,
+                        hint: '20',
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(3),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
             if (_error != null) ...[
               const SizedBox(height: 12),
@@ -221,19 +325,19 @@ class _KindToggle extends StatelessWidget {
       children: [
         Expanded(
           child: _kindCard(
-            'Past match',
-            'Counts toward stats only',
-            on: kind == MatchKind.past,
-            onTap: () => onChanged(MatchKind.past),
+            'Upcoming',
+            'Stats + record / stream',
+            on: kind == MatchKind.upcoming,
+            onTap: () => onChanged(MatchKind.upcoming),
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _kindCard(
-            'Upcoming',
-            'Stats + record / stream',
-            on: kind == MatchKind.upcoming,
-            onTap: () => onChanged(MatchKind.upcoming),
+            'Past match',
+            'Counts toward stats only',
+            on: kind == MatchKind.past,
+            onTap: () => onChanged(MatchKind.past),
           ),
         ),
       ],

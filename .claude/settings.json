@@ -10,10 +10,12 @@
       "Bash(just format *)",
       "Bash(just test *)",
       "Bash(dart analyze *)",
-      "Bash(just format-check *)"
+      "Bash(just format-check *)",
+      "Bash(git stash *)"
     ],
     "additionalDirectories": [
-      "/root/.vscode-server/data/Machine"
+      "/root/.vscode-server/data/Machine",
+      "/opt/android-sdk-linux/ndk/28.2.13676358"
     ]
   }
 }

@@ -103,6 +103,14 @@ message Command {
     AddPlayerCommand        add_player         = 66;
     UpdatePlayerCommand     update_player      = 67;
     RemovePlayerCommand     remove_player      = 68;
+    AddTeamMatchCommand     add_team_match     = 69;
+    RemoveTeamMatchCommand  remove_team_match  = 70;
+
+    // Sport setups (per-camera time presets)
+    ListSportPresetsCommand   list_sport_presets   = 80;
+    CreateSportPresetCommand  create_sport_preset  = 81;
+    UpdateSportPresetCommand  update_sport_preset  = 82;
+    DeleteSportPresetCommand  delete_sport_preset  = 83;
   }
 }
 
@@ -122,6 +130,9 @@ message CommandResponse {
     TeamMatchListResponse team_match_list = 17;
     TeamResponse          team            = 18;  // create / update reply
     PlayerResponse        player          = 19;  // add / update player reply
+    TeamMatchResponse     team_match      = 20;  // add team match reply
+    SportPresetListResponse sport_preset_list = 21;
+    SportPresetResponse     sport_preset      = 22;
   }
 }
 
@@ -389,13 +400,28 @@ message TeamSeasonStats {
 
 // Per-team match history — the video library is pulled separately via
 // ListRecordingsCommand.
+//
+// `kind` distinguishes past results from upcoming/scheduled matches.
+// `num_periods` and `period_length_s` carry the materialized time config
+// (copied from the chosen SportPreset, or supplied directly when the user
+// picks a custom config); both are 0 for past entries that pre-date the
+// field.
 message TeamMatchSummary {
-  string id       = 1;
-  string opponent = 2;
-  string date     = 3;  // human-readable; firmware decides format
-  string result   = 4;  // 'W 3–1', 'L 0–2', 'D 1–1'
-  uint32 clips    = 5;
-  uint32 size_mb  = 6;
+  string id              = 1;
+  string opponent        = 2;
+  string date            = 3;  // human-readable; firmware decides format
+  string result          = 4;  // 'W 3–1', 'L 0–2', 'D 1–1' — empty for upcoming
+  uint32 clips           = 5;
+  uint32 size_mb         = 6;
+  TeamMatchKind kind     = 7;
+  uint32 num_periods     = 8;
+  uint32 period_length_s = 9;
+}
+
+enum TeamMatchKind {
+  TEAM_MATCH_KIND_UNKNOWN = 0;
+  TEAM_MATCH_PAST         = 1;
+  TEAM_MATCH_UPCOMING     = 2;
 }
 
 message ListTeamMatchesCommand {
@@ -448,6 +474,61 @@ message TeamListResponse      { repeated Team teams = 1; }
 message TeamMatchListResponse { repeated TeamMatchSummary matches = 1; }
 message TeamResponse          { Team   team   = 1; }
 message PlayerResponse        { Player player = 1; }
+message TeamMatchResponse     { TeamMatchSummary match = 1; }
+
+// Inputs for scheduling/recording a team match. `id` is empty on create.
+// `num_periods` / `period_length_s` are required for upcoming matches,
+// ignored for past entries that only count toward stats.
+message TeamMatchDraft {
+  string id              = 1;
+  string opponent        = 2;
+  string date            = 3;
+  string result          = 4;  // ignored when kind = TEAM_MATCH_UPCOMING
+  TeamMatchKind kind     = 5;
+  uint32 num_periods     = 6;
+  uint32 period_length_s = 7;
+}
+
+message AddTeamMatchCommand    {
+  string team_id = 1;
+  TeamMatchDraft draft = 2;
+}
+
+message RemoveTeamMatchCommand {
+  string team_id  = 1;
+  string match_id = 2;
+}
+
+// ===========================================================================
+// 8b. Sport setups (presets) — saved per-camera time configurations grouped
+// by base sport. Picked at match-schedule time to materialize the match's
+// num_periods + period_length_s.
+// ===========================================================================
+
+message SportPreset {
+  string id              = 1;  // assigned by firmware on create
+  string name            = 2;
+  Sport  sport           = 3;
+  uint32 num_periods     = 4;
+  uint32 period_length_s = 5;
+  bool   built_in        = 6;  // factory defaults; not editable / deletable
+}
+
+message SportPresetDraft {
+  string id              = 1;  // empty on create
+  string name            = 2;
+  Sport  sport           = 3;
+  uint32 num_periods     = 4;
+  uint32 period_length_s = 5;
+}
+
+message ListSportPresetsCommand   {}
+message CreateSportPresetCommand  { SportPresetDraft draft = 1; }
+message UpdateSportPresetCommand  { SportPresetDraft draft = 1; }  // id required
+message DeleteSportPresetCommand  { string preset_id = 1; }
+
+message SportPresetListResponse { repeated SportPreset presets = 1; }
+message SportPresetResponse     { SportPreset preset = 1; }
 
 // ===========================================================================
 // 9. Configuration — credentials never logged by the app

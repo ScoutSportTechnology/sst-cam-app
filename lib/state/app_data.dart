@@ -7,9 +7,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/sport_preset.dart';
 import '../models/team.dart';
 import 'ble_providers.dart';
 
+export '../models/sport_preset.dart';
 export '../models/team.dart';
 
 class LibraryEvent {
@@ -240,6 +242,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     final svc = ref.read(bleServiceProvider);
     final created = await svc.addTeamMatch(_requireDevice(), teamId, draft);
     ref.invalidate(teamMatchesProvider(teamId));
+    ref.invalidate(upcomingMatchesProvider);
     return created;
   }
 
@@ -247,6 +250,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     final svc = ref.read(bleServiceProvider);
     await svc.removeTeamMatch(_requireDevice(), teamId, matchId);
     ref.invalidate(teamMatchesProvider(teamId));
+    ref.invalidate(upcomingMatchesProvider);
   }
 }
 
@@ -266,6 +270,101 @@ final teamMatchesProvider = FutureProvider.family<List<TeamMatch>, String>((
   if (id == null) return const [];
   return svc.listTeamMatches(id, teamId);
 });
+
+/// Joined view of an upcoming match with its owning team — used by the
+/// Match tab landing list. Built by [upcomingMatchesProvider]; not stored.
+@immutable
+class UpcomingMatch {
+  const UpcomingMatch({required this.team, required this.match});
+  final TeamRecord team;
+  final TeamMatch match;
+}
+
+/// All upcoming matches across all teams on the camera, ordered by date as
+/// returned by firmware. Aggregates per-team match lists; rebuilds when
+/// either teams or any team's matches change.
+final upcomingMatchesProvider = FutureProvider<List<UpcomingMatch>>((
+  ref,
+) async {
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final svc = ref.watch(bleServiceProvider);
+  final id = _resolveDeviceId(ref);
+  if (id == null) return const [];
+  final out = <UpcomingMatch>[];
+  for (final t in teams) {
+    if (t.hidden) continue;
+    final matches = await svc.listTeamMatches(id, t.id);
+    for (final m in matches) {
+      if (m.kind != MatchKind.upcoming) continue;
+      out.add(UpcomingMatch(team: t, match: m));
+    }
+  }
+  return out;
+});
+
+// ---------------------------------------------------------------------------
+// Sport setups (presets) — saved per-camera time configs grouped by base
+// sport. Picked at match-schedule time to materialize a match's periods.
+// ---------------------------------------------------------------------------
+
+class SportPresetsController extends AsyncNotifier<List<SportPreset>> {
+  String? get _deviceId => _resolveDeviceId(ref);
+
+  String _requireDevice() {
+    final id = _deviceId;
+    if (id == null) throw StateError('No camera connected');
+    return id;
+  }
+
+  @override
+  Future<List<SportPreset>> build() async {
+    final svc = ref.watch(bleServiceProvider);
+    final id = _deviceId;
+    if (id == null) return const [];
+    return svc.listSportPresets(id);
+  }
+
+  Future<void> _refresh() async {
+    final svc = ref.read(bleServiceProvider);
+    final id = _deviceId;
+    state = AsyncValue.data(
+      id == null ? const [] : await svc.listSportPresets(id),
+    );
+  }
+
+  Future<SportPreset> create(SportPresetDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    final created = await svc.createSportPreset(_requireDevice(), draft);
+    await _refresh();
+    return created;
+  }
+
+  Future<void> edit(SportPresetDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.updateSportPreset(_requireDevice(), draft);
+    await _refresh();
+  }
+
+  Future<void> delete(String presetId) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.deleteSportPreset(_requireDevice(), presetId);
+    await _refresh();
+  }
+}
+
+final sportPresetsControllerProvider =
+    AsyncNotifierProvider<SportPresetsController, List<SportPreset>>(
+      SportPresetsController.new,
+    );
+
+/// Sport presets filtered to a given base sport (e.g. team's sport).
+final sportPresetsForSportProvider = Provider.family<List<SportPreset>, String>(
+  (ref, sport) {
+    final all =
+        ref.watch(sportPresetsControllerProvider).valueOrNull ?? const [];
+    return all.where((p) => p.sport == sport).toList();
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Filter / search state for the Teams page.
@@ -555,6 +654,17 @@ class LiveMatchController extends Notifier<LiveMatchState> {
 
   void setTeams(String home, String away) =>
       state = state.copyWith(homeName: home, awayName: away);
+
+  /// Hydrate from an upcoming-match selection. Resets clock + events and
+  /// pulls home/away from the team and opponent strings.
+  void loadFromUpcoming(UpcomingMatch up) {
+    final home = up.team.shortName.isNotEmpty
+        ? up.team.shortName
+        : up.team.name;
+    final opp = up.match.opponent;
+    final away = opp.startsWith('vs ') ? opp.substring(3) : opp;
+    state = LiveMatchState.initial.copyWith(homeName: home, awayName: away);
+  }
 
   void reset() {
     state = LiveMatchState.initial;

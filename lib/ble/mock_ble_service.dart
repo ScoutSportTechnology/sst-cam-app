@@ -6,6 +6,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
+import '../models/sport_preset.dart';
 import '../models/team.dart';
 import '../models/telemetry.dart';
 import 'ble_service.dart';
@@ -284,6 +285,28 @@ class MockBleService implements BleService {
   static final Map<String, List<TeamMatch>> _teamMatches = {
     'nr-u14': const [
       TeamMatch(
+        id: 'nr-u14-up1',
+        opponent: 'vs Eastfield FC',
+        date: 'May 11',
+        result: '',
+        kind: MatchKind.upcoming,
+        numPeriods: 2,
+        periodLengthSeconds: 35 * 60,
+        clips: 0,
+        sizeMb: 0,
+      ),
+      TeamMatch(
+        id: 'nr-u14-up2',
+        opponent: 'vs Lakeside',
+        date: 'May 18',
+        result: '',
+        kind: MatchKind.upcoming,
+        numPeriods: 2,
+        periodLengthSeconds: 35 * 60,
+        clips: 0,
+        sizeMb: 0,
+      ),
+      TeamMatch(
         id: 'nr-u14-m1',
         opponent: 'vs Eastfield FC',
         date: 'Mar 12',
@@ -310,8 +333,45 @@ class MockBleService implements BleService {
     ],
   };
 
+  // Sport setups — built-ins are flagged so the UI hides delete on them.
+  static final List<SportPreset> _sportPresets = [
+    const SportPreset(
+      id: 'preset-soccer-std',
+      name: 'Soccer · Standard',
+      sport: 'Soccer',
+      numPeriods: 2,
+      periodLengthSeconds: 45 * 60,
+      builtIn: true,
+    ),
+    const SportPreset(
+      id: 'preset-soccer-youth',
+      name: 'Soccer · Youth (U14)',
+      sport: 'Soccer',
+      numPeriods: 2,
+      periodLengthSeconds: 35 * 60,
+      builtIn: true,
+    ),
+    const SportPreset(
+      id: 'preset-basketball-fiba',
+      name: 'Basketball · FIBA',
+      sport: 'Basketball',
+      numPeriods: 4,
+      periodLengthSeconds: 10 * 60,
+      builtIn: true,
+    ),
+    const SportPreset(
+      id: 'preset-hockey-std',
+      name: 'Hockey · Standard',
+      sport: 'Hockey',
+      numPeriods: 3,
+      periodLengthSeconds: 20 * 60,
+      builtIn: true,
+    ),
+  ];
+
   int _teamIdCounter = 0;
   int _matchIdCounter = 0;
+  int _presetIdCounter = 0;
 
   static final _fakeRecordings = [
     RecordingMetadata(
@@ -697,6 +757,8 @@ class MockBleService implements BleService {
       date: draft.date,
       result: draft.kind == MatchKind.past ? draft.result : '',
       kind: draft.kind,
+      numPeriods: draft.numPeriods,
+      periodLengthSeconds: draft.periodLengthSeconds,
       clips: 0,
       sizeMb: 0,
     );
@@ -716,6 +778,67 @@ class MockBleService implements BleService {
     final list = _teamMatches[teamId];
     if (list == null) return;
     _teamMatches[teamId] = list.where((m) => m.id != matchId).toList();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sport setups (presets)
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<List<SportPreset>> listSportPresets(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 60));
+    return List.unmodifiable(_sportPresets);
+  }
+
+  @override
+  Future<SportPreset> createSportPreset(
+    String deviceId,
+    SportPresetDraft draft,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final id =
+        'preset-${++_presetIdCounter}-${DateTime.now().millisecondsSinceEpoch}';
+    final preset = SportPreset(
+      id: id,
+      name: draft.name,
+      sport: draft.sport,
+      numPeriods: draft.numPeriods,
+      periodLengthSeconds: draft.periodLengthSeconds,
+    );
+    _sportPresets.add(preset);
+    return preset;
+  }
+
+  @override
+  Future<SportPreset> updateSportPreset(
+    String deviceId,
+    SportPresetDraft draft,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final i = _sportPresets.indexWhere((p) => p.id == draft.id);
+    if (i == -1) throw StateError('Sport preset ${draft.id} not found');
+    if (_sportPresets[i].builtIn) {
+      throw StateError('Built-in presets cannot be edited');
+    }
+    final updated = _sportPresets[i].copyWith(
+      name: draft.name,
+      sport: draft.sport,
+      numPeriods: draft.numPeriods,
+      periodLengthSeconds: draft.periodLengthSeconds,
+    );
+    _sportPresets[i] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deleteSportPreset(String deviceId, String presetId) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    final i = _sportPresets.indexWhere((p) => p.id == presetId);
+    if (i == -1) return;
+    if (_sportPresets[i].builtIn) {
+      throw StateError('Built-in presets cannot be deleted');
+    }
+    _sportPresets.removeAt(i);
   }
 
   static Player _withCaptain(Player p, bool captain) => Player(

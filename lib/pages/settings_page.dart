@@ -8,6 +8,7 @@ import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import 'diagnostics_page.dart';
 import 'discovery_page.dart';
+import 'sport_presets_page.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -56,6 +57,21 @@ class SettingsPage extends ConsumerWidget {
                 Divider(height: 1, color: T.rule),
                 _ValueRow(label: 'Auto-start at kickoff', value: 'On'),
               ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
+          WfCard(
+            padding: EdgeInsets.zero,
+            child: _NavRow(
+              leading: const Icon(Icons.sports_soccer_outlined),
+              label: 'Sport setups',
+              sub: 'Saved time configs per sport',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SportPresetsPage()),
+                );
+              },
             ),
           ),
           const SizedBox(height: 14),

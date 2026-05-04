@@ -2,6 +2,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
+import '../models/sport_preset.dart';
 import '../models/team.dart';
 import '../models/telemetry.dart';
 
@@ -132,6 +133,26 @@ abstract class BleService {
   );
 
   Future<void> removeTeamMatch(String deviceId, String teamId, String matchId);
+
+  // ---------------------------------------------------------------------------
+  // Sport setups (presets) — saved per-camera time configurations grouped by
+  // base sport. Picked at match-schedule time to materialize the match's
+  // periods + period length.
+  // ---------------------------------------------------------------------------
+
+  Future<List<SportPreset>> listSportPresets(String deviceId);
+
+  Future<SportPreset> createSportPreset(
+    String deviceId,
+    SportPresetDraft draft,
+  );
+
+  Future<SportPreset> updateSportPreset(
+    String deviceId,
+    SportPresetDraft draft,
+  );
+
+  Future<void> deleteSportPreset(String deviceId, String presetId);
 
   // ---------------------------------------------------------------------------
   // Lifecycle
