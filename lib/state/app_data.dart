@@ -202,18 +202,23 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     final svc = ref.read(bleServiceProvider);
     await svc.updateTeam(_requireDevice(), draft);
     await _refresh();
+    // Team rename / sport change can affect how upcoming matches render.
+    ref.invalidate(upcomingMatchesProvider);
   }
 
   Future<void> delete(String teamId) async {
     final svc = ref.read(bleServiceProvider);
     await svc.deleteTeam(_requireDevice(), teamId);
     await _refresh();
+    ref.invalidate(upcomingMatchesProvider);
   }
 
   Future<void> setHidden(String teamId, {required bool hidden}) async {
     final svc = ref.read(bleServiceProvider);
     await svc.setTeamHidden(_requireDevice(), teamId, hidden: hidden);
     await _refresh();
+    // Hidden teams are filtered out of the upcoming-matches list.
+    ref.invalidate(upcomingMatchesProvider);
   }
 
   Future<void> addPlayer(String teamId, PlayerDraft draft) async {
@@ -280,16 +285,21 @@ class UpcomingMatch {
   final TeamMatch match;
 }
 
-/// All upcoming matches across all teams on the camera, ordered by date as
-/// returned by firmware. Aggregates per-team match lists; rebuilds when
-/// either teams or any team's matches change.
+/// All upcoming matches across all teams on the camera, ordered by date
+/// as returned by firmware. Reads teams directly via [BleService] instead
+/// of watching [teamsControllerProvider] — that would create a circular
+/// dependency, since [TeamsController] mutations explicitly invalidate
+/// this provider when matches change.
+///
+/// Team-level mutations (edit / delete / setHidden) also invalidate this
+/// provider, see [TeamsController].
 final upcomingMatchesProvider = FutureProvider<List<UpcomingMatch>>((
   ref,
 ) async {
-  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
   final svc = ref.watch(bleServiceProvider);
   final id = _resolveDeviceId(ref);
   if (id == null) return const [];
+  final teams = await svc.listTeams(id);
   final out = <UpcomingMatch>[];
   for (final t in teams) {
     if (t.hidden) continue;
@@ -414,9 +424,15 @@ final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
 // Live match state — local mirror of what the firmware would push back over
 // BLE. The match flow drives this directly from the UI so the wireframe
 // interactions are end-to-end clickable without a real device.
+//
+// Phase model is generalized over `numPeriods`:
+//   idle         → before kickoff (pre-game; recording/streaming may be on)
+//   period       → a period is in progress; clock counts up to periodLengthSeconds
+//   periodBreak  → between periods (or after final period, awaiting end-of-match)
+//   ended        → match is over; back-arrow returns to landing
 // ---------------------------------------------------------------------------
 
-enum MatchPhase { idle, firstHalf, halftime, secondHalf, ended }
+enum MatchPhase { idle, period, periodBreak, ended }
 
 enum MatchTimer { running, paused }
 
@@ -440,30 +456,41 @@ class LiveMatchState {
     required this.phase,
     required this.timer,
     required this.rec,
+    required this.streaming,
     required this.elapsedSeconds,
+    required this.currentPeriod,
+    required this.numPeriods,
+    required this.periodLengthSeconds,
     required this.scoreHome,
     required this.scoreAway,
     required this.homeName,
     required this.awayName,
     required this.events,
-    required this.recordingEnabled,
-    required this.streamingEnabled,
   });
 
   final MatchPhase phase;
   final MatchTimer timer;
   final RecState rec;
+  final bool streaming;
+
+  /// Elapsed seconds in the current period. Resets to 0 each period.
   final int elapsedSeconds;
+
+  /// 1-based; 0 in [MatchPhase.idle].
+  final int currentPeriod;
+  final int numPeriods;
+  final int periodLengthSeconds;
+
   final int scoreHome;
   final int scoreAway;
   final String homeName;
   final String awayName;
   final List<LiveEvent> events;
-  final bool recordingEnabled;
-  final bool streamingEnabled;
 
-  bool get isLive =>
-      phase == MatchPhase.firstHalf || phase == MatchPhase.secondHalf;
+  bool get isPeriodActive => phase == MatchPhase.period;
+  bool get isLastPeriod => currentPeriod == numPeriods && numPeriods > 0;
+  bool get awaitingEndOfMatch =>
+      phase == MatchPhase.periodBreak && isLastPeriod;
 
   String get clockText {
     final m = (elapsedSeconds ~/ 60).toString().padLeft(2, '0');
@@ -471,11 +498,15 @@ class LiveMatchState {
     return '$m:$s';
   }
 
+  /// Compact phase label for the score overlay / top bar:
+  ///   PRE  · idle
+  ///   P{N} · period (e.g. P1, P2)
+  ///   BRK  · between periods
+  ///   FT   · ended
   String get phaseLabel => switch (phase) {
     MatchPhase.idle => 'PRE',
-    MatchPhase.firstHalf => '1H',
-    MatchPhase.halftime => 'HT',
-    MatchPhase.secondHalf => '2H',
+    MatchPhase.period => 'P$currentPeriod',
+    MatchPhase.periodBreak => isLastPeriod ? 'END' : 'BRK',
     MatchPhase.ended => 'FT',
   };
 
@@ -483,27 +514,31 @@ class LiveMatchState {
     MatchPhase? phase,
     MatchTimer? timer,
     RecState? rec,
+    bool? streaming,
     int? elapsedSeconds,
+    int? currentPeriod,
+    int? numPeriods,
+    int? periodLengthSeconds,
     int? scoreHome,
     int? scoreAway,
     String? homeName,
     String? awayName,
     List<LiveEvent>? events,
-    bool? recordingEnabled,
-    bool? streamingEnabled,
   }) {
     return LiveMatchState(
       phase: phase ?? this.phase,
       timer: timer ?? this.timer,
       rec: rec ?? this.rec,
+      streaming: streaming ?? this.streaming,
       elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+      currentPeriod: currentPeriod ?? this.currentPeriod,
+      numPeriods: numPeriods ?? this.numPeriods,
+      periodLengthSeconds: periodLengthSeconds ?? this.periodLengthSeconds,
       scoreHome: scoreHome ?? this.scoreHome,
       scoreAway: scoreAway ?? this.scoreAway,
       homeName: homeName ?? this.homeName,
       awayName: awayName ?? this.awayName,
       events: events ?? this.events,
-      recordingEnabled: recordingEnabled ?? this.recordingEnabled,
-      streamingEnabled: streamingEnabled ?? this.streamingEnabled,
     );
   }
 
@@ -511,14 +546,16 @@ class LiveMatchState {
     phase: MatchPhase.idle,
     timer: MatchTimer.paused,
     rec: RecState.idle,
+    streaming: false,
     elapsedSeconds: 0,
+    currentPeriod: 0,
+    numPeriods: 2,
+    periodLengthSeconds: 35 * 60,
     scoreHome: 0,
     scoreAway: 0,
     homeName: 'NR',
     awayName: 'EFC',
     events: [],
-    recordingEnabled: true,
-    streamingEnabled: true,
   );
 }
 
@@ -532,36 +569,71 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     return '$m:$r';
   }
 
-  /// Called once per second by the live page while the match is running.
+  /// Called once per second by the live page. Increments the per-period
+  /// clock when the timer is running and a period is active. When the
+  /// period length is reached the timer auto-stops and we transition to
+  /// [MatchPhase.periodBreak] (the user must explicitly end the match
+  /// from the periodBreak after the final period).
   void tick() {
+    if (state.phase != MatchPhase.period) return;
     if (state.timer != MatchTimer.running) return;
-    if (!state.isLive) return;
-    state = state.copyWith(elapsedSeconds: state.elapsedSeconds + 1);
+    final next = state.elapsedSeconds + 1;
+    if (next >= state.periodLengthSeconds && state.periodLengthSeconds > 0) {
+      _endPeriodInternal(elapsed: state.periodLengthSeconds);
+      return;
+    }
+    state = state.copyWith(elapsedSeconds: next);
   }
 
-  void startFirstHalf() {
-    if (state.phase != MatchPhase.idle) return;
+  /// Start the next period (period 1 from idle, period N+1 from break).
+  /// Optionally toggles recording / streaming on at the same time — the
+  /// kickoff modal in the UI passes the user's choices here.
+  void startPeriod({bool? startRecording, bool? startStreaming}) {
+    if (state.phase != MatchPhase.idle &&
+        state.phase != MatchPhase.periodBreak) {
+      return;
+    }
+    if (state.awaitingEndOfMatch) return; // last period already played
+    final next = state.currentPeriod + 1;
+    if (next > state.numPeriods) return;
+    final rec = startRecording == true && state.rec == RecState.idle
+        ? RecState.recording
+        : state.rec;
+    final streaming = startStreaming ?? state.streaming;
     state = state.copyWith(
-      phase: MatchPhase.firstHalf,
+      phase: MatchPhase.period,
       timer: MatchTimer.running,
-      rec: state.recordingEnabled ? RecState.recording : state.rec,
+      currentPeriod: next,
       elapsedSeconds: 0,
+      rec: rec,
+      streaming: streaming,
       events: [
+        LiveEvent(
+          clock: '00:00',
+          label: next == 1 ? 'Kickoff' : 'Start period $next',
+          kind: 'phase',
+        ),
         ...state.events,
-        const LiveEvent(clock: '00:00', label: 'Start 1st half', kind: 'phase'),
       ],
     );
   }
 
-  void endFirstHalf() {
-    if (state.phase != MatchPhase.firstHalf) return;
+  /// Manually end the current period — same effect as the auto-stop on
+  /// reaching the period length.
+  void endPeriod() {
+    if (state.phase != MatchPhase.period) return;
+    _endPeriodInternal(elapsed: state.elapsedSeconds);
+  }
+
+  void _endPeriodInternal({required int elapsed}) {
     state = state.copyWith(
-      phase: MatchPhase.halftime,
+      phase: MatchPhase.periodBreak,
       timer: MatchTimer.paused,
+      elapsedSeconds: elapsed,
       events: [
         LiveEvent(
-          clock: _fmt(state.elapsedSeconds),
-          label: 'End 1st half',
+          clock: _fmt(elapsed),
+          label: 'End period ${state.currentPeriod}',
           kind: 'phase',
         ),
         ...state.events,
@@ -569,27 +641,17 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     );
   }
 
-  void startSecondHalf() {
-    if (state.phase != MatchPhase.halftime) return;
-    state = state.copyWith(
-      phase: MatchPhase.secondHalf,
-      timer: MatchTimer.running,
-      events: [
-        LiveEvent(
-          clock: _fmt(state.elapsedSeconds),
-          label: 'Start 2nd half',
-          kind: 'phase',
-        ),
-        ...state.events,
-      ],
-    );
-  }
-
-  void endMatch() {
+  /// Final transition — only valid after the last period has ended.
+  /// `stopRecording` / `stopStreaming` reflect the user's choices in the
+  /// end-of-match modal.
+  void endMatch({bool stopRecording = true, bool stopStreaming = true}) {
+    final rec = stopRecording ? RecState.idle : state.rec;
+    final streaming = stopStreaming ? false : state.streaming;
     state = state.copyWith(
       phase: MatchPhase.ended,
       timer: MatchTimer.paused,
-      rec: RecState.idle,
+      rec: rec,
+      streaming: streaming,
       events: [
         LiveEvent(
           clock: _fmt(state.elapsedSeconds),
@@ -602,7 +664,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
   }
 
   void toggleTimer() {
-    if (!state.isLive) return;
+    if (state.phase != MatchPhase.period) return;
     state = state.copyWith(
       timer: state.timer == MatchTimer.running
           ? MatchTimer.paused
@@ -610,10 +672,20 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     );
   }
 
+  // Recording — independent of the period timer; can run during pre-game
+  // and post-game.
+  void startRecording() {
+    if (state.rec == RecState.idle) {
+      state = state.copyWith(rec: RecState.recording);
+    }
+  }
+
   void toggleRecPause() {
     if (state.rec == RecState.recording) {
       state = state.copyWith(rec: RecState.paused);
     } else if (state.rec == RecState.paused) {
+      state = state.copyWith(rec: RecState.recording);
+    } else {
       state = state.copyWith(rec: RecState.recording);
     }
   }
@@ -621,6 +693,9 @@ class LiveMatchController extends Notifier<LiveMatchState> {
   void stopRecording() {
     state = state.copyWith(rec: RecState.idle);
   }
+
+  // Streaming — independent of the period timer.
+  void setStreaming(bool on) => state = state.copyWith(streaming: on);
 
   void addEvent({
     required String type,
@@ -646,24 +721,28 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     );
   }
 
-  void setRecordingEnabled(bool v) =>
-      state = state.copyWith(recordingEnabled: v);
-
-  void setStreamingEnabled(bool v) =>
-      state = state.copyWith(streamingEnabled: v);
-
   void setTeams(String home, String away) =>
       state = state.copyWith(homeName: home, awayName: away);
 
   /// Hydrate from an upcoming-match selection. Resets clock + events and
-  /// pulls home/away from the team and opponent strings.
+  /// pulls home/away from the team and opponent strings, plus the
+  /// scheduled time config (numPeriods, periodLengthSeconds).
   void loadFromUpcoming(UpcomingMatch up) {
     final home = up.team.shortName.isNotEmpty
         ? up.team.shortName
         : up.team.name;
     final opp = up.match.opponent;
     final away = opp.startsWith('vs ') ? opp.substring(3) : opp;
-    state = LiveMatchState.initial.copyWith(homeName: home, awayName: away);
+    final periods = up.match.numPeriods > 0 ? up.match.numPeriods : 2;
+    final periodLen = up.match.periodLengthSeconds > 0
+        ? up.match.periodLengthSeconds
+        : 35 * 60;
+    state = LiveMatchState.initial.copyWith(
+      homeName: home,
+      awayName: away,
+      numPeriods: periods,
+      periodLengthSeconds: periodLen,
+    );
   }
 
   void reset() {

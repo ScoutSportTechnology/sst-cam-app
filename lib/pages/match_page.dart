@@ -15,9 +15,11 @@ import '../widgets/wf_chip.dart';
 import 'discovery_page.dart';
 import 'team_match_form_sheet.dart';
 
-/// The Match tab routes between Landing, Setup, Pre-match, Live and Final
-/// based on user selection and the live match phase. While the match is
-/// running it drives a 1 Hz tick into the controller.
+/// The Match tab routes between Landing → Setup → Session based on user
+/// selection. The Session screen unifies the old pre-match and live views
+/// since the user can run pre-game / post-game recording independently of
+/// the period timer. While the match is active it drives a 1 Hz tick into
+/// the controller.
 class MatchPage extends ConsumerStatefulWidget {
   const MatchPage({super.key});
 
@@ -29,12 +31,12 @@ class _MatchPageState extends ConsumerState<MatchPage> {
   Timer? _tick;
 
   /// The upcoming match the user has chosen to set up / play. Null = on the
-  /// landing screen. Cleared when the user navigates back or the match ends.
+  /// landing screen. Cleared by `_leave()` when the user pops out of an
+  /// ended match.
   UpcomingMatch? _selected;
 
   /// True once the user has tapped "Start match" on the setup screen.
-  /// Drives transition Setup → Pre-match. Reset by `_reset()` when leaving
-  /// the match.
+  /// Drives the Setup → Session transition.
   bool _setupConfirmed = false;
 
   @override
@@ -59,7 +61,26 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     });
   }
 
-  void _reset() {
+  /// Pop out of the live session back to landing. When the match ended
+  /// naturally we also remove the upcoming entry from the camera so it
+  /// no longer shows on the landing list.
+  ///
+  /// Order matters: we remove the camera-side entry FIRST and only then
+  /// flip the local state. Otherwise the landing rebuild can race with
+  /// the (mock-delayed) removal and briefly render the just-played match.
+  Future<void> _leave({required bool wasEnded}) async {
+    final selected = _selected;
+    if (wasEnded && selected != null) {
+      try {
+        await ref
+            .read(teamsControllerProvider.notifier)
+            .removeMatch(selected.team.id, selected.match.id);
+      } catch (_) {
+        // Non-fatal: the match may already be gone or the camera may
+        // have disconnected. We still want to leave the session.
+      }
+    }
+    if (!mounted) return;
     ref.read(liveMatchProvider.notifier).reset();
     setState(() {
       _selected = null;
@@ -76,26 +97,28 @@ class _MatchPageState extends ConsumerState<MatchPage> {
             CameraConnectionState.connected;
     if (!connected) return const _ConnectCameraScreen();
 
-    final phase = ref.watch(liveMatchProvider).phase;
-    if (phase != MatchPhase.idle) {
-      return _LiveScreen(onLeave: _reset);
-    }
-
     final selected = _selected;
-    if (selected == null) {
-      return _UpcomingListScreen(onSelect: _select);
-    }
 
-    if (!_setupConfirmed) {
-      return _SetupScreen(
+    // Live state owns the truth about whether the user is mid-session.
+    // If a match is loaded and we've passed setup, render the session
+    // screen for any non-idle phase OR the pre-game (idle) phase too.
+    if (selected != null && _setupConfirmed) {
+      return _SessionScreen(
         match: selected,
-        onBack: () => setState(() => _selected = null),
-        onStart: () => setState(() => _setupConfirmed = true),
+        onLeave: () => _leave(
+          wasEnded: ref.read(liveMatchProvider).phase == MatchPhase.ended,
+        ),
       );
     }
 
-    return _PreMatchScreen(
-      onBack: () => setState(() => _setupConfirmed = false),
+    if (selected == null) {
+      return _LandingScreen(onSelect: _select);
+    }
+
+    return _SetupScreen(
+      match: selected,
+      onBack: () => setState(() => _selected = null),
+      onStart: () => setState(() => _setupConfirmed = true),
     );
   }
 }
@@ -170,11 +193,12 @@ class _ConnectCameraScreen extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// LANDING — upcoming matches list across all teams
+// LANDING — upcoming matches across all teams. Mirrors the visual language
+// of the Teams page (avatar circle + name/sport sub).
 // ---------------------------------------------------------------------------
 
-class _UpcomingListScreen extends ConsumerWidget {
-  const _UpcomingListScreen({required this.onSelect});
+class _LandingScreen extends ConsumerWidget {
+  const _LandingScreen({required this.onSelect});
   final ValueChanged<UpcomingMatch> onSelect;
 
   @override
@@ -199,18 +223,29 @@ class _UpcomingListScreen extends ConsumerWidget {
           if (matches.isEmpty) {
             return _NoUpcomingState(onSchedule: () => _schedule(context, ref));
           }
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(0, 8, 0, 80),
-            itemCount: matches.length,
-            separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
-            itemBuilder: (_, i) => _UpcomingRow(
-              match: matches[i],
-              onTap: () => onSelect(matches[i]),
-            ),
+          return Column(
+            children: [
+              WfSection(
+                'Upcoming · ${matches.length}',
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+              ),
+              Expanded(
+                child: ListView.separated(
+                  padding: EdgeInsets.zero,
+                  itemCount: matches.length,
+                  separatorBuilder: (_, _) =>
+                      const Divider(height: 1, color: T.rule),
+                  itemBuilder: (_, i) => _UpcomingRow(
+                    match: matches[i],
+                    onTap: () => onSelect(matches[i]),
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton(
         onPressed: () => _schedule(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,
@@ -218,8 +253,7 @@ class _UpcomingListScreen extends ConsumerWidget {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(4)),
         ),
-        icon: const Icon(Icons.add),
-        label: const Text('Schedule match'),
+        child: const Icon(Icons.add, size: 28),
       ),
     );
   }
@@ -298,24 +332,7 @@ Future<TeamRecord?> _pickTeam(BuildContext context, List<TeamRecord> teams) {
                   ),
                   child: Row(
                     children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: T.fillSoft,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: T.hair),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          t.shortName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                            color: T.ink2,
-                          ),
-                        ),
-                      ),
+                      _AvatarCircle(label: t.shortName),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -352,6 +369,33 @@ Future<TeamRecord?> _pickTeam(BuildContext context, List<TeamRecord> teams) {
   );
 }
 
+class _AvatarCircle extends StatelessWidget {
+  const _AvatarCircle({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: T.fillSoft,
+        shape: BoxShape.circle,
+        border: Border.all(color: T.hair),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+          color: T.ink2,
+        ),
+      ),
+    );
+  }
+}
+
 class _UpcomingRow extends StatelessWidget {
   const _UpcomingRow({required this.match, required this.onTap});
   final UpcomingMatch match;
@@ -362,7 +406,7 @@ class _UpcomingRow extends StatelessWidget {
     final m = match.match;
     final t = match.team;
     final mins = m.periodLengthSeconds ~/ 60;
-    final summary = m.numPeriods > 0 && mins > 0
+    final format = m.numPeriods > 0 && mins > 0
         ? '${m.numPeriods} × $mins min · ${t.sport}'
         : t.sport;
     return Material(
@@ -370,41 +414,27 @@ class _UpcomingRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  border: Border.all(color: T.accent, width: 1.4),
-                ),
-                child: const Icon(Icons.event_outlined, color: T.accent),
-              ),
-              const SizedBox(width: 14),
+              _AvatarCircle(label: t.shortName),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '${t.shortName} ${m.opponent}',
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: T.ink,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      '${t.name} ${m.opponent}',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: T.ink,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${m.date} · $summary',
+                      '${m.date} · $format',
                       style: const TextStyle(fontSize: 11, color: T.ink2),
                     ),
                   ],
@@ -518,8 +548,6 @@ class _SetupScreen extends ConsumerStatefulWidget {
 }
 
 class _SetupScreenState extends ConsumerState<_SetupScreen> {
-  bool _autoStart = true;
-  bool _pauseOnHt = true;
   _Quality _quality = _Quality.fhd1080p30;
   // null = Custom (use _customPeriods + _customMinutes from match init).
   SportPreset? _preset;
@@ -533,8 +561,6 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final live = ref.watch(liveMatchProvider);
-    final ctl = ref.read(liveMatchProvider.notifier);
     final team = widget.match.team;
     final m = widget.match.match;
     final presets = ref.watch(sportPresetsForSportProvider(team.sport));
@@ -558,6 +584,9 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
     final periods = _preset?.numPeriods ?? _customPeriods;
     final periodMinutes =
         (_preset?.periodLengthSeconds ?? _customPeriodSeconds) ~/ 60;
+    final formatLabel = _preset != null
+        ? _stripSportPrefix(_preset!.name, team.sport)
+        : 'Custom';
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -573,24 +602,7 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
         children: [
           const WfSection('Match'),
           _RowItem(
-            leading: Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: T.fillSoft,
-                shape: BoxShape.circle,
-                border: Border.all(color: T.hair),
-              ),
-              child: Text(
-                team.shortName,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 11,
-                  color: T.ink2,
-                ),
-              ),
-            ),
+            leading: _AvatarCircle(label: team.shortName),
             title: team.name,
             subtitle: 'Home',
           ),
@@ -603,52 +615,39 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
           const WfSection('Format'),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-            child: Wrap(
-              spacing: 6,
-              children: [WfChip(label: team.sport, active: true)],
+            child: WfCard(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  _ValueRow(label: 'Sport', value: team.sport),
+                  const Divider(height: 1, color: T.rule),
+                  _ValueRow(
+                    label: 'Format',
+                    value: '$formatLabel · $periods × $periodMinutes min',
+                  ),
+                ],
+              ),
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-            child: WfCard(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const WfNote('Sport setup'),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final p in presets)
-                        GestureDetector(
-                          onTap: () => setState(() => _preset = p),
-                          child: WfChip(
-                            label: p.name,
-                            active: _preset?.id == p.id,
-                          ),
-                        ),
-                      GestureDetector(
-                        onTap: () => _editCustom(context),
-                        child: WfChip(
-                          label: 'Custom…',
-                          active: _preset == null,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '$periods × $periodMinutes min',
-                    style: const TextStyle(
-                      color: T.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final p in presets)
+                  GestureDetector(
+                    onTap: () => setState(() => _preset = p),
+                    child: WfChip(
+                      label: _stripSportPrefix(p.name, team.sport),
+                      active: _preset?.id == p.id,
                     ),
                   ),
-                ],
-              ),
+                GestureDetector(
+                  onTap: () => _editCustom(context),
+                  child: WfChip(label: 'Custom…', active: _preset == null),
+                ),
+              ],
             ),
           ),
           const WfSection('Recording'),
@@ -656,34 +655,12 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
             child: WfCard(
               padding: EdgeInsets.zero,
-              child: Column(
-                children: [
-                  _ToggleRow(
-                    label: 'Record this match',
-                    value: live.recordingEnabled,
-                    onChanged: ctl.setRecordingEnabled,
-                  ),
-                  const Divider(height: 1, color: T.rule),
-                  _ToggleRow(
-                    label: 'Auto-start at kickoff',
-                    value: _autoStart,
-                    onChanged: (v) => setState(() => _autoStart = v),
-                  ),
-                  const Divider(height: 1, color: T.rule),
-                  _ToggleRow(
-                    label: 'Pause on halftime',
-                    value: _pauseOnHt,
-                    onChanged: (v) => setState(() => _pauseOnHt = v),
-                  ),
-                  const Divider(height: 1, color: T.rule),
-                  _DropdownRow<_Quality>(
-                    label: 'Quality',
-                    value: _quality,
-                    items: _Quality.values,
-                    labelOf: (q) => q.label,
-                    onChanged: (v) => setState(() => _quality = v),
-                  ),
-                ],
+              child: _DropdownRow<_Quality>(
+                label: 'Quality',
+                value: _quality,
+                items: _Quality.values,
+                labelOf: (q) => q.label,
+                onChanged: (v) => setState(() => _quality = v),
               ),
             ),
           ),
@@ -691,21 +668,35 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
             child: WfCard(
-              padding: EdgeInsets.zero,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _ToggleRow(
-                    label: 'Stream this match',
-                    sub: 'Live to one or more destinations',
-                    value: live.streamingEnabled,
-                    onChanged: ctl.setStreamingEnabled,
+                  const WfNote('DESTINATIONS'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final m in _StreamMethod.values)
+                        GestureDetector(
+                          onTap: () => _toggleStreamMethod(m),
+                          child: WfChip(
+                            label:
+                                m == _StreamMethod.custom &&
+                                    _customRtmpUrl.isNotEmpty
+                                ? 'Custom RTMP · configured'
+                                : m.label,
+                            active: _streamMethods.contains(m),
+                          ),
+                        ),
+                    ],
                   ),
-                  if (live.streamingEnabled) ...[
-                    const Divider(height: 1, color: T.rule),
-                    _StreamMethodPicker(
-                      selected: _streamMethods,
-                      customRtmpUrl: _customRtmpUrl,
-                      onSelect: _toggleStreamMethod,
+                  if (_streamMethods.isEmpty) ...[
+                    const SizedBox(height: 8),
+                    const WfNote(
+                      'Pick one or more destinations to stream to. You can '
+                      'still record without streaming.',
                     ),
                   ],
                 ],
@@ -730,10 +721,8 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
   Future<void> _toggleStreamMethod(_StreamMethod method) async {
     final isOn = _streamMethods.contains(method);
     if (method == _StreamMethod.custom) {
-      // Custom requires a URL — open the config modal whether enabling or
-      // editing an existing entry.
       final url = await _showCustomRtmpModal(context, initial: _customRtmpUrl);
-      if (url == null) return; // cancelled
+      if (url == null) return;
       setState(() {
         if (url.isEmpty) {
           _streamMethods.remove(_StreamMethod.custom);
@@ -768,6 +757,41 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
       _customPeriods = result.$1;
       _customPeriodSeconds = result.$2 * 60;
     });
+  }
+}
+
+/// Drop a leading `<sport> · ` from a preset display name when shown in
+/// a context where the sport is already obvious.
+String _stripSportPrefix(String name, String sport) {
+  final pref = '$sport · ';
+  return name.startsWith(pref) ? name.substring(pref.length) : name;
+}
+
+class _ValueRow extends StatelessWidget {
+  const _ValueRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: T.ink,
+              ),
+            ),
+          ),
+          Text(value, style: const TextStyle(fontSize: 12, color: T.ink2)),
+        ],
+      ),
+    );
   }
 }
 
@@ -817,51 +841,6 @@ class _DropdownRow<V> extends StatelessWidget {
               },
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StreamMethodPicker extends StatelessWidget {
-  const _StreamMethodPicker({
-    required this.selected,
-    required this.customRtmpUrl,
-    required this.onSelect,
-  });
-  final Set<_StreamMethod> selected;
-  final String customRtmpUrl;
-  final void Function(_StreamMethod) onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const WfNote('DESTINATIONS'),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final m in _StreamMethod.values)
-                GestureDetector(
-                  onTap: () => onSelect(m),
-                  child: WfChip(
-                    label: m == _StreamMethod.custom && customRtmpUrl.isNotEmpty
-                        ? 'Custom RTMP · configured'
-                        : m.label,
-                    active: selected.contains(m),
-                  ),
-                ),
-            ],
-          ),
-          if (selected.isEmpty) ...[
-            const SizedBox(height: 8),
-            const WfNote('Pick one or more destinations to stream to.'),
-          ],
         ],
       ),
     );
@@ -1086,126 +1065,14 @@ class _CustomFormatDialogState extends State<_CustomFormatDialog> {
 }
 
 // ---------------------------------------------------------------------------
-// PRE-MATCH (clock 00:00, "Start 1st half" in accent, mark-event disabled)
+// SESSION — covers pre-game, period-active, period-break and ended phases.
+// Recording / streaming controls are independent of the period timer so the
+// user can record before kickoff or after the final whistle.
 // ---------------------------------------------------------------------------
 
-class _PreMatchScreen extends ConsumerWidget {
-  const _PreMatchScreen({required this.onBack});
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final ctl = ref.read(liveMatchProvider.notifier);
-    final live = ref.watch(liveMatchProvider);
-
-    return Scaffold(
-      backgroundColor: T.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _TopBar(
-              indicator: 'READY',
-              indicatorColor: T.ink2,
-              clock: '00:00',
-              onBack: onBack,
-            ),
-            _LiveThumb(
-              homeLabel: live.homeName,
-              awayLabel: live.awayName,
-              homeScore: 0,
-              awayScore: 0,
-              phaseLabel: 'PRE',
-              clock: '00:00',
-              isLive: false,
-            ),
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: WfButton(
-                      label: 'Mark event',
-                      size: WfButtonSize.lg,
-                      // disabled
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: WfButton(
-                      label: 'Start 1st half',
-                      variant: WfButtonVariant.primary,
-                      size: WfButtonSize.lg,
-                      onPressed: ctl.startFirstHalf,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: T.rule),
-            const WfSection(
-              'Event log',
-              padding: EdgeInsets.fromLTRB(14, 10, 14, 4),
-            ),
-            const Expanded(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: WfNote(
-                    'No events yet. Tap Start 1st half to begin the clock.',
-                  ),
-                ),
-              ),
-            ),
-            const _IdleControlGroup(),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _IdleControlGroup extends StatelessWidget {
-  const _IdleControlGroup();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: const Border(
-        top: BorderSide(color: T.rule),
-      ).toBoxDecoration(),
-      child: Row(
-        children: const [
-          Expanded(
-            child: _ControlGroup(
-              label: 'TIMER',
-              value: '00:00',
-              body: WfButton(label: 'Idle'),
-            ),
-          ),
-          SizedBox(width: 8),
-          Expanded(
-            child: _ControlGroup(
-              label: 'RECORDING',
-              value: '',
-              body: WfButton(
-                label: 'Record',
-                leading: _Dot(color: T.danger),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// LIVE (also covers halftime + ended)
-// ---------------------------------------------------------------------------
-
-class _LiveScreen extends ConsumerWidget {
-  const _LiveScreen({required this.onLeave});
+class _SessionScreen extends ConsumerWidget {
+  const _SessionScreen({required this.match, required this.onLeave});
+  final UpcomingMatch match;
   final VoidCallback onLeave;
 
   @override
@@ -1213,32 +1080,22 @@ class _LiveScreen extends ConsumerWidget {
     final state = ref.watch(liveMatchProvider);
     final ctl = ref.read(liveMatchProvider.notifier);
 
-    final isHalftime = state.phase == MatchPhase.halftime;
     final isEnded = state.phase == MatchPhase.ended;
-    final isLive = state.isLive;
+    final isPeriodActive = state.phase == MatchPhase.period;
 
-    final halfButton = switch (state.phase) {
-      MatchPhase.firstHalf => _HalfButton(
-        label: 'End 1st half',
-        variant: WfButtonVariant.danger,
-        onPressed: ctl.endFirstHalf,
-      ),
-      MatchPhase.halftime => _HalfButton(
-        label: 'Start 2nd half',
-        variant: WfButtonVariant.primary,
-        onPressed: ctl.startSecondHalf,
-      ),
-      MatchPhase.secondHalf => _HalfButton(
-        label: 'End match',
-        variant: WfButtonVariant.danger,
-        onPressed: ctl.endMatch,
-      ),
-      _ => _HalfButton(
-        label: 'Match ended',
-        variant: WfButtonVariant.outline,
-        onPressed: onLeave,
-      ),
+    final indicator = switch (state.rec) {
+      RecState.recording => 'REC',
+      RecState.paused => 'REC PAUSE',
+      RecState.idle =>
+        isEnded
+            ? 'FT'
+            : isPeriodActive
+            ? 'LIVE'
+            : 'READY',
     };
+    final indicatorColor = state.rec == RecState.recording
+        ? T.accent
+        : (isEnded ? T.ink2 : T.ink2);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -1246,11 +1103,12 @@ class _LiveScreen extends ConsumerWidget {
         child: Column(
           children: [
             _TopBar(
-              indicator: state.rec == RecState.recording ? 'REC' : 'PAUSED',
-              indicatorColor: state.rec == RecState.recording
-                  ? T.accent
-                  : T.ink2,
+              indicator: indicator,
+              indicatorColor: indicatorColor,
               clock: state.clockText,
+              // Back arrow only after the match has ended — avoids
+              // accidental exits during the live session.
+              onBack: isEnded ? onLeave : null,
             ),
             _LiveThumb(
               homeLabel: state.homeName,
@@ -1259,28 +1117,19 @@ class _LiveScreen extends ConsumerWidget {
               awayScore: state.scoreAway,
               phaseLabel: state.phaseLabel,
               clock: state.clockText,
-              isLive: isLive,
+              isLive: isPeriodActive,
             ),
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: WfButton(
-                      label: 'Mark event',
-                      variant: WfButtonVariant.primary,
-                      size: WfButtonSize.lg,
-                      leading: const _Square(color: T.accentInk),
-                      onPressed: isLive
-                          ? () => _showEventSheet(context, ref)
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(child: halfButton),
-                ],
-              ),
+            _PrimaryActionRow(
+              state: state,
+              onMarkEvent: isPeriodActive
+                  ? () => _showEventSheet(context, ref)
+                  : null,
+              onKickoff: () => _kickoff(context, ctl, state),
+              onEndPeriod: ctl.endPeriod,
+              onStartNextPeriod: () => ctl.startPeriod(),
+              onEndMatch: () => _confirmEnd(context, ctl, state),
             ),
+            if (isEnded) const _EndedBanner(),
             const Divider(height: 1, color: T.rule),
             const WfSection(
               'Event log',
@@ -1297,17 +1146,67 @@ class _LiveScreen extends ConsumerWidget {
                       itemBuilder: (_, i) => _EventLogRow(e: state.events[i]),
                     ),
             ),
-            _LiveControls(
+            _BottomControls(
               state: state,
               onTimerTap: ctl.toggleTimer,
-              onRecPause: ctl.toggleRecPause,
+              onRecToggle: ctl.toggleRecPause,
               onRecStop: ctl.stopRecording,
-              showHalftimeBanner: isHalftime,
-              showEndedBanner: isEnded,
+              onStreamToggle: () => ctl.setStreaming(!state.streaming),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _kickoff(
+    BuildContext context,
+    LiveMatchController ctl,
+    LiveMatchState state,
+  ) async {
+    // Kickoff prompt — only on the very first period. Subsequent periods
+    // continue with whatever recording / streaming state is active.
+    if (state.currentPeriod != 0) {
+      ctl.startPeriod();
+      return;
+    }
+    final recAlreadyOn = state.rec != RecState.idle;
+    final streamAlreadyOn = state.streaming;
+    if (recAlreadyOn && streamAlreadyOn) {
+      // Both are already running — nothing to ask, just start the period.
+      ctl.startPeriod();
+      return;
+    }
+    final choice = await _showStartPrompt(
+      context,
+      askRecord: !recAlreadyOn,
+      askStream: !streamAlreadyOn,
+    );
+    if (choice == null) return;
+    ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);
+  }
+
+  Future<void> _confirmEnd(
+    BuildContext context,
+    LiveMatchController ctl,
+    LiveMatchState state,
+  ) async {
+    final recOn = state.rec != RecState.idle;
+    final streamOn = state.streaming;
+    if (!recOn && !streamOn) {
+      // Nothing is running — no toggles to ask about, just end.
+      ctl.endMatch(stopRecording: false, stopStreaming: false);
+      return;
+    }
+    final choice = await _showEndPrompt(
+      context,
+      askStopRec: recOn,
+      askStopStream: streamOn,
+    );
+    if (choice == null) return;
+    ctl.endMatch(
+      stopRecording: choice.$1 ?? false,
+      stopStreaming: choice.$2 ?? false,
     );
   }
 
@@ -1323,6 +1222,442 @@ class _LiveScreen extends ConsumerWidget {
               .read(liveMatchProvider.notifier)
               .addEvent(type: type, teamLabel: team, jersey: jersey);
         },
+      ),
+    );
+  }
+}
+
+/// Returns `(startRecording?, startStreaming?)` or null on cancel. Each
+/// element is null when the corresponding control wasn't shown (the thing
+/// was already running before kickoff), so the caller can leave that
+/// state untouched.
+Future<(bool?, bool?)?> _showStartPrompt(
+  BuildContext context, {
+  required bool askRecord,
+  required bool askStream,
+}) {
+  // Defaults when shown: recording opts in (the natural action at
+  // kickoff), streaming stays opt-in.
+  var record = true;
+  var stream = false;
+  final subtitle = askRecord && askStream
+      ? 'Pick what to start with the match timer. Both can be paused or '
+            'stopped independently while the match runs.'
+      : askRecord
+      ? 'Streaming is already running. Want to also start recording with '
+            'the match timer?'
+      : 'Recording is already running. Want to also start streaming with '
+            'the match timer?';
+  return showModalBottomSheet<(bool?, bool?)>(
+    context: context,
+    backgroundColor: T.bg,
+    isScrollControlled: true,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setSt) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: T.fillMid,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Kickoff',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: T.ink,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: T.ink2,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (askRecord)
+                _ToggleRow(
+                  label: 'Start recording',
+                  value: record,
+                  onChanged: (v) => setSt(() => record = v),
+                ),
+              if (askRecord && askStream)
+                const Divider(height: 1, color: T.rule),
+              if (askStream)
+                _ToggleRow(
+                  label: 'Start streaming',
+                  value: stream,
+                  onChanged: (v) => setSt(() => stream = v),
+                ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: WfButton(
+                      label: 'Cancel',
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: WfButton(
+                      label: 'Start match',
+                      variant: WfButtonVariant.primary,
+                      onPressed: () => Navigator.of(ctx).pop((
+                        askRecord ? record : null,
+                        askStream ? stream : null,
+                      )),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Returns `(stopRecording?, stopStreaming?)` or null on cancel. Each
+/// element is null when the corresponding control wasn't shown (the thing
+/// wasn't running when the match ended), so the caller can leave that
+/// state untouched.
+Future<(bool?, bool?)?> _showEndPrompt(
+  BuildContext context, {
+  required bool askStopRec,
+  required bool askStopStream,
+}) {
+  // Defaults when shown: stop everything that's running. The user can
+  // untoggle to keep capturing post-game footage.
+  var stopRec = true;
+  var stopStream = true;
+  final subtitle = askStopRec && askStopStream
+      ? 'The match timer ends. Recording and streaming can keep running '
+            'for post-game footage if you leave them on.'
+      : askStopRec
+      ? 'The match timer ends. Recording can keep running for post-game '
+            'footage if you leave it on.'
+      : 'The match timer ends. Streaming can keep running for post-game '
+            'broadcast if you leave it on.';
+  return showModalBottomSheet<(bool?, bool?)>(
+    context: context,
+    backgroundColor: T.bg,
+    isScrollControlled: true,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setSt) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: T.fillMid,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'End match',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: T.ink,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: T.ink2,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (askStopRec)
+                _ToggleRow(
+                  label: 'Also stop recording',
+                  value: stopRec,
+                  onChanged: (v) => setSt(() => stopRec = v),
+                ),
+              if (askStopRec && askStopStream)
+                const Divider(height: 1, color: T.rule),
+              if (askStopStream)
+                _ToggleRow(
+                  label: 'Also stop streaming',
+                  value: stopStream,
+                  onChanged: (v) => setSt(() => stopStream = v),
+                ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: WfButton(
+                      label: 'Cancel',
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: WfButton(
+                      label: 'End match',
+                      variant: WfButtonVariant.danger,
+                      onPressed: () => Navigator.of(ctx).pop((
+                        askStopRec ? stopRec : null,
+                        askStopStream ? stopStream : null,
+                      )),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _PrimaryActionRow extends StatelessWidget {
+  const _PrimaryActionRow({
+    required this.state,
+    required this.onMarkEvent,
+    required this.onKickoff,
+    required this.onEndPeriod,
+    required this.onStartNextPeriod,
+    required this.onEndMatch,
+  });
+  final LiveMatchState state;
+  final VoidCallback? onMarkEvent;
+  final VoidCallback onKickoff;
+  final VoidCallback onEndPeriod;
+  final VoidCallback onStartNextPeriod;
+  final VoidCallback onEndMatch;
+
+  @override
+  Widget build(BuildContext context) {
+    // Right-side button changes by phase:
+    //   idle              → "Kickoff"
+    //   period            → "End period N"
+    //   periodBreak (mid) → "Start period N+1"
+    //   periodBreak (end) → "End match"
+    //   ended             → no action button (left side becomes summary)
+    final WfButton phaseButton;
+    switch (state.phase) {
+      case MatchPhase.idle:
+        phaseButton = WfButton(
+          label: 'Kickoff',
+          variant: WfButtonVariant.primary,
+          size: WfButtonSize.lg,
+          full: true,
+          onPressed: onKickoff,
+        );
+      case MatchPhase.period:
+        phaseButton = WfButton(
+          label: state.isLastPeriod
+              ? 'End period ${state.currentPeriod}'
+              : 'End period ${state.currentPeriod}',
+          variant: WfButtonVariant.danger,
+          size: WfButtonSize.lg,
+          full: true,
+          onPressed: onEndPeriod,
+        );
+      case MatchPhase.periodBreak:
+        phaseButton = state.awaitingEndOfMatch
+            ? WfButton(
+                label: 'End match',
+                variant: WfButtonVariant.danger,
+                size: WfButtonSize.lg,
+                full: true,
+                onPressed: onEndMatch,
+              )
+            : WfButton(
+                label: 'Start period ${state.currentPeriod + 1}',
+                variant: WfButtonVariant.primary,
+                size: WfButtonSize.lg,
+                full: true,
+                onPressed: onStartNextPeriod,
+              );
+      case MatchPhase.ended:
+        phaseButton = const WfButton(
+          label: 'Match ended',
+          variant: WfButtonVariant.outline,
+          size: WfButtonSize.lg,
+          full: true,
+        );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(10),
+      child: Row(
+        children: [
+          Expanded(
+            child: WfButton(
+              label: 'Mark event',
+              variant: onMarkEvent != null
+                  ? WfButtonVariant.primary
+                  : WfButtonVariant.outline,
+              size: WfButtonSize.lg,
+              leading: const _Square(color: T.accentInk),
+              onPressed: onMarkEvent,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: phaseButton),
+        ],
+      ),
+    );
+  }
+}
+
+class _EndedBanner extends StatelessWidget {
+  const _EndedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: T.accentSoft,
+        border: Border.all(color: T.accent, width: 1),
+      ),
+      child: const Text(
+        'Match ended · tap back to return to upcoming',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: T.accent,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomControls extends StatelessWidget {
+  const _BottomControls({
+    required this.state,
+    required this.onTimerTap,
+    required this.onRecToggle,
+    required this.onRecStop,
+    required this.onStreamToggle,
+  });
+
+  final LiveMatchState state;
+  final VoidCallback onTimerTap;
+  final VoidCallback onRecToggle;
+  final VoidCallback onRecStop;
+  final VoidCallback onStreamToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final timerEnabled = state.phase == MatchPhase.period;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: const Border(
+        top: BorderSide(color: T.rule),
+      ).toBoxDecoration(),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _ControlGroup(
+                  label: 'TIMER',
+                  value: state.clockText,
+                  body: WfButton(
+                    label: state.timer == MatchTimer.running
+                        ? 'Pause'
+                        : 'Resume',
+                    leading: state.timer == MatchTimer.running
+                        ? const _PauseGlyph()
+                        : const _PlayGlyph(),
+                    full: true,
+                    onPressed: timerEnabled ? onTimerTap : null,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ControlGroup(
+                  label: 'RECORDING',
+                  labelColor: state.rec == RecState.recording
+                      ? T.accent
+                      : T.ink2,
+                  dotColor: state.rec == RecState.recording ? T.accent : null,
+                  body: Row(
+                    children: [
+                      Expanded(
+                        child: WfButton(
+                          label: state.rec == RecState.recording
+                              ? 'Pause'
+                              : state.rec == RecState.paused
+                              ? 'Resume'
+                              : 'Record',
+                          leading: state.rec == RecState.recording
+                              ? const _PauseGlyph()
+                              : const _Dot(color: T.danger),
+                          onPressed: onRecToggle,
+                          full: true,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      WfButton(
+                        label: 'Stop',
+                        variant: WfButtonVariant.danger,
+                        leading: const _Square(color: T.dangerInk),
+                        onPressed: state.rec == RecState.idle
+                            ? null
+                            : onRecStop,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _ControlGroup(
+            label: 'STREAMING',
+            labelColor: state.streaming ? T.accent : T.ink2,
+            dotColor: state.streaming ? T.accent : null,
+            body: WfButton(
+              label: state.streaming ? 'Stop streaming' : 'Start streaming',
+              variant: state.streaming
+                  ? WfButtonVariant.danger
+                  : WfButtonVariant.outline,
+              full: true,
+              onPressed: onStreamToggle,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1361,7 +1696,9 @@ class _TopBar extends StatelessWidget {
             width: 8,
             height: 8,
             decoration: BoxDecoration(
-              color: indicator == 'READY' ? Colors.transparent : indicatorColor,
+              color: indicator == 'READY' || indicator == 'FT'
+                  ? Colors.transparent
+                  : indicatorColor,
               border: Border.all(color: indicatorColor, width: 1.5),
               borderRadius: BorderRadius.circular(4),
             ),
@@ -1495,28 +1832,6 @@ class _ScoreBlock extends StatelessWidget {
   }
 }
 
-class _HalfButton extends StatelessWidget {
-  const _HalfButton({
-    required this.label,
-    required this.variant,
-    required this.onPressed,
-  });
-  final String label;
-  final WfButtonVariant variant;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return WfButton(
-      label: label,
-      variant: variant,
-      size: WfButtonSize.lg,
-      full: true,
-      onPressed: onPressed,
-    );
-  }
-}
-
 class _EventLogRow extends StatelessWidget {
   const _EventLogRow({required this.e});
   final LiveEvent e;
@@ -1564,128 +1879,6 @@ class _EventLogRow extends StatelessWidget {
           else
             const Text('edit', style: TextStyle(fontSize: 11, color: T.ink2)),
         ],
-      ),
-    );
-  }
-}
-
-class _LiveControls extends StatelessWidget {
-  const _LiveControls({
-    required this.state,
-    required this.onTimerTap,
-    required this.onRecPause,
-    required this.onRecStop,
-    required this.showHalftimeBanner,
-    required this.showEndedBanner,
-  });
-
-  final LiveMatchState state;
-  final VoidCallback onTimerTap;
-  final VoidCallback onRecPause;
-  final VoidCallback onRecStop;
-  final bool showHalftimeBanner;
-  final bool showEndedBanner;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: const Border(
-        top: BorderSide(color: T.rule),
-      ).toBoxDecoration(),
-      child: Column(
-        children: [
-          if (showHalftimeBanner)
-            const _PhaseBanner(text: 'Halftime · clock paused'),
-          if (showEndedBanner) const _PhaseBanner(text: 'Match ended'),
-          Row(
-            children: [
-              Expanded(
-                child: _ControlGroup(
-                  label: 'TIMER',
-                  value: state.clockText,
-                  body: WfButton(
-                    label: state.timer == MatchTimer.running
-                        ? 'Pause'
-                        : 'Resume',
-                    leading: state.timer == MatchTimer.running
-                        ? const _PauseGlyph()
-                        : const _PlayGlyph(),
-                    full: true,
-                    onPressed: state.isLive ? onTimerTap : null,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ControlGroup(
-                  label: 'RECORDING',
-                  labelColor: state.rec == RecState.recording
-                      ? T.accent
-                      : T.ink2,
-                  dotColor: state.rec == RecState.recording ? T.accent : null,
-                  body: Row(
-                    children: [
-                      Expanded(
-                        child: WfButton(
-                          label: state.rec == RecState.recording
-                              ? 'Pause'
-                              : state.rec == RecState.paused
-                              ? 'Resume'
-                              : 'Idle',
-                          leading: state.rec == RecState.recording
-                              ? const _PauseGlyph()
-                              : const _PlayGlyph(),
-                          onPressed: state.rec == RecState.idle
-                              ? null
-                              : onRecPause,
-                          full: true,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      WfButton(
-                        label: 'Stop',
-                        variant: WfButtonVariant.danger,
-                        leading: const _Square(color: T.dangerInk),
-                        onPressed: state.rec == RecState.idle
-                            ? null
-                            : onRecStop,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PhaseBanner extends StatelessWidget {
-  const _PhaseBanner({required this.text});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: T.accentSoft,
-        border: Border.all(color: T.accent, width: 1),
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: T.accent,
-          letterSpacing: 0.5,
-        ),
       ),
     );
   }
@@ -2141,18 +2334,16 @@ class _NumberPad extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers shared with setup
+// Helpers
 // ---------------------------------------------------------------------------
 
 class _ToggleRow extends StatelessWidget {
   const _ToggleRow({
     required this.label,
-    this.sub,
     required this.value,
     required this.onChanged,
   });
   final String label;
-  final String? sub;
   final bool value;
   final ValueChanged<bool> onChanged;
 
@@ -2163,19 +2354,13 @@ class _ToggleRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: T.ink,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (sub != null) ...[const SizedBox(height: 2), WfNote(sub!)],
-              ],
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                color: T.ink,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
           WfSwitch(value: value, onChanged: onChanged),

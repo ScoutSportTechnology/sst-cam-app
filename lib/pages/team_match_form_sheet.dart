@@ -40,7 +40,7 @@ class _MatchForm extends ConsumerStatefulWidget {
 }
 
 class _MatchFormState extends ConsumerState<_MatchForm> {
-  final _opponent = TextEditingController();
+  final _opponentCustom = TextEditingController();
   final _scoreFor = TextEditingController();
   final _scoreAgainst = TextEditingController();
   final _customPeriods = TextEditingController(text: '2');
@@ -52,9 +52,15 @@ class _MatchFormState extends ConsumerState<_MatchForm> {
   bool _initialized = false;
   String? _error;
 
+  // Opponent selection. `_opponentTeam` is the picked team from the
+  // dropdown; null + `_useCustomOpponent` = manual entry (one-off team
+  // not in the roster).
+  TeamRecord? _opponentTeam;
+  bool _useCustomOpponent = false;
+
   @override
   void dispose() {
-    _opponent.dispose();
+    _opponentCustom.dispose();
     _scoreFor.dispose();
     _scoreAgainst.dispose();
     _customPeriods.dispose();
@@ -92,9 +98,15 @@ class _MatchFormState extends ConsumerState<_MatchForm> {
   }
 
   void _submit() {
-    final opponent = _opponent.text.trim();
+    final opponent = _useCustomOpponent
+        ? _opponentCustom.text.trim()
+        : (_opponentTeam?.name ?? '');
     if (opponent.isEmpty) {
-      setState(() => _error = 'Opponent is required');
+      setState(
+        () => _error = _useCustomOpponent
+            ? 'Opponent name is required'
+            : 'Pick an opponent team',
+      );
       return;
     }
     var result = '';
@@ -145,8 +157,21 @@ class _MatchFormState extends ConsumerState<_MatchForm> {
   @override
   Widget build(BuildContext context) {
     final presets = ref.watch(sportPresetsForSportProvider(widget.team.sport));
-    if (!_initialized && presets.isNotEmpty) {
-      _preset = presets.first;
+    final allTeams =
+        ref.watch(teamsControllerProvider).valueOrNull ?? const <TeamRecord>[];
+    // Opponent options: visible teams matching the home team's sport,
+    // excluding the home team itself.
+    final opponents = allTeams
+        .where(
+          (t) =>
+              !t.hidden &&
+              t.id != widget.team.id &&
+              t.sport == widget.team.sport,
+        )
+        .toList();
+    if (!_initialized) {
+      if (presets.isNotEmpty) _preset = presets.first;
+      if (opponents.isNotEmpty) _opponentTeam = opponents.first;
       _initialized = true;
     }
 
@@ -187,11 +212,20 @@ class _MatchFormState extends ConsumerState<_MatchForm> {
               onChanged: (k) => setState(() => _kind = k),
             ),
             const SizedBox(height: 14),
-            _LabeledField(
-              label: 'Opponent',
-              controller: _opponent,
-              hint: 'Eastfield FC',
-              autofocus: true,
+            _OpponentPicker(
+              teams: opponents,
+              homeSport: widget.team.sport,
+              selected: _opponentTeam,
+              useCustom: _useCustomOpponent,
+              customController: _opponentCustom,
+              onPickTeam: (t) => setState(() {
+                _opponentTeam = t;
+                _useCustomOpponent = false;
+              }),
+              onPickCustom: () => setState(() {
+                _useCustomOpponent = true;
+                _opponentTeam = null;
+              }),
             ),
             const SizedBox(height: 10),
             _DatePickerRow(label: _formatDate(_date), onTap: _pickDate),
@@ -425,7 +459,6 @@ class _LabeledField extends StatelessWidget {
     required this.label,
     required this.controller,
     this.hint,
-    this.autofocus = false,
     this.keyboardType,
     this.inputFormatters,
   });
@@ -433,7 +466,6 @@ class _LabeledField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final String? hint;
-  final bool autofocus;
   final TextInputType? keyboardType;
   final List<TextInputFormatter>? inputFormatters;
 
@@ -452,7 +484,6 @@ class _LabeledField extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: TextField(
             controller: controller,
-            autofocus: autofocus,
             keyboardType: keyboardType,
             inputFormatters: inputFormatters,
             decoration: InputDecoration(
@@ -465,6 +496,120 @@ class _LabeledField extends StatelessWidget {
             style: const TextStyle(color: T.ink, fontSize: 13),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Opponent input. Defaults to a dropdown of teams matching the home
+/// team's sport, with a small "Other (manual)" escape hatch for one-off
+/// opponents not in the roster.
+class _OpponentPicker extends StatelessWidget {
+  const _OpponentPicker({
+    required this.teams,
+    required this.homeSport,
+    required this.selected,
+    required this.useCustom,
+    required this.customController,
+    required this.onPickTeam,
+    required this.onPickCustom,
+  });
+
+  final List<TeamRecord> teams;
+  final String homeSport;
+  final TeamRecord? selected;
+  final bool useCustom;
+  final TextEditingController customController;
+  final ValueChanged<TeamRecord> onPickTeam;
+  final VoidCallback onPickCustom;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const WfNote('OPPONENT'),
+        const SizedBox(height: 6),
+        if (teams.isEmpty && !useCustom) ...[
+          Container(
+            decoration: BoxDecoration(
+              color: T.fillSoft,
+              border: Border.all(color: T.hair),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Text(
+              'No other $homeSport teams on the camera. Add one in the '
+              'Teams tab, or pick "Other" below.',
+              style: const TextStyle(color: T.ink2, fontSize: 12, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 6),
+        ] else if (!useCustom) ...[
+          Container(
+            decoration: BoxDecoration(
+              color: T.fillSoft,
+              border: Border.all(color: T.hair),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<TeamRecord>(
+                value: selected,
+                isExpanded: true,
+                isDense: true,
+                dropdownColor: T.surface,
+                style: const TextStyle(fontSize: 13, color: T.ink),
+                icon: const Icon(Icons.expand_more, size: 16, color: T.ink2),
+                items: [
+                  for (final t in teams)
+                    DropdownMenuItem(value: t, child: Text(t.name)),
+                ],
+                onChanged: (v) {
+                  if (v != null) onPickTeam(v);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
+        Row(
+          children: [
+            GestureDetector(
+              onTap: onPickCustom,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  useCustom ? '✓ Other (custom name)' : 'Other (custom name)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: useCustom ? T.accent : T.ink2,
+                    fontWeight: useCustom ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (useCustom) ...[
+          Container(
+            decoration: BoxDecoration(
+              color: T.fillSoft,
+              border: Border.all(color: T.hair),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: TextField(
+              controller: customController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Eastfield FC',
+                hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                border: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 12),
+              ),
+              style: const TextStyle(color: T.ink, fontSize: 13),
+            ),
+          ),
+        ],
       ],
     );
   }
