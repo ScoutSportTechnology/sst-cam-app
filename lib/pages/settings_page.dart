@@ -12,6 +12,7 @@ import '../widgets/wf_chip.dart';
 import 'diagnostics_page.dart';
 import 'discovery_page.dart';
 import 'sport_presets_page.dart';
+import 'streaming_destination_form_sheet.dart';
 import 'user_form_sheet.dart';
 
 /// Settings — U7 layer over the U6 shell.
@@ -84,20 +85,12 @@ class SettingsPage extends ConsumerWidget {
           ),
           const SizedBox(height: 14),
 
-          // 4. Streaming Setup — placeholder (U9).
+          // 4. Streaming Setup — destinations list + Add row.
           const WfSection(
             'Streaming setup',
             padding: EdgeInsets.only(bottom: 6),
           ),
-          const WfCard(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'Streaming Setup section — populated in U9',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-            ),
-          ),
+          const _StreamingSection(),
           const SizedBox(height: 14),
 
           // 5. App — Theme / Permissions / About. Diagnostics moved to the
@@ -976,6 +969,255 @@ class _NoActiveUserCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Streaming setup section (U9) — lists the active user's streaming
+// destinations with a leading provider chip, primary name, protocol pill
+// subtitle, and a trailing delete IconButton. Tapping a row opens the
+// adaptive form sheet in edit mode; tapping "Add destination" opens it in
+// create mode.
+//
+// Empty state (active user has zero destinations): a `WfNote` reading
+// "No streaming destinations yet. Tap below to add one." renders inside
+// the same `WfCard`, above the "Add destination" row.
+//
+// Errors from create / edit / delete surface as `SnackBar`s on the
+// Settings scaffold.
+// ---------------------------------------------------------------------------
+
+class _StreamingSection extends ConsumerWidget {
+  const _StreamingSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(streamingDestinationsControllerProvider);
+
+    return async.when(
+      loading: () => const WfCard(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ),
+      ),
+      error: (e, _) => WfCard(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            'Could not load streaming destinations: $e',
+            style: const TextStyle(color: T.ink2, fontSize: 12),
+          ),
+        ),
+      ),
+      data: (destinations) {
+        return WfCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (destinations.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: WfNote(
+                    'No streaming destinations yet. Tap below to add one.',
+                  ),
+                )
+              else
+                for (final dest in destinations) ...[
+                  _DestinationRow(
+                    destination: dest,
+                    onTap: () => _onEdit(context, ref, dest),
+                    onDelete: () => _onDelete(context, ref, dest),
+                  ),
+                  const Divider(height: 1, color: T.rule),
+                ],
+              if (destinations.isEmpty)
+                const Divider(height: 1, color: T.rule),
+              InkWell(
+                onTap: () => _onAdd(context, ref),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        child: Center(
+                          child: Icon(Icons.add_link, color: T.ink2),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Add destination',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: T.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _onAdd(BuildContext context, WidgetRef ref) async {
+    final draft = await showStreamingDestinationFormSheet(context);
+    if (draft == null) return;
+    try {
+      await ref
+          .read(streamingDestinationsControllerProvider.notifier)
+          .create(draft);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't add destination — try again."),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onEdit(
+    BuildContext context,
+    WidgetRef ref,
+    StreamingDestination existing,
+  ) async {
+    final draft = await showStreamingDestinationFormSheet(
+      context,
+      existing: existing,
+    );
+    if (draft == null) return;
+    try {
+      await ref
+          .read(streamingDestinationsControllerProvider.notifier)
+          .edit(draft);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't save destination — try again."),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onDelete(
+    BuildContext context,
+    WidgetRef ref,
+    StreamingDestination dest,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Delete destination?'),
+        content: Text(
+          'Remove ${dest.name} from ${dest.provider.displayLabel} '
+          '${dest.protocol.displayLabel}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: T.danger, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref
+          .read(streamingDestinationsControllerProvider.notifier)
+          .delete(dest.id);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't delete destination — try again."),
+        ),
+      );
+    }
+  }
+}
+
+class _DestinationRow extends StatelessWidget {
+  const _DestinationRow({
+    required this.destination,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final StreamingDestination destination;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            // Leading provider chip — neutral background; provider label
+            // reads the brand without needing per-provider tints.
+            WfChip(label: destination.provider.displayLabel),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    destination.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: T.ink,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    destination.protocol.displayLabel,
+                    style: const TextStyle(
+                      fontFamily: T.mono,
+                      fontSize: 11,
+                      color: T.ink2,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 18),
+              color: T.ink2,
+              onPressed: onDelete,
+            ),
+          ],
+        ),
       ),
     );
   }

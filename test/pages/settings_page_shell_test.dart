@@ -149,14 +149,18 @@ void main() {
         expect(find.text('Sport setups'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
         expect(find.text('Streaming setup'), findsOneWidget);
+        // U9 has replaced the placeholder — empty active user (Coach
+        // Diego, no destinations seeded) renders the empty-state note +
+        // the "Add destination" row inside the card.
         await tester.scrollUntilVisible(
-          find.text('Streaming Setup section — populated in U9'),
+          find.text('No streaming destinations yet. Tap below to add one.'),
           200,
         );
         expect(
-          find.text('Streaming Setup section — populated in U9'),
+          find.text('No streaming destinations yet. Tap below to add one.'),
           findsOneWidget,
         );
+        expect(find.text('Add destination'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('App'), 200);
         expect(find.text('App'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('Theme'), 200);
