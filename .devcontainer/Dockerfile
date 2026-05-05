@@ -25,6 +25,7 @@ RUN sdkmanager \
     "platforms;android-35" \
     "build-tools;35.0.0"
 
+#RUN curl -fsSL https://claude.ai/install.sh | bash # Install Claude CLI if needed
 ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /workspace
