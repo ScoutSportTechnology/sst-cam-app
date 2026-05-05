@@ -4,20 +4,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/device.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
+import '../state/last_camera.dart';
 import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
+import 'diagnostics_page.dart';
 import 'discovery_page.dart';
 import 'sport_presets_page.dart';
 
-/// Settings — U6 shell.
+/// Settings — U7 layer over the U6 shell.
 ///
 /// Two render shapes:
 ///   1. Empty state when no camera is connected, mirroring the
-///      `_ConnectCameraScreen` pattern from `match_page.dart`.
+///      `_ConnectCameraScreen` pattern from `match_page.dart`. The CTA
+///      now drives a one-tap reconnect state machine: if a last-camera id
+///      is persisted, attempt `bleService.connect(lastId).timeout(5s)`
+///      before falling back to a fresh scan in `DiscoveryPage`.
 ///   2. Populated layout (5 sections) when a camera is connected. The
-///      Camera / User / Streaming Setup sections are placeholders that
-///      U7 / U8 / U9 fill in. Match Setup and App are real here.
+///      Camera section is the real 2x2 button card here; User and
+///      Streaming Setup remain placeholders that U8 / U9 fill in.
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
@@ -47,16 +52,8 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          // 1. Camera — placeholder card (U7 fills in the 4-button card).
-          const WfCard(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'Camera section — populated in U7',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-            ),
-          ),
+          // 1. Camera — connected-camera card with 2x2 button grid.
+          _CameraCard(deviceId: activeId),
           const SizedBox(height: 14),
 
           // 2. User — placeholder (U8).
@@ -106,7 +103,7 @@ class SettingsPage extends ConsumerWidget {
           const SizedBox(height: 14),
 
           // 5. App — Theme / Permissions / About. Diagnostics moved to the
-          // camera card per R5 (U7).
+          // camera card per R5 (one of the four buttons).
           const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
           const _RowItem(
             leading: Icon(Icons.palette_outlined),
@@ -141,16 +138,212 @@ class SettingsPage extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Camera card — connected-state. Top row shows display name + fw/proto /
+// connection dot; bottom is a 2x2 WfButton grid (Reboot, Update fw,
+// Disconnect, Diagnostics) per R4/R5.
+//
+// Reboot and Update fw are intentional placeholders until firmware lands —
+// rendered disabled with a `Tooltip("Coming soon — firmware integration")`
+// so the affordance reads as "deferred" rather than "broken".
+//
+// TODO: pipe `fw` and `proto` from the ScoutDevice / telemetry stream once
+// the device record is reachable from this scope. For U7 we surface the
+// connected device id (which serves as the display name) and a static
+// fw/proto label — sufficient to render and exercise the four-button card
+// in tests.
+// ---------------------------------------------------------------------------
+
+class _CameraCard extends ConsumerWidget {
+  const _CameraCard({required this.deviceId});
+
+  final String deviceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return WfCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const WfNote('Connected camera'),
+                    const SizedBox(height: 4),
+                    Text(
+                      deviceId,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: T.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'fw 0.3.2 · proto v0.3',
+                      style: TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 11,
+                        color: T.ink2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: T.accent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Top button row: Reboot · Update fw — both disabled placeholders
+          // wrapped in a Tooltip explaining the deferred state.
+          Row(
+            children: const [
+              Expanded(
+                child: Tooltip(
+                  message: 'Coming soon — firmware integration',
+                  child: WfButton(
+                    label: 'Reboot',
+                    size: WfButtonSize.sm,
+                    onPressed: null,
+                  ),
+                ),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Tooltip(
+                  message: 'Coming soon — firmware integration',
+                  child: WfButton(
+                    label: 'Update fw',
+                    size: WfButtonSize.sm,
+                    onPressed: null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Bottom button row: Disconnect · Diagnostics — both wired.
+          Row(
+            children: [
+              Expanded(
+                child: WfButton(
+                  label: 'Disconnect',
+                  size: WfButtonSize.sm,
+                  onPressed: () => _disconnect(ref, deviceId),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: WfButton(
+                  label: 'Diagnostics',
+                  size: WfButtonSize.sm,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const DiagnosticsPage(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Drop the BLE link only — the camera stays in the known list so a
+  /// subsequent one-tap reconnect from the empty state works without
+  /// rescanning. Per R4.
+  Future<void> _disconnect(WidgetRef ref, String deviceId) async {
+    await ref.read(bleServiceProvider).disconnect(deviceId);
+    ref.read(activeCameraIdProvider.notifier).state = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Empty state — full-screen "Connect camera" prompt mirroring
 // `_ConnectCameraScreen` from match_page.dart so the three tabs feel like
 // one product when no camera is paired.
 //
-// U7 will replace the simple DiscoveryPage push with a one-tap reconnect
-// state machine. For U6 the CTA is the unconditional fallback.
+// The CTA runs a small state machine:
+//   1. On tap → loading (disabled, "Connecting…", inline spinner).
+//   2. If `lastConnectedDeviceIdProvider` has a value, attempt
+//      `bleService.connect(lastId).timeout(5s)`.
+//   3. Success: write `activeCameraIdProvider`; the page rerenders to the
+//      populated layout. (Active-user hydration is U8's concern — if
+//      `getActiveUser` returns null, we leave `activeUserProvider` null
+//      and the User section renders the "Pick a user" prompt.)
+//   4. Failure (any exception or timeout): push `DiscoveryPage` and
+//      surface a `SnackBar` with the "Couldn't reconnect" copy.
+//   5. No persisted last id: push `DiscoveryPage` directly without
+//      attempting reconnect (no loading state, no snackbar).
 // ---------------------------------------------------------------------------
 
-class _ConnectCameraEmptyState extends StatelessWidget {
+class _ConnectCameraEmptyState extends ConsumerStatefulWidget {
   const _ConnectCameraEmptyState();
+
+  @override
+  ConsumerState<_ConnectCameraEmptyState> createState() =>
+      _ConnectCameraEmptyStateState();
+}
+
+class _ConnectCameraEmptyStateState
+    extends ConsumerState<_ConnectCameraEmptyState> {
+  bool _isConnecting = false;
+
+  Future<void> _onConnectTapped() async {
+    setState(() => _isConnecting = true);
+    try {
+      final lastIdAsync = ref.read(lastConnectedDeviceIdProvider);
+      final lastId = lastIdAsync.valueOrNull;
+      if (lastId == null) {
+        // First-launch path: just push DiscoveryPage. No loading state
+        // would have been useful, but we already entered it on tap; the
+        // finally block resets us when the route returns.
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const DiscoveryPage()),
+        );
+        return;
+      }
+
+      // One-tap reconnect.
+      final svc = ref.read(bleServiceProvider);
+      try {
+        await svc.connect(lastId).timeout(const Duration(seconds: 5));
+        // Success: set active camera id; the page rerenders to populated.
+        // Active-user hydration happens lazily via UsersController.build.
+        ref.read(activeCameraIdProvider.notifier).state = lastId;
+      } catch (_) {
+        // BleConnectionException, TimeoutException, anything else — same
+        // user-facing fallback per the plan.
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't reconnect to last camera — searching for cameras.",
+            ),
+          ),
+        );
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const DiscoveryPage()),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isConnecting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -197,16 +390,35 @@ class _ConnectCameraEmptyState extends StatelessWidget {
                 style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
               ),
               const SizedBox(height: 18),
-              WfButton(
-                label: 'Connect camera',
-                variant: WfButtonVariant.primary,
-                full: true,
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const DiscoveryPage()),
-                  );
-                },
-              ),
+              if (_isConnecting)
+                Row(
+                  children: const [
+                    Expanded(
+                      child: WfButton(
+                        label: 'Connecting…',
+                        variant: WfButtonVariant.primary,
+                        full: true,
+                        onPressed: null,
+                      ),
+                    ),
+                    SizedBox(width: 10),
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(T.accent),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                WfButton(
+                  label: 'Connect camera',
+                  variant: WfButtonVariant.primary,
+                  full: true,
+                  onPressed: _onConnectTapped,
+                ),
             ],
           ),
         ),
@@ -216,7 +428,7 @@ class _ConnectCameraEmptyState extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Shared row primitives — kept from the previous shell because U7-U9 reuse
+// Shared row primitives — kept from the previous shell because U8/U9 reuse
 // them inside their section bodies.
 // ---------------------------------------------------------------------------
 

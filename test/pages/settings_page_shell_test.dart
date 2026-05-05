@@ -90,8 +90,11 @@ void main() {
         expect(find.text('Streaming setup'), findsNothing);
         expect(find.text('App'), findsNothing);
 
-        // None of the populated-layout placeholder copy.
-        expect(find.text('Camera section — populated in U7'), findsNothing);
+        // None of the populated-layout placeholder copy. The Camera
+        // section is the real card now (U7); we still check the
+        // remaining placeholders aren't bleeding into the empty state.
+        expect(find.text('Connected camera'), findsNothing);
+        expect(find.text('Disconnect'), findsNothing);
         expect(find.text('User section — populated in U8'), findsNothing);
         expect(
           find.text('Streaming Setup section — populated in U9'),
@@ -122,8 +125,15 @@ void main() {
         expect(find.text('No camera connected'), findsNothing);
         expect(find.text('Connect camera'), findsNothing);
 
-        // Section headers and placeholder copy are visible.
-        expect(find.text('Camera section — populated in U7'), findsOneWidget);
+        // Camera card (U7) renders the connected-camera caption + the
+        // 2x2 button grid; the User and Streaming sections are still
+        // U8/U9 placeholders. The "Diagnostics" label has moved from
+        // the App section onto the camera card per R5.
+        expect(find.text('Connected camera'), findsOneWidget);
+        expect(find.text('Reboot'), findsOneWidget);
+        expect(find.text('Update fw'), findsOneWidget);
+        expect(find.text('Disconnect'), findsOneWidget);
+        expect(find.text('Diagnostics'), findsOneWidget);
         expect(find.text('User'), findsOneWidget);
         expect(find.text('User section — populated in U8'), findsOneWidget);
         expect(find.text('Match setup'), findsOneWidget);
@@ -135,22 +145,22 @@ void main() {
         );
         expect(find.text('App'), findsOneWidget);
         expect(find.text('Theme'), findsOneWidget);
+        // Permissions / About are below the fold now that the camera
+        // card has grown to a 2x2 button grid; scroll the ListView to
+        // surface them.
+        await tester.scrollUntilVisible(find.text('Permissions'), 200);
         expect(find.text('Permissions'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('About'), 200);
         expect(find.text('About'), findsOneWidget);
-
-        // Diagnostics has been removed from the App section per R5/R20.
-        expect(find.text('Diagnostics'), findsNothing);
 
         // Removed cards from prior shell are gone.
         expect(find.text('Recording defaults'), findsNothing);
         expect(find.text('Connectivity'), findsNothing);
         expect(find.text('Connect a different camera'), findsNothing);
 
-        // Order assertion: Camera placeholder appears above User section
+        // Order assertion: Camera card appears above User section
         // header, which appears above Match setup, etc.
-        final cameraPos = tester
-            .getTopLeft(find.text('Camera section — populated in U7'))
-            .dy;
+        final cameraPos = tester.getTopLeft(find.text('Connected camera')).dy;
         final userHeaderPos = tester.getTopLeft(find.text('User')).dy;
         final matchHeaderPos = tester.getTopLeft(find.text('Match setup')).dy;
         final streamingHeaderPos = tester
@@ -188,10 +198,11 @@ void main() {
           ),
         );
 
-        // Emit connected; the page should render the populated layout.
+        // Emit connected; the page should render the populated layout
+        // with the U7 camera card.
         controller.add(CameraConnectionState.connected);
         await tester.pumpAndSettle();
-        expect(find.text('Camera section — populated in U7'), findsOneWidget);
+        expect(find.text('Connected camera'), findsOneWidget);
         expect(find.text('No camera connected'), findsNothing);
 
         // Emit disconnected; the page should rerender to the empty state.
@@ -199,7 +210,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('No camera connected'), findsOneWidget);
         expect(find.text('Connect camera'), findsOneWidget);
-        expect(find.text('Camera section — populated in U7'), findsNothing);
+        expect(find.text('Connected camera'), findsNothing);
       },
     );
   });
