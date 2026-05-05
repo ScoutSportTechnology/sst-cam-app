@@ -25,6 +25,13 @@ RUN sdkmanager \
     "platforms;android-35" \
     "build-tools;35.0.0"
 
+# Node.js (required for Claude Code)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Claude Code
+RUN curl -fsSL https://claude.ai/install.sh | bash
 #RUN curl -fsSL https://claude.ai/install.sh | bash # Install Claude CLI if needed
 ENV PATH="/root/.local/bin:${PATH}"
 
