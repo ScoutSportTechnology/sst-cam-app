@@ -3,8 +3,10 @@ import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
 import '../models/sport_preset.dart';
+import '../models/streaming.dart';
 import '../models/team.dart';
 import '../models/telemetry.dart';
+import '../models/user.dart';
 
 /// Abstract BLE interface. Injected via Riverpod so the real and mock
 /// implementations are fully swappable without touching UI code.
@@ -153,6 +155,57 @@ abstract class BleService {
   );
 
   Future<void> deleteSportPreset(String deviceId, String presetId);
+
+  // ---------------------------------------------------------------------------
+  // Users — camera-side operator profiles. Each user scopes everything the
+  // camera owns (teams, match history, sport setups, streaming destinations)
+  // so a single camera can be shared across coaches without their data
+  // bleeding together.
+  // ---------------------------------------------------------------------------
+
+  Future<List<UserRecord>> listUsers(String deviceId);
+
+  Future<UserRecord> createUser(String deviceId, UserDraft draft);
+
+  Future<UserRecord> updateUser(String deviceId, UserDraft draft);
+
+  Future<void> deleteUser(String deviceId, String userId);
+
+  /// Returns the camera's currently-active user id, or `null` if none is set
+  /// (no users on the camera, or the previously-active user was deleted).
+  Future<String?> getActiveUser(String deviceId);
+
+  Future<void> setActiveUser(String deviceId, String userId);
+
+  // ---------------------------------------------------------------------------
+  // Streaming destinations — per-user live-streaming endpoints. Reads and
+  // writes are scoped by an explicit [userId] passed by the caller (sourced
+  // from the app's `activeUserProvider`); the camera does not implicitly
+  // scope by its persisted active user.
+  // ---------------------------------------------------------------------------
+
+  Future<List<StreamingDestination>> listStreamingDestinations(
+    String deviceId,
+    String userId,
+  );
+
+  Future<StreamingDestination> createStreamingDestination(
+    String deviceId,
+    String userId,
+    StreamingDestinationDraft draft,
+  );
+
+  Future<StreamingDestination> updateStreamingDestination(
+    String deviceId,
+    String userId,
+    StreamingDestinationDraft draft,
+  );
+
+  Future<void> deleteStreamingDestination(
+    String deviceId,
+    String userId,
+    String destinationId,
+  );
 
   // ---------------------------------------------------------------------------
   // Lifecycle

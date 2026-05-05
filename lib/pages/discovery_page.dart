@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/device.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
+import '../state/last_camera.dart';
 import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
 import '../widgets/wf_button.dart';
@@ -234,6 +237,16 @@ class _DeviceRow extends ConsumerWidget {
                   try {
                     await svc.connect(device.id);
                     ref.read(activeCameraIdProvider.notifier).state = device.id;
+                    // Persist the last successfully-connected camera id so
+                    // the Settings empty-state CTA can offer a one-tap
+                    // reconnect on next launch / after disconnect.
+                    // Best-effort — failure to persist must not break the
+                    // connect flow.
+                    unawaited(
+                      ref
+                          .read(lastConnectedDeviceIdProvider.notifier)
+                          .set(device.id),
+                    );
                     if (context.mounted) Navigator.of(context).pop();
                   } catch (_) {
                     // Surface failures via SnackBar; UI stays put.

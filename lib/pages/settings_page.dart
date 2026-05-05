@@ -1,22 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/device.dart';
 import '../state/app_data.dart';
+import '../state/ble_providers.dart';
+import '../state/last_camera.dart';
 import '../theme/tokens.dart';
-import '../widgets/indicators.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
+import '../widgets/wf_chip.dart';
 import 'diagnostics_page.dart';
 import 'discovery_page.dart';
+import 'manage_users_page.dart';
 import 'sport_presets_page.dart';
+import 'streaming_destinations_page.dart';
 
+/// Settings page. Renders an empty-state CTA when no camera is connected
+/// (with one-tap reconnect to the last-known camera before falling back to
+/// `DiscoveryPage`); otherwise renders Camera, User, Match Setup, Streaming
+/// Setup, and App sections.
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
-    final connected = activeId != null;
+    final connected =
+        activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
+
+    if (!connected) {
+      return const _ConnectCameraEmptyState();
+    }
+
+    final streamingCount =
+        ref
+            .watch(streamingDestinationsControllerProvider)
+            .valueOrNull
+            ?.length ??
+        0;
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -32,33 +55,10 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          if (connected) const _CameraCard() else const _NoCameraCard(),
+          _CameraCard(deviceId: activeId),
           const SizedBox(height: 14),
-          _DiscoveryRow(
-            connected: connected,
-            onTap: () {
-              Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const DiscoveryPage()));
-            },
-          ),
-          const SizedBox(height: 14),
-          const WfSection(
-            'Recording defaults',
-            padding: EdgeInsets.only(bottom: 6),
-          ),
-          const WfCard(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                _ValueRow(label: 'Resolution', value: '1080p · 30 fps'),
-                Divider(height: 1, color: T.rule),
-                _ValueRow(label: 'Bitrate', value: '12 Mbps'),
-                Divider(height: 1, color: T.rule),
-                _ValueRow(label: 'Auto-start at kickoff', value: 'On'),
-              ],
-            ),
-          ),
+          const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
+          const _UserSection(),
           const SizedBox(height: 14),
           const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
           WfCard(
@@ -75,8 +75,27 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 14),
-          const WfSection('Connectivity', padding: EdgeInsets.only(bottom: 6)),
-          const WfCard(padding: EdgeInsets.zero, child: _ConnectivityToggles()),
+          const WfSection(
+            'Streaming setup',
+            padding: EdgeInsets.only(bottom: 6),
+          ),
+          WfCard(
+            padding: EdgeInsets.zero,
+            child: _NavRow(
+              leading: const Icon(Icons.cast_outlined),
+              label: 'Streaming destinations',
+              badge: streamingCount > 0
+                  ? '$streamingCount ${streamingCount == 1 ? 'destination' : 'destinations'}'
+                  : null,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const StreamingDestinationsPage(),
+                  ),
+                );
+              },
+            ),
+          ),
           const SizedBox(height: 14),
           const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
           const _RowItem(
@@ -97,17 +116,6 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const Divider(height: 1, color: T.rule),
-          _NavRow(
-            leading: const Icon(Icons.bug_report_outlined),
-            label: 'Diagnostics',
-            sub: 'BLE link · proto · logs',
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const DiagnosticsPage()),
-              );
-            },
-          ),
-          const Divider(height: 1, color: T.rule),
           const _RowItem(
             leading: Icon(Icons.info_outline),
             label: 'About',
@@ -122,11 +130,18 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
-class _CameraCard extends StatelessWidget {
-  const _CameraCard();
+// Camera card. Reboot and Update fw remain visual placeholders until
+// firmware lands; they render disabled with a tooltip explaining that.
+// fw / proto values are placeholder strings — pipe them from the
+// ScoutDevice / telemetry stream when that data is reachable here.
+
+class _CameraCard extends ConsumerWidget {
+  const _CameraCard({required this.deviceId});
+
+  final String deviceId;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return WfCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -136,19 +151,19 @@ class _CameraCard extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    WfNote('Connected camera'),
-                    SizedBox(height: 4),
+                  children: [
+                    const WfNote('Connected camera'),
+                    const SizedBox(height: 4),
                     Text(
-                      'sst-cam-01',
-                      style: TextStyle(
+                      deviceId,
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: T.ink,
                       ),
                     ),
-                    SizedBox(height: 2),
-                    Text(
+                    const SizedBox(height: 2),
+                    const Text(
                       'fw 0.3.2 · proto v0.3',
                       style: TextStyle(
                         fontFamily: T.mono,
@@ -162,9 +177,9 @@ class _CameraCard extends StatelessWidget {
               Container(
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: T.accent,
-                  borderRadius: BorderRadius.circular(4),
+                  shape: BoxShape.circle,
                 ),
               ),
             ],
@@ -173,11 +188,52 @@ class _CameraCard extends StatelessWidget {
           Row(
             children: const [
               Expanded(
-                child: WfButton(label: 'Reboot', size: WfButtonSize.sm),
+                child: Tooltip(
+                  message: 'Coming soon — firmware integration',
+                  child: WfButton(
+                    label: 'Reboot',
+                    size: WfButtonSize.sm,
+                    onPressed: null,
+                  ),
+                ),
               ),
               SizedBox(width: 8),
               Expanded(
-                child: WfButton(label: 'Update fw', size: WfButtonSize.sm),
+                child: Tooltip(
+                  message: 'Coming soon — firmware integration',
+                  child: WfButton(
+                    label: 'Update fw',
+                    size: WfButtonSize.sm,
+                    onPressed: null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Bottom button row: Disconnect · Diagnostics — both wired.
+          Row(
+            children: [
+              Expanded(
+                child: WfButton(
+                  label: 'Disconnect',
+                  size: WfButtonSize.sm,
+                  onPressed: () => _disconnect(ref, deviceId),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: WfButton(
+                  label: 'Diagnostics',
+                  size: WfButtonSize.sm,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const DiagnosticsPage(),
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -185,145 +241,176 @@ class _CameraCard extends StatelessWidget {
       ),
     );
   }
+
+  /// Drop the BLE link only — the camera stays in the known list so a
+  /// subsequent one-tap reconnect from the empty state works without
+  /// rescanning. Per R4.
+  Future<void> _disconnect(WidgetRef ref, String deviceId) async {
+    await ref.read(bleServiceProvider).disconnect(deviceId);
+    ref.read(activeCameraIdProvider.notifier).state = null;
+  }
 }
 
-class _NoCameraCard extends StatelessWidget {
-  const _NoCameraCard();
+// ---------------------------------------------------------------------------
+// Empty state — full-screen "Connect camera" prompt mirroring
+// `_ConnectCameraScreen` from match_page.dart so the three tabs feel like
+// one product when no camera is paired.
+//
+// The CTA runs a small state machine:
+//   1. On tap → loading (disabled, "Connecting…", inline spinner).
+//   2. If `lastConnectedDeviceIdProvider` has a value, attempt
+//      `bleService.connect(lastId).timeout(5s)`.
+//   3. Success: write `activeCameraIdProvider`; the page rerenders to the
+//      populated layout. If `getActiveUser` returns null we leave
+//      `activeUserProvider` null and the User section renders the
+//      "Pick a user" prompt.
+//   4. Failure (any exception or timeout): push `DiscoveryPage` and
+//      surface a `SnackBar` with the "Couldn't reconnect" copy.
+//   5. No persisted last id: push `DiscoveryPage` directly without
+//      attempting reconnect (no loading state, no snackbar).
+// ---------------------------------------------------------------------------
+
+class _ConnectCameraEmptyState extends ConsumerStatefulWidget {
+  const _ConnectCameraEmptyState();
+
+  @override
+  ConsumerState<_ConnectCameraEmptyState> createState() =>
+      _ConnectCameraEmptyStateState();
+}
+
+class _ConnectCameraEmptyStateState
+    extends ConsumerState<_ConnectCameraEmptyState> {
+  bool _isConnecting = false;
+
+  Future<void> _onConnectTapped() async {
+    setState(() => _isConnecting = true);
+    try {
+      final lastIdAsync = ref.read(lastConnectedDeviceIdProvider);
+      final lastId = lastIdAsync.valueOrNull;
+      if (lastId == null) {
+        // First-launch path: just push DiscoveryPage. No loading state
+        // would have been useful, but we already entered it on tap; the
+        // finally block resets us when the route returns.
+        if (!mounted) return;
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const DiscoveryPage()));
+        return;
+      }
+
+      // One-tap reconnect.
+      final svc = ref.read(bleServiceProvider);
+      try {
+        await svc.connect(lastId).timeout(const Duration(seconds: 5));
+        // Success: set active camera id; the page rerenders to populated.
+        // Active-user hydration happens lazily via UsersController.build.
+        ref.read(activeCameraIdProvider.notifier).state = lastId;
+      } catch (_) {
+        // BleConnectionException, TimeoutException, anything else — same
+        // user-facing fallback per the plan.
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't reconnect to last camera — searching for cameras.",
+            ),
+          ),
+        );
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const DiscoveryPage()));
+      }
+    } finally {
+      if (mounted) setState(() => _isConnecting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const WfCard(
-      child: Row(
-        children: [
-          Icon(Icons.videocam_off_outlined, color: T.ink3),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'No camera connected',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: T.ink,
-                  ),
+    return Scaffold(
+      backgroundColor: T.bg,
+      appBar: AppBar(title: const Text('Settings')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: T.fillSoft,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: T.hair),
                 ),
-                SizedBox(height: 2),
-                WfNote('Tap below to scan for nearby ScoutCams.'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DiscoveryRow extends StatelessWidget {
-  const _DiscoveryRow({required this.connected, required this.onTap});
-  final bool connected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: WfCard(
-        padding: EdgeInsets.zero,
-        child: _RowItem(
-          leading: const Icon(Icons.bluetooth_searching),
-          label: connected ? 'Connect a different camera' : 'Connect a camera',
-          sub: 'Scan & pair · ${connected ? '1 paired' : '0 paired'}',
-          trailing: const Icon(Icons.chevron_right, color: T.ink3, size: 18),
-        ),
-      ),
-    );
-  }
-}
-
-class _ValueRow extends StatelessWidget {
-  const _ValueRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: T.ink,
+                child: const Icon(
+                  Icons.videocam_off_outlined,
+                  color: T.ink2,
+                  size: 28,
+                ),
               ),
-            ),
-          ),
-          Text(value, style: const TextStyle(fontSize: 12, color: T.ink2)),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConnectivityToggles extends StatefulWidget {
-  const _ConnectivityToggles();
-
-  @override
-  State<_ConnectivityToggles> createState() => _ConnectivityTogglesState();
-}
-
-class _ConnectivityTogglesState extends State<_ConnectivityToggles> {
-  bool _ap = true;
-  bool _stayAwake = true;
-  bool _bgBle = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _toggleRow('WiFi AP auto-enable', _ap, (v) => setState(() => _ap = v)),
-        const Divider(height: 1, color: T.rule),
-        _toggleRow(
-          'Stay-awake on download',
-          _stayAwake,
-          (v) => setState(() => _stayAwake = v),
-        ),
-        const Divider(height: 1, color: T.rule),
-        _toggleRow(
-          'Keep BLE alive in background',
-          _bgBle,
-          (v) => setState(() => _bgBle = v),
-        ),
-      ],
-    );
-  }
-
-  Widget _toggleRow(String label, bool v, ValueChanged<bool> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                color: T.ink,
-                fontWeight: FontWeight.w500,
+              const SizedBox(height: 16),
+              const Text(
+                'No camera connected',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: T.ink,
+                ),
               ),
-            ),
+              const SizedBox(height: 6),
+              const Text(
+                'Connect a camera to manage users, formats, and streaming '
+                'destinations.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              if (_isConnecting)
+                Row(
+                  children: const [
+                    Expanded(
+                      child: WfButton(
+                        label: 'Connecting…',
+                        variant: WfButtonVariant.primary,
+                        full: true,
+                        onPressed: null,
+                      ),
+                    ),
+                    SizedBox(width: 10),
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(T.accent),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                WfButton(
+                  label: 'Connect camera',
+                  variant: WfButtonVariant.primary,
+                  full: true,
+                  onPressed: _onConnectTapped,
+                ),
+            ],
           ),
-          WfSwitch(value: v, onChanged: onChanged),
-        ],
+        ),
       ),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shared row primitives reused across User, Match Setup, Streaming Setup,
+// and App sections.
+// ---------------------------------------------------------------------------
 
 class _RowItem extends StatelessWidget {
   const _RowItem({
@@ -373,11 +460,13 @@ class _NavRow extends StatelessWidget {
     required this.leading,
     required this.label,
     this.sub,
+    this.badge,
     required this.onTap,
   });
   final Widget leading;
   final String label;
   final String? sub;
+  final String? badge;
   final VoidCallback onTap;
 
   @override
@@ -388,8 +477,188 @@ class _NavRow extends StatelessWidget {
         leading: leading,
         label: label,
         sub: sub,
-        trailing: const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (badge != null) ...[
+              Text(badge!, style: const TextStyle(color: T.ink2, fontSize: 12)),
+              const SizedBox(width: 4),
+            ],
+            const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+          ],
+        ),
       ),
     );
+  }
+}
+
+class _UserSection extends ConsumerWidget {
+  const _UserSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final usersAsync = ref.watch(usersControllerProvider);
+    final activeId = ref.watch(activeUserProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        usersAsync.when(
+          loading: () => const WfCard(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          ),
+          error: (e, _) => WfCard(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                'Could not load users: $e',
+                style: const TextStyle(color: T.ink2, fontSize: 12),
+              ),
+            ),
+          ),
+          data: (users) {
+            UserRecord? active;
+            for (final u in users) {
+              if (u.id == activeId) {
+                active = u;
+                break;
+              }
+            }
+            return WfCard(
+              padding: EdgeInsets.zero,
+              child: Builder(
+                builder: (ctx) => InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () => _openPicker(ctx, ref, users, activeId),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      children: [
+                        if (active != null) ...[
+                          const WfChip(label: 'Active', active: true),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: active != null
+                              ? Text(
+                                  active.name,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: T.ink,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                )
+                              : const WfNote('Pick a user to get started'),
+                        ),
+                        const Icon(Icons.expand_more, color: T.ink3, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        WfCard(
+          padding: EdgeInsets.zero,
+          child: _NavRow(
+            leading: const Icon(Icons.manage_accounts_outlined),
+            label: 'Manage users',
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const ManageUsersPage())),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openPicker(
+    BuildContext ctx,
+    WidgetRef ref,
+    List<UserRecord> users,
+    String? activeId,
+  ) async {
+    final box = ctx.findRenderObject()! as RenderBox;
+    final overlay =
+        Navigator.of(ctx).overlay!.context.findRenderObject()! as RenderBox;
+    final offset = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final selected = await showMenu<UserRecord>(
+      context: ctx,
+      position: RelativeRect.fromLTRB(
+        offset.dx,
+        offset.dy + box.size.height,
+        overlay.size.width - offset.dx - box.size.width,
+        0,
+      ),
+      constraints: BoxConstraints(minWidth: box.size.width),
+      items: [
+        for (final u in users)
+          PopupMenuItem<UserRecord>(
+            value: u,
+            child: Row(
+              children: [
+                Flexible(child: Text(u.name)),
+                if (u.id == activeId) ...[
+                  const SizedBox(width: 8),
+                  const WfChip(label: 'Active', active: true),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+    if (selected == null || !ctx.mounted) return;
+    _onSwitchTapped(ctx, ref, selected);
+  }
+
+  Future<void> _onSwitchTapped(
+    BuildContext context,
+    WidgetRef ref,
+    UserRecord target,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Switch user?'),
+        content: Text(
+          'Switch to ${target.name}? Your teams, matches, and streaming '
+          'destinations will reload to show their data.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Switch'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(usersControllerProvider.notifier).setActive(target.id);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't switch user — try again.")),
+      );
+    }
   }
 }

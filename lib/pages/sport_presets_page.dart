@@ -42,20 +42,10 @@ class SportPresetsPage extends ConsumerWidget {
               ),
             );
           }
-          final grouped = _groupBySport(presets);
-          return ListView(
-            padding: const EdgeInsets.only(bottom: 80),
+          return Column(
             children: [
-              for (final sport in grouped.keys) ...[
-                WfSection(sport),
-                ...grouped[sport]!.map(
-                  (p) => _PresetRow(
-                    preset: p,
-                    onEdit: () => _onEdit(context, ref, p),
-                    onDelete: () => _onDelete(context, ref, p),
-                  ),
-                ),
-              ],
+              const SizedBox(height: 44, child: _SportFilterChips()),
+              Expanded(child: _PresetList(presets: presets)),
             ],
           );
         },
@@ -73,16 +63,6 @@ class SportPresetsPage extends ConsumerWidget {
     );
   }
 
-  static Map<String, List<SportPreset>> _groupBySport(
-    List<SportPreset> presets,
-  ) {
-    final out = <String, List<SportPreset>>{};
-    for (final p in presets) {
-      out.putIfAbsent(p.sport, () => []).add(p);
-    }
-    return out;
-  }
-
   Future<void> _onAdd(BuildContext context, WidgetRef ref) async {
     final draft = await showSportPresetFormSheet(context);
     if (draft == null) return;
@@ -94,6 +74,53 @@ class SportPresetsPage extends ConsumerWidget {
         context,
       ).showSnackBar(SnackBar(content: Text('Could not add setup: $e')));
     }
+  }
+}
+
+class _PresetList extends ConsumerWidget {
+  const _PresetList({required this.presets});
+  final List<SportPreset> presets;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selectedSport = ref.watch(sportPresetsFilterProvider);
+    final filtered = selectedSport == null
+        ? presets
+        : presets.where((p) => p.sport == selectedSport).toList();
+    final grouped = _groupBySport(filtered);
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 80),
+      children: [
+        for (final sport in grouped.keys) ...[
+          WfSection(sport),
+          ...grouped[sport]!.map(
+            (p) => _PresetRow(
+              preset: p,
+              onEdit: () => _onEdit(context, ref, p),
+              onDelete: () => _onDelete(context, ref, p),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  static Map<String, List<SportPreset>> _groupBySport(
+    List<SportPreset> presets,
+  ) {
+    final out = <String, List<SportPreset>>{};
+    for (final p in presets) {
+      out.putIfAbsent(p.sport, () => []).add(p);
+    }
+    // Sort within each group: built-ins first, then alphabetically by name.
+    for (final list in out.values) {
+      list.sort((a, b) {
+        if (a.builtIn != b.builtIn) return a.builtIn ? -1 : 1;
+        return a.name.compareTo(b.name);
+      });
+    }
+    return out;
   }
 
   Future<void> _onEdit(
@@ -153,6 +180,31 @@ class SportPresetsPage extends ConsumerWidget {
   }
 }
 
+class _SportFilterChips extends ConsumerWidget {
+  const _SportFilterChips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selected = ref.watch(sportPresetsFilterProvider);
+    final entries = <String?>[null, ...kSports];
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      itemCount: entries.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 6),
+      itemBuilder: (_, i) {
+        final s = entries[i];
+        final active = s == selected;
+        return GestureDetector(
+          onTap: () => ref.read(sportPresetsFilterProvider.notifier).state = s,
+          child: WfChip(label: s ?? 'All', active: active),
+        );
+      },
+    );
+  }
+}
+
 class _PresetRow extends StatelessWidget {
   const _PresetRow({
     required this.preset,
@@ -171,39 +223,28 @@ class _PresetRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
+            if (preset.builtIn) ...[
+              const WfChip(label: 'Default'),
+              const SizedBox(width: 8),
+            ],
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          preset.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: T.ink,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      if (preset.builtIn) ...[
-                        const SizedBox(width: 8),
-                        const WfChip(label: 'Built-in'),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    preset.summary,
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 11,
-                      color: T.ink2,
-                    ),
-                  ),
-                ],
+              child: Text(
+                preset.name,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: T.ink,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              preset.summary,
+              style: const TextStyle(
+                fontFamily: T.mono,
+                fontSize: 11,
+                color: T.ink2,
               ),
             ),
             if (!preset.builtIn)

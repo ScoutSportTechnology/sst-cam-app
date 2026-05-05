@@ -8,11 +8,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/sport_preset.dart';
+import '../models/streaming.dart';
 import '../models/team.dart';
+import '../models/user.dart';
 import 'ble_providers.dart';
 
 export '../models/sport_preset.dart';
+export '../models/streaming.dart';
 export '../models/team.dart';
+export '../models/user.dart';
 
 class LibraryEvent {
   const LibraryEvent({
@@ -159,6 +163,214 @@ final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 String? _resolveDeviceId(Ref ref) => ref.watch(activeCameraIdProvider);
 
 // ---------------------------------------------------------------------------
+// Active user — single source of truth on the app side. Mirrors
+// `activeCameraIdProvider`. Hydrated from the camera in `UsersController.build`
+// when null. Per-user-scoped controllers (teams, sport presets, streaming
+// destinations) watch this provider so they rebuild on user switch.
+//
+// `upcomingMatchesProvider` does NOT watch this — it has no userId arg, and
+// is invalidated explicitly by `UsersController.setActive` instead. That
+// matches the existing pattern from `TeamsController` mutations.
+// ---------------------------------------------------------------------------
+
+final activeUserProvider = StateProvider<String?>((_) => null);
+
+/// Typed exception for `UsersController` UI-rule pre-checks. Surfaced to the
+/// UI so the user / form layers can render an inline message rather than
+/// letting the BLE call fail noisily.
+class UsersControllerException implements Exception {
+  const UsersControllerException(this.message);
+  final String message;
+
+  @override
+  String toString() => 'UsersControllerException: $message';
+}
+
+class UsersController extends AsyncNotifier<List<UserRecord>> {
+  String? get _deviceId => _resolveDeviceId(ref);
+
+  String _requireDevice() {
+    final id = _deviceId;
+    if (id == null) {
+      throw StateError('No camera connected');
+    }
+    return id;
+  }
+
+  @override
+  Future<List<UserRecord>> build() async {
+    final svc = ref.watch(bleServiceProvider);
+    final id = _deviceId;
+    if (id == null) return const [];
+    final currentActive = ref.read(activeUserProvider);
+    if (currentActive != null) {
+      return svc.listUsers(id);
+    }
+    // Independent BLE round-trips — fetch in parallel, then hydrate.
+    final results = await Future.wait([
+      svc.listUsers(id),
+      svc.getActiveUser(id),
+    ]);
+    final users = results[0] as List<UserRecord>;
+    final cameraActive = results[1] as String?;
+    if (cameraActive != null) {
+      ref.read(activeUserProvider.notifier).state = cameraActive;
+    }
+    return users;
+  }
+
+  Future<void> _refresh() async {
+    final svc = ref.read(bleServiceProvider);
+    final id = _deviceId;
+    state = AsyncValue.data(id == null ? const [] : await svc.listUsers(id));
+  }
+
+  Future<UserRecord> create(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const UsersControllerException('User name is required');
+    }
+    final svc = ref.read(bleServiceProvider);
+    final created = await svc.createUser(
+      _requireDevice(),
+      UserDraft(name: trimmed),
+    );
+    await _refresh();
+    return created;
+  }
+
+  /// Switch the camera's active user. Order is load-bearing: the BleService
+  /// call resolves FIRST so DevDataStore's `_activeUserId` is set before any
+  /// controller refetch reads through it; only AFTER that do we write
+  /// `activeUserProvider`.
+  Future<void> setActive(String userId) async {
+    if (userId == ref.read(activeUserProvider)) return;
+    final svc = ref.read(bleServiceProvider);
+    await svc.setActiveUser(_requireDevice(), userId);
+    ref.read(activeUserProvider.notifier).state = userId;
+    // upcomingMatchesProvider has no userId arg so it can't watch
+    // activeUserProvider — invalidate explicitly.
+    ref.invalidate(upcomingMatchesProvider);
+  }
+
+  /// Delete a user. UI-rule pre-checks raise [UsersControllerException]
+  /// BEFORE the BLE call so the form can render an inline message and the
+  /// camera-side state is never touched on a UI-rule violation.
+  Future<void> delete(String userId) async {
+    final users = state.valueOrNull ?? const [];
+    final activeUserId = ref.read(activeUserProvider);
+    if (userId == activeUserId) {
+      throw const UsersControllerException('Cannot delete the active user');
+    }
+    if (users.length <= 1) {
+      throw const UsersControllerException('At least one user must remain');
+    }
+    // Block delete while any match is live. Stricter than per-user
+    // cross-reference because LiveMatchState only carries display-name
+    // strings, not owning ids — refine if/when ownership ids are added.
+    if (isLiveMatchRunning(ref.read(liveMatchProvider))) {
+      throw const UsersControllerException(
+        'End the live match before deleting',
+      );
+    }
+
+    final svc = ref.read(bleServiceProvider);
+    await svc.deleteUser(_requireDevice(), userId);
+    await _refresh();
+  }
+}
+
+final usersControllerProvider =
+    AsyncNotifierProvider<UsersController, List<UserRecord>>(
+      UsersController.new,
+    );
+
+// ---------------------------------------------------------------------------
+// Streaming destinations — per-user list. `userId` is passed explicitly to
+// every BleService call (sourced from `activeUserProvider`); when no user
+// is active, `build()` returns empty without making a BLE call.
+// ---------------------------------------------------------------------------
+
+class StreamingDestinationsController
+    extends AsyncNotifier<List<StreamingDestination>> {
+  String? get _deviceId => _resolveDeviceId(ref);
+
+  String _requireDevice() {
+    final id = _deviceId;
+    if (id == null) {
+      throw StateError('No camera connected');
+    }
+    return id;
+  }
+
+  String _requireActiveUser() {
+    final activeUserId = ref.read(activeUserProvider);
+    if (activeUserId == null) {
+      throw StateError('No active user');
+    }
+    return activeUserId;
+  }
+
+  @override
+  Future<List<StreamingDestination>> build() async {
+    final svc = ref.watch(bleServiceProvider);
+    final activeUserId = ref.watch(activeUserProvider);
+    final id = _deviceId;
+    if (id == null || activeUserId == null) return const [];
+    return svc.listStreamingDestinations(id, activeUserId);
+  }
+
+  Future<void> _refresh() async {
+    final svc = ref.read(bleServiceProvider);
+    final activeUserId = ref.read(activeUserProvider);
+    final id = _deviceId;
+    state = AsyncValue.data(
+      (id == null || activeUserId == null)
+          ? const []
+          : await svc.listStreamingDestinations(id, activeUserId),
+    );
+  }
+
+  Future<StreamingDestination> create(StreamingDestinationDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    final created = await svc.createStreamingDestination(
+      _requireDevice(),
+      _requireActiveUser(),
+      draft,
+    );
+    await _refresh();
+    return created;
+  }
+
+  Future<StreamingDestination> edit(StreamingDestinationDraft draft) async {
+    final svc = ref.read(bleServiceProvider);
+    final updated = await svc.updateStreamingDestination(
+      _requireDevice(),
+      _requireActiveUser(),
+      draft,
+    );
+    await _refresh();
+    return updated;
+  }
+
+  Future<void> delete(String destinationId) async {
+    final svc = ref.read(bleServiceProvider);
+    await svc.deleteStreamingDestination(
+      _requireDevice(),
+      _requireActiveUser(),
+      destinationId,
+    );
+    await _refresh();
+  }
+}
+
+final streamingDestinationsControllerProvider =
+    AsyncNotifierProvider<
+      StreamingDestinationsController,
+      List<StreamingDestination>
+    >(StreamingDestinationsController.new);
+
+// ---------------------------------------------------------------------------
 // Teams — controller + filter providers. The controller is the only writer;
 // UI mutates by calling its methods.
 // ---------------------------------------------------------------------------
@@ -180,6 +392,9 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
   @override
   Future<List<TeamRecord>> build() async {
     final svc = ref.watch(bleServiceProvider);
+    // Rebuild on user switch — the actual scoping happens inside the
+    // BleService impl via DevDataStore.getActiveUser().
+    ref.watch(activeUserProvider);
     final id = _deviceId;
     if (id == null) return const [];
     return svc.listTeams(id);
@@ -329,6 +544,9 @@ class SportPresetsController extends AsyncNotifier<List<SportPreset>> {
   @override
   Future<List<SportPreset>> build() async {
     final svc = ref.watch(bleServiceProvider);
+    // Rebuild on user switch — the actual scoping happens inside the
+    // BleService impl via DevDataStore.getActiveUser().
+    ref.watch(activeUserProvider);
     final id = _deviceId;
     if (id == null) return const [];
     return svc.listSportPresets(id);
@@ -385,6 +603,10 @@ final teamsSportFilterProvider = StateProvider<String?>(
   (_) => null,
 ); // null = All
 final teamsShowHiddenProvider = StateProvider<bool>((_) => false);
+
+final sportPresetsFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
 
 /// Sports actually present in the current team set, in `kSports` order.
 /// Used to drive the filter chip row so we never show a chip with zero teams.
@@ -753,3 +975,15 @@ class LiveMatchController extends Notifier<LiveMatchState> {
 final liveMatchProvider = NotifierProvider<LiveMatchController, LiveMatchState>(
   LiveMatchController.new,
 );
+
+/// True iff a match is in flight — i.e. past kickoff and not yet finalized.
+/// Phases `period` (period running) and `periodBreak` (between / after the
+/// final period, awaiting end-of-match) both qualify. `idle` and `ended`
+/// don't.
+///
+/// Used by [UsersController.delete] for the R10 live-match precondition. We
+/// keep the rule conservative: any live match blocks deleting any user. The
+/// per-user-cross-reference variant of this check is deferred (would require
+/// `LiveMatchState` to expose owning team / preset / destination ids).
+bool isLiveMatchRunning(LiveMatchState s) =>
+    s.phase == MatchPhase.period || s.phase == MatchPhase.periodBreak;
