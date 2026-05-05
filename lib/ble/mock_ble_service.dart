@@ -7,9 +7,12 @@ import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
 import '../models/sport_preset.dart';
+import '../models/streaming.dart';
 import '../models/team.dart';
 import '../models/telemetry.dart';
+import '../models/user.dart';
 import 'ble_service.dart';
+import 'dev_data_store.dart';
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [
@@ -193,8 +196,12 @@ class _DeviceState {
 /// progressive discovery, sinusoidal telemetry drift, and configurable
 /// failure injection for error-path testing.
 ///
-/// Uses `package:scout_camera` imports so it exercises the same contracts
-/// as the production [BleServiceImpl].
+/// All data CRUD (teams, matches, sport presets, users, streaming
+/// destinations) routes through [DevDataStore.instance] — the same in-memory
+/// layer that `BleServiceImpl` delegates to in mock builds. Existing
+/// per-team / per-preset methods are scoped to the camera's currently-active
+/// user as a backwards-compat default; the longer-term plan is for
+/// controllers to pass `userId` explicitly.
 class MockBleService implements BleService {
   MockBleService({
     this.scanDeviceAppearDelays = const [
@@ -235,143 +242,6 @@ class MockBleService implements BleService {
       protocolVersion: 1,
     ),
   ];
-
-  // ---------------------------------------------------------------------------
-  // Team store — process-global so the wireframe persists across hot reloads
-  // and "preview" (no active connection) deviceIds. The contract still passes
-  // deviceId; in a real firmware impl each camera would own a separate store.
-  // ---------------------------------------------------------------------------
-  static const _seedRoster = <Player>[
-    Player(number: 7, name: 'A. Patel', position: 'Forward', captain: true),
-    Player(number: 10, name: 'B. Okafor', position: 'Mid'),
-    Player(number: 4, name: 'C. Nguyen', position: 'Defender'),
-    Player(number: 1, name: 'D. Reyes', position: 'Keeper'),
-    Player(number: 11, name: 'E. Mahmoud', position: 'Forward'),
-    Player(number: 8, name: 'F. Lopez', position: 'Mid'),
-    Player(number: 5, name: 'G. Singh', position: 'Defender'),
-  ];
-
-  static final List<TeamRecord> _teams = [
-    const TeamRecord(
-      id: 'nr-u14',
-      name: 'Northside Rovers U14',
-      shortName: 'NRA',
-      sport: 'Soccer',
-      roster: _seedRoster,
-    ),
-    const TeamRecord(
-      id: 'nr-u12',
-      name: 'Northside Rovers U12',
-      shortName: 'NRB',
-      sport: 'Soccer',
-      roster: [],
-    ),
-    const TeamRecord(
-      id: 'efc-r',
-      name: 'Eastfield FC Reserves',
-      shortName: 'EFC',
-      sport: 'Soccer',
-      roster: [],
-    ),
-    const TeamRecord(
-      id: 'rd-utd',
-      name: 'Riverdale United',
-      shortName: 'RDU',
-      sport: 'Soccer',
-      roster: [],
-    ),
-  ];
-
-  static final Map<String, List<TeamMatch>> _teamMatches = {
-    'nr-u14': const [
-      TeamMatch(
-        id: 'nr-u14-up1',
-        opponent: 'vs Eastfield FC',
-        date: 'May 11',
-        result: '',
-        kind: MatchKind.upcoming,
-        numPeriods: 2,
-        periodLengthSeconds: 35 * 60,
-        clips: 0,
-        sizeMb: 0,
-      ),
-      TeamMatch(
-        id: 'nr-u14-up2',
-        opponent: 'vs Lakeside',
-        date: 'May 18',
-        result: '',
-        kind: MatchKind.upcoming,
-        numPeriods: 2,
-        periodLengthSeconds: 35 * 60,
-        clips: 0,
-        sizeMb: 0,
-      ),
-      TeamMatch(
-        id: 'nr-u14-m1',
-        opponent: 'vs Eastfield FC',
-        date: 'Mar 12',
-        result: 'W 3–1',
-        clips: 2,
-        sizeMb: 380,
-      ),
-      TeamMatch(
-        id: 'nr-u14-m2',
-        opponent: 'vs Riverdale Utd',
-        date: 'Mar 05',
-        result: 'L 0–2',
-        clips: 2,
-        sizeMb: 180,
-      ),
-      TeamMatch(
-        id: 'nr-u14-m3',
-        opponent: 'vs Lakeside',
-        date: 'Feb 26',
-        result: 'D 1–1',
-        clips: 2,
-        sizeMb: 540,
-      ),
-    ],
-  };
-
-  // Sport setups — built-ins are flagged so the UI hides delete on them.
-  static final List<SportPreset> _sportPresets = [
-    const SportPreset(
-      id: 'preset-soccer-std',
-      name: 'Soccer · Standard',
-      sport: 'Soccer',
-      numPeriods: 2,
-      periodLengthSeconds: 45 * 60,
-      builtIn: true,
-    ),
-    const SportPreset(
-      id: 'preset-soccer-youth',
-      name: 'Soccer · Youth (U14)',
-      sport: 'Soccer',
-      numPeriods: 2,
-      periodLengthSeconds: 35 * 60,
-      builtIn: true,
-    ),
-    const SportPreset(
-      id: 'preset-basketball-fiba',
-      name: 'Basketball · FIBA',
-      sport: 'Basketball',
-      numPeriods: 4,
-      periodLengthSeconds: 10 * 60,
-      builtIn: true,
-    ),
-    const SportPreset(
-      id: 'preset-hockey-std',
-      name: 'Hockey · Standard',
-      sport: 'Hockey',
-      numPeriods: 3,
-      periodLengthSeconds: 20 * 60,
-      builtIn: true,
-    ),
-  ];
-
-  int _teamIdCounter = 0;
-  int _matchIdCounter = 0;
-  int _presetIdCounter = 0;
 
   static final _fakeRecordings = [
     RecordingMetadata(
@@ -592,13 +462,34 @@ class MockBleService implements BleService {
   }
 
   // ---------------------------------------------------------------------------
-  // Teams / roster — in-memory store, deviceId-agnostic in the mock.
+  // Active-user resolution helper
+  //
+  // Existing teams / matches / sport-preset CRUD on the BleService surface
+  // does NOT take a userId parameter — the methods predate the multi-user
+  // reshape. As a backwards-compat default the mock scopes those calls to
+  // the camera's currently-active user from DevDataStore. Controllers that
+  // want explicit scoping should call DevDataStore directly (or future
+  // BleService overloads).
+  // ---------------------------------------------------------------------------
+
+  String _requireActiveUserId() {
+    final id = DevDataStore.instance.getActiveUser();
+    if (id == null) {
+      throw StateError('No active user');
+    }
+    return id;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Teams / roster — delegate to DevDataStore under the active user.
   // ---------------------------------------------------------------------------
 
   @override
   Future<List<TeamRecord>> listTeams(String deviceId) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    return List.unmodifiable(_teams);
+    final activeId = DevDataStore.instance.getActiveUser();
+    if (activeId == null) return const [];
+    return DevDataStore.instance.listTeams(activeId);
   }
 
   @override
@@ -607,44 +498,27 @@ class MockBleService implements BleService {
     String teamId,
   ) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    return List.unmodifiable(_teamMatches[teamId] ?? const []);
+    final activeId = DevDataStore.instance.getActiveUser();
+    if (activeId == null) return const [];
+    return DevDataStore.instance.listTeamMatches(activeId, teamId);
   }
 
   @override
   Future<TeamRecord> createTeam(String deviceId, TeamDraft draft) async {
     await Future.delayed(const Duration(milliseconds: 120));
-    final id =
-        'team-${++_teamIdCounter}-${DateTime.now().millisecondsSinceEpoch}';
-    final record = TeamRecord(
-      id: id,
-      name: draft.name,
-      shortName: draft.shortName,
-      sport: draft.sport,
-      roster: const [],
-    );
-    _teams.add(record);
-    return record;
+    return DevDataStore.instance.createTeam(_requireActiveUserId(), draft);
   }
 
   @override
   Future<TeamRecord> updateTeam(String deviceId, TeamDraft draft) async {
     await Future.delayed(const Duration(milliseconds: 100));
-    final i = _teams.indexWhere((t) => t.id == draft.id);
-    if (i == -1) throw StateError('Team ${draft.id} not found');
-    final updated = _teams[i].copyWith(
-      name: draft.name,
-      shortName: draft.shortName,
-      sport: draft.sport,
-    );
-    _teams[i] = updated;
-    return updated;
+    return DevDataStore.instance.updateTeam(_requireActiveUserId(), draft);
   }
 
   @override
   Future<void> deleteTeam(String deviceId, String teamId) async {
     await Future.delayed(const Duration(milliseconds: 100));
-    _teams.removeWhere((t) => t.id == teamId);
-    _teamMatches.remove(teamId);
+    DevDataStore.instance.deleteTeam(_requireActiveUserId(), teamId);
   }
 
   @override
@@ -654,11 +528,11 @@ class MockBleService implements BleService {
     required bool hidden,
   }) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    final i = _teams.indexWhere((t) => t.id == teamId);
-    if (i == -1) throw StateError('Team $teamId not found');
-    final updated = _teams[i].copyWith(hidden: hidden);
-    _teams[i] = updated;
-    return updated;
+    return DevDataStore.instance.setTeamHidden(
+      _requireActiveUserId(),
+      teamId,
+      hidden: hidden,
+    );
   }
 
   @override
@@ -668,31 +542,11 @@ class MockBleService implements BleService {
     PlayerDraft draft,
   ) async {
     await Future.delayed(const Duration(milliseconds: 100));
-    final i = _teams.indexWhere((t) => t.id == teamId);
-    if (i == -1) throw StateError('Team $teamId not found');
-    final team = _teams[i];
-    if (team.roster.any((p) => p.number == draft.number)) {
-      throw StateError('Jersey #${draft.number} already taken on this team');
-    }
-    final player = Player(
-      number: draft.number,
-      name: draft.name,
-      position: draft.position,
-      captain: draft.captain,
+    return DevDataStore.instance.addPlayer(
+      _requireActiveUserId(),
+      teamId,
+      draft,
     );
-    final newRoster = List<Player>.from(team.roster)
-      ..add(player)
-      ..sort((a, b) => a.number.compareTo(b.number));
-    // Captain is exclusive — clear any other captain when promoting one.
-    final cleaned = draft.captain
-        ? newRoster
-              .map(
-                (p) => p.number == player.number ? p : _withCaptain(p, false),
-              )
-              .toList()
-        : newRoster;
-    _teams[i] = team.copyWith(roster: cleaned);
-    return player;
   }
 
   @override
@@ -703,43 +557,22 @@ class MockBleService implements BleService {
     PlayerDraft draft,
   ) async {
     await Future.delayed(const Duration(milliseconds: 100));
-    final i = _teams.indexWhere((t) => t.id == teamId);
-    if (i == -1) throw StateError('Team $teamId not found');
-    final team = _teams[i];
-    final pi = team.roster.indexWhere((p) => p.number == currentNumber);
-    if (pi == -1) throw StateError('Player #$currentNumber not found');
-    if (draft.number != currentNumber &&
-        team.roster.any((p) => p.number == draft.number)) {
-      throw StateError('Jersey #${draft.number} already taken on this team');
-    }
-    final updated = Player(
-      number: draft.number,
-      name: draft.name,
-      position: draft.position,
-      captain: draft.captain,
+    return DevDataStore.instance.updatePlayer(
+      _requireActiveUserId(),
+      teamId,
+      currentNumber,
+      draft,
     );
-    final newRoster = List<Player>.from(team.roster);
-    newRoster[pi] = updated;
-    final cleaned = draft.captain
-        ? newRoster
-              .map(
-                (p) => p.number == updated.number ? p : _withCaptain(p, false),
-              )
-              .toList()
-        : newRoster;
-    cleaned.sort((a, b) => a.number.compareTo(b.number));
-    _teams[i] = team.copyWith(roster: cleaned);
-    return updated;
   }
 
   @override
   Future<void> removePlayer(String deviceId, String teamId, int number) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    final i = _teams.indexWhere((t) => t.id == teamId);
-    if (i == -1) return;
-    final team = _teams[i];
-    final newRoster = team.roster.where((p) => p.number != number).toList();
-    _teams[i] = team.copyWith(roster: newRoster);
+    DevDataStore.instance.removePlayer(
+      _requireActiveUserId(),
+      teamId,
+      number,
+    );
   }
 
   @override
@@ -749,23 +582,11 @@ class MockBleService implements BleService {
     TeamMatchDraft draft,
   ) async {
     await Future.delayed(const Duration(milliseconds: 100));
-    final id =
-        'match-${++_matchIdCounter}-${DateTime.now().millisecondsSinceEpoch}';
-    final match = TeamMatch(
-      id: id,
-      opponent: draft.opponent,
-      date: draft.date,
-      result: draft.kind == MatchKind.past ? draft.result : '',
-      kind: draft.kind,
-      numPeriods: draft.numPeriods,
-      periodLengthSeconds: draft.periodLengthSeconds,
-      clips: 0,
-      sizeMb: 0,
+    return DevDataStore.instance.addTeamMatch(
+      _requireActiveUserId(),
+      teamId,
+      draft,
     );
-    final list = List<TeamMatch>.from(_teamMatches[teamId] ?? const []);
-    list.insert(0, match);
-    _teamMatches[teamId] = list;
-    return match;
   }
 
   @override
@@ -775,19 +596,23 @@ class MockBleService implements BleService {
     String matchId,
   ) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    final list = _teamMatches[teamId];
-    if (list == null) return;
-    _teamMatches[teamId] = list.where((m) => m.id != matchId).toList();
+    DevDataStore.instance.removeTeamMatch(
+      _requireActiveUserId(),
+      teamId,
+      matchId,
+    );
   }
 
   // ---------------------------------------------------------------------------
-  // Sport setups (presets)
+  // Sport setups (presets) — delegate to DevDataStore under the active user.
   // ---------------------------------------------------------------------------
 
   @override
   Future<List<SportPreset>> listSportPresets(String deviceId) async {
     await Future.delayed(const Duration(milliseconds: 60));
-    return List.unmodifiable(_sportPresets);
+    final activeId = DevDataStore.instance.getActiveUser();
+    if (activeId == null) return const [];
+    return DevDataStore.instance.listSportPresets(activeId);
   }
 
   @override
@@ -796,17 +621,10 @@ class MockBleService implements BleService {
     SportPresetDraft draft,
   ) async {
     await Future.delayed(const Duration(milliseconds: 100));
-    final id =
-        'preset-${++_presetIdCounter}-${DateTime.now().millisecondsSinceEpoch}';
-    final preset = SportPreset(
-      id: id,
-      name: draft.name,
-      sport: draft.sport,
-      numPeriods: draft.numPeriods,
-      periodLengthSeconds: draft.periodLengthSeconds,
+    return DevDataStore.instance.createSportPreset(
+      _requireActiveUserId(),
+      draft,
     );
-    _sportPresets.add(preset);
-    return preset;
   }
 
   @override
@@ -815,38 +633,95 @@ class MockBleService implements BleService {
     SportPresetDraft draft,
   ) async {
     await Future.delayed(const Duration(milliseconds: 100));
-    final i = _sportPresets.indexWhere((p) => p.id == draft.id);
-    if (i == -1) throw StateError('Sport preset ${draft.id} not found');
-    if (_sportPresets[i].builtIn) {
-      throw StateError('Built-in presets cannot be edited');
-    }
-    final updated = _sportPresets[i].copyWith(
-      name: draft.name,
-      sport: draft.sport,
-      numPeriods: draft.numPeriods,
-      periodLengthSeconds: draft.periodLengthSeconds,
+    return DevDataStore.instance.updateSportPreset(
+      _requireActiveUserId(),
+      draft,
     );
-    _sportPresets[i] = updated;
-    return updated;
   }
 
   @override
   Future<void> deleteSportPreset(String deviceId, String presetId) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    final i = _sportPresets.indexWhere((p) => p.id == presetId);
-    if (i == -1) return;
-    if (_sportPresets[i].builtIn) {
-      throw StateError('Built-in presets cannot be deleted');
-    }
-    _sportPresets.removeAt(i);
+    DevDataStore.instance.deleteSportPreset(
+      _requireActiveUserId(),
+      presetId,
+    );
   }
 
-  static Player _withCaptain(Player p, bool captain) => Player(
-    number: p.number,
-    name: p.name,
-    position: p.position,
-    captain: captain,
-  );
+  // ---------------------------------------------------------------------------
+  // Users — direct delegation. The active user is the camera's persistence
+  // record; the app-side `activeUserProvider` is the authoritative source
+  // controllers read from.
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<List<UserRecord>> listUsers(String deviceId) async {
+    return DevDataStore.instance.listUsers();
+  }
+
+  @override
+  Future<UserRecord> createUser(String deviceId, UserDraft draft) async {
+    return DevDataStore.instance.createUser(draft);
+  }
+
+  @override
+  Future<UserRecord> updateUser(String deviceId, UserDraft draft) async {
+    return DevDataStore.instance.updateUser(draft);
+  }
+
+  @override
+  Future<void> deleteUser(String deviceId, String userId) async {
+    DevDataStore.instance.deleteUser(userId);
+  }
+
+  @override
+  Future<String?> getActiveUser(String deviceId) async {
+    return DevDataStore.instance.getActiveUser();
+  }
+
+  @override
+  Future<void> setActiveUser(String deviceId, String userId) async {
+    DevDataStore.instance.setActiveUser(userId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Streaming destinations — explicit userId from the caller.
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<List<StreamingDestination>> listStreamingDestinations(
+    String deviceId,
+    String userId,
+  ) async {
+    return DevDataStore.instance.listStreamingDestinations(userId);
+  }
+
+  @override
+  Future<StreamingDestination> createStreamingDestination(
+    String deviceId,
+    String userId,
+    StreamingDestinationDraft draft,
+  ) async {
+    return DevDataStore.instance.createStreamingDestination(userId, draft);
+  }
+
+  @override
+  Future<StreamingDestination> updateStreamingDestination(
+    String deviceId,
+    String userId,
+    StreamingDestinationDraft draft,
+  ) async {
+    return DevDataStore.instance.updateStreamingDestination(userId, draft);
+  }
+
+  @override
+  Future<void> deleteStreamingDestination(
+    String deviceId,
+    String userId,
+    String destinationId,
+  ) async {
+    DevDataStore.instance.deleteStreamingDestination(userId, destinationId);
+  }
 
   @override
   Future<void> dispose() async {
