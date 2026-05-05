@@ -88,9 +88,7 @@ class _DestinationFormState extends State<_DestinationForm> {
     final e = widget.existing;
     _provider = e?.provider ?? StreamingProvider.youtube;
     _protocol = e?.protocol ?? StreamingProtocol.rtmp;
-    _name = TextEditingController(
-      text: e?.name ?? _defaultNameFor(_provider),
-    );
+    _name = TextEditingController(text: e?.name ?? _defaultNameFor(_provider));
     _url = TextEditingController(
       text: e == null ? '' : _urlFromConfig(e.config),
     );
@@ -191,7 +189,8 @@ class _DestinationFormState extends State<_DestinationForm> {
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
     final isCustom = _provider == StreamingProvider.custom;
-    final showStreamKey = _protocol == StreamingProtocol.rtmp ||
+    final showStreamKey =
+        _protocol == StreamingProtocol.rtmp ||
         _protocol == StreamingProtocol.rtmps;
     final showRtspCreds = _protocol == StreamingProtocol.rtsp;
 
@@ -297,8 +296,9 @@ class _DestinationFormState extends State<_DestinationForm> {
                     size: 18,
                   ),
                   color: T.ink2,
-                  tooltip:
-                      _streamKeyVisible ? 'Hide stream key' : 'Show stream key',
+                  tooltip: _streamKeyVisible
+                      ? 'Hide stream key'
+                      : 'Show stream key',
                   onPressed: () =>
                       setState(() => _streamKeyVisible = !_streamKeyVisible),
                 ),
@@ -335,8 +335,7 @@ class _DestinationFormState extends State<_DestinationForm> {
                     size: 18,
                   ),
                   color: T.ink2,
-                  tooltip:
-                      _passwordVisible ? 'Hide password' : 'Show password',
+                  tooltip: _passwordVisible ? 'Hide password' : 'Show password',
                   onPressed: () =>
                       setState(() => _passwordVisible = !_passwordVisible),
                 ),
@@ -473,10 +472,7 @@ class _LabeledField extends StatelessWidget {
             ],
           ),
         ),
-        if (helper != null) ...[
-          const SizedBox(height: 4),
-          WfNote(helper!),
-        ],
+        if (helper != null) ...[const SizedBox(height: 4), WfNote(helper!)],
       ],
     );
   }

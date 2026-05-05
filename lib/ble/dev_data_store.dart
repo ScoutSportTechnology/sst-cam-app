@@ -278,11 +278,7 @@ class DevDataStore {
     return List.unmodifiable(perTeam[teamId] ?? const []);
   }
 
-  TeamMatch addTeamMatch(
-    String userId,
-    String teamId,
-    TeamMatchDraft draft,
-  ) {
+  TeamMatch addTeamMatch(String userId, String teamId, TeamMatchDraft draft) {
     final perTeam = _requireMatches(userId);
     final id =
         'match-${++_matchIdCounter}-${DateTime.now().millisecondsSinceEpoch}';

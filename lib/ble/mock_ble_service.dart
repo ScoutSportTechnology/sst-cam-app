@@ -568,11 +568,7 @@ class MockBleService implements BleService {
   @override
   Future<void> removePlayer(String deviceId, String teamId, int number) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    DevDataStore.instance.removePlayer(
-      _requireActiveUserId(),
-      teamId,
-      number,
-    );
+    DevDataStore.instance.removePlayer(_requireActiveUserId(), teamId, number);
   }
 
   @override
@@ -642,10 +638,7 @@ class MockBleService implements BleService {
   @override
   Future<void> deleteSportPreset(String deviceId, String presetId) async {
     await Future.delayed(const Duration(milliseconds: 80));
-    DevDataStore.instance.deleteSportPreset(
-      _requireActiveUserId(),
-      presetId,
-    );
+    DevDataStore.instance.deleteSportPreset(_requireActiveUserId(), presetId);
   }
 
   // ---------------------------------------------------------------------------

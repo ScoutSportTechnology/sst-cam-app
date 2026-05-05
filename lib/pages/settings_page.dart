@@ -303,9 +303,9 @@ class _ConnectCameraEmptyStateState
         // would have been useful, but we already entered it on tap; the
         // finally block resets us when the route returns.
         if (!mounted) return;
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const DiscoveryPage()),
-        );
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const DiscoveryPage()));
         return;
       }
 
@@ -327,9 +327,9 @@ class _ConnectCameraEmptyStateState
             ),
           ),
         );
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const DiscoveryPage()),
-        );
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const DiscoveryPage()));
       }
     } finally {
       if (mounted) setState(() => _isConnecting = false);
@@ -831,9 +831,7 @@ class _OtherUserRow extends StatelessWidget {
           children: [
             const SizedBox(
               width: 24,
-              child: Center(
-                child: Icon(Icons.person_outline, color: T.ink2),
-              ),
+              child: Center(child: Icon(Icons.person_outline, color: T.ink2)),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -927,10 +925,7 @@ class _NoActiveUserCard extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(
-                        Icons.radio_button_unchecked,
-                        size: 18,
-                      ),
+                      icon: const Icon(Icons.radio_button_unchecked, size: 18),
                       color: T.ink2,
                       tooltip: 'Make active',
                       onPressed: () => onMakeActive(u),
@@ -1040,8 +1035,7 @@ class _StreamingSection extends ConsumerWidget {
                   ),
                   const Divider(height: 1, color: T.rule),
                 ],
-              if (destinations.isEmpty)
-                const Divider(height: 1, color: T.rule),
+              if (destinations.isEmpty) const Divider(height: 1, color: T.rule),
               InkWell(
                 onTap: () => _onAdd(context, ref),
                 child: const Padding(
@@ -1086,9 +1080,7 @@ class _StreamingSection extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Couldn't add destination — try again."),
-        ),
+        const SnackBar(content: Text("Couldn't add destination — try again.")),
       );
     }
   }
@@ -1110,9 +1102,7 @@ class _StreamingSection extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Couldn't save destination — try again."),
-        ),
+        const SnackBar(content: Text("Couldn't save destination — try again.")),
       );
     }
   }

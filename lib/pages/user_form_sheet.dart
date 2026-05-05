@@ -56,9 +56,9 @@ class _UserFormState extends State<_UserForm> {
       setState(() => _error = 'User name is required');
       return;
     }
-    Navigator.of(context).pop(
-      UserDraft(id: widget.existing?.id ?? '', name: trimmed),
-    );
+    Navigator.of(
+      context,
+    ).pop(UserDraft(id: widget.existing?.id ?? '', name: trimmed));
   }
 
   @override
