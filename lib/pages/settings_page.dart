@@ -1,22 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/device.dart';
 import '../state/app_data.dart';
+import '../state/ble_providers.dart';
 import '../theme/tokens.dart';
-import '../widgets/indicators.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
-import 'diagnostics_page.dart';
 import 'discovery_page.dart';
 import 'sport_presets_page.dart';
 
+/// Settings — U6 shell.
+///
+/// Two render shapes:
+///   1. Empty state when no camera is connected, mirroring the
+///      `_ConnectCameraScreen` pattern from `match_page.dart`.
+///   2. Populated layout (5 sections) when a camera is connected. The
+///      Camera / User / Streaming Setup sections are placeholders that
+///      U7 / U8 / U9 fill in. Match Setup and App are real here.
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
-    final connected = activeId != null;
+    final connected =
+        activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
+
+    if (!connected) {
+      return const _ConnectCameraEmptyState();
+    }
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -32,34 +47,32 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          if (connected) const _CameraCard() else const _NoCameraCard(),
-          const SizedBox(height: 14),
-          _DiscoveryRow(
-            connected: connected,
-            onTap: () {
-              Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const DiscoveryPage()));
-            },
-          ),
-          const SizedBox(height: 14),
-          const WfSection(
-            'Recording defaults',
-            padding: EdgeInsets.only(bottom: 6),
-          ),
+          // 1. Camera — placeholder card (U7 fills in the 4-button card).
           const WfCard(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                _ValueRow(label: 'Resolution', value: '1080p · 30 fps'),
-                Divider(height: 1, color: T.rule),
-                _ValueRow(label: 'Bitrate', value: '12 Mbps'),
-                Divider(height: 1, color: T.rule),
-                _ValueRow(label: 'Auto-start at kickoff', value: 'On'),
-              ],
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Camera section — populated in U7',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
             ),
           ),
           const SizedBox(height: 14),
+
+          // 2. User — placeholder (U8).
+          const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
+          const WfCard(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'User section — populated in U8',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 3. Match Setup — real nav row to the existing SportPresetsPage.
           const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
           WfCard(
             padding: EdgeInsets.zero,
@@ -75,9 +88,25 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 14),
-          const WfSection('Connectivity', padding: EdgeInsets.only(bottom: 6)),
-          const WfCard(padding: EdgeInsets.zero, child: _ConnectivityToggles()),
+
+          // 4. Streaming Setup — placeholder (U9).
+          const WfSection(
+            'Streaming setup',
+            padding: EdgeInsets.only(bottom: 6),
+          ),
+          const WfCard(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Streaming Setup section — populated in U9',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+            ),
+          ),
           const SizedBox(height: 14),
+
+          // 5. App — Theme / Permissions / About. Diagnostics moved to the
+          // camera card per R5 (U7).
           const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
           const _RowItem(
             leading: Icon(Icons.palette_outlined),
@@ -97,17 +126,6 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const Divider(height: 1, color: T.rule),
-          _NavRow(
-            leading: const Icon(Icons.bug_report_outlined),
-            label: 'Diagnostics',
-            sub: 'BLE link · proto · logs',
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const DiagnosticsPage()),
-              );
-            },
-          ),
-          const Divider(height: 1, color: T.rule),
           const _RowItem(
             leading: Icon(Icons.info_outline),
             label: 'About',
@@ -122,208 +140,85 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
-class _CameraCard extends StatelessWidget {
-  const _CameraCard();
+// ---------------------------------------------------------------------------
+// Empty state — full-screen "Connect camera" prompt mirroring
+// `_ConnectCameraScreen` from match_page.dart so the three tabs feel like
+// one product when no camera is paired.
+//
+// U7 will replace the simple DiscoveryPage push with a one-tap reconnect
+// state machine. For U6 the CTA is the unconditional fallback.
+// ---------------------------------------------------------------------------
+
+class _ConnectCameraEmptyState extends StatelessWidget {
+  const _ConnectCameraEmptyState();
 
   @override
   Widget build(BuildContext context) {
-    return WfCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    return Scaffold(
+      backgroundColor: T.bg,
+      appBar: AppBar(title: const Text('Settings')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    WfNote('Connected camera'),
-                    SizedBox(height: 4),
-                    Text(
-                      'sst-cam-01',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: T.ink,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'fw 0.3.2 · proto v0.3',
-                      style: TextStyle(
-                        fontFamily: T.mono,
-                        fontSize: 11,
-                        color: T.ink2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               Container(
-                width: 8,
-                height: 8,
+                width: 64,
+                height: 64,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: T.accent,
-                  borderRadius: BorderRadius.circular(4),
+                  color: T.fillSoft,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: T.hair),
                 ),
+                child: const Icon(
+                  Icons.videocam_off_outlined,
+                  color: T.ink2,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'No camera connected',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: T.ink,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Connect a camera to manage users, formats, and streaming '
+                'destinations.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              WfButton(
+                label: 'Connect camera',
+                variant: WfButtonVariant.primary,
+                full: true,
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const DiscoveryPage()),
+                  );
+                },
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: const [
-              Expanded(
-                child: WfButton(label: 'Reboot', size: WfButtonSize.sm),
-              ),
-              SizedBox(width: 8),
-              Expanded(
-                child: WfButton(label: 'Update fw', size: WfButtonSize.sm),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NoCameraCard extends StatelessWidget {
-  const _NoCameraCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return const WfCard(
-      child: Row(
-        children: [
-          Icon(Icons.videocam_off_outlined, color: T.ink3),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'No camera connected',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: T.ink,
-                  ),
-                ),
-                SizedBox(height: 2),
-                WfNote('Tap below to scan for nearby ScoutCams.'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DiscoveryRow extends StatelessWidget {
-  const _DiscoveryRow({required this.connected, required this.onTap});
-  final bool connected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: WfCard(
-        padding: EdgeInsets.zero,
-        child: _RowItem(
-          leading: const Icon(Icons.bluetooth_searching),
-          label: connected ? 'Connect a different camera' : 'Connect a camera',
-          sub: 'Scan & pair · ${connected ? '1 paired' : '0 paired'}',
-          trailing: const Icon(Icons.chevron_right, color: T.ink3, size: 18),
         ),
       ),
     );
   }
 }
 
-class _ValueRow extends StatelessWidget {
-  const _ValueRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: T.ink,
-              ),
-            ),
-          ),
-          Text(value, style: const TextStyle(fontSize: 12, color: T.ink2)),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConnectivityToggles extends StatefulWidget {
-  const _ConnectivityToggles();
-
-  @override
-  State<_ConnectivityToggles> createState() => _ConnectivityTogglesState();
-}
-
-class _ConnectivityTogglesState extends State<_ConnectivityToggles> {
-  bool _ap = true;
-  bool _stayAwake = true;
-  bool _bgBle = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _toggleRow('WiFi AP auto-enable', _ap, (v) => setState(() => _ap = v)),
-        const Divider(height: 1, color: T.rule),
-        _toggleRow(
-          'Stay-awake on download',
-          _stayAwake,
-          (v) => setState(() => _stayAwake = v),
-        ),
-        const Divider(height: 1, color: T.rule),
-        _toggleRow(
-          'Keep BLE alive in background',
-          _bgBle,
-          (v) => setState(() => _bgBle = v),
-        ),
-      ],
-    );
-  }
-
-  Widget _toggleRow(String label, bool v, ValueChanged<bool> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                color: T.ink,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          WfSwitch(value: v, onChanged: onChanged),
-        ],
-      ),
-    );
-  }
-}
+// ---------------------------------------------------------------------------
+// Shared row primitives — kept from the previous shell because U7-U9 reuse
+// them inside their section bodies.
+// ---------------------------------------------------------------------------
 
 class _RowItem extends StatelessWidget {
   const _RowItem({
