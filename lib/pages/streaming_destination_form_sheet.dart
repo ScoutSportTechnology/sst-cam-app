@@ -88,7 +88,7 @@ class _DestinationFormState extends State<_DestinationForm> {
     final e = widget.existing;
     _provider = e?.provider ?? StreamingProvider.youtube;
     _protocol = e?.protocol ?? StreamingProtocol.rtmp;
-    _name = TextEditingController(text: e?.name ?? _defaultNameFor(_provider));
+    _name = TextEditingController(text: e?.name ?? _defaultName(_provider));
     _url = TextEditingController(
       text: e == null ? '' : _urlFromConfig(e.config),
     );
@@ -128,9 +128,9 @@ class _DestinationFormState extends State<_DestinationForm> {
       }
       // Default-name behavior: if name is empty or matches any provider's
       // default label, swap to the new provider's default.
-      final defaults = StreamingProvider.values.map(_defaultNameFor).toSet();
+      final defaults = StreamingProvider.values.map(_defaultName).toSet();
       if (_name.text.trim().isEmpty || defaults.contains(_name.text.trim())) {
-        _name.text = _defaultNameFor(next);
+        _name.text = _defaultName(next);
       }
     });
   }
@@ -478,20 +478,8 @@ class _LabeledField extends StatelessWidget {
   }
 }
 
-String _defaultNameFor(StreamingProvider p) {
-  switch (p) {
-    case StreamingProvider.youtube:
-      return 'YouTube';
-    case StreamingProvider.tiktok:
-      return 'TikTok';
-    case StreamingProvider.facebook:
-      return 'Facebook';
-    case StreamingProvider.instagram:
-      return 'Instagram';
-    case StreamingProvider.custom:
-      return '';
-  }
-}
+String _defaultName(StreamingProvider p) =>
+    p == StreamingProvider.custom ? '' : p.displayLabel;
 
 String _urlFromConfig(StreamingConfig c) {
   return switch (c) {

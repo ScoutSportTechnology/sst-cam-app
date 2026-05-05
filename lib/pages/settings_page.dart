@@ -15,17 +15,10 @@ import 'sport_presets_page.dart';
 import 'streaming_destination_form_sheet.dart';
 import 'user_form_sheet.dart';
 
-/// Settings — U7 layer over the U6 shell.
-///
-/// Two render shapes:
-///   1. Empty state when no camera is connected, mirroring the
-///      `_ConnectCameraScreen` pattern from `match_page.dart`. The CTA
-///      now drives a one-tap reconnect state machine: if a last-camera id
-///      is persisted, attempt `bleService.connect(lastId).timeout(5s)`
-///      before falling back to a fresh scan in `DiscoveryPage`.
-///   2. Populated layout (5 sections) when a camera is connected. The
-///      Camera section is the real 2x2 button card here; User and
-///      Streaming Setup remain placeholders that U8 / U9 fill in.
+/// Settings page. Renders an empty-state CTA when no camera is connected
+/// (with one-tap reconnect to the last-known camera before falling back to
+/// `DiscoveryPage`); otherwise renders Camera, User, Match Setup, Streaming
+/// Setup, and App sections.
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
@@ -55,20 +48,11 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          // 1. Camera — connected-camera card with 2x2 button grid.
           _CameraCard(deviceId: activeId),
           const SizedBox(height: 14),
-
-          // 2. User — inline section. Active user at top with an "Active"
-          // badge; other users below with delete affordances; "Add user"
-          // row at the bottom. When activeUserProvider is null (post-
-          // reconnect with no camera-side active user) renders the
-          // "Pick a user" shape instead. See U8.
           const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
           const _UserSection(),
           const SizedBox(height: 14),
-
-          // 3. Match Setup — real nav row to the existing SportPresetsPage.
           const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
           WfCard(
             padding: EdgeInsets.zero,
@@ -84,17 +68,12 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 14),
-
-          // 4. Streaming Setup — destinations list + Add row.
           const WfSection(
             'Streaming setup',
             padding: EdgeInsets.only(bottom: 6),
           ),
           const _StreamingSection(),
           const SizedBox(height: 14),
-
-          // 5. App — Theme / Permissions / About. Diagnostics moved to the
-          // camera card per R5 (one of the four buttons).
           const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
           const _RowItem(
             leading: Icon(Icons.palette_outlined),
@@ -128,21 +107,10 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Camera card — connected-state. Top row shows display name + fw/proto /
-// connection dot; bottom is a 2x2 WfButton grid (Reboot, Update fw,
-// Disconnect, Diagnostics) per R4/R5.
-//
-// Reboot and Update fw are intentional placeholders until firmware lands —
-// rendered disabled with a `Tooltip("Coming soon — firmware integration")`
-// so the affordance reads as "deferred" rather than "broken".
-//
-// TODO: pipe `fw` and `proto` from the ScoutDevice / telemetry stream once
-// the device record is reachable from this scope. For U7 we surface the
-// connected device id (which serves as the display name) and a static
-// fw/proto label — sufficient to render and exercise the four-button card
-// in tests.
-// ---------------------------------------------------------------------------
+// Camera card. Reboot and Update fw remain visual placeholders until
+// firmware lands; they render disabled with a tooltip explaining that.
+// fw / proto values are placeholder strings — pipe them from the
+// ScoutDevice / telemetry stream when that data is reachable here.
 
 class _CameraCard extends ConsumerWidget {
   const _CameraCard({required this.deviceId});
@@ -194,8 +162,6 @@ class _CameraCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Top button row: Reboot · Update fw — both disabled placeholders
-          // wrapped in a Tooltip explaining the deferred state.
           Row(
             children: const [
               Expanded(
@@ -272,9 +238,9 @@ class _CameraCard extends ConsumerWidget {
 //   2. If `lastConnectedDeviceIdProvider` has a value, attempt
 //      `bleService.connect(lastId).timeout(5s)`.
 //   3. Success: write `activeCameraIdProvider`; the page rerenders to the
-//      populated layout. (Active-user hydration is U8's concern — if
-//      `getActiveUser` returns null, we leave `activeUserProvider` null
-//      and the User section renders the "Pick a user" prompt.)
+//      populated layout. If `getActiveUser` returns null we leave
+//      `activeUserProvider` null and the User section renders the
+//      "Pick a user" prompt.
 //   4. Failure (any exception or timeout): push `DiscoveryPage` and
 //      surface a `SnackBar` with the "Couldn't reconnect" copy.
 //   5. No persisted last id: push `DiscoveryPage` directly without
@@ -419,8 +385,7 @@ class _ConnectCameraEmptyStateState
 }
 
 // ---------------------------------------------------------------------------
-// Shared row primitives — kept from the previous shell because U8/U9 reuse
-// them inside their section bodies.
+// Shared row primitives reused across User, Streaming Setup, and App.
 // ---------------------------------------------------------------------------
 
 class _RowItem extends StatelessWidget {
@@ -493,7 +458,7 @@ class _NavRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// User section (U8) — inline active-user row + others-with-delete + Add user.
+// User section — inline active-user row + others-with-delete + Add user.
 //
 // Shape A (`activeUserProvider` non-null): active row with an "Active" badge,
 // divider, list of others (each tappable to switch, with a trailing delete
@@ -970,7 +935,7 @@ class _NoActiveUserCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming setup section (U9) — lists the active user's streaming
+// Streaming setup section — lists the active user's streaming
 // destinations with a leading provider chip, primary name, protocol pill
 // subtitle, and a trailing delete IconButton. Tapping a row opens the
 // adaptive form sheet in edit mode; tapping "Add destination" opens it in

@@ -202,19 +202,19 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
     final svc = ref.watch(bleServiceProvider);
     final id = _deviceId;
     if (id == null) return const [];
-    final users = await svc.listUsers(id);
-    // Hydrate `activeUserProvider` from the camera if the app hasn't set one
-    // yet. If `getActiveUser` returns null (camera has none — possible if
-    // the previously-active user was deleted out of band), leave
-    // `activeUserProvider` null; downstream controllers handle null by
-    // returning empty lists, and the User section UI in U8 renders a
-    // "Pick a user" prompt instead of an active-user row.
     final currentActive = ref.read(activeUserProvider);
-    if (currentActive == null) {
-      final cameraActive = await svc.getActiveUser(id);
-      if (cameraActive != null) {
-        ref.read(activeUserProvider.notifier).state = cameraActive;
-      }
+    if (currentActive != null) {
+      return svc.listUsers(id);
+    }
+    // Independent BLE round-trips — fetch in parallel, then hydrate.
+    final results = await Future.wait([
+      svc.listUsers(id),
+      svc.getActiveUser(id),
+    ]);
+    final users = results[0] as List<UserRecord>;
+    final cameraActive = results[1] as String?;
+    if (cameraActive != null) {
+      ref.read(activeUserProvider.notifier).state = cameraActive;
     }
     return users;
   }
@@ -240,16 +240,16 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
   }
 
   /// Switch the camera's active user. Order is load-bearing: the BleService
-  /// call resolves FIRST so DevDataStore's internal `_activeUserId` is set
-  /// before any controller refetch reads through it; only AFTER that do we
-  /// write `activeUserProvider`. See plan's Key Technical Decisions.
+  /// call resolves FIRST so DevDataStore's `_activeUserId` is set before any
+  /// controller refetch reads through it; only AFTER that do we write
+  /// `activeUserProvider`.
   Future<void> setActive(String userId) async {
+    if (userId == ref.read(activeUserProvider)) return;
     final svc = ref.read(bleServiceProvider);
     await svc.setActiveUser(_requireDevice(), userId);
     ref.read(activeUserProvider.notifier).state = userId;
-    // Cross-cutting provider — has no userId arg so it can't watch
-    // `activeUserProvider` directly; explicit invalidation matches the
-    // existing pattern from `TeamsController` mutations.
+    // upcomingMatchesProvider has no userId arg so it can't watch
+    // activeUserProvider — invalidate explicitly.
     ref.invalidate(upcomingMatchesProvider);
   }
 
@@ -265,15 +265,9 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
     if (users.length <= 1) {
       throw const UsersControllerException('At least one user must remain');
     }
-    // Live-match precondition (R10): block delete while a live match is in
-    // progress. The full per-user-cross-reference check (block only when the
-    // running match references *this* user's team / preset / streaming
-    // destination) requires `LiveMatchController` to expose owning ids; the
-    // current `LiveMatchState` only carries display-name strings for home /
-    // away. So we apply the stricter approximation: if any match is in
-    // flight, blocking applies to all users. The exception message is
-    // consumed by the UI to render the inline "End the live match before
-    // deleting" subtitle. See plan U8 — pragmatic simplification.
+    // Block delete while any match is live. Stricter than per-user
+    // cross-reference because LiveMatchState only carries display-name
+    // strings, not owning ids — refine if/when ownership ids are added.
     if (isLiveMatchRunning(ref.read(liveMatchProvider))) {
       throw const UsersControllerException(
         'End the live match before deleting',
