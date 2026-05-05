@@ -1,9 +1,8 @@
-// U9 — Settings Streaming-section tests.
+// Settings Streaming section tests — now covers StreamingDestinationsPage.
 //
-// We override `connectionStateProvider(activeId)` directly with a finite
-// Stream so `pumpAndSettle` can terminate without touching the mock's real
-// connect path (which spawns a Timer.periodic for telemetry). We never call
-// `mock.connect()`.
+// The streaming section on SettingsPage is a compact nav row. This file
+// pumps StreamingDestinationsPage directly to test add / edit / delete /
+// empty state behavior (AE7).
 //
 // Test isolation: `useDevDataStoreReset()` re-seeds the DevDataStore between
 // tests so the seed users (Coach Diego = user-1, Coach Maria = user-2) are
@@ -15,8 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scout_camera/ble/dev_data_store.dart';
 import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/models/device.dart';
-import 'package:scout_camera/pages/settings_page.dart';
+import 'package:scout_camera/pages/streaming_destinations_page.dart';
 import 'package:scout_camera/state/app_data.dart';
 import 'package:scout_camera/state/ble_providers.dart';
 
@@ -39,14 +37,9 @@ Widget _buildHarness({
     overrides: [
       bleServiceProvider.overrideWithValue(service),
       activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-      connectionStateProvider(_kFakeDeviceId).overrideWith(
-        (_) => Stream<CameraConnectionState>.value(
-          CameraConnectionState.connected,
-        ),
-      ),
       activeUserProvider.overrideWith((_) => activeUserId),
     ],
-    child: const MaterialApp(home: SettingsPage()),
+    child: const MaterialApp(home: StreamingDestinationsPage()),
   );
 }
 
@@ -54,8 +47,7 @@ void main() {
   useDevDataStoreReset();
 
   group('Empty state', () {
-    testWidgets('with no destinations under user-1, the section card shows '
-        'the "No streaming destinations yet" note above the Add row', (
+    testWidgets('with no destinations under user-1, shows the empty note', (
       tester,
     ) async {
       final mock = _newMock();
@@ -64,24 +56,16 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      // Scroll the streaming section into view (camera + user cards push
-      // it below the fold on default test viewport).
-      await tester.scrollUntilVisible(
-        find.text('No streaming destinations yet. Tap below to add one.'),
-        200,
-      );
       expect(
-        find.text('No streaming destinations yet. Tap below to add one.'),
+        find.text('No streaming destinations yet. Tap + to add one.'),
         findsOneWidget,
       );
-      expect(find.text('Add destination'), findsOneWidget);
     });
   });
 
-  group('Destinations rendered', () {
+  group('Destinations rendered (AE7)', () {
     testWidgets('YouTube/RTMP and Custom/RTSP destinations render with '
         'provider chip + protocol pill + delete icon', (tester) async {
-      // Pre-populate user-1 with two destinations.
       DevDataStore.instance.createStreamingDestination(
         'user-1',
         const StreamingDestinationDraft(
@@ -110,23 +94,13 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      // Scroll to streaming section.
-      await tester.scrollUntilVisible(find.text('My YouTube'), 200);
       expect(find.text('My YouTube'), findsOneWidget);
       expect(find.text('Backyard cam'), findsOneWidget);
-
-      // Provider chip labels — note "YouTube" also appears in the provider
-      // chip; we just assert at-least one occurrence.
       expect(find.text('YouTube'), findsAtLeastNWidgets(1));
       expect(find.text('Custom'), findsAtLeastNWidgets(1));
-
-      // Protocol labels (RTMP / RTSP) appear as the row subtitle.
       expect(find.text('RTMP'), findsOneWidget);
       expect(find.text('RTSP'), findsOneWidget);
-
-      // One delete icon per destination row. The User section's Maria row
-      // also has one, so we have at least 3.
-      expect(find.byIcon(Icons.delete_outline), findsAtLeastNWidgets(3));
+      expect(find.byIcon(Icons.delete_outline), findsNWidgets(2));
     });
   });
 
@@ -152,14 +126,10 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('My YouTube'), 200);
       await tester.tap(find.text('My YouTube'));
       await tester.pumpAndSettle();
 
-      // Edit-mode title.
       expect(find.text('Edit destination'), findsOneWidget);
-      // Name field is pre-filled with the destination's name. We find the
-      // Name field by key (defined in the form sheet).
       final nameField = tester.widget<TextField>(
         find.byKey(const Key('streaming-name-field')),
       );
@@ -189,10 +159,6 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('My YouTube'), 200);
-
-      // The delete icon for the destination row — find the row first then
-      // the IconButton inside it.
       final destRow = find.ancestor(
         of: find.text('My YouTube'),
         matching: find.byType(InkWell),
@@ -205,7 +171,6 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Delete destination?'), findsOneWidget);
-      // Body contains the name + provider + protocol.
       expect(
         find.textContaining('Remove My YouTube from YouTube RTMP?'),
         findsOneWidget,
@@ -214,9 +179,7 @@ void main() {
       expect(find.text('Delete'), findsOneWidget);
     });
 
-    testWidgets('confirming delete removes the row from the section', (
-      tester,
-    ) async {
+    testWidgets('confirming delete removes the row', (tester) async {
       DevDataStore.instance.createStreamingDestination(
         'user-1',
         const StreamingDestinationDraft(
@@ -236,8 +199,6 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('My YouTube'), 200);
-
       final destRow = find.ancestor(
         of: find.text('My YouTube'),
         matching: find.byType(InkWell),
@@ -248,14 +209,12 @@ void main() {
       );
       await tester.tap(deleteBtn);
       await tester.pumpAndSettle();
-
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
       expect(find.text('My YouTube'), findsNothing);
-      // The empty-state note is back.
       expect(
-        find.text('No streaming destinations yet. Tap below to add one.'),
+        find.text('No streaming destinations yet. Tap + to add one.'),
         findsOneWidget,
       );
     });
@@ -280,8 +239,6 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('My YouTube'), 200);
-
       final destRow = find.ancestor(
         of: find.text('My YouTube'),
         matching: find.byType(InkWell),
@@ -292,8 +249,6 @@ void main() {
       );
       await tester.tap(deleteBtn);
       await tester.pumpAndSettle();
-
-      // Cancel button in the dialog.
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
@@ -301,21 +256,20 @@ void main() {
     });
   });
 
-  group('Add destination happy path', () {
-    testWidgets('Add destination → YouTube default + URL + Stream key → '
-        'new row appears with YouTube + RTMP labels', (tester) async {
+  group('Add destination happy path (AE7)', () {
+    testWidgets('FAB → form → YouTube + URL + key → new row appears', (
+      tester,
+    ) async {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Add destination'), 200);
-      await tester.tap(find.text('Add destination'));
+      // Tap the FAB.
+      await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
-      // YouTube is the default provider; protocol is fixed to RTMP.
-      // Fill URL + Stream key.
       await tester.enterText(
         find.byKey(const Key('streaming-url-field')),
         'rtmp://a.rtmp.youtube.com/live2',
@@ -325,16 +279,11 @@ void main() {
         'my-secret-key',
       );
 
-      // The submit button on the sheet reads "Add destination".
-      // The Settings page's "Add destination" row is also still in the
-      // tree; tap the bottom-most one (the sheet's button).
       await tester.tap(find.text('Add destination').last);
       await tester.pumpAndSettle();
 
-      // The destination should now render in the section list.
       expect(find.text('YouTube'), findsAtLeastNWidgets(1));
       expect(find.text('RTMP'), findsOneWidget);
-      // The DevDataStore got the destination.
       expect(
         DevDataStore.instance.listStreamingDestinations('user-1'),
         hasLength(1),
@@ -343,8 +292,9 @@ void main() {
   });
 
   group('Active user switch', () {
-    testWidgets('with a destination under user-1, switching active user to '
-        'user-2 hides the destination', (tester) async {
+    testWidgets('destinations scoped to active user; user-2 has none', (
+      tester,
+    ) async {
       DevDataStore.instance.createStreamingDestination(
         'user-1',
         const StreamingDestinationDraft(
@@ -361,49 +311,33 @@ void main() {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      // Build a container we can mutate so we can flip activeUserProvider.
       late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
             bleServiceProvider.overrideWithValue(mock),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-            connectionStateProvider(_kFakeDeviceId).overrideWith(
-              (_) => Stream<CameraConnectionState>.value(
-                CameraConnectionState.connected,
-              ),
-            ),
+            activeUserProvider.overrideWith((_) => 'user-1'),
           ],
           child: Builder(
             builder: (ctx) {
               container = ProviderScope.containerOf(ctx);
-              return const MaterialApp(home: SettingsPage());
+              return const MaterialApp(home: StreamingDestinationsPage());
             },
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      // user-1 is active by default (DevDataStore seed). Streaming row
-      // visible.
-      await tester.scrollUntilVisible(find.text('My YouTube'), 200);
       expect(find.text('My YouTube'), findsOneWidget);
 
-      // Flip to user-2 directly via the provider AND DevDataStore so
-      // BleService's getActiveUser returns user-2.
       DevDataStore.instance.setActiveUser('user-2');
       container.read(activeUserProvider.notifier).state = 'user-2';
       await tester.pumpAndSettle();
 
-      // user-2 has no destinations.
       expect(find.text('My YouTube'), findsNothing);
-      // The empty-state note is visible (after scroll).
-      await tester.scrollUntilVisible(
-        find.text('No streaming destinations yet. Tap below to add one.'),
-        200,
-      );
       expect(
-        find.text('No streaming destinations yet. Tap below to add one.'),
+        find.text('No streaming destinations yet. Tap + to add one.'),
         findsOneWidget,
       );
     });

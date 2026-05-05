@@ -14,6 +14,7 @@ import 'package:scout_camera/ble/mock_ble_service.dart';
 import 'package:scout_camera/pages/sport_presets_page.dart';
 import 'package:scout_camera/state/app_data.dart';
 import 'package:scout_camera/state/ble_providers.dart';
+import 'package:scout_camera/widgets/wf_card.dart';
 import 'package:scout_camera/widgets/wf_chip.dart';
 
 import '../test_helpers.dart';
@@ -63,8 +64,11 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      // Soccer group header is present.
-      expect(find.text('Soccer'), findsOneWidget);
+      // Soccer group header is present (filter chip also shows "Soccer").
+      expect(
+        find.byWidgetPredicate((w) => w is WfSection && w.label == 'Soccer'),
+        findsOneWidget,
+      );
 
       // The two built-in soccer presets render.
       final standardFinder = find.text('Soccer · Standard');
@@ -147,17 +151,22 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      // The page is a ListView of (header, rows...). Some entries may be
-      // below the fold; scroll to ensure each header is realized in the
-      // tree. For each kSports entry we assert: (a) the group header text
-      // is reachable in the tree (after scrolling), and (b) the
-      // DevDataStore has at least one builtIn preset for that sport.
+      // The page has pinned filter chips + a scrollable preset list.
+      // Filter chips and section headers share sport name text, so we
+      // check findsAtLeastNWidgets(1) rather than findsOneWidget.
       final presets = DevDataStore.instance.listSportPresets('user-1');
       for (final sport in kSports) {
-        await tester.scrollUntilVisible(find.text(sport), 200);
+        // Scroll using the section-header WfSection widget. Use scrollable:
+        // param to target the preset ListView specifically so the pinned
+        // filter chip row doesn't interfere.
+        await tester.scrollUntilVisible(
+          find.byWidgetPredicate((w) => w is WfSection && w.label == sport),
+          200,
+          scrollable: find.byType(Scrollable).last,
+        );
         expect(
           find.text(sport),
-          findsOneWidget,
+          findsAtLeastNWidgets(1),
           reason: 'Group header for "$sport" should be rendered.',
         );
         final hasBuiltIn = presets.any((p) => p.sport == sport && p.builtIn);
@@ -179,7 +188,13 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      expect(find.text('Volleyball'), findsOneWidget);
+      // "Volleyball" appears as both a filter chip and a section header.
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is WfSection && w.label == 'Volleyball',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Volleyball · 5-set'), findsOneWidget);
 
       // Built-in row has no delete affordance and a "Default" chip leading.
@@ -201,6 +216,51 @@ void main() {
       );
       expect(chip, findsOneWidget);
     });
+  });
+
+  group('Sport filter chips (AE6)', () {
+    testWidgets(
+      'selecting Soccer shows only soccer rows; All restores all groups',
+      (tester) async {
+        final mock = _newMock();
+        addTearDown(mock.dispose);
+
+        await tester.pumpWidget(_buildHarness(service: mock));
+        await tester.pumpAndSettle();
+
+        // Tap the Soccer filter chip (not a section header WfSection).
+        final soccerChip = find.byWidgetPredicate(
+          (w) => w is WfChip && w.label == 'Soccer',
+        );
+        expect(soccerChip, findsOneWidget);
+        await tester.tap(soccerChip);
+        await tester.pumpAndSettle();
+
+        // Soccer rows are visible.
+        expect(find.text('Soccer · Standard'), findsOneWidget);
+        // Non-soccer section headers are gone.
+        expect(
+          find.byWidgetPredicate(
+            (w) => w is WfSection && w.label == 'Basketball',
+          ),
+          findsNothing,
+        );
+
+        // Tap "All" to restore all groups.
+        await tester.tap(
+          find.byWidgetPredicate((w) => w is WfChip && w.label == 'All'),
+        );
+        await tester.pumpAndSettle();
+
+        // Basketball section header returns.
+        expect(
+          find.byWidgetPredicate(
+            (w) => w is WfSection && w.label == 'Basketball',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('Bypass-controller delete throws', () {

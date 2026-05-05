@@ -78,30 +78,33 @@ Two new capabilities also need a home. Operators want to keep multiple identitie
 - R6. The "Connect a different camera" row is removed. The single-camera model is the contract.
 
 **User section**
-- R7. The User section shows the currently active camera-side user inline at the top of the section (no nav-row wrapping). All camera-stored data on every tab is scoped to this user.
-- R8. The user can switch the active user from this section. Switching causes the app to reload teams, matches, and streaming destinations to reflect the new user's data.
-- R9. The user can add a new user from this section via a bottom-sheet form (matching the existing team / sport-preset form-sheet pattern). Minimum field: a display name.
-- R10. The user can delete a user. Deleting a non-active user is a single confirm step. Deleting the active user is blocked with an inline message until another user is selected; deleting the last user on the camera is blocked outright.
+- R7. The User section is compact: it shows the active user's name with an inline dropdown selector to switch users, and an "Add user" action (inline button or + icon). All camera-stored data on every tab is scoped to the active user.
+- R8. The user can switch the active user via the inline dropdown on the Settings page without navigating away. Switching causes the app to reload teams, matches, and streaming destinations to reflect the new user's data.
+- R9. The user can add a new user directly from the User section on the Settings page via a bottom-sheet form (matching the existing team / sport-preset form-sheet pattern). Minimum field: a display name.
+- R10. The user can delete a user from a "Manage users" nav destination (a nav row in the User section opens it). Deleting a non-active user is a single confirm step. Deleting the active user is blocked with an inline message until another user is selected; deleting the last user on the camera is blocked outright.
 
 **Match Setup section (Game Formats)**
-- R11. The Match Setup section continues to be a nav row that opens the existing Sport setups page; the page itself is extended to be the canonical home for game formats.
-- R12. Each sport has one or more built-in default formats that appear at the top of that sport's group and are read-only (cannot be edited or deleted).
-- R13. The user can add, edit, and delete custom formats per sport. Custom formats appear under the built-ins for the same sport and are clearly distinguished from them.
+- R11. The Match Setup section is a nav row that opens the Sport setups page; the page is the canonical home for game formats.
+- R12. Each sport has one or more built-in default formats that appear at the top of that sport's group, marked with a "Default" chip, and are read-only (cannot be edited or deleted).
+- R13. The user can add, edit, and delete custom formats per sport. Custom formats appear under the built-ins for the same sport and have edit/delete affordances.
+- R14. The Sport setups page shows a sport filter chip row at the top (matching the Teams page pattern) so the user can narrow the list to one sport.
+- R15. Each preset row is rendered inline (single line): `[Default chip — only if built-in]  name  format-summary`. The sport label is the section header and is not repeated in the row name. The format summary (e.g. `2 × 35 min`) renders in a muted monospace style at the trailing end of the row.
+- R16. The Sport setups page visual style matches the Teams page (search/filter bar treatment, row density, typography).
 
 **Streaming Setup section**
-- R14. The Streaming Setup section lists every streaming destination configured for the active user. Each destination shows its name, provider badge (YouTube / TikTok / Facebook / Instagram / Custom), and protocol.
-- R15. A streaming destination is identified by `{ name, provider, protocol, config }` where `provider ∈ {youtube, tiktok, facebook, instagram, custom}`, `protocol ∈ {rtmp, rtmps, rtsp}`, and `config` is a protocol-specific record. Destinations live on the camera; the phone fetches them per active user.
-- R16. For provider in {youtube, tiktok, facebook, instagram}, the protocol is fixed to RTMP and the form prompts for a URL and a stream key.
-- R17. When provider is "custom", the user picks the protocol; the form's fields adapt: RTMP and RTMPS prompt for URL + stream key; RTSP prompts for URL + optional username + optional password.
-- R18. The user can add, edit, and delete streaming destinations from this section.
-- R19. URL fields are validated against the chosen protocol's expected scheme (rtmp://, rtmps://, rtsp://) before save.
+- R17. The Streaming Setup section is a compact nav row that opens a Streaming destinations page (mirrors the Sport setups nav row pattern). The nav row shows a count badge (e.g. "3 destinations") when destinations exist.
+- R18. A streaming destination is identified by `{ name, provider, protocol, config }` where `provider ∈ {youtube, tiktok, facebook, instagram, custom}`, `protocol ∈ {rtmp, rtmps, rtsp}`, and `config` is a protocol-specific record. Destinations live on the camera; the phone fetches them per active user.
+- R19. For provider in {youtube, tiktok, facebook, instagram}, the protocol is fixed to RTMP and the form prompts for a URL and a stream key.
+- R20. When provider is "custom", the user picks the protocol; the form's fields adapt: RTMP and RTMPS prompt for URL + stream key; RTSP prompts for URL + optional username + optional password.
+- R21. The user can add, edit, and delete streaming destinations from the Streaming destinations page.
+- R22. URL fields are validated against the chosen protocol's expected scheme (rtmp://, rtmps://, rtsp://) before save.
 
 **App section (bottom)**
-- R20. The App section is anchored at the bottom of the populated Settings list and contains: Theme, Permissions, About. Diagnostics is removed from this section because R5 places it under Camera.
+- R23. The App section is anchored at the bottom of the populated Settings list and contains: Theme, Permissions, About. Diagnostics is removed from this section because R5 places it under Camera.
 
 **Removals (no replacement on this page)**
-- R21. The "Recording defaults" card is removed from Settings. Per-match quality is set in the Match setup screen and is the only place those values are configured.
-- R22. The "Connectivity" card (WiFi AP auto-enable, stay-awake on download, keep BLE alive in background) is removed. These are not user-tunable; BLE and WiFi-AP are the camera's only transports.
+- R24. The "Recording defaults" card is removed from Settings. Per-match quality is set in the Match setup screen and is the only place those values are configured.
+- R25. The "Connectivity" card (WiFi AP auto-enable, stay-awake on download, keep BLE alive in background) is removed. These are not user-tunable; BLE and WiFi-AP are the camera's only transports.
 
 ---
 
@@ -109,12 +112,14 @@ Two new capabilities also need a home. Operators want to keep multiple identitie
 
 - AE1. **Covers R1, R3.** Given the app has no camera connection, when the user opens the Settings tab, the page renders the full-screen empty state and no camera/user/match/streaming section cards are visible. When the user then connects a camera, the four-section layout appears with the camera card populated and the active user shown.
 - AE2. **Covers R4.** Given a camera is connected, when the user taps Disconnect, the BLE link drops and the empty state renders. When the user then taps "Connect camera" from the empty state, the app reconnects to the same camera without scanning.
-- AE3. **Covers R8.** Given user A is active and shows teams `[Lions, Tigers]`, when the user switches the active user to user B, the Teams tab now shows user B's teams and never `[Lions, Tigers]` until user A is reselected.
-- AE4. **Covers R10.** Given user A is the active user and is the only user on the camera, when the user taps Delete on user A, the action is blocked with a message explaining at least one user must remain. When a second user B is added and made active, deleting user A succeeds.
-- AE5. **Covers R12, R13.** Given the user is on the Sport setups page for soccer, when the page loads, the built-in soccer format(s) appear at the top of the soccer group with no edit/delete affordance, and any custom formats appear below with edit/delete affordances.
-- AE6. **Covers R16.** Given the user is adding a streaming destination and selects provider = YouTube, when the form renders, the protocol is fixed to RTMP (not user-selectable) and only Name, URL, and Stream key fields are visible.
-- AE7. **Covers R17.** Given the user selects provider = Custom and protocol = RTSP, when the form renders, the visible fields are URL, optional Username, optional Password — and Stream key is not visible. When the user changes protocol to RTMP, the visible fields become URL and Stream key, and the username/password fields are gone.
-- AE8. **Covers R19.** Given the user has selected protocol = RTMP and entered a URL beginning with `https://`, when they tap Save, the save is rejected with an inline error pointing at the URL field.
+- AE3. **Covers R7, R8.** Given user A is active, the User section on the Settings page shows a compact row with "A" displayed and a dropdown indicator. When the user taps the dropdown and selects user B, the active user switches inline (no navigation) and the Teams tab reloads to user B's data.
+- AE4. **Covers R9, R10.** Given the User section is visible, when the user taps "Add user", the bottom-sheet form appears. When the user opens "Manage users" and deletes a non-active user, it succeeds after one confirm step. When the active user is the only user, the delete action is blocked.
+- AE5. **Covers R12, R13, R15.** Given the user is on the Sport setups page for soccer, when the page loads, the built-in soccer format(s) appear at the top with a "Default" chip and no edit/delete affordance; custom formats appear below without the chip and with edit/delete affordances. Each row reads as a single inline line: `[Default]  Standard  2 × 35 min`.
+- AE6. **Covers R14.** Given the user has selected "Soccer" in the sport filter chips on the Sport setups page, only soccer presets are shown; all other sports are hidden.
+- AE7. **Covers R17.** Given the Streaming Setup section nav row shows "2 destinations", when the user taps it, the Streaming destinations page opens listing those two destinations.
+- AE8. **Covers R19.** Given the user is adding a streaming destination and selects provider = YouTube, when the form renders, the protocol is fixed to RTMP (not user-selectable) and only Name, URL, and Stream key fields are visible.
+- AE9. **Covers R20.** Given the user selects provider = Custom and protocol = RTSP, when the form renders, the visible fields are URL, optional Username, optional Password — and Stream key is not visible. When the user changes protocol to RTMP, the visible fields become URL and Stream key, and the username/password fields are gone.
+- AE10. **Covers R22.** Given the user has selected protocol = RTMP and entered a URL beginning with `https://`, when they tap Save, the save is rejected with an inline error pointing at the URL field.
 
 ---
 
@@ -171,8 +176,9 @@ Two new capabilities also need a home. Operators want to keep multiple identitie
 ### Deferred to Planning
 
 - [Affects R5][Technical] Diagnostics under Camera: a single nav row inside the camera card vs. a sibling card directly beneath it. Both satisfy R5; pick the one that lands cleaner visually with the existing `WfCard` styling.
-- [Affects R7, R8, R9, R10][Technical] How the User section presents — single combined card with the active user up top and an "Add user" / list-of-users affordance below, vs. an active-user row plus a nav row to a "Manage users" sub-page. Both are workable; weight against existing card density and the volume of users a typical operator will have.
+- [Affects R7][Technical] Exact widget for the inline user dropdown — a `DropdownButton`, a custom `PopupMenuButton`-based row, or a bottom sheet list triggered by tapping the active-user row. All satisfy R7/R8; pick the one that matches the dark-theme aesthetic without OS-default widget chrome.
 - [Affects R8][Technical] How `teamsProvider` / `matchStateProvider` / streaming-destinations provider are re-keyed or invalidated on active-user switch. Implementation choice; doesn't change product behavior.
-- [Affects R15][Technical][Needs research] Final proto message shape for streaming destinations. The product contract is `{name, provider, protocol, config}` with `config` being protocol-specific; the wire-format choice (oneof in proto3, vs. a flat record with optional fields per protocol) is for planning.
+- [Affects R18][Technical][Needs research] Final proto message shape for streaming destinations. The product contract is `{name, provider, protocol, config}` with `config` being protocol-specific; the wire-format choice (oneof in proto3, vs. a flat record with optional fields per protocol) is for planning.
 - [Affects R10][Technical] What happens to data owned by a deleted user — does the camera cascade-delete their teams, matches, and streaming destinations, or does it orphan and reclaim later? Affects firmware contract more than the phone UI.
 - [Affects R4][Technical] Whether a one-tap reconnect from the empty state needs a new "reconnect last camera" path on `BleService`, or whether the existing `DiscoveryPage` already short-circuits when a known device is in range.
+- [Affects R17][Technical] Whether the Streaming destinations page is a new file (`streaming_destinations_page.dart`) mirroring `sport_presets_page.dart`, or whether the existing streaming-section logic in `settings_page.dart` is extracted and promoted. Both are workable; a new file is cleaner given the existing page already has the nav-row entry point.

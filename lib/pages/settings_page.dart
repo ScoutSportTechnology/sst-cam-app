@@ -11,9 +11,9 @@ import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
 import 'diagnostics_page.dart';
 import 'discovery_page.dart';
+import 'manage_users_page.dart';
 import 'sport_presets_page.dart';
-import 'streaming_destination_form_sheet.dart';
-import 'user_form_sheet.dart';
+import 'streaming_destinations_page.dart';
 
 /// Settings page. Renders an empty-state CTA when no camera is connected
 /// (with one-tap reconnect to the last-known camera before falling back to
@@ -33,6 +33,13 @@ class SettingsPage extends ConsumerWidget {
     if (!connected) {
       return const _ConnectCameraEmptyState();
     }
+
+    final streamingCount =
+        ref
+            .watch(streamingDestinationsControllerProvider)
+            .valueOrNull
+            ?.length ??
+        0;
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -72,7 +79,23 @@ class SettingsPage extends ConsumerWidget {
             'Streaming setup',
             padding: EdgeInsets.only(bottom: 6),
           ),
-          const _StreamingSection(),
+          WfCard(
+            padding: EdgeInsets.zero,
+            child: _NavRow(
+              leading: const Icon(Icons.cast_outlined),
+              label: 'Streaming destinations',
+              badge: streamingCount > 0
+                  ? '$streamingCount ${streamingCount == 1 ? 'destination' : 'destinations'}'
+                  : null,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const StreamingDestinationsPage(),
+                  ),
+                );
+              },
+            ),
+          ),
           const SizedBox(height: 14),
           const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
           const _RowItem(
@@ -385,7 +408,8 @@ class _ConnectCameraEmptyStateState
 }
 
 // ---------------------------------------------------------------------------
-// Shared row primitives reused across User, Streaming Setup, and App.
+// Shared row primitives reused across User, Match Setup, Streaming Setup,
+// and App sections.
 // ---------------------------------------------------------------------------
 
 class _RowItem extends StatelessWidget {
@@ -436,11 +460,13 @@ class _NavRow extends StatelessWidget {
     required this.leading,
     required this.label,
     this.sub,
+    this.badge,
     required this.onTap,
   });
   final Widget leading;
   final String label;
   final String? sub;
+  final String? badge;
   final VoidCallback onTap;
 
   @override
@@ -451,34 +477,20 @@ class _NavRow extends StatelessWidget {
         leading: leading,
         label: label,
         sub: sub,
-        trailing: const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (badge != null) ...[
+              Text(badge!, style: const TextStyle(color: T.ink2, fontSize: 12)),
+              const SizedBox(width: 4),
+            ],
+            const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+          ],
+        ),
       ),
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// User section — inline active-user row + others-with-delete + Add user.
-//
-// Shape A (`activeUserProvider` non-null): active row with an "Active" badge,
-// divider, list of others (each tappable to switch, with a trailing delete
-// icon disabled per R10's UI rules), divider, "Add user" row.
-//
-// Shape B (`activeUserProvider` null — post-reconnect with no camera-side
-// active user, or empty user list): a centered "Pick a user" note, list of
-// all users with a trailing "Make active" icon button (Icons.radio_button_
-// unchecked), and the "Add user" row. The active row + Active badge are
-// not rendered.
-//
-// The delete icon's `onPressed` is set to null when:
-//   * users.length == 1 (last remaining user) — subtitle: "Add another user
-//     before deleting the last one"
-//   * a live match is in progress — subtitle: "End the live match before
-//     deleting"
-// The active user is never rendered in the others list, so the "switch
-// before deleting" disabled case is structurally enforced rather than
-// conditionally rendered.
-// ---------------------------------------------------------------------------
 
 class _UserSection extends ConsumerWidget {
   const _UserSection();
@@ -487,54 +499,130 @@ class _UserSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final usersAsync = ref.watch(usersControllerProvider);
     final activeId = ref.watch(activeUserProvider);
-    final liveMatchRunning = isLiveMatchRunning(ref.watch(liveMatchProvider));
 
-    return usersAsync.when(
-      loading: () => const WfCard(
-        child: Padding(
-          padding: EdgeInsets.all(12),
-          child: Center(
-            child: SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        usersAsync.when(
+          loading: () => const WfCard(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
             ),
           ),
+          error: (e, _) => WfCard(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                'Could not load users: $e',
+                style: const TextStyle(color: T.ink2, fontSize: 12),
+              ),
+            ),
+          ),
+          data: (users) {
+            UserRecord? active;
+            for (final u in users) {
+              if (u.id == activeId) {
+                active = u;
+                break;
+              }
+            }
+            return WfCard(
+              padding: EdgeInsets.zero,
+              child: Builder(
+                builder: (ctx) => InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () => _openPicker(ctx, ref, users, activeId),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      children: [
+                        if (active != null) ...[
+                          const WfChip(label: 'Active', active: true),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: active != null
+                              ? Text(
+                                  active.name,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: T.ink,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                )
+                              : const WfNote('Pick a user to get started'),
+                        ),
+                        const Icon(Icons.expand_more, color: T.ink3, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
-      ),
-      error: (e, _) => WfCard(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text(
-            'Could not load users: $e',
-            style: const TextStyle(color: T.ink2, fontSize: 12),
+        const SizedBox(height: 8),
+        WfCard(
+          padding: EdgeInsets.zero,
+          child: _NavRow(
+            leading: const Icon(Icons.manage_accounts_outlined),
+            label: 'Manage users',
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const ManageUsersPage())),
           ),
         ),
-      ),
-      data: (users) {
-        if (activeId == null) {
-          return _NoActiveUserCard(
-            users: users,
-            onMakeActive: (u) => _onSwitchTapped(context, ref, u),
-            onAdd: () => _onAddTapped(context, ref),
-          );
-        }
-        final active = users.firstWhere(
-          (u) => u.id == activeId,
-          orElse: () => UserRecord(id: activeId, name: activeId),
-        );
-        final others = users.where((u) => u.id != activeId).toList();
-        return _ActiveUserCard(
-          active: active,
-          others: others,
-          isLastRemaining: users.length <= 1,
-          liveMatchRunning: liveMatchRunning,
-          onSwitchTapped: (u) => _onSwitchTapped(context, ref, u),
-          onDeleteTapped: (u) => _onDeleteTapped(context, ref, u),
-          onAdd: () => _onAddTapped(context, ref),
-        );
-      },
+      ],
     );
+  }
+
+  Future<void> _openPicker(
+    BuildContext ctx,
+    WidgetRef ref,
+    List<UserRecord> users,
+    String? activeId,
+  ) async {
+    final box = ctx.findRenderObject()! as RenderBox;
+    final overlay =
+        Navigator.of(ctx).overlay!.context.findRenderObject()! as RenderBox;
+    final offset = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final selected = await showMenu<UserRecord>(
+      context: ctx,
+      position: RelativeRect.fromLTRB(
+        offset.dx,
+        offset.dy + box.size.height,
+        overlay.size.width - offset.dx - box.size.width,
+        0,
+      ),
+      constraints: BoxConstraints(minWidth: box.size.width),
+      items: [
+        for (final u in users)
+          PopupMenuItem<UserRecord>(
+            value: u,
+            child: Row(
+              children: [
+                Flexible(child: Text(u.name)),
+                if (u.id == activeId) ...[
+                  const SizedBox(width: 8),
+                  const WfChip(label: 'Active', active: true),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+    if (selected == null || !ctx.mounted) return;
+    _onSwitchTapped(ctx, ref, selected);
   }
 
   Future<void> _onSwitchTapped(
@@ -572,608 +660,5 @@ class _UserSection extends ConsumerWidget {
         const SnackBar(content: Text("Couldn't switch user — try again.")),
       );
     }
-  }
-
-  Future<void> _onDeleteTapped(
-    BuildContext context,
-    WidgetRef ref,
-    UserRecord target,
-  ) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: T.surface,
-        title: const Text('Delete user?'),
-        content: Text(
-          'Deleting ${target.name} permanently removes their teams, match '
-          'history, sport setups, and streaming destinations. This cannot be '
-          'undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text(
-              'Delete user',
-              style: TextStyle(color: T.danger, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    try {
-      await ref.read(usersControllerProvider.notifier).delete(target.id);
-    } on UsersControllerException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not delete user: $e')));
-    }
-  }
-
-  Future<void> _onAddTapped(BuildContext context, WidgetRef ref) async {
-    final draft = await showUserFormSheet(context);
-    if (draft == null) return;
-    try {
-      await ref.read(usersControllerProvider.notifier).create(draft.name);
-    } on UsersControllerException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not add user: $e')));
-    }
-  }
-}
-
-class _ActiveUserCard extends StatelessWidget {
-  const _ActiveUserCard({
-    required this.active,
-    required this.others,
-    required this.isLastRemaining,
-    required this.liveMatchRunning,
-    required this.onSwitchTapped,
-    required this.onDeleteTapped,
-    required this.onAdd,
-  });
-
-  final UserRecord active;
-  final List<UserRecord> others;
-  final bool isLastRemaining;
-  final bool liveMatchRunning;
-  final ValueChanged<UserRecord> onSwitchTapped;
-  final ValueChanged<UserRecord> onDeleteTapped;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return WfCard(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Active user row.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              children: [
-                const SizedBox(
-                  width: 24,
-                  child: Center(
-                    child: Icon(Icons.person_outline, color: T.ink2),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              active.name,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: T.ink,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          const WfChip(label: 'Active', active: true),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        active.id,
-                        style: const TextStyle(
-                          fontFamily: T.mono,
-                          fontSize: 11,
-                          color: T.ink2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: T.rule),
-          // Others — tap to switch, trailing delete icon (with rule-aware
-          // disabled state + subtitle).
-          for (final u in others) ...[
-            _OtherUserRow(
-              user: u,
-              isLastRemaining: isLastRemaining,
-              liveMatchRunning: liveMatchRunning,
-              onTap: () => onSwitchTapped(u),
-              onDelete: () => onDeleteTapped(u),
-            ),
-            const Divider(height: 1, color: T.rule),
-          ],
-          InkWell(
-            onTap: onAdd,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 24,
-                    child: Center(
-                      child: Icon(Icons.person_add_outlined, color: T.ink2),
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Add user',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: T.ink,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OtherUserRow extends StatelessWidget {
-  const _OtherUserRow({
-    required this.user,
-    required this.isLastRemaining,
-    required this.liveMatchRunning,
-    required this.onTap,
-    required this.onDelete,
-  });
-
-  final UserRecord user;
-  final bool isLastRemaining;
-  final bool liveMatchRunning;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final String subtitle;
-    final bool deleteEnabled;
-    if (isLastRemaining) {
-      subtitle = 'Add another user before deleting the last one';
-      deleteEnabled = false;
-    } else if (liveMatchRunning) {
-      subtitle = 'End the live match before deleting';
-      deleteEnabled = false;
-    } else {
-      subtitle = 'Switch to set as active';
-      deleteEnabled = true;
-    }
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            const SizedBox(
-              width: 24,
-              child: Center(child: Icon(Icons.person_outline, color: T.ink2)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    user.name,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: T.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: deleteEnabled ? T.ink2 : T.ink3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, size: 18),
-              color: deleteEnabled ? T.ink2 : T.ink3,
-              onPressed: deleteEnabled ? onDelete : null,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NoActiveUserCard extends StatelessWidget {
-  const _NoActiveUserCard({
-    required this.users,
-    required this.onMakeActive,
-    required this.onAdd,
-  });
-
-  final List<UserRecord> users;
-  final ValueChanged<UserRecord> onMakeActive;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return WfCard(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(14, 14, 14, 12),
-            child: Center(
-              child: WfNote(
-                'Pick a user to organize your teams, matches, and streaming '
-                'destinations.',
-              ),
-            ),
-          ),
-          const Divider(height: 1, color: T.rule),
-          for (final u in users) ...[
-            InkWell(
-              onTap: () => onMakeActive(u),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                child: Row(
-                  children: [
-                    const SizedBox(
-                      width: 24,
-                      child: Center(
-                        child: Icon(Icons.person_outline, color: T.ink2),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        u.name,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: T.ink,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.radio_button_unchecked, size: 18),
-                      color: T.ink2,
-                      tooltip: 'Make active',
-                      onPressed: () => onMakeActive(u),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 1, color: T.rule),
-          ],
-          InkWell(
-            onTap: onAdd,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 24,
-                    child: Center(
-                      child: Icon(Icons.person_add_outlined, color: T.ink2),
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Add user',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: T.ink,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Streaming setup section — lists the active user's streaming
-// destinations with a leading provider chip, primary name, protocol pill
-// subtitle, and a trailing delete IconButton. Tapping a row opens the
-// adaptive form sheet in edit mode; tapping "Add destination" opens it in
-// create mode.
-//
-// Empty state (active user has zero destinations): a `WfNote` reading
-// "No streaming destinations yet. Tap below to add one." renders inside
-// the same `WfCard`, above the "Add destination" row.
-//
-// Errors from create / edit / delete surface as `SnackBar`s on the
-// Settings scaffold.
-// ---------------------------------------------------------------------------
-
-class _StreamingSection extends ConsumerWidget {
-  const _StreamingSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(streamingDestinationsControllerProvider);
-
-    return async.when(
-      loading: () => const WfCard(
-        child: Padding(
-          padding: EdgeInsets.all(12),
-          child: Center(
-            child: SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ),
-        ),
-      ),
-      error: (e, _) => WfCard(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text(
-            'Could not load streaming destinations: $e',
-            style: const TextStyle(color: T.ink2, fontSize: 12),
-          ),
-        ),
-      ),
-      data: (destinations) {
-        return WfCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (destinations.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  child: WfNote(
-                    'No streaming destinations yet. Tap below to add one.',
-                  ),
-                )
-              else
-                for (final dest in destinations) ...[
-                  _DestinationRow(
-                    destination: dest,
-                    onTap: () => _onEdit(context, ref, dest),
-                    onDelete: () => _onDelete(context, ref, dest),
-                  ),
-                  const Divider(height: 1, color: T.rule),
-                ],
-              if (destinations.isEmpty) const Divider(height: 1, color: T.rule),
-              InkWell(
-                onTap: () => _onAdd(context, ref),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 24,
-                        child: Center(
-                          child: Icon(Icons.add_link, color: T.ink2),
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Add destination',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: T.ink,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _onAdd(BuildContext context, WidgetRef ref) async {
-    final draft = await showStreamingDestinationFormSheet(context);
-    if (draft == null) return;
-    try {
-      await ref
-          .read(streamingDestinationsControllerProvider.notifier)
-          .create(draft);
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't add destination — try again.")),
-      );
-    }
-  }
-
-  Future<void> _onEdit(
-    BuildContext context,
-    WidgetRef ref,
-    StreamingDestination existing,
-  ) async {
-    final draft = await showStreamingDestinationFormSheet(
-      context,
-      existing: existing,
-    );
-    if (draft == null) return;
-    try {
-      await ref
-          .read(streamingDestinationsControllerProvider.notifier)
-          .edit(draft);
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't save destination — try again.")),
-      );
-    }
-  }
-
-  Future<void> _onDelete(
-    BuildContext context,
-    WidgetRef ref,
-    StreamingDestination dest,
-  ) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: T.surface,
-        title: const Text('Delete destination?'),
-        content: Text(
-          'Remove ${dest.name} from ${dest.provider.displayLabel} '
-          '${dest.protocol.displayLabel}?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text(
-              'Delete',
-              style: TextStyle(color: T.danger, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    try {
-      await ref
-          .read(streamingDestinationsControllerProvider.notifier)
-          .delete(dest.id);
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Couldn't delete destination — try again."),
-        ),
-      );
-    }
-  }
-}
-
-class _DestinationRow extends StatelessWidget {
-  const _DestinationRow({
-    required this.destination,
-    required this.onTap,
-    required this.onDelete,
-  });
-
-  final StreamingDestination destination;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            // Leading provider chip — neutral background; provider label
-            // reads the brand without needing per-provider tints.
-            WfChip(label: destination.provider.displayLabel),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    destination.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: T.ink,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    destination.protocol.displayLabel,
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 11,
-                      color: T.ink2,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, size: 18),
-              color: T.ink2,
-              onPressed: onDelete,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

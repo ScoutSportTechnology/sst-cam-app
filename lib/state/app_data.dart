@@ -604,6 +604,10 @@ final teamsSportFilterProvider = StateProvider<String?>(
 ); // null = All
 final teamsShowHiddenProvider = StateProvider<bool>((_) => false);
 
+final sportPresetsFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
+
 /// Sports actually present in the current team set, in `kSports` order.
 /// Used to drive the filter chip row so we never show a chip with zero teams.
 final availableSportsProvider = Provider<List<String>>((ref) {

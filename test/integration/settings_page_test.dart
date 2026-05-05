@@ -37,7 +37,9 @@ import 'package:scout_camera/ble/dev_data_store.dart';
 import 'package:scout_camera/ble/mock_ble_service.dart';
 import 'package:scout_camera/models/device.dart';
 import 'package:scout_camera/pages/discovery_page.dart';
+import 'package:scout_camera/pages/manage_users_page.dart';
 import 'package:scout_camera/pages/settings_page.dart';
+import 'package:scout_camera/pages/streaming_destinations_page.dart';
 import 'package:scout_camera/state/app_data.dart';
 import 'package:scout_camera/state/ble_providers.dart';
 import 'package:scout_camera/state/last_camera.dart';
@@ -295,7 +297,9 @@ void main() {
     final teamsUser1 = await container.read(teamsControllerProvider.future);
     expect(teamsUser1, isNotEmpty);
 
-    // Tap Coach Maria → confirm dialog, then Switch.
+    // Open the popup and select Coach Maria → confirm dialog, then Switch.
+    await tester.tap(find.byIcon(Icons.expand_more));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Coach Maria'));
     await tester.pumpAndSettle();
     expect(find.text('Switch user?'), findsOneWidget);
@@ -305,11 +309,10 @@ void main() {
     // activeUserProvider switched to user-2.
     expect(container.read(activeUserProvider), 'user-2');
 
-    // The User section now has Coach Maria as Active.
+    // The compact row now shows Coach Maria (the new active user).
     expect(find.text('Coach Maria'), findsOneWidget);
-    expect(find.text('Active'), findsOneWidget);
-    // Coach Diego is in the others list.
-    expect(find.text('Coach Diego'), findsOneWidget);
+    // Coach Diego is not visible on the main Settings page (only in popup).
+    expect(find.text('Coach Diego'), findsNothing);
 
     // Teams controller reflects user-2 (empty seed).
     final teamsUser2 = await container.read(teamsControllerProvider.future);
@@ -354,9 +357,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Add a YouTube destination via the form sheet.
-      await tester.scrollUntilVisible(find.text('Add destination'), 200);
-      await tester.tap(find.text('Add destination'));
+      // Navigate to StreamingDestinationsPage via the nav row.
+      await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
+      await tester.tap(find.text('Streaming destinations'));
+      await tester.pumpAndSettle();
+      expect(find.byType(StreamingDestinationsPage), findsOneWidget);
+
+      // Add a YouTube destination via the FAB.
+      await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
       // YouTube is the default provider; protocol is fixed to RTMP. Fill
@@ -388,8 +396,7 @@ void main() {
         find.byKey(const Key('streaming-key-field')),
         'abc123-test-key',
       );
-      // The submit button on the sheet reads "Add destination" too; the
-      // settings page has the row above. Tap the bottom-most one.
+      // The submit button on the sheet reads "Add destination" too; tap last.
       await tester.tap(find.text('Add destination').last);
       await tester.pumpAndSettle();
 
@@ -397,14 +404,12 @@ void main() {
       expect(find.text('YouTube'), findsAtLeastNWidgets(1));
       expect(find.text('RTMP'), findsOneWidget);
 
-      // Add a custom RTSP destination.
-      await tester.scrollUntilVisible(find.text('Add destination'), 200);
-      await tester.tap(find.text('Add destination'));
+      // Add a custom RTSP destination via the FAB again.
+      await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
       // Switch provider to Custom (chip with label "Custom" inside the
-      // form sheet's provider picker). Both the section and the picker
-      // may render the chip; the picker is inside the bottom-sheet route.
+      // form sheet's provider picker).
       await tester.tap(find.text('Custom'));
       await tester.pumpAndSettle();
 
@@ -433,7 +438,7 @@ void main() {
       await tester.tap(find.text('Add destination').last);
       await tester.pumpAndSettle();
 
-      // Both rows present.
+      // Both rows present on the destinations page.
       expect(
         DevDataStore.instance.listStreamingDestinations('user-2'),
         hasLength(2),
@@ -441,23 +446,23 @@ void main() {
       expect(find.text('Backyard cam'), findsOneWidget);
       expect(find.text('RTSP'), findsOneWidget);
 
+      // Navigate back to Settings.
+      Navigator.of(
+        tester.element(find.byType(StreamingDestinationsPage)),
+      ).pop();
+      await tester.pumpAndSettle();
+
+      // Settings page shows count badge "2 destinations" in the nav row.
+      expect(find.text('2 destinations'), findsOneWidget);
+
       // Switch active user to user-1 — neither destination should be
       // visible.
       DevDataStore.instance.setActiveUser('user-1');
       container.read(activeUserProvider.notifier).state = 'user-1';
       await tester.pumpAndSettle();
 
-      // Maria's destinations are scoped to user-2 — invisible under user-1.
-      expect(find.text('Backyard cam'), findsNothing);
-      // The empty-state note is back.
-      await tester.scrollUntilVisible(
-        find.text('No streaming destinations yet. Tap below to add one.'),
-        200,
-      );
-      expect(
-        find.text('No streaming destinations yet. Tap below to add one.'),
-        findsOneWidget,
-      );
+      // Count badge clears (user-1 has no destinations).
+      expect(find.text('2 destinations'), findsNothing);
       // user-1's destination list is empty.
       expect(
         DevDataStore.instance.listStreamingDestinations('user-1'),
@@ -523,12 +528,28 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Verify Diego is in the others list (Maria active).
+      // Settings shows Maria in the compact row.
       expect(find.text('Coach Maria'), findsOneWidget);
+      // Diego is not visible on the Settings page (only in popup/ManageUsers).
+      expect(find.text('Coach Diego'), findsNothing);
+
+      // Navigate to ManageUsersPage to delete Diego.
+      expect(find.text('Manage users'), findsOneWidget);
+      await tester.tap(find.text('Manage users'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ManageUsersPage), findsOneWidget);
       expect(find.text('Coach Diego'), findsOneWidget);
 
-      // Tap Diego's delete icon (he's the only "other" user → single icon).
-      await tester.tap(find.byIcon(Icons.delete_outline));
+      // Tap Diego's delete icon on ManageUsersPage.
+      final diegoRow = find.ancestor(
+        of: find.text('Coach Diego'),
+        matching: find.byType(InkWell),
+      );
+      final deleteBtn = find.descendant(
+        of: diegoRow.first,
+        matching: find.byIcon(Icons.delete_outline),
+      );
+      await tester.tap(deleteBtn);
       await tester.pumpAndSettle();
 
       expect(find.text('Delete user?'), findsOneWidget);
@@ -548,7 +569,7 @@ void main() {
       await tester.tap(find.text('Delete user'));
       await tester.pumpAndSettle();
 
-      // Diego's row is gone from the User section.
+      // Diego's row is gone from ManageUsersPage.
       expect(find.text('Coach Diego'), findsNothing);
 
       // DevDataStore directly: user-1 is gone.
@@ -601,14 +622,9 @@ void main() {
     // activeUserProvider stayed null because getActiveUser returned null.
     expect(container.read(activeUserProvider), isNull);
 
-    // The "Pick a user" copy is present.
-    expect(
-      find.textContaining(
-        'Pick a user to organize your teams, matches, and streaming',
-      ),
-      findsOneWidget,
-    );
-    // No "Active" chip in the User section.
+    // The "Pick a user" copy is present in the compact row.
+    expect(find.textContaining('Pick a user to get started'), findsOneWidget);
+    // No "Active" chip visible on the main Settings page.
     expect(find.text('Active'), findsNothing);
 
     // StreamingDestinations controller returns empty without crashing
@@ -625,16 +641,9 @@ void main() {
     final teams = await container.read(teamsControllerProvider.future);
     expect(teams, isNotNull);
 
-    // Streaming section's empty-state note is below the fold; scroll
-    // and confirm it.
-    await tester.scrollUntilVisible(
-      find.text('No streaming destinations yet. Tap below to add one.'),
-      200,
-    );
-    expect(
-      find.text('No streaming destinations yet. Tap below to add one.'),
-      findsOneWidget,
-    );
+    // Streaming nav row shows no badge (no destinations for null user).
+    await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
+    expect(find.text('Streaming destinations'), findsOneWidget);
   });
 
   // -------------------------------------------------------------------------

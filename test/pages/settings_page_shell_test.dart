@@ -137,30 +137,20 @@ void main() {
         expect(find.text('Disconnect'), findsOneWidget);
         expect(find.text('Diagnostics'), findsOneWidget);
         expect(find.text('User'), findsOneWidget);
-        // U8 has replaced the placeholder — the User section now renders
-        // the seed active user (Coach Diego) plus an "Active" badge.
+        // User section shows compact active-user row with popup selector.
         expect(find.text('Coach Diego'), findsOneWidget);
-        expect(find.text('Active'), findsOneWidget);
-        // The User section card has grown (active row + Maria + Add user)
-        // so Match setup / Streaming setup may be below the fold; scroll
-        // them into view before asserting.
+        expect(find.text('Manage users'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('Match setup'), 200);
         expect(find.text('Match setup'), findsOneWidget);
         expect(find.text('Sport setups'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
         expect(find.text('Streaming setup'), findsOneWidget);
-        // U9 has replaced the placeholder — empty active user (Coach
-        // Diego, no destinations seeded) renders the empty-state note +
-        // the "Add destination" row inside the card.
+        // Streaming section is now a nav row — no inline destinations.
         await tester.scrollUntilVisible(
-          find.text('No streaming destinations yet. Tap below to add one.'),
+          find.text('Streaming destinations'),
           200,
         );
-        expect(
-          find.text('No streaming destinations yet. Tap below to add one.'),
-          findsOneWidget,
-        );
-        expect(find.text('Add destination'), findsOneWidget);
+        expect(find.text('Streaming destinations'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('App'), 200);
         expect(find.text('App'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('Theme'), 200);
