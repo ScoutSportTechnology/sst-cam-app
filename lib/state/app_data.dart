@@ -267,12 +267,20 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
         'At least one user must remain',
       );
     }
-    // TODO U8: live-match precondition — block when a live match references
-    // this user's team / preset / streaming destination. The check needs
-    // visibility into `LiveMatchController` state to compare its current
-    // home/away identifiers against the doomed user's owned records; that
-    // wiring lands with the User section UI in U8 (where the affordance is
-    // disabled with the "End the live match before deleting" subtitle).
+    // Live-match precondition (R10): block delete while a live match is in
+    // progress. The full per-user-cross-reference check (block only when the
+    // running match references *this* user's team / preset / streaming
+    // destination) requires `LiveMatchController` to expose owning ids; the
+    // current `LiveMatchState` only carries display-name strings for home /
+    // away. So we apply the stricter approximation: if any match is in
+    // flight, blocking applies to all users. The exception message is
+    // consumed by the UI to render the inline "End the live match before
+    // deleting" subtitle. See plan U8 — pragmatic simplification.
+    if (isLiveMatchRunning(ref.read(liveMatchProvider))) {
+      throw const UsersControllerException(
+        'End the live match before deleting',
+      );
+    }
 
     final svc = ref.read(bleServiceProvider);
     await svc.deleteUser(_requireDevice(), userId);
@@ -973,3 +981,15 @@ class LiveMatchController extends Notifier<LiveMatchState> {
 final liveMatchProvider = NotifierProvider<LiveMatchController, LiveMatchState>(
   LiveMatchController.new,
 );
+
+/// True iff a match is in flight — i.e. past kickoff and not yet finalized.
+/// Phases `period` (period running) and `periodBreak` (between / after the
+/// final period, awaiting end-of-match) both qualify. `idle` and `ended`
+/// don't.
+///
+/// Used by [UsersController.delete] for the R10 live-match precondition. We
+/// keep the rule conservative: any live match blocks deleting any user. The
+/// per-user-cross-reference variant of this check is deferred (would require
+/// `LiveMatchState` to expose owning team / preset / destination ids).
+bool isLiveMatchRunning(LiveMatchState s) =>
+    s.phase == MatchPhase.period || s.phase == MatchPhase.periodBreak;

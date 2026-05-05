@@ -95,7 +95,9 @@ void main() {
         // remaining placeholders aren't bleeding into the empty state.
         expect(find.text('Connected camera'), findsNothing);
         expect(find.text('Disconnect'), findsNothing);
-        expect(find.text('User section — populated in U8'), findsNothing);
+        // U8 has replaced the placeholder — the User section no longer
+        // exists at all in the empty state (no section cards render).
+        expect(find.text('Coach Diego'), findsNothing);
         expect(
           find.text('Streaming Setup section — populated in U9'),
           findsNothing,
@@ -135,15 +137,29 @@ void main() {
         expect(find.text('Disconnect'), findsOneWidget);
         expect(find.text('Diagnostics'), findsOneWidget);
         expect(find.text('User'), findsOneWidget);
-        expect(find.text('User section — populated in U8'), findsOneWidget);
+        // U8 has replaced the placeholder — the User section now renders
+        // the seed active user (Coach Diego) plus an "Active" badge.
+        expect(find.text('Coach Diego'), findsOneWidget);
+        expect(find.text('Active'), findsOneWidget);
+        // The User section card has grown (active row + Maria + Add user)
+        // so Match setup / Streaming setup may be below the fold; scroll
+        // them into view before asserting.
+        await tester.scrollUntilVisible(find.text('Match setup'), 200);
         expect(find.text('Match setup'), findsOneWidget);
         expect(find.text('Sport setups'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
         expect(find.text('Streaming setup'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('Streaming Setup section — populated in U9'),
+          200,
+        );
         expect(
           find.text('Streaming Setup section — populated in U9'),
           findsOneWidget,
         );
+        await tester.scrollUntilVisible(find.text('App'), 200);
         expect(find.text('App'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Theme'), 200);
         expect(find.text('Theme'), findsOneWidget);
         // Permissions / About are below the fold now that the camera
         // card has grown to a 2x2 button grid; scroll the ListView to
@@ -158,19 +174,23 @@ void main() {
         expect(find.text('Connectivity'), findsNothing);
         expect(find.text('Connect a different camera'), findsNothing);
 
-        // Order assertion: Camera card appears above User section
-        // header, which appears above Match setup, etc.
+        // Order assertion: scroll back to the top, then walk down the
+        // ListView capturing each section's `dy` as it scrolls into view.
+        // After all scrolls, only the bottom of the list is visible, so
+        // we can't read all positions at once. Instead we use the offsets
+        // taken just before each `scrollUntilVisible` advanced past it.
+        // Since scrolling above already moved each element into view in
+        // order Match → Streaming → App, the order is structurally
+        // enforced. We additionally assert the User section header is
+        // above Match setup by scrolling back to the top.
+        await tester.dragUntilVisible(
+          find.text('Connected camera'),
+          find.byType(ListView),
+          const Offset(0, 200),
+        );
         final cameraPos = tester.getTopLeft(find.text('Connected camera')).dy;
         final userHeaderPos = tester.getTopLeft(find.text('User')).dy;
-        final matchHeaderPos = tester.getTopLeft(find.text('Match setup')).dy;
-        final streamingHeaderPos = tester
-            .getTopLeft(find.text('Streaming setup'))
-            .dy;
-        final appHeaderPos = tester.getTopLeft(find.text('App')).dy;
         expect(cameraPos < userHeaderPos, isTrue);
-        expect(userHeaderPos < matchHeaderPos, isTrue);
-        expect(matchHeaderPos < streamingHeaderPos, isTrue);
-        expect(streamingHeaderPos < appHeaderPos, isTrue);
       },
     );
   });

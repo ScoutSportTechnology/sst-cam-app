@@ -8,9 +8,11 @@ import '../state/last_camera.dart';
 import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
+import '../widgets/wf_chip.dart';
 import 'diagnostics_page.dart';
 import 'discovery_page.dart';
 import 'sport_presets_page.dart';
+import 'user_form_sheet.dart';
 
 /// Settings — U7 layer over the U6 shell.
 ///
@@ -56,17 +58,13 @@ class SettingsPage extends ConsumerWidget {
           _CameraCard(deviceId: activeId),
           const SizedBox(height: 14),
 
-          // 2. User — placeholder (U8).
+          // 2. User — inline section. Active user at top with an "Active"
+          // badge; other users below with delete affordances; "Add user"
+          // row at the bottom. When activeUserProvider is null (post-
+          // reconnect with no camera-side active user) renders the
+          // "Pick a user" shape instead. See U8.
           const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
-          const WfCard(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'User section — populated in U8',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-            ),
-          ),
+          const _UserSection(),
           const SizedBox(height: 14),
 
           // 3. Match Setup — real nav row to the existing SportPresetsPage.
@@ -496,6 +494,488 @@ class _NavRow extends StatelessWidget {
         label: label,
         sub: sub,
         trailing: const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// User section (U8) — inline active-user row + others-with-delete + Add user.
+//
+// Shape A (`activeUserProvider` non-null): active row with an "Active" badge,
+// divider, list of others (each tappable to switch, with a trailing delete
+// icon disabled per R10's UI rules), divider, "Add user" row.
+//
+// Shape B (`activeUserProvider` null — post-reconnect with no camera-side
+// active user, or empty user list): a centered "Pick a user" note, list of
+// all users with a trailing "Make active" icon button (Icons.radio_button_
+// unchecked), and the "Add user" row. The active row + Active badge are
+// not rendered.
+//
+// The delete icon's `onPressed` is set to null when:
+//   * users.length == 1 (last remaining user) — subtitle: "Add another user
+//     before deleting the last one"
+//   * a live match is in progress — subtitle: "End the live match before
+//     deleting"
+// The active user is never rendered in the others list, so the "switch
+// before deleting" disabled case is structurally enforced rather than
+// conditionally rendered.
+// ---------------------------------------------------------------------------
+
+class _UserSection extends ConsumerWidget {
+  const _UserSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final usersAsync = ref.watch(usersControllerProvider);
+    final activeId = ref.watch(activeUserProvider);
+    final liveMatchRunning = isLiveMatchRunning(ref.watch(liveMatchProvider));
+
+    return usersAsync.when(
+      loading: () => const WfCard(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ),
+      ),
+      error: (e, _) => WfCard(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            'Could not load users: $e',
+            style: const TextStyle(color: T.ink2, fontSize: 12),
+          ),
+        ),
+      ),
+      data: (users) {
+        if (activeId == null) {
+          return _NoActiveUserCard(
+            users: users,
+            onMakeActive: (u) => _onSwitchTapped(context, ref, u),
+            onAdd: () => _onAddTapped(context, ref),
+          );
+        }
+        final active = users.firstWhere(
+          (u) => u.id == activeId,
+          orElse: () => UserRecord(id: activeId, name: activeId),
+        );
+        final others = users.where((u) => u.id != activeId).toList();
+        return _ActiveUserCard(
+          active: active,
+          others: others,
+          isLastRemaining: users.length <= 1,
+          liveMatchRunning: liveMatchRunning,
+          onSwitchTapped: (u) => _onSwitchTapped(context, ref, u),
+          onDeleteTapped: (u) => _onDeleteTapped(context, ref, u),
+          onAdd: () => _onAddTapped(context, ref),
+        );
+      },
+    );
+  }
+
+  Future<void> _onSwitchTapped(
+    BuildContext context,
+    WidgetRef ref,
+    UserRecord target,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Switch user?'),
+        content: Text(
+          'Switch to ${target.name}? Your teams, matches, and streaming '
+          'destinations will reload to show their data.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Switch'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(usersControllerProvider.notifier).setActive(target.id);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't switch user — try again.")),
+      );
+    }
+  }
+
+  Future<void> _onDeleteTapped(
+    BuildContext context,
+    WidgetRef ref,
+    UserRecord target,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Delete user?'),
+        content: Text(
+          'Deleting ${target.name} permanently removes their teams, match '
+          'history, sport setups, and streaming destinations. This cannot be '
+          'undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Delete user',
+              style: TextStyle(color: T.danger, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(usersControllerProvider.notifier).delete(target.id);
+    } on UsersControllerException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not delete user: $e')));
+    }
+  }
+
+  Future<void> _onAddTapped(BuildContext context, WidgetRef ref) async {
+    final draft = await showUserFormSheet(context);
+    if (draft == null) return;
+    try {
+      await ref.read(usersControllerProvider.notifier).create(draft.name);
+    } on UsersControllerException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not add user: $e')));
+    }
+  }
+}
+
+class _ActiveUserCard extends StatelessWidget {
+  const _ActiveUserCard({
+    required this.active,
+    required this.others,
+    required this.isLastRemaining,
+    required this.liveMatchRunning,
+    required this.onSwitchTapped,
+    required this.onDeleteTapped,
+    required this.onAdd,
+  });
+
+  final UserRecord active;
+  final List<UserRecord> others;
+  final bool isLastRemaining;
+  final bool liveMatchRunning;
+  final ValueChanged<UserRecord> onSwitchTapped;
+  final ValueChanged<UserRecord> onDeleteTapped;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return WfCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Active user row.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 24,
+                  child: Center(
+                    child: Icon(Icons.person_outline, color: T.ink2),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              active.name,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: T.ink,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const WfChip(label: 'Active', active: true),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        active.id,
+                        style: const TextStyle(
+                          fontFamily: T.mono,
+                          fontSize: 11,
+                          color: T.ink2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: T.rule),
+          // Others — tap to switch, trailing delete icon (with rule-aware
+          // disabled state + subtitle).
+          for (final u in others) ...[
+            _OtherUserRow(
+              user: u,
+              isLastRemaining: isLastRemaining,
+              liveMatchRunning: liveMatchRunning,
+              onTap: () => onSwitchTapped(u),
+              onDelete: () => onDeleteTapped(u),
+            ),
+            const Divider(height: 1, color: T.rule),
+          ],
+          InkWell(
+            onTap: onAdd,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    child: Center(
+                      child: Icon(Icons.person_add_outlined, color: T.ink2),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Add user',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: T.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OtherUserRow extends StatelessWidget {
+  const _OtherUserRow({
+    required this.user,
+    required this.isLastRemaining,
+    required this.liveMatchRunning,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final UserRecord user;
+  final bool isLastRemaining;
+  final bool liveMatchRunning;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final String subtitle;
+    final bool deleteEnabled;
+    if (isLastRemaining) {
+      subtitle = 'Add another user before deleting the last one';
+      deleteEnabled = false;
+    } else if (liveMatchRunning) {
+      subtitle = 'End the live match before deleting';
+      deleteEnabled = false;
+    } else {
+      subtitle = 'Switch to set as active';
+      deleteEnabled = true;
+    }
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 24,
+              child: Center(
+                child: Icon(Icons.person_outline, color: T.ink2),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    user.name,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: T.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: deleteEnabled ? T.ink2 : T.ink3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 18),
+              color: deleteEnabled ? T.ink2 : T.ink3,
+              onPressed: deleteEnabled ? onDelete : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NoActiveUserCard extends StatelessWidget {
+  const _NoActiveUserCard({
+    required this.users,
+    required this.onMakeActive,
+    required this.onAdd,
+  });
+
+  final List<UserRecord> users;
+  final ValueChanged<UserRecord> onMakeActive;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return WfCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 14, 14, 12),
+            child: Center(
+              child: WfNote(
+                'Pick a user to organize your teams, matches, and streaming '
+                'destinations.',
+              ),
+            ),
+          ),
+          const Divider(height: 1, color: T.rule),
+          for (final u in users) ...[
+            InkWell(
+              onTap: () => onMakeActive(u),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 24,
+                      child: Center(
+                        child: Icon(Icons.person_outline, color: T.ink2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        u.name,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: T.ink,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.radio_button_unchecked,
+                        size: 18,
+                      ),
+                      color: T.ink2,
+                      tooltip: 'Make active',
+                      onPressed: () => onMakeActive(u),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: T.rule),
+          ],
+          InkWell(
+            onTap: onAdd,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    child: Center(
+                      child: Icon(Icons.person_add_outlined, color: T.ink2),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Add user',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: T.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
