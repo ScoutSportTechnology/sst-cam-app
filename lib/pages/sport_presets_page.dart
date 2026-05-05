@@ -80,6 +80,13 @@ class SportPresetsPage extends ConsumerWidget {
     for (final p in presets) {
       out.putIfAbsent(p.sport, () => []).add(p);
     }
+    // Sort within each group: built-ins first, then alphabetically by name.
+    for (final list in out.values) {
+      list.sort((a, b) {
+        if (a.builtIn != b.builtIn) return a.builtIn ? -1 : 1;
+        return a.name.compareTo(b.name);
+      });
+    }
     return out;
   }
 
@@ -177,6 +184,10 @@ class _PresetRow extends StatelessWidget {
                 children: [
                   Row(
                     children: [
+                      if (preset.builtIn) ...[
+                        const WfChip(label: 'Default'),
+                        const SizedBox(width: 8),
+                      ],
                       Flexible(
                         child: Text(
                           preset.name,
@@ -188,10 +199,6 @@ class _PresetRow extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (preset.builtIn) ...[
-                        const SizedBox(width: 8),
-                        const WfChip(label: 'Built-in'),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 2),
