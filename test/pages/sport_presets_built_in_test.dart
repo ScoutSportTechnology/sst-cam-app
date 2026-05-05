@@ -92,8 +92,11 @@ void main() {
         );
         expect(rowInkWell, findsOneWidget);
         final inkwell = tester.widget<InkWell>(rowInkWell);
-        expect(inkwell.onTap, isNull,
-            reason: 'Built-in rows must not have an edit affordance.');
+        expect(
+          inkwell.onTap,
+          isNull,
+          reason: 'Built-in rows must not have an edit affordance.',
+        );
         // No delete icon nested in the row.
         final delete = find.descendant(
           of: rowInkWell,
@@ -157,9 +160,7 @@ void main() {
           findsOneWidget,
           reason: 'Group header for "$sport" should be rendered.',
         );
-        final hasBuiltIn = presets.any(
-          (p) => p.sport == sport && p.builtIn,
-        );
+        final hasBuiltIn = presets.any((p) => p.sport == sport && p.builtIn);
         expect(
           hasBuiltIn,
           isTrue,

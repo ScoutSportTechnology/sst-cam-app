@@ -218,12 +218,14 @@ void main() {
       expect(matches, isNotEmpty);
     });
 
-    test('listSportPresets returns seeded built-ins for the active user',
-        () async {
-      final presets = await svc.listSportPresets('SST-CAM-001');
-      expect(presets, isNotEmpty);
-      expect(presets.every((p) => p.builtIn), isTrue);
-    });
+    test(
+      'listSportPresets returns seeded built-ins for the active user',
+      () async {
+        final presets = await svc.listSportPresets('SST-CAM-001');
+        expect(presets, isNotEmpty);
+        expect(presets.every((p) => p.builtIn), isTrue);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -235,7 +237,10 @@ void main() {
 
     test('listUsers returns the two seed users', () async {
       final users = await svc.listUsers(deviceId);
-      expect(users.map((u) => u.name), containsAll(['Coach Diego', 'Coach Maria']));
+      expect(
+        users.map((u) => u.name),
+        containsAll(['Coach Diego', 'Coach Maria']),
+      );
       expect(users, hasLength(2));
     });
 
@@ -268,23 +273,27 @@ void main() {
       expect(activeId, 'user-1');
     });
 
-    test('setActiveUser switches active; listTeams reflects user-2 (empty)',
-        () async {
-      await svc.setActiveUser(deviceId, 'user-2');
-      final activeId = await svc.getActiveUser(deviceId);
-      expect(activeId, 'user-2');
+    test(
+      'setActiveUser switches active; listTeams reflects user-2 (empty)',
+      () async {
+        await svc.setActiveUser(deviceId, 'user-2');
+        final activeId = await svc.getActiveUser(deviceId);
+        expect(activeId, 'user-2');
 
-      final teams = await svc.listTeams(deviceId);
-      expect(teams, isEmpty);
-    });
+        final teams = await svc.listTeams(deviceId);
+        expect(teams, isEmpty);
+      },
+    );
 
-    test('deleteUser of the active user surfaces DevDataStoreException',
-        () async {
-      await expectLater(
-        svc.deleteUser(deviceId, 'user-1'),
-        throwsA(isA<DevDataStoreException>()),
-      );
-    });
+    test(
+      'deleteUser of the active user surfaces DevDataStoreException',
+      () async {
+        await expectLater(
+          svc.deleteUser(deviceId, 'user-1'),
+          throwsA(isA<DevDataStoreException>()),
+        );
+      },
+    );
 
     test('deleteUser of a non-active user removes them', () async {
       // user-1 is the seed-active. Delete user-2 (non-active).
@@ -309,17 +318,19 @@ void main() {
   group('Streaming destinations', () {
     const deviceId = 'SST-CAM-001';
 
-    test('listStreamingDestinations is empty by default for both seed users',
-        () async {
-      expect(
-        await svc.listStreamingDestinations(deviceId, 'user-1'),
-        isEmpty,
-      );
-      expect(
-        await svc.listStreamingDestinations(deviceId, 'user-2'),
-        isEmpty,
-      );
-    });
+    test(
+      'listStreamingDestinations is empty by default for both seed users',
+      () async {
+        expect(
+          await svc.listStreamingDestinations(deviceId, 'user-1'),
+          isEmpty,
+        );
+        expect(
+          await svc.listStreamingDestinations(deviceId, 'user-2'),
+          isEmpty,
+        );
+      },
+    );
 
     test('createStreamingDestination is scoped to its userId', () async {
       final created = await svc.createStreamingDestination(
@@ -334,13 +345,11 @@ void main() {
       );
       expect(created.id, isNotEmpty);
 
-      final user2List =
-          await svc.listStreamingDestinations(deviceId, 'user-2');
+      final user2List = await svc.listStreamingDestinations(deviceId, 'user-2');
       expect(user2List, hasLength(1));
       expect(user2List.first.name, 'Personal RTMP');
 
-      final user1List =
-          await svc.listStreamingDestinations(deviceId, 'user-1');
+      final user1List = await svc.listStreamingDestinations(deviceId, 'user-1');
       expect(user1List, isEmpty);
     });
 
@@ -352,7 +361,10 @@ void main() {
           name: 'YT',
           provider: StreamingProvider.youtube,
           protocol: StreamingProtocol.rtmp,
-          config: RtmpConfig(url: 'rtmp://a.rtmp.youtube.com/live2', streamKey: 'k'),
+          config: RtmpConfig(
+            url: 'rtmp://a.rtmp.youtube.com/live2',
+            streamKey: 'k',
+          ),
         ),
       );
       final updated = await svc.updateStreamingDestination(
@@ -380,7 +392,10 @@ void main() {
           name: 'TT',
           provider: StreamingProvider.tiktok,
           protocol: StreamingProtocol.rtmp,
-          config: RtmpConfig(url: 'rtmp://tiktok.example/live', streamKey: 'sk'),
+          config: RtmpConfig(
+            url: 'rtmp://tiktok.example/live',
+            streamKey: 'sk',
+          ),
         ),
       );
       await svc.deleteStreamingDestination(deviceId, 'user-1', created.id);
@@ -402,8 +417,7 @@ void main() {
   group('Cascade through public API', () {
     const deviceId = 'SST-CAM-001';
 
-    test('deleteUser cascades teams, matches, presets, destinations',
-        () async {
+    test('deleteUser cascades teams, matches, presets, destinations', () async {
       // user-1 starts with seed data already. Add more via the public API.
       final newTeam = await svc.createTeam(
         deviceId,
@@ -437,10 +451,7 @@ void main() {
       );
 
       // Sanity: user-1 has data right now via DevDataStore probe.
-      expect(
-        DevDataStore.instance.listTeams('user-1'),
-        contains(newTeam),
-      );
+      expect(DevDataStore.instance.listTeams('user-1'), contains(newTeam));
 
       // Switch active to user-2, then delete user-1.
       await svc.setActiveUser(deviceId, 'user-2');

@@ -141,10 +141,7 @@ void main() {
 
       expect(find.text('Switch user?'), findsOneWidget);
       // Body contains the user name and the reload-data sentence.
-      expect(
-        find.textContaining('Switch to Coach Maria?'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Switch to Coach Maria?'), findsOneWidget);
       expect(
         find.textContaining(
           'Your teams, matches, and streaming destinations will reload',
@@ -304,9 +301,7 @@ void main() {
   });
 
   group('Add user flow', () {
-    testWidgets('tapping Add user opens the bottom sheet form', (
-      tester,
-    ) async {
+    testWidgets('tapping Add user opens the bottom sheet form', (tester) async {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
@@ -390,10 +385,7 @@ void main() {
       // Both seed users are listed with a "Make active" radio icon each.
       expect(find.text('Coach Diego'), findsOneWidget);
       expect(find.text('Coach Maria'), findsOneWidget);
-      expect(
-        find.byIcon(Icons.radio_button_unchecked),
-        findsNWidgets(2),
-      );
+      expect(find.byIcon(Icons.radio_button_unchecked), findsNWidgets(2));
       // Add user row remains.
       expect(find.text('Add user'), findsOneWidget);
     });

@@ -318,10 +318,7 @@ void main() {
       name: 'Backyard cam',
       provider: StreamingProvider.custom,
       protocol: StreamingProtocol.rtsp,
-      config: RtspConfig(
-        url: 'rtsp://192.168.1.50/stream',
-        username: 'admin',
-      ),
+      config: RtspConfig(url: 'rtsp://192.168.1.50/stream', username: 'admin'),
     );
     await _openSheet(tester, existing: existing);
 

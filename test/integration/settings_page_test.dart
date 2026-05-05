@@ -198,9 +198,9 @@ void main() {
           overrides: [
             bleServiceProvider.overrideWithValue(spy),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-            connectionStateProvider(_kFakeDeviceId).overrideWith(
-              (_) => controller.stream,
-            ),
+            connectionStateProvider(
+              _kFakeDeviceId,
+            ).overrideWith((_) => controller.stream),
           ],
           child: Builder(
             builder: (ctx) {
@@ -258,66 +258,63 @@ void main() {
   // -------------------------------------------------------------------------
   // F3 / AE3 — user switch reflects across providers.
   // -------------------------------------------------------------------------
-  testWidgets(
-    'F3/AE3: switching active user via the User section updates '
-    'activeUserProvider, the User section, and the teams/streaming scoping',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
+  testWidgets('F3/AE3: switching active user via the User section updates '
+      'activeUserProvider, the User section, and the teams/streaming scoping', (
+    tester,
+  ) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
 
-      late ProviderContainer container;
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            bleServiceProvider.overrideWithValue(mock),
-            activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-            connectionStateProvider(_kFakeDeviceId).overrideWith(
-              (_) => Stream<CameraConnectionState>.value(
-                CameraConnectionState.connected,
-              ),
+    late ProviderContainer container;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(mock),
+          activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
+          connectionStateProvider(_kFakeDeviceId).overrideWith(
+            (_) => Stream<CameraConnectionState>.value(
+              CameraConnectionState.connected,
             ),
-          ],
-          child: Builder(
-            builder: (ctx) {
-              container = ProviderScope.containerOf(ctx);
-              return const MaterialApp(home: SettingsPage());
-            },
           ),
+        ],
+        child: Builder(
+          builder: (ctx) {
+            container = ProviderScope.containerOf(ctx);
+            return const MaterialApp(home: SettingsPage());
+          },
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // Default seed: user-1 (Coach Diego) active with 4 seed teams; user-2
-      // (Coach Maria) has zero teams.
-      expect(container.read(activeUserProvider), 'user-1');
-      // Pre-load teams under user-1 so the AsyncNotifier resolves; user-1
-      // has 4 seed teams.
-      final teamsUser1 =
-          await container.read(teamsControllerProvider.future);
-      expect(teamsUser1, isNotEmpty);
+    // Default seed: user-1 (Coach Diego) active with 4 seed teams; user-2
+    // (Coach Maria) has zero teams.
+    expect(container.read(activeUserProvider), 'user-1');
+    // Pre-load teams under user-1 so the AsyncNotifier resolves; user-1
+    // has 4 seed teams.
+    final teamsUser1 = await container.read(teamsControllerProvider.future);
+    expect(teamsUser1, isNotEmpty);
 
-      // Tap Coach Maria → confirm dialog, then Switch.
-      await tester.tap(find.text('Coach Maria'));
-      await tester.pumpAndSettle();
-      expect(find.text('Switch user?'), findsOneWidget);
-      await tester.tap(find.text('Switch'));
-      await tester.pumpAndSettle();
+    // Tap Coach Maria → confirm dialog, then Switch.
+    await tester.tap(find.text('Coach Maria'));
+    await tester.pumpAndSettle();
+    expect(find.text('Switch user?'), findsOneWidget);
+    await tester.tap(find.text('Switch'));
+    await tester.pumpAndSettle();
 
-      // activeUserProvider switched to user-2.
-      expect(container.read(activeUserProvider), 'user-2');
+    // activeUserProvider switched to user-2.
+    expect(container.read(activeUserProvider), 'user-2');
 
-      // The User section now has Coach Maria as Active.
-      expect(find.text('Coach Maria'), findsOneWidget);
-      expect(find.text('Active'), findsOneWidget);
-      // Coach Diego is in the others list.
-      expect(find.text('Coach Diego'), findsOneWidget);
+    // The User section now has Coach Maria as Active.
+    expect(find.text('Coach Maria'), findsOneWidget);
+    expect(find.text('Active'), findsOneWidget);
+    // Coach Diego is in the others list.
+    expect(find.text('Coach Diego'), findsOneWidget);
 
-      // Teams controller reflects user-2 (empty seed).
-      final teamsUser2 =
-          await container.read(teamsControllerProvider.future);
-      expect(teamsUser2, isEmpty);
-    },
-  );
+    // Teams controller reflects user-2 (empty seed).
+    final teamsUser2 = await container.read(teamsControllerProvider.future);
+    expect(teamsUser2, isEmpty);
+  });
 
   // -------------------------------------------------------------------------
   // F4 / F5 / AE6 / AE7 — add YouTube + custom RTSP under user-2; switch
@@ -375,9 +372,7 @@ void main() {
       expect(keyFieldBefore.obscureText, isTrue);
       // Tap the visibility toggle (the only IconButton inside the key
       // field's wrapper).
-      final keyWrapper = find.byKey(
-        const Key('streaming-key-field-wrapper'),
-      );
+      final keyWrapper = find.byKey(const Key('streaming-key-field-wrapper'));
       final toggleBtn = find.descendant(
         of: keyWrapper,
         matching: find.byType(IconButton),
@@ -575,74 +570,72 @@ void main() {
   // -------------------------------------------------------------------------
   // Edge: null active user post-reconnect renders the "Pick a user" prompt.
   // -------------------------------------------------------------------------
-  testWidgets(
-    'Edge: when getActiveUser returns null, User section renders the '
-    '"Pick a user" prompt; Teams + Streaming sections are empty without '
-    'crashing',
-    (tester) async {
-      final mock = _NullActiveUserMock();
-      addTearDown(mock.dispose);
+  testWidgets('Edge: when getActiveUser returns null, User section renders the '
+      '"Pick a user" prompt; Teams + Streaming sections are empty without '
+      'crashing', (tester) async {
+    final mock = _NullActiveUserMock();
+    addTearDown(mock.dispose);
 
-      late ProviderContainer container;
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            bleServiceProvider.overrideWithValue(mock),
-            activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-            connectionStateProvider(_kFakeDeviceId).overrideWith(
-              (_) => Stream<CameraConnectionState>.value(
-                CameraConnectionState.connected,
-              ),
+    late ProviderContainer container;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(mock),
+          activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
+          connectionStateProvider(_kFakeDeviceId).overrideWith(
+            (_) => Stream<CameraConnectionState>.value(
+              CameraConnectionState.connected,
             ),
-          ],
-          child: Builder(
-            builder: (ctx) {
-              container = ProviderScope.containerOf(ctx);
-              return const MaterialApp(home: SettingsPage());
-            },
           ),
+        ],
+        child: Builder(
+          builder: (ctx) {
+            container = ProviderScope.containerOf(ctx);
+            return const MaterialApp(home: SettingsPage());
+          },
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // activeUserProvider stayed null because getActiveUser returned null.
-      expect(container.read(activeUserProvider), isNull);
+    // activeUserProvider stayed null because getActiveUser returned null.
+    expect(container.read(activeUserProvider), isNull);
 
-      // The "Pick a user" copy is present.
-      expect(
-        find.textContaining(
-          'Pick a user to organize your teams, matches, and streaming',
-        ),
-        findsOneWidget,
-      );
-      // No "Active" chip in the User section.
-      expect(find.text('Active'), findsNothing);
+    // The "Pick a user" copy is present.
+    expect(
+      find.textContaining(
+        'Pick a user to organize your teams, matches, and streaming',
+      ),
+      findsOneWidget,
+    );
+    // No "Active" chip in the User section.
+    expect(find.text('Active'), findsNothing);
 
-      // StreamingDestinations controller returns empty without crashing
-      // when activeUserProvider is null (its build() returns const [] in
-      // that case without making a BLE call).
-      final dests =
-          await container.read(streamingDestinationsControllerProvider.future);
-      expect(dests, isEmpty);
-      // Teams controller does not crash. (It reads from the camera; the
-      // mock scopes that call to DevDataStore.getActiveUser() — which is
-      // the seeded user-1, so seeded teams come back. The integration
-      // assertion that matters is "no crash", not "empty".)
-      final teams = await container.read(teamsControllerProvider.future);
-      expect(teams, isNotNull);
+    // StreamingDestinations controller returns empty without crashing
+    // when activeUserProvider is null (its build() returns const [] in
+    // that case without making a BLE call).
+    final dests = await container.read(
+      streamingDestinationsControllerProvider.future,
+    );
+    expect(dests, isEmpty);
+    // Teams controller does not crash. (It reads from the camera; the
+    // mock scopes that call to DevDataStore.getActiveUser() — which is
+    // the seeded user-1, so seeded teams come back. The integration
+    // assertion that matters is "no crash", not "empty".)
+    final teams = await container.read(teamsControllerProvider.future);
+    expect(teams, isNotNull);
 
-      // Streaming section's empty-state note is below the fold; scroll
-      // and confirm it.
-      await tester.scrollUntilVisible(
-        find.text('No streaming destinations yet. Tap below to add one.'),
-        200,
-      );
-      expect(
-        find.text('No streaming destinations yet. Tap below to add one.'),
-        findsOneWidget,
-      );
-    },
-  );
+    // Streaming section's empty-state note is below the fold; scroll
+    // and confirm it.
+    await tester.scrollUntilVisible(
+      find.text('No streaming destinations yet. Tap below to add one.'),
+      200,
+    );
+    expect(
+      find.text('No streaming destinations yet. Tap below to add one.'),
+      findsOneWidget,
+    );
+  });
 
   // -------------------------------------------------------------------------
   // Edge: one-tap reconnect failure surfaces SnackBar + falls back to
@@ -694,9 +687,7 @@ void main() {
 
       // SnackBar surfaces the fallback copy.
       expect(
-        find.text(
-          "Couldn't reconnect to last camera — searching for cameras.",
-        ),
+        find.text("Couldn't reconnect to last camera — searching for cameras."),
         findsOneWidget,
       );
       // DiscoveryPage was pushed.

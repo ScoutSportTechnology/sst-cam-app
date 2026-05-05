@@ -43,9 +43,7 @@ void main() {
     test('every kSports value has at least one built-in default', () {
       final presets = store.listSportPresets('user-1');
       for (final sport in kSports) {
-        final hasBuiltIn = presets.any(
-          (p) => p.sport == sport && p.builtIn,
-        );
+        final hasBuiltIn = presets.any((p) => p.sport == sport && p.builtIn);
         expect(
           hasBuiltIn,
           isTrue,
@@ -192,8 +190,8 @@ void main() {
           config: RtspConfig(url: 'rtsp://b.example/live'),
         ),
       );
-      final cfg = store.listStreamingDestinations('user-1').single.config
-          as RtspConfig;
+      final cfg =
+          store.listStreamingDestinations('user-1').single.config as RtspConfig;
       expect(cfg.username, isNull);
       expect(cfg.password, isNull);
     });
@@ -212,8 +210,8 @@ void main() {
           ),
         ),
       );
-      final cfg = store.listStreamingDestinations('user-1').single.config
-          as RtspConfig;
+      final cfg =
+          store.listStreamingDestinations('user-1').single.config as RtspConfig;
       expect(cfg.username, 'u');
       expect(cfg.password, 'p');
     });
@@ -267,72 +265,69 @@ void main() {
   });
 
   group('cascade delete', () {
-    test(
-      'deleting a user drops teams, matches, presets, destinations and '
-      'leaves other users intact',
-      () {
-        // Populate user-1 beyond the seed.
-        store.createSportPreset(
-          'user-1',
-          const SportPresetDraft(
-            name: 'Custom 1',
-            sport: 'Soccer',
-            numPeriods: 2,
-            periodLengthSeconds: 40 * 60,
-          ),
-        );
-        store.createStreamingDestination(
-          'user-1',
-          const StreamingDestinationDraft(
-            name: 'D1',
-            provider: StreamingProvider.youtube,
-            protocol: StreamingProtocol.rtmp,
-            config: RtmpConfig(url: 'rtmp://x', streamKey: 'k1'),
-          ),
-        );
-        store.createStreamingDestination(
-          'user-1',
-          const StreamingDestinationDraft(
-            name: 'D2',
-            provider: StreamingProvider.tiktok,
-            protocol: StreamingProtocol.rtmp,
-            config: RtmpConfig(url: 'rtmp://y', streamKey: 'k2'),
-          ),
-        );
-        store.createStreamingDestination(
-          'user-1',
-          const StreamingDestinationDraft(
-            name: 'D3',
-            provider: StreamingProvider.custom,
-            protocol: StreamingProtocol.rtsp,
-            config: RtspConfig(url: 'rtsp://z'),
-          ),
-        );
+    test('deleting a user drops teams, matches, presets, destinations and '
+        'leaves other users intact', () {
+      // Populate user-1 beyond the seed.
+      store.createSportPreset(
+        'user-1',
+        const SportPresetDraft(
+          name: 'Custom 1',
+          sport: 'Soccer',
+          numPeriods: 2,
+          periodLengthSeconds: 40 * 60,
+        ),
+      );
+      store.createStreamingDestination(
+        'user-1',
+        const StreamingDestinationDraft(
+          name: 'D1',
+          provider: StreamingProvider.youtube,
+          protocol: StreamingProtocol.rtmp,
+          config: RtmpConfig(url: 'rtmp://x', streamKey: 'k1'),
+        ),
+      );
+      store.createStreamingDestination(
+        'user-1',
+        const StreamingDestinationDraft(
+          name: 'D2',
+          provider: StreamingProvider.tiktok,
+          protocol: StreamingProtocol.rtmp,
+          config: RtmpConfig(url: 'rtmp://y', streamKey: 'k2'),
+        ),
+      );
+      store.createStreamingDestination(
+        'user-1',
+        const StreamingDestinationDraft(
+          name: 'D3',
+          provider: StreamingProvider.custom,
+          protocol: StreamingProtocol.rtsp,
+          config: RtspConfig(url: 'rtsp://z'),
+        ),
+      );
 
-        // Sanity: user-1 has stuff.
-        expect(store.listTeams('user-1'), isNotEmpty);
-        expect(store.listTeamMatches('user-1', 'nr-u14'), isNotEmpty);
-        expect(store.listSportPresets('user-1'), hasLength(8));
-        expect(store.listStreamingDestinations('user-1'), hasLength(3));
+      // Sanity: user-1 has stuff.
+      expect(store.listTeams('user-1'), isNotEmpty);
+      expect(store.listTeamMatches('user-1', 'nr-u14'), isNotEmpty);
+      expect(store.listSportPresets('user-1'), hasLength(8));
+      expect(store.listStreamingDestinations('user-1'), hasLength(3));
 
-        // Switch active so user-1 can be deleted.
-        store.setActiveUser('user-2');
-        store.deleteUser('user-1');
+      // Switch active so user-1 can be deleted.
+      store.setActiveUser('user-2');
+      store.deleteUser('user-1');
 
-        // Every user-1 collection is gone.
-        expect(store.listTeams('user-1'), isEmpty);
-        expect(store.listTeamMatches('user-1', 'nr-u14'), isEmpty);
-        expect(store.listSportPresets('user-1'), isEmpty);
-        expect(store.listStreamingDestinations('user-1'), isEmpty);
+      // Every user-1 collection is gone.
+      expect(store.listTeams('user-1'), isEmpty);
+      expect(store.listTeamMatches('user-1', 'nr-u14'), isEmpty);
+      expect(store.listSportPresets('user-1'), isEmpty);
+      expect(store.listStreamingDestinations('user-1'), isEmpty);
 
-        // Users list no longer contains user-1.
-        final remaining = store.listUsers().map((u) => u.id);
-        expect(remaining, isNot(contains('user-1')));
-        expect(remaining, contains('user-2'));
+      // Users list no longer contains user-1.
+      final remaining = store.listUsers().map((u) => u.id);
+      expect(remaining, isNot(contains('user-1')));
+      expect(remaining, contains('user-2'));
 
-        // user-2 unaffected.
-        expect(store.listSportPresets('user-2'), hasLength(7));
-      },
-    );
+      // user-2 unaffected.
+      expect(store.listSportPresets('user-2'), hasLength(7));
+    });
   });
 }

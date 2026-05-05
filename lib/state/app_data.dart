@@ -263,9 +263,7 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
       throw const UsersControllerException('Cannot delete the active user');
     }
     if (users.length <= 1) {
-      throw const UsersControllerException(
-        'At least one user must remain',
-      );
+      throw const UsersControllerException('At least one user must remain');
     }
     // Live-match precondition (R10): block delete while a live match is in
     // progress. The full per-user-cross-reference check (block only when the
@@ -339,9 +337,7 @@ class StreamingDestinationsController
     );
   }
 
-  Future<StreamingDestination> create(
-    StreamingDestinationDraft draft,
-  ) async {
+  Future<StreamingDestination> create(StreamingDestinationDraft draft) async {
     final svc = ref.read(bleServiceProvider);
     final created = await svc.createStreamingDestination(
       _requireDevice(),

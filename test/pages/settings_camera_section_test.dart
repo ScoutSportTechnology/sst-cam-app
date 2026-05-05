@@ -157,7 +157,8 @@ void main() {
         final tooltips = tester.widgetList<Tooltip>(
           find.byWidgetPredicate(
             (w) =>
-                w is Tooltip && w.message == 'Coming soon — firmware integration',
+                w is Tooltip &&
+                w.message == 'Coming soon — firmware integration',
           ),
         );
         expect(tooltips.length, 2);
@@ -184,54 +185,51 @@ void main() {
       },
     );
 
-    testWidgets(
-      'tapping Disconnect calls bleService.disconnect and clears '
-      'activeCameraIdProvider',
-      (tester) async {
-        final spy = _SpyBleService();
-        addTearDown(spy.dispose);
+    testWidgets('tapping Disconnect calls bleService.disconnect and clears '
+        'activeCameraIdProvider', (tester) async {
+      final spy = _SpyBleService();
+      addTearDown(spy.dispose);
 
-        // Use a controllable connection-state stream so the page rerenders
-        // to the empty state when we flip it post-disconnect.
-        final controller = StreamController<CameraConnectionState>.broadcast();
-        addTearDown(controller.close);
+      // Use a controllable connection-state stream so the page rerenders
+      // to the empty state when we flip it post-disconnect.
+      final controller = StreamController<CameraConnectionState>.broadcast();
+      addTearDown(controller.close);
 
-        late ProviderContainer container;
-        await tester.pumpWidget(
-          ProviderScope(
-            overrides: [
-              bleServiceProvider.overrideWithValue(spy),
-              activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-              connectionStateProvider(_kFakeDeviceId).overrideWith(
-                (_) => controller.stream,
-              ),
-            ],
-            child: Builder(
-              builder: (context) {
-                container = ProviderScope.containerOf(context);
-                return const MaterialApp(home: SettingsPage());
-              },
-            ),
+      late ProviderContainer container;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(spy),
+            activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
+            connectionStateProvider(
+              _kFakeDeviceId,
+            ).overrideWith((_) => controller.stream),
+          ],
+          child: Builder(
+            builder: (context) {
+              container = ProviderScope.containerOf(context);
+              return const MaterialApp(home: SettingsPage());
+            },
           ),
-        );
+        ),
+      );
 
-        controller.add(CameraConnectionState.connected);
-        await tester.pumpAndSettle();
-        expect(find.text('Disconnect'), findsOneWidget);
+      controller.add(CameraConnectionState.connected);
+      await tester.pumpAndSettle();
+      expect(find.text('Disconnect'), findsOneWidget);
 
-        await tester.tap(find.text('Disconnect'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('Disconnect'));
+      await tester.pumpAndSettle();
 
-        // Spy recorded the disconnect call.
-        expect(spy.disconnectCalls, [_kFakeDeviceId]);
-        // Active camera id was cleared.
-        expect(container.read(activeCameraIdProvider), isNull);
+      // Spy recorded the disconnect call.
+      expect(spy.disconnectCalls, [_kFakeDeviceId]);
+      // Active camera id was cleared.
+      expect(container.read(activeCameraIdProvider), isNull);
 
-        // Page rerenders to empty state because activeCameraIdProvider is null.
-        expect(find.text('No camera connected'), findsOneWidget);
-        expect(find.text('Connect camera'), findsOneWidget);
-      },
-    );
+      // Page rerenders to empty state because activeCameraIdProvider is null.
+      expect(find.text('No camera connected'), findsOneWidget);
+      expect(find.text('Connect camera'), findsOneWidget);
+    });
   });
 
   group('Empty-state CTA — one-tap reconnect', () {
@@ -261,92 +259,89 @@ void main() {
       },
     );
 
-    testWidgets(
-      'with a persisted last id, tapping CTA shows loading state and '
-      'reconnects without scanning',
-      (tester) async {
-        SharedPreferences.setMockInitialValues({
-          'last_connected_device_id': _kFakeDeviceId,
-        });
+    testWidgets('with a persisted last id, tapping CTA shows loading state and '
+        'reconnects without scanning', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'last_connected_device_id': _kFakeDeviceId,
+      });
 
-        // Gate the connect future on a completer so we can observe the
-        // loading state mid-flight, then complete it to drive the success
-        // branch.
-        final gate = Completer<void>();
-        final spy = _SpyBleService()..gateConnect = gate;
-        addTearDown(spy.dispose);
+      // Gate the connect future on a completer so we can observe the
+      // loading state mid-flight, then complete it to drive the success
+      // branch.
+      final gate = Completer<void>();
+      final spy = _SpyBleService()..gateConnect = gate;
+      addTearDown(spy.dispose);
 
-        // The reconnect success path writes activeCameraIdProvider; the
-        // ProviderScope override below intentionally does NOT pin a
-        // value so the StateProvider can be mutated. We DO override
-        // the connection-state family so the page can transition to the
-        // populated layout when the active id is set post-reconnect.
-        final controller = StreamController<CameraConnectionState>.broadcast();
-        addTearDown(controller.close);
-        // Default value before reconnect: disconnected.
-        controller.add(CameraConnectionState.disconnected);
+      // The reconnect success path writes activeCameraIdProvider; the
+      // ProviderScope override below intentionally does NOT pin a
+      // value so the StateProvider can be mutated. We DO override
+      // the connection-state family so the page can transition to the
+      // populated layout when the active id is set post-reconnect.
+      final controller = StreamController<CameraConnectionState>.broadcast();
+      addTearDown(controller.close);
+      // Default value before reconnect: disconnected.
+      controller.add(CameraConnectionState.disconnected);
 
-        late ProviderContainer container;
-        await tester.pumpWidget(
-          ProviderScope(
-            overrides: [
-              bleServiceProvider.overrideWithValue(spy),
-              connectionStateProvider(_kFakeDeviceId).overrideWith(
-                (_) => controller.stream,
-              ),
-            ],
-            child: Builder(
-              builder: (context) {
-                container = ProviderScope.containerOf(context);
-                return const MaterialApp(home: SettingsPage());
-              },
-            ),
+      late ProviderContainer container;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(spy),
+            connectionStateProvider(
+              _kFakeDeviceId,
+            ).overrideWith((_) => controller.stream),
+          ],
+          child: Builder(
+            builder: (context) {
+              container = ProviderScope.containerOf(context);
+              return const MaterialApp(home: SettingsPage());
+            },
           ),
-        );
-        await tester.pumpAndSettle();
-        // Pre-warm the AsyncNotifier so `valueOrNull` returns the persisted
-        // id rather than null inside `_onConnectTapped`. Without this the
-        // SharedPreferences read is still in flight when the user taps.
-        await container.read(lastConnectedDeviceIdProvider.future);
-        await tester.pumpAndSettle();
-        expect(find.text('Connect camera'), findsOneWidget);
+        ),
+      );
+      await tester.pumpAndSettle();
+      // Pre-warm the AsyncNotifier so `valueOrNull` returns the persisted
+      // id rather than null inside `_onConnectTapped`. Without this the
+      // SharedPreferences read is still in flight when the user taps.
+      await container.read(lastConnectedDeviceIdProvider.future);
+      await tester.pumpAndSettle();
+      expect(find.text('Connect camera'), findsOneWidget);
 
-        // Tap. The spy's connect awaits the gate, so the CTA stays in
-        // loading state until we complete it.
-        await tester.tap(find.text('Connect camera'));
-        await tester.pump();
+      // Tap. The spy's connect awaits the gate, so the CTA stays in
+      // loading state until we complete it.
+      await tester.tap(find.text('Connect camera'));
+      await tester.pump();
 
-        // Loading label appears; "Connect camera" is gone.
-        expect(find.text('Connecting…'), findsOneWidget);
-        expect(find.text('Connect camera'), findsNothing);
+      // Loading label appears; "Connect camera" is gone.
+      expect(find.text('Connecting…'), findsOneWidget);
+      expect(find.text('Connect camera'), findsNothing);
 
-        // Release the gate so connect resolves and the success branch
-        // sets activeCameraIdProvider. Use bounded pumps because the
-        // empty-state spinner uses CircularProgressIndicator (animates
-        // forever) and pumpAndSettle would hang waiting for it to stop.
-        gate.complete();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+      // Release the gate so connect resolves and the success branch
+      // sets activeCameraIdProvider. Use bounded pumps because the
+      // empty-state spinner uses CircularProgressIndicator (animates
+      // forever) and pumpAndSettle would hang waiting for it to stop.
+      gate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-        // Spy recorded the connect call.
-        expect(spy.connectCalls, [_kFakeDeviceId]);
-        // activeCameraIdProvider was set on success.
-        expect(container.read(activeCameraIdProvider), _kFakeDeviceId);
+      // Spy recorded the connect call.
+      expect(spy.connectCalls, [_kFakeDeviceId]);
+      // activeCameraIdProvider was set on success.
+      expect(container.read(activeCameraIdProvider), _kFakeDeviceId);
 
-        // Flip the connection stream to connected so the page rerenders
-        // to the populated layout.
-        controller.add(CameraConnectionState.connected);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+      // Flip the connection stream to connected so the page rerenders
+      // to the populated layout.
+      controller.add(CameraConnectionState.connected);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-        expect(find.text('Disconnect'), findsOneWidget);
-        expect(find.text('Diagnostics'), findsOneWidget);
-        expect(find.text('No camera connected'), findsNothing);
+      expect(find.text('Disconnect'), findsOneWidget);
+      expect(find.text('Diagnostics'), findsOneWidget);
+      expect(find.text('No camera connected'), findsNothing);
 
-        // No discovery scan was started — we reconnected directly.
-        expect(spy.isScanning, isFalse);
-      },
-    );
+      // No discovery scan was started — we reconnected directly.
+      expect(spy.isScanning, isFalse);
+    });
 
     testWidgets(
       'with a persisted last id and forced connection failure, falls back '

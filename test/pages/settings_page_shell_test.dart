@@ -51,9 +51,9 @@ Widget _buildHarness({
           (_) => Stream<CameraConnectionState>.value(connectionState),
         ),
       if (connectionController != null)
-        connectionStateProvider(activeCameraId!).overrideWith(
-          (_) => connectionController.stream,
-        ),
+        connectionStateProvider(
+          activeCameraId!,
+        ).overrideWith((_) => connectionController.stream),
     ],
     child: const MaterialApp(home: SettingsPage()),
   );
@@ -210,8 +210,7 @@ void main() {
         // Use a controllable stream for the connection state so we can flip
         // it from connected → disconnected without going through the real
         // mock connect path (which starts Timer.periodic for telemetry).
-        final controller =
-            StreamController<CameraConnectionState>.broadcast();
+        final controller = StreamController<CameraConnectionState>.broadcast();
         addTearDown(controller.close);
 
         await tester.pumpWidget(
@@ -240,32 +239,29 @@ void main() {
   });
 
   group('Settings shell — empty-state CTA navigation', () {
-    testWidgets(
-      'tapping "Connect camera" pushes a route whose first page is '
-      'DiscoveryPage',
-      (tester) async {
-        final mock = _newMock();
-        addTearDown(mock.dispose);
+    testWidgets('tapping "Connect camera" pushes a route whose first page is '
+        'DiscoveryPage', (tester) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(service: mock));
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(DiscoveryPage), findsNothing);
+      expect(find.byType(DiscoveryPage), findsNothing);
 
-        // Tap and pump a single frame to enqueue the navigation. We use
-        // `pump()` rather than `pumpAndSettle()` because DiscoveryPage's
-        // initState kicks off a scan that schedules a Timer that would
-        // prevent settle. One pump is enough to push the route and have
-        // DiscoveryPage build at least once.
-        await tester.tap(find.text('Connect camera'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+      // Tap and pump a single frame to enqueue the navigation. We use
+      // `pump()` rather than `pumpAndSettle()` because DiscoveryPage's
+      // initState kicks off a scan that schedules a Timer that would
+      // prevent settle. One pump is enough to push the route and have
+      // DiscoveryPage build at least once.
+      await tester.tap(find.text('Connect camera'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-        expect(find.byType(DiscoveryPage), findsOneWidget);
+      expect(find.byType(DiscoveryPage), findsOneWidget);
 
-        // Stop the scan so it doesn't dangle into the next test.
-        await mock.stopScan();
-      },
-    );
+      // Stop the scan so it doesn't dangle into the next test.
+      await mock.stopScan();
+    });
   });
 }
