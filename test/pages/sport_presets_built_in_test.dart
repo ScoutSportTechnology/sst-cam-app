@@ -257,9 +257,9 @@ void main() {
       await container.read(sportPresetsControllerProvider.future);
 
       expect(
-        () => container.read(sportPresetsControllerProvider.notifier).delete(
-          builtIn.id,
-        ),
+        () => container
+            .read(sportPresetsControllerProvider.notifier)
+            .delete(builtIn.id),
         throwsA(isA<SportPresetsControllerException>()),
       );
     });

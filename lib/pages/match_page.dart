@@ -721,7 +721,12 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
               variant: WfButtonVariant.primary,
               size: WfButtonSize.lg,
               full: true,
-              onPressed: _pushing ? null : () => _startMatch(periods, _preset?.periodLengthSeconds ?? _customPeriodSeconds),
+              onPressed: _pushing
+                  ? null
+                  : () => _startMatch(
+                      periods,
+                      _preset?.periodLengthSeconds ?? _customPeriodSeconds,
+                    ),
             ),
           ),
           if (_pushing)
@@ -770,7 +775,8 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
     _matchUuid ??= _uuid.v4();
     final matchUuid = _matchUuid!;
 
-    final rtmpUrl = _streamMethods.contains(_StreamMethod.custom) &&
+    final rtmpUrl =
+        _streamMethods.contains(_StreamMethod.custom) &&
             _customRtmpUrl.isNotEmpty
         ? _customRtmpUrl
         : null;

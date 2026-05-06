@@ -58,10 +58,7 @@ class SettingsPage extends ConsumerWidget {
             const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
             const _UserSection(),
             const SizedBox(height: 14),
-            const WfSection(
-              'Match setup',
-              padding: EdgeInsets.only(bottom: 6),
-            ),
+            const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
             WfCard(
               padding: EdgeInsets.zero,
               child: _NavRow(
@@ -70,9 +67,7 @@ class SettingsPage extends ConsumerWidget {
                 sub: 'Saved time configs per sport',
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SportPresetsPage(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const SportPresetsPage()),
                   );
                 },
               ),
@@ -396,7 +391,11 @@ class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
                     Text(
                       'Connect a camera to manage users, formats, and streaming '
                       'destinations.',
-                      style: TextStyle(fontSize: 11, color: T.ink2, height: 1.4),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: T.ink2,
+                        height: 1.4,
+                      ),
                     ),
                   ],
                 ),
@@ -482,9 +481,9 @@ class _DataSection extends ConsumerWidget {
       final path = await service.export(deviceId: activeCameraId);
       final filename = path.split('/').last;
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backup saved: $filename')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Backup saved: $filename')));
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -583,10 +582,7 @@ class _DataSection extends ConsumerWidget {
     } on BackupImportException catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message),
-          backgroundColor: T.danger,
-        ),
+        SnackBar(content: Text(e.message), backgroundColor: T.danger),
       );
     } catch (_) {
       if (!context.mounted) return;

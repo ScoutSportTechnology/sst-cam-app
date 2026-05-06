@@ -74,7 +74,9 @@ void main() {
       final container = makeContainer();
       await container.read(usersControllerProvider.future);
 
-      await container.read(usersControllerProvider.notifier).setActive('user-2');
+      await container
+          .read(usersControllerProvider.notifier)
+          .setActive('user-2');
 
       expect(container.read(activeUserProvider), 'user-2');
     });
@@ -83,21 +85,26 @@ void main() {
       final container = makeContainer();
       await container.read(usersControllerProvider.future);
 
-      await container.read(usersControllerProvider.notifier).setActive('user-2');
+      await container
+          .read(usersControllerProvider.notifier)
+          .setActive('user-2');
 
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('active_user_id'), 'user-2');
     });
 
-    test('build() hydrates activeUserProvider from SharedPreferences', () async {
-      // Pre-populate SharedPreferences with user-2 as the active user.
-      SharedPreferences.setMockInitialValues({'active_user_id': 'user-2'});
+    test(
+      'build() hydrates activeUserProvider from SharedPreferences',
+      () async {
+        // Pre-populate SharedPreferences with user-2 as the active user.
+        SharedPreferences.setMockInitialValues({'active_user_id': 'user-2'});
 
-      final container = makeContainer();
-      await container.read(usersControllerProvider.future);
+        final container = makeContainer();
+        await container.read(usersControllerProvider.future);
 
-      expect(container.read(activeUserProvider), 'user-2');
-    });
+        expect(container.read(activeUserProvider), 'user-2');
+      },
+    );
   });
 
   group('create(name)', () {
@@ -158,18 +165,15 @@ void main() {
       },
     );
 
-    test(
-      'with activeUserProvider null, returns empty',
-      () async {
-        final container = makeContainer(activeUserId: null);
+    test('with activeUserProvider null, returns empty', () async {
+      final container = makeContainer(activeUserId: null);
 
-        final list = await container.read(
-          streamingDestinationsControllerProvider.future,
-        );
-        expect(list, isEmpty);
-        expect(container.read(activeUserProvider), isNull);
-      },
-    );
+      final list = await container.read(
+        streamingDestinationsControllerProvider.future,
+      );
+      expect(list, isEmpty);
+      expect(container.read(activeUserProvider), isNull);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -199,38 +203,32 @@ void main() {
       },
     );
 
-    test(
-      'returns empty list when activeUserProvider is null',
-      () async {
-        final container = ProviderContainer(
-          overrides: [
-            ...dbOverrides(db),
-            bleServiceProvider.overrideWithValue(_newMock()),
-          ],
-        );
-        addTearDown(container.dispose);
+    test('returns empty list when activeUserProvider is null', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        final teams = await container.read(teamsControllerProvider.future);
-        expect(teams, isEmpty);
-      },
-    );
+      final teams = await container.read(teamsControllerProvider.future);
+      expect(teams, isEmpty);
+    });
 
-    test(
-      'returns empty for user-2 (no seed teams)',
-      () async {
-        final container = ProviderContainer(
-          overrides: [
-            ...dbOverrides(db),
-            bleServiceProvider.overrideWithValue(_newMock()),
-            activeUserProvider.overrideWith((_) => 'user-2'),
-          ],
-        );
-        addTearDown(container.dispose);
+    test('returns empty for user-2 (no seed teams)', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+          activeUserProvider.overrideWith((_) => 'user-2'),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        final teams = await container.read(teamsControllerProvider.future);
-        expect(teams, isEmpty);
-      },
-    );
+      final teams = await container.read(teamsControllerProvider.future);
+      expect(teams, isEmpty);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -252,8 +250,7 @@ void main() {
         addTearDown(container.dispose);
 
         // upcomingMatchesProvider is a StreamProvider — get first value.
-        final upcoming = await container
-            .read(upcomingMatchesProvider.future);
+        final upcoming = await container.read(upcomingMatchesProvider.future);
         // Seed has 2 upcoming matches on nr-u14 under user-1.
         expect(upcoming, hasLength(2));
         expect(
@@ -265,50 +262,42 @@ void main() {
       },
     );
 
-    test(
-      'returns empty when activeUserProvider is null',
-      () async {
-        final container = ProviderContainer(
-          overrides: [
-            ...dbOverrides(db),
-            bleServiceProvider.overrideWithValue(_newMock()),
-          ],
-        );
-        addTearDown(container.dispose);
+    test('returns empty when activeUserProvider is null', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        final upcoming = await container
-            .read(upcomingMatchesProvider.future);
-        expect(upcoming, isEmpty);
-      },
-    );
+      final upcoming = await container.read(upcomingMatchesProvider.future);
+      expect(upcoming, isEmpty);
+    });
 
-    test(
-      'excludes matches for hidden teams',
-      () async {
-        final container = ProviderContainer(
-          overrides: [
-            ...dbOverrides(db),
-            bleServiceProvider.overrideWithValue(_newMock()),
-            activeUserProvider.overrideWith((_) => 'user-1'),
-          ],
-        );
-        addTearDown(container.dispose);
+    test('excludes matches for hidden teams', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+          activeUserProvider.overrideWith((_) => 'user-1'),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        // Hide nr-u14 (the team with upcoming matches).
-        await container
-            .read(teamsControllerProvider.notifier)
-            .setHidden('nr-u14', hidden: true);
+      // Hide nr-u14 (the team with upcoming matches).
+      await container
+          .read(teamsControllerProvider.notifier)
+          .setHidden('nr-u14', hidden: true);
 
-        // Allow stream to propagate.
-        await Future<void>.delayed(Duration.zero);
-        await Future<void>.delayed(Duration.zero);
+      // Allow stream to propagate.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
 
-        final upcoming = await container
-            .read(upcomingMatchesProvider.future);
-        // All upcoming matches belonged to nr-u14 — now hidden.
-        expect(upcoming, isEmpty);
-      },
-    );
+      final upcoming = await container.read(upcomingMatchesProvider.future);
+      // All upcoming matches belonged to nr-u14 — now hidden.
+      expect(upcoming, isEmpty);
+    });
   });
 
   group('UsersController.delete pre-checks', () {

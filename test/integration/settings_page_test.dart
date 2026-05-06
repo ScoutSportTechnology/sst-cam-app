@@ -425,8 +425,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // Both rows present on the destinations page.
-      final user2Dests = await db.value.streamingDestinationsDao
-          .getForUser('user-2');
+      final user2Dests = await db.value.streamingDestinationsDao.getForUser(
+        'user-2',
+      );
       expect(user2Dests, hasLength(2));
       expect(find.text('Backyard cam'), findsOneWidget);
       expect(find.text('RTSP'), findsOneWidget);
@@ -451,8 +452,9 @@ void main() {
       // Count badge clears (user-1 has no destinations).
       expect(find.text('2 destinations'), findsNothing);
       // user-1's destination list is empty in the DB.
-      final user1Dests = await db.value.streamingDestinationsDao
-          .getForUser('user-1');
+      final user1Dests = await db.value.streamingDestinationsDao.getForUser(
+        'user-1',
+      );
       expect(user1Dests, isEmpty);
     },
   );

@@ -260,8 +260,7 @@ void main() {
       expect(find.text('RTMP'), findsOneWidget);
 
       // Verify via DAO that the destination was persisted.
-      final rows = await db.value.streamingDestinationsDao
-          .getForUser('user-1');
+      final rows = await db.value.streamingDestinationsDao.getForUser('user-1');
       expect(rows, hasLength(1));
     });
   });

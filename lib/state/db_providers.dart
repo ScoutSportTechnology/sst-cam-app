@@ -36,10 +36,11 @@ final sportPresetsDaoProvider = Provider<SportPresetsDao>((ref) {
   return ref.watch(appDatabaseProvider).sportPresetsDao;
 });
 
-final streamingDestinationsDaoProvider =
-    Provider<StreamingDestinationsDao>((ref) {
-      return ref.watch(appDatabaseProvider).streamingDestinationsDao;
-    });
+final streamingDestinationsDaoProvider = Provider<StreamingDestinationsDao>((
+  ref,
+) {
+  return ref.watch(appDatabaseProvider).streamingDestinationsDao;
+});
 
 // ---------------------------------------------------------------------------
 // BackupService — wired to appDatabaseProvider and bleServiceProvider so the

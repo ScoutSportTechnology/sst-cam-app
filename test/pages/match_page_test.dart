@@ -123,7 +123,11 @@ Future<void> _navigateToSetup(WidgetTester tester) async {
   // "${teamName} vs Eastfield FC" in a single Text widget, so use
   // textContaining rather than an exact match.
   final row = find.textContaining('vs Eastfield FC');
-  expect(row, findsWidgets, reason: 'Landing screen should show upcoming matches');
+  expect(
+    row,
+    findsWidgets,
+    reason: 'Landing screen should show upcoming matches',
+  );
   await tester.tap(row.first);
 
   await tester.pump();
@@ -159,45 +163,44 @@ void main() {
   });
 
   group('_SetupScreen — pushSessionConfig (U9)', () {
-    testWidgets(
-      'happy path: Start match → pushSessionConfig called, '
-      'lastPushedConfig populated with correct values, session entered',
-      (tester) async {
-        // Use a tall surface so the _SessionScreen (a Column with fixed
-        // children) does not overflow and cause a spurious rendering exception.
-        await tester.binding.setSurfaceSize(const Size(800, 1400));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets('happy path: Start match → pushSessionConfig called, '
+        'lastPushedConfig populated with correct values, session entered', (
+      tester,
+    ) async {
+      // Use a tall surface so the _SessionScreen (a Column with fixed
+      // children) does not overflow and cause a spurious rendering exception.
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final mock = _newMock();
-        await tester.pumpWidget(_buildHarness(service: mock, db: db));
-        await _navigateToSetup(tester);
+      final mock = _newMock();
+      await tester.pumpWidget(_buildHarness(service: mock, db: db));
+      await _navigateToSetup(tester);
 
-        // Tap the "Start match" button. The setup screen is a ListView, so
-        // scroll the button into view first.
-        await _tapSetupButton(tester, 'Start match');
-        await _pumpAfterTap(tester);
+      // Tap the "Start match" button. The setup screen is a ListView, so
+      // scroll the button into view first.
+      await _tapSetupButton(tester, 'Start match');
+      await _pumpAfterTap(tester);
 
-        // Assertions on the pushed config.
-        expect(mock.lastPushedConfig, isNotNull);
-        final cfg = mock.lastPushedConfig!;
-        expect(cfg.sport, equals('soccer'));
-        expect(cfg.numPeriods, equals(2));
-        expect(cfg.periodLengthSeconds, equals(35 * 60));
-        expect(cfg.userUuid, equals('user-1'));
-        expect(cfg.matchUuid, isNotEmpty);
-        expect(
-          cfg.videoOutputPath,
-          equals('/data/video/user-1/${cfg.matchUuid}/'),
-        );
-        expect(
-          cfg.thumbnailOutputPath,
-          equals('/data/thumbnail/user-1/${cfg.matchUuid}/'),
-        );
+      // Assertions on the pushed config.
+      expect(mock.lastPushedConfig, isNotNull);
+      final cfg = mock.lastPushedConfig!;
+      expect(cfg.sport, equals('soccer'));
+      expect(cfg.numPeriods, equals(2));
+      expect(cfg.periodLengthSeconds, equals(35 * 60));
+      expect(cfg.userUuid, equals('user-1'));
+      expect(cfg.matchUuid, isNotEmpty);
+      expect(
+        cfg.videoOutputPath,
+        equals('/data/video/user-1/${cfg.matchUuid}/'),
+      );
+      expect(
+        cfg.thumbnailOutputPath,
+        equals('/data/thumbnail/user-1/${cfg.matchUuid}/'),
+      );
 
-        // Setup screen should no longer be visible — we entered the session.
-        expect(find.text('Match setup'), findsNothing);
-      },
-    );
+      // Setup screen should no longer be visible — we entered the session.
+      expect(find.text('Match setup'), findsNothing);
+    });
 
     testWidgets(
       'error response: pushSessionConfig returns BleResponseStatus.error → '
@@ -280,7 +283,10 @@ void main() {
         await _tapSetupButton(tester, 'Start match');
         await _pumpAfterTap(tester);
         expect(find.text('Match setup'), findsOneWidget);
-        expect(find.textContaining('Failed to configure camera'), findsOneWidget);
+        expect(
+          find.textContaining('Failed to configure camera'),
+          findsOneWidget,
+        );
 
         // Retry — succeeds (failNextPushSessionConfig was reset to false).
         await tester.tap(find.text('Retry'));
@@ -291,28 +297,25 @@ void main() {
       },
     );
 
-    testWidgets(
-      'matchUuid is a valid UUID v4',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(800, 1400));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets('matchUuid is a valid UUID v4', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final mock = _newMock();
-        await tester.pumpWidget(_buildHarness(service: mock, db: db));
-        await _navigateToSetup(tester);
+      final mock = _newMock();
+      await tester.pumpWidget(_buildHarness(service: mock, db: db));
+      await _navigateToSetup(tester);
 
-        await _tapSetupButton(tester, 'Start match');
-        await _pumpAfterTap(tester);
+      await _tapSetupButton(tester, 'Start match');
+      await _pumpAfterTap(tester);
 
-        final uuid = mock.lastPushedConfig?.matchUuid ?? '';
-        expect(
-          RegExp(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-          ).hasMatch(uuid),
-          isTrue,
-          reason: 'matchUuid must be a valid UUID v4, got: $uuid',
-        );
-      },
-    );
+      final uuid = mock.lastPushedConfig?.matchUuid ?? '';
+      expect(
+        RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        ).hasMatch(uuid),
+        isTrue,
+        reason: 'matchUuid must be a valid UUID v4, got: $uuid',
+      );
+    });
   });
 }

@@ -68,10 +68,7 @@ class FakeBackupService extends BackupService {
   }
 
   @override
-  Future<String?> import(
-    File file, {
-    String? currentCameraDeviceId,
-  }) async {
+  Future<String?> import(File file, {String? currentCameraDeviceId}) async {
     importCalled = true;
     if (importError != null) throw importError!;
     return importResult;
@@ -116,58 +113,56 @@ void main() {
   // ---------------------------------------------------------------------------
   // 1. _DataSection renders when no camera connected (activeCameraId = null)
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'Data section is visible when no camera is connected',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
+  testWidgets('Data section is visible when no camera is connected', (
+    tester,
+  ) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock, db: db));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(_buildHarness(service: mock, db: db));
+    await tester.pumpAndSettle();
 
-      // Banner is present.
-      expect(find.text('No camera connected'), findsOneWidget);
+    // Banner is present.
+    expect(find.text('No camera connected'), findsOneWidget);
 
-      // Data section is always present below the banner.
-      expect(find.text('Data'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Export backup'), 100);
-      expect(find.text('Export backup'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Restore backup'), 100);
-      expect(find.text('Restore backup'), findsOneWidget);
-    },
-  );
+    // Data section is always present below the banner.
+    expect(find.text('Data'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Export backup'), 100);
+    expect(find.text('Export backup'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    expect(find.text('Restore backup'), findsOneWidget);
+  });
 
   // ---------------------------------------------------------------------------
   // 2. _DataSection renders when camera is connected
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'Data section is visible when camera is connected',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
+  testWidgets('Data section is visible when camera is connected', (
+    tester,
+  ) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
 
-      await tester.pumpWidget(
-        _buildHarness(
-          service: mock,
-          db: db,
-          activeCameraId: _kFakeDeviceId,
-          connectionState: CameraConnectionState.connected,
-        ),
-      );
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      _buildHarness(
+        service: mock,
+        db: db,
+        activeCameraId: _kFakeDeviceId,
+        connectionState: CameraConnectionState.connected,
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // Populated layout is up.
-      expect(find.text('Connected camera'), findsOneWidget);
+    // Populated layout is up.
+    expect(find.text('Connected camera'), findsOneWidget);
 
-      // Data section is present below the camera-gated sections.
-      await tester.scrollUntilVisible(find.text('Data'), 200);
-      expect(find.text('Data'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Export backup'), 200);
-      expect(find.text('Export backup'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Restore backup'), 200);
-      expect(find.text('Restore backup'), findsOneWidget);
-    },
-  );
+    // Data section is present below the camera-gated sections.
+    await tester.scrollUntilVisible(find.text('Data'), 200);
+    expect(find.text('Data'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Export backup'), 200);
+    expect(find.text('Export backup'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Restore backup'), 200);
+    expect(find.text('Restore backup'), findsOneWidget);
+  });
 
   // ---------------------------------------------------------------------------
   // 3. "Export backup" tap calls BackupService.export() and shows SnackBar
@@ -194,7 +189,10 @@ void main() {
       // export() was called on our fake.
       expect(fake.exportCalled, isTrue);
       // Success SnackBar shown.
-      expect(find.text('Backup saved: sst-backup-2026-01-01.json'), findsOneWidget);
+      expect(
+        find.text('Backup saved: sst-backup-2026-01-01.json'),
+        findsOneWidget,
+      );
     },
   );
 
@@ -225,55 +223,53 @@ void main() {
   // ---------------------------------------------------------------------------
   // 5. Confirming restore dialog shows file path input dialog
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'Confirming restore shows file path input dialog',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
+  testWidgets('Confirming restore shows file path input dialog', (
+    tester,
+  ) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock, db: db));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(_buildHarness(service: mock, db: db));
+    await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Restore backup'), 100);
-      await tester.tap(find.text('Restore backup'));
-      await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    await tester.tap(find.text('Restore backup'));
+    await tester.pumpAndSettle();
 
-      // Tap Restore to confirm.
-      await tester.tap(find.text('Restore'));
-      await tester.pumpAndSettle();
+    // Tap Restore to confirm.
+    await tester.tap(find.text('Restore'));
+    await tester.pumpAndSettle();
 
-      // File path input dialog is shown.
-      expect(find.text('Enter backup file path'), findsOneWidget);
-      expect(find.byType(TextField), findsOneWidget);
-    },
-  );
+    // File path input dialog is shown.
+    expect(find.text('Enter backup file path'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+  });
 
   // ---------------------------------------------------------------------------
   // 6. Cancel on confirmation dialog dismisses without showing file dialog
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'Cancelling confirmation dialog does not show file path dialog',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
+  testWidgets('Cancelling confirmation dialog does not show file path dialog', (
+    tester,
+  ) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock, db: db));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(_buildHarness(service: mock, db: db));
+    await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Restore backup'), 100);
-      await tester.tap(find.text('Restore backup'));
-      await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    await tester.tap(find.text('Restore backup'));
+    await tester.pumpAndSettle();
 
-      // Cancel the confirmation.
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
+    // Cancel the confirmation.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
 
-      // No file path dialog.
-      expect(find.text('Enter backup file path'), findsNothing);
-      // No SnackBar.
-      expect(find.byType(SnackBar), findsNothing);
-    },
-  );
+    // No file path dialog.
+    expect(find.text('Enter backup file path'), findsNothing);
+    // No SnackBar.
+    expect(find.byType(SnackBar), findsNothing);
+  });
 
   // ---------------------------------------------------------------------------
   // 7. BackupService.import() throwing shows error SnackBar
@@ -285,7 +281,9 @@ void main() {
       addTearDown(mock.dispose);
       final fake = FakeBackupService(
         db: db.value,
-        importError: const BackupImportException('backup is for a different camera'),
+        importError: const BackupImportException(
+          'backup is for a different camera',
+        ),
       );
 
       await tester.pumpWidget(
@@ -307,73 +305,66 @@ void main() {
       await tester.pumpAndSettle();
 
       // BackupImportException message is shown.
-      expect(
-        find.text('backup is for a different camera'),
-        findsOneWidget,
-      );
+      expect(find.text('backup is for a different camera'), findsOneWidget);
     },
   );
 
   // ---------------------------------------------------------------------------
   // 8. Successful restore invalidates providers and shows success SnackBar
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'Successful restore shows success SnackBar and calls import()',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-      // Fake import returns 'user-1' as the first restored user.
-      final fake = FakeBackupService(db: db.value, importResult: 'user-1');
+  testWidgets('Successful restore shows success SnackBar and calls import()', (
+    tester,
+  ) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
+    // Fake import returns 'user-1' as the first restored user.
+    final fake = FakeBackupService(db: db.value, importResult: 'user-1');
 
-      await tester.pumpWidget(
-        _buildHarness(service: mock, db: db, backupService: fake),
-      );
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      _buildHarness(service: mock, db: db, backupService: fake),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Restore backup'), 100);
-      await tester.tap(find.text('Restore backup'));
-      await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    await tester.tap(find.text('Restore backup'));
+    await tester.pumpAndSettle();
 
-      // Confirm.
-      await tester.tap(find.text('Restore'));
-      await tester.pumpAndSettle();
+    // Confirm.
+    await tester.tap(find.text('Restore'));
+    await tester.pumpAndSettle();
 
-      // Enter any path — fake succeeds regardless.
-      await tester.enterText(find.byType(TextField), '/tmp/sst-backup.json');
-      await tester.tap(find.textContaining('Restore').last);
-      await tester.pumpAndSettle();
+    // Enter any path — fake succeeds regardless.
+    await tester.enterText(find.byType(TextField), '/tmp/sst-backup.json');
+    await tester.tap(find.textContaining('Restore').last);
+    await tester.pumpAndSettle();
 
-      // import() was called on our fake.
-      expect(fake.importCalled, isTrue);
-      // Success SnackBar shown.
-      expect(find.text('Backup restored successfully'), findsOneWidget);
-    },
-  );
+    // import() was called on our fake.
+    expect(fake.importCalled, isTrue);
+    // Success SnackBar shown.
+    expect(find.text('Backup restored successfully'), findsOneWidget);
+  });
 
   // ---------------------------------------------------------------------------
   // 9. Export error shows error SnackBar
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'Export error shows error SnackBar',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-      final fake = FakeBackupService(
-        db: db.value,
-        exportError: const BackupImportException('disk full'),
-      );
+  testWidgets('Export error shows error SnackBar', (tester) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
+    final fake = FakeBackupService(
+      db: db.value,
+      exportError: const BackupImportException('disk full'),
+    );
 
-      await tester.pumpWidget(
-        _buildHarness(service: mock, db: db, backupService: fake),
-      );
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      _buildHarness(service: mock, db: db, backupService: fake),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Export backup'), 100);
-      await tester.tap(find.text('Export backup'));
-      await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Export backup'), 100);
+    await tester.tap(find.text('Export backup'));
+    await tester.pumpAndSettle();
 
-      // Error SnackBar shown.
-      expect(find.textContaining('Export failed'), findsOneWidget);
-    },
-  );
+    // Error SnackBar shown.
+    expect(find.textContaining('Export failed'), findsOneWidget);
+  });
 }

@@ -45,7 +45,6 @@ MockBleService _newMock({double failureRate = 0.0}) => MockBleService(
   randomSeed: 1,
 );
 
-
 /// A spy mock that records connect/disconnect calls without starting the
 /// telemetry Timer.periodic that prevents pumpAndSettle from settling. We
 /// only spy the methods Settings actually drives (connect/disconnect); all

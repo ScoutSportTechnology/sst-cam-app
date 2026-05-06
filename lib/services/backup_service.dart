@@ -194,10 +194,7 @@ class BackupService {
     final backup = <String, dynamic>{
       'backup_version': 1,
       'created_at': now.toIso8601String(),
-      'device': <String, dynamic>{
-        'uuid': cameraUuid,
-        'model': 'SST-CAM-01',
-      },
+      'device': <String, dynamic>{'uuid': cameraUuid, 'model': 'SST-CAM-01'},
       'users': usersJson,
       'teams': teamsJson,
       'sport_configs': sportConfigsJson,
@@ -213,7 +210,8 @@ class BackupService {
     final dir = outputDir ?? await getApplicationDocumentsDirectory();
 
     // 6. Write file as sst-backup-YYYY-MM-DD.json -----------------------------------
-    final dateStr = '${now.year.toString().padLeft(4, '0')}-'
+    final dateStr =
+        '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}-'
         '${now.day.toString().padLeft(2, '0')}';
     final file = File('${dir.path}/sst-backup-$dateStr.json');
@@ -246,10 +244,7 @@ class BackupService {
   /// NOTE: `device.uuid` stability is assumed to be a hardware UUID from
   /// `DeviceInfoResponse.deviceId` in proto. Firmware confirmation pending —
   /// see U11 open question in the refactor plan.
-  Future<String?> import(
-    File file, {
-    String? currentCameraDeviceId,
-  }) async {
+  Future<String?> import(File file, {String? currentCameraDeviceId}) async {
     // 1. Parse JSON ---------------------------------------------------------------
     late Map<String, dynamic> json;
     try {

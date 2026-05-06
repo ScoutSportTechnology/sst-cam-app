@@ -329,18 +329,17 @@ class StreamingDestinationsController
 
   static List<StreamingDestination> _toDestinations(
     List<StreamingDestinationsTableData> rows,
-  ) =>
-      rows
-          .map(
-            (r) => StreamingDestination(
-              id: r.id,
-              name: r.name,
-              provider: StreamingProvider.values.byName(r.provider),
-              protocol: StreamingProtocol.values.byName(r.protocol),
-              config: StreamingDestinationsDao.configFromRow(r),
-            ),
-          )
-          .toList();
+  ) => rows
+      .map(
+        (r) => StreamingDestination(
+          id: r.id,
+          name: r.name,
+          provider: StreamingProvider.values.byName(r.provider),
+          protocol: StreamingProtocol.values.byName(r.protocol),
+          config: StreamingDestinationsDao.configFromRow(r),
+        ),
+      )
+      .toList();
 
   StreamingDestinationsTableCompanion _draftToCompanion(
     String id,
@@ -380,7 +379,9 @@ class StreamingDestinationsController
     final userId = _requireActiveUser();
     final id = _uuid.v4();
     final companion = _draftToCompanion(id, userId, draft);
-    await ref.read(streamingDestinationsDaoProvider).insertDestination(companion);
+    await ref
+        .read(streamingDestinationsDaoProvider)
+        .insertDestination(companion);
     final config = draft.config;
     return StreamingDestination(
       id: id,
@@ -394,7 +395,9 @@ class StreamingDestinationsController
   Future<StreamingDestination> edit(StreamingDestinationDraft draft) async {
     final userId = _requireActiveUser();
     final companion = _draftToCompanion(draft.id, userId, draft);
-    await ref.read(streamingDestinationsDaoProvider).updateDestination(companion);
+    await ref
+        .read(streamingDestinationsDaoProvider)
+        .updateDestination(companion);
     return StreamingDestination(
       id: draft.id,
       name: draft.name,
@@ -405,9 +408,7 @@ class StreamingDestinationsController
   }
 
   Future<void> delete(String destinationId) async {
-    await ref
-        .read(streamingDestinationsDaoProvider)
-        .deleteById(destinationId);
+    await ref.read(streamingDestinationsDaoProvider).deleteById(destinationId);
   }
 }
 
@@ -430,17 +431,15 @@ final streamingDestinationsControllerProvider =
 
 /// Convert a raw [TeamsTableData] row and its [PlayersTableData] list into the
 /// app-model [TeamRecord].
-TeamRecord _rowToTeamRecord(
-  TeamsTableData t,
-  List<PlayersTableData> players,
-) => TeamRecord(
-  id: t.id,
-  name: t.name,
-  shortName: t.shortName,
-  sport: t.sport,
-  hidden: t.hidden,
-  roster: players.map(_rowToPlayer).toList(),
-);
+TeamRecord _rowToTeamRecord(TeamsTableData t, List<PlayersTableData> players) =>
+    TeamRecord(
+      id: t.id,
+      name: t.name,
+      shortName: t.shortName,
+      sport: t.sport,
+      hidden: t.hidden,
+      roster: players.map(_rowToPlayer).toList(),
+    );
 
 Player _rowToPlayer(PlayersTableData p) => Player(
   number: p.number,
@@ -571,15 +570,17 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
   }
 
   Future<void> addPlayer(String teamId, PlayerDraft draft) async {
-    await ref.read(teamsDaoProvider).insertPlayer(
-      PlayersTableCompanion.insert(
-        teamId: teamId,
-        number: draft.number,
-        name: draft.name,
-        position: draft.position,
-        captain: Value(draft.captain),
-      ),
-    );
+    await ref
+        .read(teamsDaoProvider)
+        .insertPlayer(
+          PlayersTableCompanion.insert(
+            teamId: teamId,
+            number: draft.number,
+            name: draft.name,
+            position: draft.position,
+            captain: Value(draft.captain),
+          ),
+        );
   }
 
   Future<void> updatePlayer(
@@ -787,9 +788,7 @@ class SportPresetsController extends AsyncNotifier<List<SportPreset>> {
     final dao = ref.read(sportPresetsDaoProvider);
     final existing = await dao.getById(draft.id);
     if (existing == null) {
-      throw SportPresetsControllerException(
-        'Preset ${draft.id} not found',
-      );
+      throw SportPresetsControllerException('Preset ${draft.id} not found');
     }
     if (existing.builtIn) {
       throw const SportPresetsControllerException(

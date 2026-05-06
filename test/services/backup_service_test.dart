@@ -46,7 +46,9 @@ class _StubBleService implements BleService {
   @override
   Stream<List<ScoutDevice>> get discoveredDevices => const Stream.empty();
   @override
-  Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {}
+  Future<void> startScan({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {}
   @override
   Future<void> stopScan() async {}
   @override
@@ -89,10 +91,7 @@ class _StubBleService implements BleService {
 // ---------------------------------------------------------------------------
 
 AppDatabase _makeDb() => AppDatabase.forTesting(
-  DatabaseConnection(
-    NativeDatabase.memory(),
-    closeStreamsSynchronously: true,
-  ),
+  DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true),
 );
 
 const _uuid = Uuid();
@@ -119,24 +118,27 @@ void main() {
   // 1. Empty DB export
   // ---------------------------------------------------------------------------
 
-  test('empty DB → valid JSON with empty arrays, device.uuid == null', () async {
-    final service = BackupService(db);
-    final path = await service.export(outputDir: tempDir);
+  test(
+    'empty DB → valid JSON with empty arrays, device.uuid == null',
+    () async {
+      final service = BackupService(db);
+      final path = await service.export(outputDir: tempDir);
 
-    final content = await File(path).readAsString();
-    final json = jsonDecode(content) as Map<String, dynamic>;
+      final content = await File(path).readAsString();
+      final json = jsonDecode(content) as Map<String, dynamic>;
 
-    expect(json['backup_version'], 1);
-    expect(json['created_at'], isA<String>());
-    expect(json['device']['uuid'], isNull);
-    expect(json['device']['model'], 'SST-CAM-01');
-    expect(json['users'], isEmpty);
-    expect(json['teams'], isEmpty);
-    expect(json['sport_configs'], isEmpty);
-    expect(json['streaming_configs'], isEmpty);
-    expect(json['matches'], isEmpty);
-    expect(json['clips'], isEmpty);
-  });
+      expect(json['backup_version'], 1);
+      expect(json['created_at'], isA<String>());
+      expect(json['device']['uuid'], isNull);
+      expect(json['device']['model'], 'SST-CAM-01');
+      expect(json['users'], isEmpty);
+      expect(json['teams'], isEmpty);
+      expect(json['sport_configs'], isEmpty);
+      expect(json['streaming_configs'], isEmpty);
+      expect(json['matches'], isEmpty);
+      expect(json['clips'], isEmpty);
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // 2. Export with seeded data — correct counts
@@ -240,7 +242,8 @@ void main() {
 
     final path = await service.export(deviceId: 'dev-1', outputDir: tempDir);
 
-    final json = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+    final json =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
     expect(json['device']['uuid'], isNull);
     expect(json['backup_version'], 1);
   });
@@ -258,7 +261,8 @@ void main() {
 
     final path = await service.export(deviceId: 'dev-1', outputDir: tempDir);
 
-    final json = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+    final json =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
     expect(json['device']['uuid'], fakeUuid);
   });
 
@@ -267,12 +271,15 @@ void main() {
   // ---------------------------------------------------------------------------
 
   test('BLE error response (not ok) → device.uuid == null', () async {
-    final ble = _StubBleService(deviceInfoResult: null); // triggers error response
+    final ble = _StubBleService(
+      deviceInfoResult: null,
+    ); // triggers error response
     final service = BackupService(db, ble: ble);
 
     final path = await service.export(deviceId: 'dev-1', outputDir: tempDir);
 
-    final json = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+    final json =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
     expect(json['device']['uuid'], isNull);
   });
 
@@ -288,7 +295,9 @@ void main() {
     expect(filename, startsWith('sst-backup-'));
     expect(filename, endsWith('.json'));
     // Date portion is 10 chars: YYYY-MM-DD
-    final datePart = filename.replaceAll('sst-backup-', '').replaceAll('.json', '');
+    final datePart = filename
+        .replaceAll('sst-backup-', '')
+        .replaceAll('.json', '');
     expect(datePart.length, 10);
     expect(RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(datePart), isTrue);
   });
@@ -320,7 +329,8 @@ void main() {
     final service = BackupService(db);
     final path = await service.export(outputDir: tempDir);
 
-    final json = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+    final json =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
     final configs = json['streaming_configs'] as List;
     expect(configs, hasLength(1));
 
@@ -340,52 +350,56 @@ void main() {
   // 9. Team matches serialized in both teams.matches and top-level matches
   // ---------------------------------------------------------------------------
 
-  test('team matches appear in teams.matches and top-level matches list', () async {
-    final userId = _uuid.v4();
-    final teamId = _uuid.v4();
-    final matchId = _uuid.v4();
+  test(
+    'team matches appear in teams.matches and top-level matches list',
+    () async {
+      final userId = _uuid.v4();
+      final teamId = _uuid.v4();
+      final matchId = _uuid.v4();
 
-    await db.usersDao.insertUser(
-      UsersTableCompanion.insert(id: userId, name: 'Coach Alex'),
-    );
-    await db.teamsDao.insertTeam(
-      TeamsTableCompanion.insert(
-        id: teamId,
-        userId: userId,
-        name: 'Lions',
-        shortName: 'LIO',
-        sport: 'Soccer',
-      ),
-    );
-    await db.teamsDao.insertTeamMatch(
-      TeamMatchesTableCompanion.insert(
-        id: matchId,
-        teamId: teamId,
-        opponent: 'Bears',
-        date: '2026-04-01',
-        result: 'W 2-1',
-        kind: 'past',
-        numPeriods: 2,
-        periodLengthSeconds: 2700,
-      ),
-    );
+      await db.usersDao.insertUser(
+        UsersTableCompanion.insert(id: userId, name: 'Coach Alex'),
+      );
+      await db.teamsDao.insertTeam(
+        TeamsTableCompanion.insert(
+          id: teamId,
+          userId: userId,
+          name: 'Lions',
+          shortName: 'LIO',
+          sport: 'Soccer',
+        ),
+      );
+      await db.teamsDao.insertTeamMatch(
+        TeamMatchesTableCompanion.insert(
+          id: matchId,
+          teamId: teamId,
+          opponent: 'Bears',
+          date: '2026-04-01',
+          result: 'W 2-1',
+          kind: 'past',
+          numPeriods: 2,
+          periodLengthSeconds: 2700,
+        ),
+      );
 
-    final service = BackupService(db);
-    final path = await service.export(outputDir: tempDir);
+      final service = BackupService(db);
+      final path = await service.export(outputDir: tempDir);
 
-    final json = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+      final json =
+          jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
 
-    // Check top-level matches list
-    final matches = json['matches'] as List;
-    expect(matches, hasLength(1));
-    expect(matches.first['id'], matchId);
-    expect(matches.first['opponent'], 'Bears');
+      // Check top-level matches list
+      final matches = json['matches'] as List;
+      expect(matches, hasLength(1));
+      expect(matches.first['id'], matchId);
+      expect(matches.first['opponent'], 'Bears');
 
-    // Check inline in teams
-    final teamMatches = (json['teams'] as List).first['matches'] as List;
-    expect(teamMatches, hasLength(1));
-    expect(teamMatches.first['id'], matchId);
-  });
+      // Check inline in teams
+      final teamMatches = (json['teams'] as List).first['matches'] as List;
+      expect(teamMatches, hasLength(1));
+      expect(teamMatches.first['id'], matchId);
+    },
+  );
 
   // ===========================================================================
   // Import tests
@@ -425,14 +439,8 @@ void main() {
 
     expect(firstUserId, userId);
     expect(await freshDb.usersDao.getAll(), hasLength(1));
-    expect(
-      await freshDb.teamsDao.getForUser(userId),
-      hasLength(1),
-    );
-    expect(
-      await freshDb.sportPresetsDao.getForUser(userId),
-      hasLength(7),
-    );
+    expect(await freshDb.teamsDao.getForUser(userId), hasLength(1));
+    expect(await freshDb.sportPresetsDao.getForUser(userId), hasLength(7));
   });
 
   // ---------------------------------------------------------------------------
