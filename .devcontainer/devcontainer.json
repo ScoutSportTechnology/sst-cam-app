@@ -30,8 +30,8 @@
       }
     }
   },
-  "postCreateCommand": "script/post-create.sh",
-  "postStartCommand": "script/post-start.sh",
+  "postCreateCommand": ".devcontainer/script/post-create.sh",
+  "postStartCommand": ".devcontainer/script/post-start.sh",
   "waitFor": "postStartCommand",
   "remoteEnv": {
     "ADB_SERVER_SOCKET": "tcp:127.0.0.1:5037"

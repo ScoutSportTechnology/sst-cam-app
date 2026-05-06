@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git pull *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat\\(ble\\): wire MockBleService to DevDataStore; remove static stores *)",
+      "Bash(xargs ls -la)",
+      "WebFetch(domain:drift.simonbinder.eu)",
+      "WebSearch",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:pub.dev)",
+      "WebFetch(domain:dinkomarinac.dev)",
+      "WebFetch(domain:github.com)",
+      "Bash(flutter pub *)",
+      "Bash(git commit *)",
+      "Bash(grep \"\\\\[E\\\\]$\")",
+      "Bash(dart run *)",
+      "Bash(xdg-user-dir DOCUMENTS)"
+    ]
+  }
+}

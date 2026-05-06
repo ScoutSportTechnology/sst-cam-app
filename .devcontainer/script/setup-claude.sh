@@ -21,4 +21,4 @@ fi
 ln -sf "$target" "$link.new"
 mv -f "$link.new" "$link"
 
-echo "Post-start script executed successfully."
+echo "[claude] config symlink ok."
