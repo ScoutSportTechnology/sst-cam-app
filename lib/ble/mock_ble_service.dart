@@ -405,6 +405,9 @@ class MockBleService implements BleService {
     await Future.delayed(const Duration(milliseconds: 80));
 
     return switch (command) {
+      GetDeviceInfoCommand() => BleCommandResponse.ok(
+        const DeviceInfoResponse(deviceId: 'mock-device-uuid') as T?,
+      ),
       GetTelemetryCommand() => BleCommandResponse.ok(_makeTelemetry(0) as T?),
       GetMatchStateCommand() => BleCommandResponse.ok(MatchState.idle() as T?),
       ListRecordingsCommand() => BleCommandResponse.ok(_fakeRecordings as T?),

@@ -3,6 +3,21 @@
 
 sealed class BleCommand {}
 
+// ---------------------------------------------------------------------------
+// Response payloads returned via BleCommandResponse<T>
+// ---------------------------------------------------------------------------
+
+/// Response payload for [GetDeviceInfoCommand].
+///
+/// NOTE: [deviceId] is assumed to be a stable hardware UUID, but this has
+/// not been confirmed with firmware. If the firmware returns an advertising
+/// ID instead, the restore UUID-check in BackupService.import() will need
+/// updating. See U10/U11 plan notes.
+class DeviceInfoResponse {
+  const DeviceInfoResponse({required this.deviceId});
+  final String deviceId;
+}
+
 // Device
 class GetDeviceInfoCommand extends BleCommand {}
 
