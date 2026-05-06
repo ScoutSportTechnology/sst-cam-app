@@ -1,11 +1,24 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:drift/drift.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../ble/ble_service.dart';
 import '../db/app_database.dart';
 import '../models/command.dart';
+
+/// Thrown by [BackupService.import] on validation failures.
+///
+/// Distinct from Drift/IO errors (which propagate as-is) so callers can
+/// surface a user-friendly message without catching every exception.
+class BackupImportException implements Exception {
+  final String message;
+  const BackupImportException(this.message);
+
+  @override
+  String toString() => 'BackupImportException: $message';
+}
 
 /// Exports all app data to a dated JSON backup file.
 ///
@@ -208,5 +221,210 @@ class BackupService {
 
     // 7. Return path ----------------------------------------------------------------
     return file.path;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Import
+  // ---------------------------------------------------------------------------
+
+  /// Imports backup data from [file] into the database, atomically.
+  ///
+  /// Validation order:
+  /// 1. JSON must parse without error.
+  /// 2. `backup_version` must equal 1.
+  /// 3. If `device.uuid` in the backup is non-null **and** [currentCameraDeviceId]
+  ///    is non-null, they must match — otherwise the backup is for a different
+  ///    camera.
+  ///
+  /// On validation failure throws [BackupImportException]. All other errors
+  /// (Drift, IO) propagate as-is; the caller can rely on the transaction
+  /// rollback to leave the database unchanged.
+  ///
+  /// Returns the first user ID from the restored data so the caller can update
+  /// `activeUserProvider`; returns null if the backup contained no users.
+  ///
+  /// NOTE: `device.uuid` stability is assumed to be a hardware UUID from
+  /// `DeviceInfoResponse.deviceId` in proto. Firmware confirmation pending —
+  /// see U11 open question in the refactor plan.
+  Future<String?> import(
+    File file, {
+    String? currentCameraDeviceId,
+  }) async {
+    // 1. Parse JSON ---------------------------------------------------------------
+    late Map<String, dynamic> json;
+    try {
+      json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      throw const BackupImportException('malformed JSON');
+    }
+
+    // 2. Validate backup_version --------------------------------------------------
+    if (json['backup_version'] != 1) {
+      throw BackupImportException(
+        'unsupported backup version: ${json['backup_version']}',
+      );
+    }
+
+    // 3. Optional UUID validation --------------------------------------------------
+    final backupDeviceUuid =
+        (json['device'] as Map<String, dynamic>?)?['uuid'] as String?;
+    if (backupDeviceUuid != null && currentCameraDeviceId != null) {
+      if (backupDeviceUuid != currentCameraDeviceId) {
+        throw const BackupImportException('backup is for a different camera');
+      }
+    }
+
+    // 4. Parse entities from JSON -------------------------------------------------
+    final userCompanions = _parseUsers(
+      (json['users'] as List<dynamic>?) ?? const [],
+    );
+    final teamCompanions = _parseTeams(
+      (json['teams'] as List<dynamic>?) ?? const [],
+    );
+    final playerCompanions = _parsePlayers(
+      (json['teams'] as List<dynamic>?) ?? const [],
+    );
+    // Matches are stored both inline under teams and at the top-level "matches"
+    // key. Use the top-level list (canonical; avoids double-insert).
+    final matchCompanions = _parseMatches(
+      (json['matches'] as List<dynamic>?) ?? const [],
+    );
+    final presetCompanions = _parsePresets(
+      (json['sport_configs'] as List<dynamic>?) ?? const [],
+    );
+    final destCompanions = _parseDestinations(
+      (json['streaming_configs'] as List<dynamic>?) ?? const [],
+    );
+
+    // 5. Atomic replace inside db.transaction() -----------------------------------
+    await _db.transaction(() async {
+      // Delete in FK-safe order (children first).
+      await _db.delete(_db.thumbnailsTable).go();
+      await _db.delete(_db.clipsTable).go();
+      await _db.delete(_db.teamMatchesTable).go();
+      await _db.delete(_db.playersTable).go();
+      await _db.delete(_db.teamsTable).go();
+      await _db.delete(_db.sportPresetsTable).go();
+      await _db.delete(_db.streamingDestinationsTable).go();
+      await _db.delete(_db.usersTable).go();
+
+      // Insert all backup rows in FK-safe order (parents first).
+      await _db.batch((b) {
+        b.insertAll(_db.usersTable, userCompanions);
+        b.insertAll(_db.teamsTable, teamCompanions);
+        b.insertAll(_db.playersTable, playerCompanions);
+        b.insertAll(_db.teamMatchesTable, matchCompanions);
+        b.insertAll(_db.sportPresetsTable, presetCompanions);
+        b.insertAll(_db.streamingDestinationsTable, destCompanions);
+      });
+    });
+
+    // 6. Return the first user ID -------------------------------------------------
+    return userCompanions.isNotEmpty ? userCompanions.first.id.value : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // JSON parsing helpers
+  // ---------------------------------------------------------------------------
+
+  static List<UsersTableCompanion> _parseUsers(List<dynamic> json) {
+    return json.map((u) {
+      final m = u as Map<String, dynamic>;
+      return UsersTableCompanion.insert(
+        id: m['id'] as String,
+        name: m['name'] as String,
+      );
+    }).toList();
+  }
+
+  static List<TeamsTableCompanion> _parseTeams(List<dynamic> json) {
+    return json.map((t) {
+      final m = t as Map<String, dynamic>;
+      return TeamsTableCompanion.insert(
+        id: m['id'] as String,
+        userId: m['user_id'] as String,
+        name: m['name'] as String,
+        shortName: m['short_name'] as String,
+        sport: m['sport'] as String,
+        hidden: Value(m['hidden'] as bool? ?? false),
+      );
+    }).toList();
+  }
+
+  /// Collects all roster entries across all teams.
+  static List<PlayersTableCompanion> _parsePlayers(List<dynamic> teamsJson) {
+    final companions = <PlayersTableCompanion>[];
+    for (final t in teamsJson) {
+      final team = t as Map<String, dynamic>;
+      final teamId = team['id'] as String;
+      final roster = (team['roster'] as List<dynamic>?) ?? const [];
+      for (final p in roster) {
+        final pm = p as Map<String, dynamic>;
+        companions.add(
+          PlayersTableCompanion.insert(
+            teamId: teamId,
+            number: pm['number'] as int,
+            name: pm['name'] as String,
+            position: pm['position'] as String,
+            captain: Value(pm['captain'] as bool? ?? false),
+          ),
+        );
+      }
+    }
+    return companions;
+  }
+
+  /// Parses the top-level `matches` array in the backup.
+  static List<TeamMatchesTableCompanion> _parseMatches(List<dynamic> json) {
+    return json.map((match) {
+      final m = match as Map<String, dynamic>;
+      return TeamMatchesTableCompanion.insert(
+        id: m['id'] as String,
+        teamId: m['team_id'] as String,
+        opponent: m['opponent'] as String,
+        date: m['date'] as String,
+        result: m['result'] as String,
+        kind: m['kind'] as String,
+        numPeriods: m['num_periods'] as int,
+        periodLengthSeconds: m['period_length_seconds'] as int,
+        clips: Value(m['clips'] as int? ?? 0),
+        sizeMb: Value(m['size_mb'] as int? ?? 0),
+      );
+    }).toList();
+  }
+
+  static List<SportPresetsTableCompanion> _parsePresets(List<dynamic> json) {
+    return json.map((p) {
+      final m = p as Map<String, dynamic>;
+      return SportPresetsTableCompanion.insert(
+        id: m['id'] as String,
+        userId: m['user_id'] as String,
+        name: m['name'] as String,
+        sport: m['sport'] as String,
+        numPeriods: m['num_periods'] as int,
+        periodLengthSeconds: m['period_length_seconds'] as int,
+        builtIn: Value(m['built_in'] as bool? ?? false),
+      );
+    }).toList();
+  }
+
+  static List<StreamingDestinationsTableCompanion> _parseDestinations(
+    List<dynamic> json,
+  ) {
+    return json.map((d) {
+      final m = d as Map<String, dynamic>;
+      return StreamingDestinationsTableCompanion.insert(
+        id: m['id'] as String,
+        userId: m['user_id'] as String,
+        name: m['name'] as String,
+        provider: m['provider'] as String,
+        protocol: m['protocol'] as String,
+        configType: m['config_type'] as String,
+        configUrl: m['config_url'] as String,
+        configStreamKey: Value(m['config_stream_key'] as String?),
+        configUsername: Value(m['config_username'] as String?),
+        configPassword: Value(m['config_password'] as String?),
+      );
+    }).toList();
   }
 }

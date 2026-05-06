@@ -386,4 +386,296 @@ void main() {
     expect(teamMatches, hasLength(1));
     expect(teamMatches.first['id'], matchId);
   });
+
+  // ===========================================================================
+  // Import tests
+  // ===========================================================================
+
+  // ---------------------------------------------------------------------------
+  // 10. Happy path: export → import → counts match
+  // ---------------------------------------------------------------------------
+
+  test('import: export then import into fresh DB → counts match', () async {
+    final userId = _uuid.v4();
+    final teamId = _uuid.v4();
+
+    await db.usersDao.insertUser(
+      UsersTableCompanion.insert(id: userId, name: 'Coach Diego'),
+    );
+    await db.teamsDao.insertTeam(
+      TeamsTableCompanion.insert(
+        id: teamId,
+        userId: userId,
+        name: 'Tigers',
+        shortName: 'TIG',
+        sport: 'Soccer',
+      ),
+    );
+    await db.sportPresetsDao.seedBuiltInsForUser(userId);
+
+    final service = BackupService(db);
+    final exportPath = await service.export(outputDir: tempDir);
+
+    // Import into a fresh database.
+    final freshDb = _makeDb();
+    addTearDown(freshDb.close);
+
+    final importService = BackupService(freshDb);
+    final firstUserId = await importService.import(File(exportPath));
+
+    expect(firstUserId, userId);
+    expect(await freshDb.usersDao.getAll(), hasLength(1));
+    expect(
+      await freshDb.teamsDao.getForUser(userId),
+      hasLength(1),
+    );
+    expect(
+      await freshDb.sportPresetsDao.getForUser(userId),
+      hasLength(7),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 11. Atomicity: corrupt backup leaves seed rows intact
+  // ---------------------------------------------------------------------------
+
+  test('import: corrupt backup rolls back → seed rows intact', () async {
+    // Seed the source DB with a known user.
+    final seedUserId = _uuid.v4();
+    await db.usersDao.insertUser(
+      UsersTableCompanion.insert(id: seedUserId, name: 'Seed User'),
+    );
+
+    // Build a backup JSON that is structurally valid (passes version check) but
+    // contains a team whose user_id references a non-existent user — this
+    // triggers a FK constraint violation inside the transaction, causing a
+    // rollback.
+    final corruptBackup = jsonEncode({
+      'backup_version': 1,
+      'created_at': DateTime.now().toIso8601String(),
+      'device': {'uuid': null, 'model': 'SST-CAM-01'},
+      'users': [
+        {'id': 'valid-user', 'name': 'Valid User'},
+      ],
+      'teams': [
+        {
+          'id': 'team-orphan',
+          // References a user_id that is NOT in the users list above — FK
+          // violation once FK enforcement is active.
+          'user_id': 'non-existent-user',
+          'name': 'Orphan Team',
+          'short_name': 'ORP',
+          'sport': 'Soccer',
+          'hidden': false,
+          'roster': <dynamic>[],
+          'matches': <dynamic>[],
+        },
+      ],
+      'matches': <dynamic>[],
+      'sport_configs': <dynamic>[],
+      'streaming_configs': <dynamic>[],
+      'clips': <dynamic>[],
+    });
+
+    final corruptFile = File('${tempDir.path}/corrupt.json');
+    await corruptFile.writeAsString(corruptBackup);
+
+    final service = BackupService(db);
+
+    // The import should throw (FK violation inside the transaction).
+    await expectLater(
+      () => service.import(corruptFile),
+      throwsA(isNot(isA<BackupImportException>())),
+    );
+
+    // Crucially, the seed user must still be present — rollback worked.
+    final users = await db.usersDao.getAll();
+    expect(users, hasLength(1));
+    expect(users.first.id, seedUserId);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12. Malformed JSON
+  // ---------------------------------------------------------------------------
+
+  test('import: malformed JSON → BackupImportException', () async {
+    final badFile = File('${tempDir.path}/bad.json');
+    await badFile.writeAsString('not valid json {{{');
+
+    final service = BackupService(db);
+    await expectLater(
+      () => service.import(badFile),
+      throwsA(
+        isA<BackupImportException>().having(
+          (e) => e.message,
+          'message',
+          'malformed JSON',
+        ),
+      ),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 13. backup_version mismatch
+  // ---------------------------------------------------------------------------
+
+  test('import: backup_version 2 → BackupImportException', () async {
+    final futureBackup = jsonEncode({
+      'backup_version': 2,
+      'created_at': DateTime.now().toIso8601String(),
+      'device': {'uuid': null, 'model': 'SST-CAM-01'},
+      'users': <dynamic>[],
+      'teams': <dynamic>[],
+      'matches': <dynamic>[],
+      'sport_configs': <dynamic>[],
+      'streaming_configs': <dynamic>[],
+      'clips': <dynamic>[],
+    });
+
+    final f = File('${tempDir.path}/future.json');
+    await f.writeAsString(futureBackup);
+
+    final service = BackupService(db);
+    await expectLater(
+      () => service.import(f),
+      throwsA(
+        isA<BackupImportException>().having(
+          (e) => e.message,
+          'message',
+          'unsupported backup version: 2',
+        ),
+      ),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 14. UUID mismatch
+  // ---------------------------------------------------------------------------
+
+  test('import: UUID mismatch → BackupImportException', () async {
+    final mismatchBackup = jsonEncode({
+      'backup_version': 1,
+      'created_at': DateTime.now().toIso8601String(),
+      'device': {'uuid': 'cam-uuid-A', 'model': 'SST-CAM-01'},
+      'users': <dynamic>[],
+      'teams': <dynamic>[],
+      'matches': <dynamic>[],
+      'sport_configs': <dynamic>[],
+      'streaming_configs': <dynamic>[],
+      'clips': <dynamic>[],
+    });
+
+    final f = File('${tempDir.path}/mismatch.json');
+    await f.writeAsString(mismatchBackup);
+
+    final service = BackupService(db);
+    await expectLater(
+      () => service.import(f, currentCameraDeviceId: 'cam-uuid-B'),
+      throwsA(
+        isA<BackupImportException>().having(
+          (e) => e.message,
+          'message',
+          'backup is for a different camera',
+        ),
+      ),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 15. Null backup UUID + non-null camera ID → import proceeds
+  // ---------------------------------------------------------------------------
+
+  test('import: null backup uuid + non-null camera id → proceeds', () async {
+    final userId = _uuid.v4();
+    final backupJson = jsonEncode({
+      'backup_version': 1,
+      'created_at': DateTime.now().toIso8601String(),
+      'device': {'uuid': null, 'model': 'SST-CAM-01'},
+      'users': [
+        {'id': userId, 'name': 'Solo User'},
+      ],
+      'teams': <dynamic>[],
+      'matches': <dynamic>[],
+      'sport_configs': <dynamic>[],
+      'streaming_configs': <dynamic>[],
+      'clips': <dynamic>[],
+    });
+
+    final f = File('${tempDir.path}/null_uuid.json');
+    await f.writeAsString(backupJson);
+
+    final service = BackupService(db);
+    // Should NOT throw — null backup UUID skips the UUID check.
+    final firstId = await service.import(
+      f,
+      currentCameraDeviceId: 'cam-uuid-X',
+    );
+
+    expect(firstId, userId);
+    expect(await db.usersDao.getAll(), hasLength(1));
+  });
+
+  // ---------------------------------------------------------------------------
+  // 16. Both UUID fields null → import proceeds
+  // ---------------------------------------------------------------------------
+
+  test('import: both UUIDs null → proceeds without UUID validation', () async {
+    final userId = _uuid.v4();
+    final backupJson = jsonEncode({
+      'backup_version': 1,
+      'created_at': DateTime.now().toIso8601String(),
+      'device': {'uuid': null, 'model': 'SST-CAM-01'},
+      'users': [
+        {'id': userId, 'name': 'Solo User'},
+      ],
+      'teams': <dynamic>[],
+      'matches': <dynamic>[],
+      'sport_configs': <dynamic>[],
+      'streaming_configs': <dynamic>[],
+      'clips': <dynamic>[],
+    });
+
+    final f = File('${tempDir.path}/both_null.json');
+    await f.writeAsString(backupJson);
+
+    final service = BackupService(db);
+    // No currentCameraDeviceId provided — should succeed.
+    final firstId = await service.import(f);
+
+    expect(firstId, userId);
+    expect(await db.usersDao.getAll(), hasLength(1));
+  });
+
+  // ---------------------------------------------------------------------------
+  // 17. Empty backup (no users) → succeeds, DB is empty
+  // ---------------------------------------------------------------------------
+
+  test('import: empty backup (no users) → succeeds, DB empty', () async {
+    // First seed the DB so we can verify it is emptied.
+    await db.usersDao.insertUser(
+      UsersTableCompanion.insert(id: _uuid.v4(), name: 'Existing User'),
+    );
+    expect(await db.usersDao.getAll(), hasLength(1));
+
+    final emptyBackup = jsonEncode({
+      'backup_version': 1,
+      'created_at': DateTime.now().toIso8601String(),
+      'device': {'uuid': null, 'model': 'SST-CAM-01'},
+      'users': <dynamic>[],
+      'teams': <dynamic>[],
+      'matches': <dynamic>[],
+      'sport_configs': <dynamic>[],
+      'streaming_configs': <dynamic>[],
+      'clips': <dynamic>[],
+    });
+
+    final f = File('${tempDir.path}/empty.json');
+    await f.writeAsString(emptyBackup);
+
+    final service = BackupService(db);
+    final firstId = await service.import(f);
+
+    expect(firstId, isNull);
+    expect(await db.usersDao.getAll(), isEmpty);
+  });
 }
