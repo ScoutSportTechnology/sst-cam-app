@@ -250,35 +250,56 @@ class BackupService {
     }
 
     // 3. Optional UUID validation --------------------------------------------------
+    // Fix 9: If the backup has a device UUID, require the camera to be
+    // connected so we can verify compatibility. If no UUID in the backup,
+    // proceed without the check (legacy backups).
     final backupDeviceUuid =
         (json['device'] as Map<String, dynamic>?)?['uuid'] as String?;
-    if (backupDeviceUuid != null && currentCameraDeviceId != null) {
+    if (backupDeviceUuid != null) {
+      if (currentCameraDeviceId == null) {
+        throw const BackupImportException(
+          'Connect the camera to verify backup compatibility',
+        );
+      }
       if (backupDeviceUuid != currentCameraDeviceId) {
         throw const BackupImportException('backup is for a different camera');
       }
     }
 
     // 4. Parse entities from JSON -------------------------------------------------
-    final userCompanions = _parseUsers(
-      (json['users'] as List<dynamic>?) ?? const [],
-    );
-    final teamCompanions = _parseTeams(
-      (json['teams'] as List<dynamic>?) ?? const [],
-    );
-    final playerCompanions = _parsePlayers(
-      (json['teams'] as List<dynamic>?) ?? const [],
-    );
-    // Matches are stored both inline under teams and at the top-level "matches"
-    // key. Use the top-level list (canonical; avoids double-insert).
-    final matchCompanions = _parseMatches(
-      (json['matches'] as List<dynamic>?) ?? const [],
-    );
-    final presetCompanions = _parsePresets(
-      (json['sport_configs'] as List<dynamic>?) ?? const [],
-    );
-    final destCompanions = _parseDestinations(
-      (json['streaming_configs'] as List<dynamic>?) ?? const [],
-    );
+    // Fix 12: Wrap all _parse* calls in a try-catch so malformed numbers or
+    // missing fields surface as a user-friendly BackupImportException rather
+    // than an unhandled TypeError or CastError.
+    final List<UsersTableCompanion> userCompanions;
+    final List<TeamsTableCompanion> teamCompanions;
+    final List<PlayersTableCompanion> playerCompanions;
+    final List<TeamMatchesTableCompanion> matchCompanions;
+    final List<SportPresetsTableCompanion> presetCompanions;
+    final List<StreamingDestinationsTableCompanion> destCompanions;
+    try {
+      userCompanions = _parseUsers(
+        (json['users'] as List<dynamic>?) ?? const [],
+      );
+      teamCompanions = _parseTeams(
+        (json['teams'] as List<dynamic>?) ?? const [],
+      );
+      playerCompanions = _parsePlayers(
+        (json['teams'] as List<dynamic>?) ?? const [],
+      );
+      // Matches are stored both inline under teams and at the top-level
+      // "matches" key. Use the top-level list (canonical; avoids double-insert).
+      matchCompanions = _parseMatches(
+        (json['matches'] as List<dynamic>?) ?? const [],
+      );
+      presetCompanions = _parsePresets(
+        (json['sport_configs'] as List<dynamic>?) ?? const [],
+      );
+      destCompanions = _parseDestinations(
+        (json['streaming_configs'] as List<dynamic>?) ?? const [],
+      );
+    } catch (e) {
+      throw BackupImportException('invalid backup data: $e');
+    }
 
     // 5. Atomic replace inside db.transaction() -----------------------------------
     await _db.transaction(() async {
@@ -347,7 +368,8 @@ class BackupService {
         companions.add(
           PlayersTableCompanion.insert(
             teamId: teamId,
-            number: pm['number'] as int,
+            // Fix 12: safe int cast — JSON may deserialize numbers as double.
+            number: (pm['number'] as num).toInt(),
             name: pm['name'] as String,
             position: pm['position'] as String,
             captain: Value(pm['captain'] as bool? ?? false),
@@ -369,10 +391,11 @@ class BackupService {
         date: m['date'] as String,
         result: m['result'] as String,
         kind: m['kind'] as String,
-        numPeriods: m['num_periods'] as int,
-        periodLengthSeconds: m['period_length_seconds'] as int,
-        clips: Value(m['clips'] as int? ?? 0),
-        sizeMb: Value(m['size_mb'] as int? ?? 0),
+        // Fix 12: safe int casts.
+        numPeriods: (m['num_periods'] as num).toInt(),
+        periodLengthSeconds: (m['period_length_seconds'] as num).toInt(),
+        clips: Value((m['clips'] as num?)?.toInt() ?? 0),
+        sizeMb: Value((m['size_mb'] as num?)?.toInt() ?? 0),
       );
     }).toList();
   }
@@ -385,8 +408,9 @@ class BackupService {
         userId: m['user_id'] as String,
         name: m['name'] as String,
         sport: m['sport'] as String,
-        numPeriods: m['num_periods'] as int,
-        periodLengthSeconds: m['period_length_seconds'] as int,
+        // Fix 12: safe int casts.
+        numPeriods: (m['num_periods'] as num).toInt(),
+        periodLengthSeconds: (m['period_length_seconds'] as num).toInt(),
         builtIn: Value(m['built_in'] as bool? ?? false),
       );
     }).toList();

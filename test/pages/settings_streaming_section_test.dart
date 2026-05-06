@@ -7,6 +7,7 @@
 // Test isolation: `useInMemoryDb()` provides a fresh Drift in-memory DB
 // seeded with user-1 / user-2 for every test.
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -70,6 +71,7 @@ void main() {
           protocol: 'rtmp',
           configType: 'rtmp',
           configUrl: 'rtmp://a.rtmp.youtube.com/live2',
+          configStreamKey: const Value('yt-stream-key'),
         ),
       );
       await db.value.streamingDestinationsDao.insertDestination(
@@ -109,6 +111,7 @@ void main() {
           protocol: 'rtmp',
           configType: 'rtmp',
           configUrl: 'rtmp://a.rtmp.youtube.com/live2',
+          configStreamKey: const Value('yt-stream-key'),
         ),
       );
 
@@ -138,6 +141,7 @@ void main() {
           protocol: 'rtmp',
           configType: 'rtmp',
           configUrl: 'rtmp://a.rtmp.youtube.com/live2',
+          configStreamKey: const Value('yt-stream-key'),
         ),
       );
 
@@ -174,6 +178,7 @@ void main() {
           protocol: 'rtmp',
           configType: 'rtmp',
           configUrl: 'rtmp://a.rtmp.youtube.com/live2',
+          configStreamKey: const Value('yt-stream-key'),
         ),
       );
 
@@ -210,6 +215,7 @@ void main() {
           protocol: 'rtmp',
           configType: 'rtmp',
           configUrl: 'rtmp://a.rtmp.youtube.com/live2',
+          configStreamKey: const Value('yt-stream-key'),
         ),
       );
 
@@ -278,6 +284,7 @@ void main() {
           protocol: 'rtmp',
           configType: 'rtmp',
           configUrl: 'rtmp://a.rtmp.youtube.com/live2',
+          configStreamKey: const Value('yt-stream-key'),
         ),
       );
 

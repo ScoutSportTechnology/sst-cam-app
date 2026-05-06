@@ -198,6 +198,7 @@ void main() {
         protocol: 'rtmp',
         configType: 'rtmp',
         configUrl: 'rtmp://delete.me/live',
+        configStreamKey: const Value('test-stream-key'),
       ),
     );
 

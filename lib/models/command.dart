@@ -39,40 +39,7 @@ class RequestThumbnailCommand extends BleCommand {
   final int quality;
 }
 
-// Match control
-class MatchConfigCommand extends BleCommand {
-  MatchConfigCommand(this.config);
-  final dynamic config; // models/match.dart MatchConfig
-}
-
-class MatchControlCommand extends BleCommand {
-  MatchControlCommand(this.action);
-  final dynamic action; // models/match.dart MatchControlAction
-}
-
-class ScoreUpdateCommand extends BleCommand {
-  ScoreUpdateCommand({required this.teamId, required this.delta});
-  final String teamId;
-  final int delta;
-}
-
-class BannerEventCommand extends BleCommand {
-  BannerEventCommand(this.event);
-  final dynamic event; // models/match.dart BannerEvent
-}
-
-// Recording / streaming
-class StartRecordingCommand extends BleCommand {}
-
-class StopRecordingCommand extends BleCommand {}
-
-class StartStreamingCommand extends BleCommand {
-  StartStreamingCommand({required this.rtmpUrl});
-  final String rtmpUrl;
-}
-
-class StopStreamingCommand extends BleCommand {}
-
+// Recording / file transfer
 class ListRecordingsCommand extends BleCommand {}
 
 class DownloadRequestCommand extends BleCommand {
@@ -80,36 +47,12 @@ class DownloadRequestCommand extends BleCommand {
   final String recordingId;
 }
 
-// Configuration
-class SetWifiConfigCommand extends BleCommand {
-  SetWifiConfigCommand({required this.ssid, required this.password});
-  final String ssid;
-  final String password;
-}
-
-class SetStreamingConfigCommand extends BleCommand {
-  SetStreamingConfigCommand({
-    this.youtubeStreamKey,
-    this.instagramStreamKey,
-    this.customRtmpUrl,
-  });
-  final String? youtubeStreamKey;
-  final String? instagramStreamKey;
-  final String? customRtmpUrl;
-}
-
-class FactoryResetCommand extends BleCommand {}
-
-class FirmwareUpdateCommand extends BleCommand {}
-
-// Session config — sent once before recording starts (U9)
-class PushSessionConfigCommand extends BleCommand {
-  PushSessionConfigCommand(this.config);
-  final PushSessionConfig config;
-}
-
 // ---------------------------------------------------------------------------
 // Session configuration payload pushed to the camera before a match starts.
+// Sent via BleService.pushSessionConfig() — not routed through sendCommand().
+// Fix 14: PushSessionConfigCommand has been removed from the sealed hierarchy
+// because the dedicated pushSessionConfig() method on BleService is the
+// correct API.
 // ---------------------------------------------------------------------------
 
 class PushSessionConfig {

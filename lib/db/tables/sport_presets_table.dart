@@ -16,5 +16,5 @@ class SportPresetsTable extends Table {
   BoolColumn get builtIn => boolean().withDefault(const Constant(false))();
 
   @override
-  Set<Column> get primaryKey => {id};
+  Set<Column> get primaryKey => {id, userId};
 }

@@ -1427,7 +1427,7 @@ class $SportPresetsTableTable extends SportPresetsTable
   String get actualTableName => $name;
   static const String $name = 'sport_presets';
   @override
-  Set<GeneratedColumn> get $primaryKey => {id};
+  Set<GeneratedColumn> get $primaryKey => {id, userId};
   @override
   SportPresetsTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';

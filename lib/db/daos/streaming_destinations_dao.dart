@@ -24,9 +24,20 @@ class StreamingDestinationsDao extends DatabaseAccessor<AppDatabase>
       )..where((d) => d.userId.equals(userId))).get();
 
   /// Insert a new destination row.
+  ///
+  /// Throws [ArgumentError] if the companion is for an RTMP destination
+  /// but has no stream key — surfacing the data-integrity issue at write
+  /// time rather than silently at stream-push time.
   Future<void> insertDestination(
     StreamingDestinationsTableCompanion companion,
-  ) => into(streamingDestinationsTable).insert(companion);
+  ) {
+    if (companion.configType.value == 'rtmp' &&
+        (companion.configStreamKey.value == null ||
+            companion.configStreamKey.value!.isEmpty)) {
+      throw ArgumentError('RTMP streaming destination requires a stream key');
+    }
+    return into(streamingDestinationsTable).insert(companion);
+  }
 
   /// Update an existing destination row.
   Future<bool> updateDestination(
@@ -46,10 +57,10 @@ class StreamingDestinationsDao extends DatabaseAccessor<AppDatabase>
   /// never happen if all writes go through this DAO).
   static StreamingConfig configFromRow(StreamingDestinationsTableData row) {
     return switch (row.configType) {
-      'rtmp' => RtmpConfig(
-        url: row.configUrl,
-        streamKey: row.configStreamKey ?? '',
-      ),
+      'rtmp' =>
+        row.configStreamKey == null || row.configStreamKey!.isEmpty
+            ? throw StateError('RTMP destination ${row.id} missing stream key')
+            : RtmpConfig(url: row.configUrl, streamKey: row.configStreamKey!),
       'rtsp' => RtspConfig(
         url: row.configUrl,
         username: row.configUsername,

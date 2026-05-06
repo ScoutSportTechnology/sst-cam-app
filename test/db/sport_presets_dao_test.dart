@@ -41,21 +41,23 @@ void main() {
     final presets = await db.sportPresetsDao.getForUser(userId);
     final ids = presets.map((p) => p.id).toSet();
 
-    expect(ids, contains('preset-soccer-std'));
-    expect(ids, contains('preset-soccer-youth'));
-    expect(ids, contains('preset-basketball-fiba'));
-    expect(ids, contains('preset-hockey-std'));
-    expect(ids, contains('preset-volleyball-5set'));
-    expect(ids, contains('preset-rugby-std'));
-    expect(ids, contains('preset-other-single'));
+    expect(ids, contains('${userId}_preset-soccer-std'));
+    expect(ids, contains('${userId}_preset-soccer-youth'));
+    expect(ids, contains('${userId}_preset-basketball-fiba'));
+    expect(ids, contains('${userId}_preset-hockey-std'));
+    expect(ids, contains('${userId}_preset-volleyball-5set'));
+    expect(ids, contains('${userId}_preset-rugby-std'));
+    expect(ids, contains('${userId}_preset-other-single'));
 
-    final soccer = presets.firstWhere((p) => p.id == 'preset-soccer-std');
+    final soccer = presets.firstWhere(
+      (p) => p.id == '${userId}_preset-soccer-std',
+    );
     expect(soccer.sport, 'Soccer');
     expect(soccer.numPeriods, 2);
     expect(soccer.periodLengthSeconds, 45 * 60);
 
     final basketball = presets.firstWhere(
-      (p) => p.id == 'preset-basketball-fiba',
+      (p) => p.id == '${userId}_preset-basketball-fiba',
     );
     expect(basketball.sport, 'Basketball');
     expect(basketball.numPeriods, 4);
@@ -158,4 +160,28 @@ void main() {
     expect(presetsUser1, hasLength(7));
     expect(presetsUser2, isEmpty);
   });
+
+  test(
+    'seedBuiltInsForUser for two users gives each 7 independent presets',
+    () async {
+      final userId2 = const Uuid().v4();
+      await db.usersDao.insertUser(
+        UsersTableCompanion.insert(id: userId2, name: 'Coach Maria'),
+      );
+
+      await db.sportPresetsDao.seedBuiltInsForUser(userId);
+      await db.sportPresetsDao.seedBuiltInsForUser(userId2);
+
+      final presetsUser1 = await db.sportPresetsDao.getForUser(userId);
+      final presetsUser2 = await db.sportPresetsDao.getForUser(userId2);
+
+      expect(presetsUser1, hasLength(7));
+      expect(presetsUser2, hasLength(7));
+
+      // IDs are user-scoped — no overlap between the two sets.
+      final ids1 = presetsUser1.map((p) => p.id).toSet();
+      final ids2 = presetsUser2.map((p) => p.id).toSet();
+      expect(ids1.intersection(ids2), isEmpty);
+    },
+  );
 }

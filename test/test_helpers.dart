@@ -212,13 +212,8 @@ Future<void> _seedInMemoryDb(AppDatabase db) async {
     ),
   );
 
-  // Sport presets — 7 built-ins for user-1 only.
-  //
-  // The sport_presets table uses `id` alone as the primary key (no composite
-  // (id, userId) key). Built-in preset IDs are shared constants
-  // (e.g. 'preset-soccer-std'), so seeding them for multiple users would
-  // cause the second user's seed to silently overwrite the first user's rows
-  // via insertAllOnConflictUpdate. Only seed for the active user (user-1) to
-  // keep the test data predictable.
+  // Sport presets — 7 built-ins per user. IDs are user-scoped so seeding
+  // multiple users is safe (no collision between user-1 and user-2 rows).
   await db.sportPresetsDao.seedBuiltInsForUser('user-1');
+  await db.sportPresetsDao.seedBuiltInsForUser('user-2');
 }

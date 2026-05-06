@@ -50,7 +50,7 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
 
   static List<SportPresetsTableCompanion> _builtInPresets(String userId) => [
     SportPresetsTableCompanion.insert(
-      id: 'preset-soccer-std',
+      id: '${userId}_preset-soccer-std',
       userId: userId,
       name: 'Soccer · Standard',
       sport: 'Soccer',
@@ -59,7 +59,7 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
       builtIn: const Value(true),
     ),
     SportPresetsTableCompanion.insert(
-      id: 'preset-soccer-youth',
+      id: '${userId}_preset-soccer-youth',
       userId: userId,
       name: 'Soccer · Youth (U14)',
       sport: 'Soccer',
@@ -68,7 +68,7 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
       builtIn: const Value(true),
     ),
     SportPresetsTableCompanion.insert(
-      id: 'preset-basketball-fiba',
+      id: '${userId}_preset-basketball-fiba',
       userId: userId,
       name: 'Basketball · FIBA',
       sport: 'Basketball',
@@ -77,7 +77,7 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
       builtIn: const Value(true),
     ),
     SportPresetsTableCompanion.insert(
-      id: 'preset-hockey-std',
+      id: '${userId}_preset-hockey-std',
       userId: userId,
       name: 'Hockey · Standard',
       sport: 'Hockey',
@@ -86,7 +86,7 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
       builtIn: const Value(true),
     ),
     SportPresetsTableCompanion.insert(
-      id: 'preset-volleyball-5set',
+      id: '${userId}_preset-volleyball-5set',
       userId: userId,
       name: 'Volleyball · 5-set',
       sport: 'Volleyball',
@@ -95,7 +95,7 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
       builtIn: const Value(true),
     ),
     SportPresetsTableCompanion.insert(
-      id: 'preset-rugby-std',
+      id: '${userId}_preset-rugby-std',
       userId: userId,
       name: 'Rugby · Standard',
       sport: 'Rugby',
@@ -104,7 +104,7 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
       builtIn: const Value(true),
     ),
     SportPresetsTableCompanion.insert(
-      id: 'preset-other-single',
+      id: '${userId}_preset-other-single',
       userId: userId,
       name: 'Other · Single period',
       sport: 'Other',

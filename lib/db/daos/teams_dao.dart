@@ -14,9 +14,17 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
   // Teams
   // ---------------------------------------------------------------------------
 
-  /// Watch all teams for a user — emits on every mutation to teams or players.
+  /// Watch all teams for a user — emits on every mutation to teamsTable.
   Stream<List<TeamsTableData>> watchForUser(String userId) =>
       (select(teamsTable)..where((t) => t.userId.equals(userId))).watch();
+
+  /// Watch the entire playersTable. Emits whenever any player row changes.
+  ///
+  /// Used by [TeamsController] to invalidate the team list when roster
+  /// mutations happen, since those don't touch the teamsTable rows directly
+  /// (Fix 7).
+  Stream<List<PlayersTableData>> watchAllPlayers() =>
+      select(playersTable).watch();
 
   /// One-shot fetch of all teams for a user.
   Future<List<TeamsTableData>> getForUser(String userId) =>
@@ -76,6 +84,26 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
   /// One-shot fetch of all matches for a team.
   Future<List<TeamMatchesTableData>> getTeamMatches(String teamId) =>
       (select(teamMatchesTable)..where((m) => m.teamId.equals(teamId))).get();
+
+  /// Bulk fetch of all team_matches for a list of team IDs.
+  ///
+  /// Returns an empty list when [teamIds] is empty (skips the query).
+  Future<List<TeamMatchesTableData>> getTeamMatchesForTeams(
+    List<String> teamIds,
+  ) {
+    if (teamIds.isEmpty) return Future.value(const []);
+    return (select(
+      teamMatchesTable,
+    )..where((t) => t.teamId.isIn(teamIds))).get();
+  }
+
+  /// Bulk fetch of all players for a list of team IDs.
+  ///
+  /// Returns an empty list when [teamIds] is empty (skips the query).
+  Future<List<PlayersTableData>> getPlayersForTeams(List<String> teamIds) {
+    if (teamIds.isEmpty) return Future.value(const []);
+    return (select(playersTable)..where((t) => t.teamId.isIn(teamIds))).get();
+  }
 
   /// Insert a new team match row.
   Future<void> insertTeamMatch(TeamMatchesTableCompanion companion) =>

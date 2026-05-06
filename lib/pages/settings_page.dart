@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../models/device.dart';
 import '../services/backup_service.dart';
@@ -19,8 +20,6 @@ import 'discovery_page.dart';
 import 'manage_users_page.dart';
 import 'sport_presets_page.dart';
 import 'streaming_destinations_page.dart';
-
-const String _kActiveUserIdKey = 'active_user_id';
 
 /// Settings page. Always shows a single Scaffold.
 ///
@@ -475,6 +474,31 @@ class _DataSection extends ConsumerWidget {
   }
 
   Future<void> _onExportTapped(BuildContext context, WidgetRef ref) async {
+    // Fix 3: Warn the user that the backup contains credentials before exporting.
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Backup contains credentials'),
+        content: const Text(
+          'This backup includes your streaming keys and passwords. '
+          'Store the file securely.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Export Anyway'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return;
+    if (!context.mounted) return;
+
     final service = ref.read(backupServiceProvider);
     final activeCameraId = ref.read(activeCameraIdProvider);
     try {
@@ -552,12 +576,36 @@ class _DataSection extends ConsumerWidget {
     if (path == null || path.isEmpty) return;
     if (!context.mounted) return;
 
+    // Fix 2: Path canonicalization — resolve symlinks and `..` segments before
+    // passing to File() so path traversal sequences in the user-supplied input
+    // cannot escape the intended directory. If path_provider is unavailable
+    // (test environments, early startup), fall back to the raw path.
+    final canonical = p.canonicalize(path);
+    String? docsDir;
+    try {
+      docsDir = (await getApplicationDocumentsDirectory()).path;
+    } catch (_) {
+      // path_provider unavailable; skip directory containment check.
+    }
+    if (docsDir != null && !canonical.startsWith(docsDir)) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Invalid path. Select a file from the Documents folder.',
+          ),
+          backgroundColor: T.danger,
+        ),
+      );
+      return;
+    }
+
     // Step 3: Run import.
     final activeCameraId = ref.read(activeCameraIdProvider);
     final service = ref.read(backupServiceProvider);
     try {
       final firstUserId = await service.import(
-        File(path),
+        File(canonical),
         currentCameraDeviceId: activeCameraId,
       );
 
@@ -568,16 +616,11 @@ class _DataSection extends ConsumerWidget {
       ref.invalidate(streamingDestinationsControllerProvider);
       ref.invalidate(upcomingMatchesProvider);
 
-      // Update active user to the first restored user, or clear if empty.
-      if (firstUserId != null) {
-        ref.read(activeUserProvider.notifier).state = firstUserId;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_kActiveUserIdKey, firstUserId);
-      } else {
-        ref.read(activeUserProvider.notifier).state = null;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove(_kActiveUserIdKey);
-      }
+      // Fix 11: Update active user via the controller (centralises the
+      // SharedPreferences write).
+      await ref
+          .read(usersControllerProvider.notifier)
+          .restoreActive(firstUserId);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

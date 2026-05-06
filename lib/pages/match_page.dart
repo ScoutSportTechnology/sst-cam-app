@@ -764,6 +764,18 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
     );
   }
 
+  // Fix 17: UUID v4 format regex used to validate UUIDs before interpolating
+  // them into output paths.
+  static final _uuidRegex = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+  );
+
+  void _validateUuid(String uuid, String name) {
+    if (!_uuidRegex.hasMatch(uuid)) {
+      throw ArgumentError('$name is not a valid UUID: $uuid');
+    }
+  }
+
   Future<void> _startMatch(int periods, int periodLengthSeconds) async {
     final deviceId = ref.read(activeCameraIdProvider);
     if (deviceId == null) return;
@@ -798,6 +810,13 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
     });
 
     try {
+      // Fix 17: Validate matchUuid against the UUID v4 format before
+      // interpolating it into the camera filesystem path. matchUuid is
+      // generated above via Uuid().v4(), so this guard should never fire in
+      // practice — it defends against accidental code changes that replace the
+      // UUID generator with unvalidated input.
+      _validateUuid(matchUuid, 'matchUuid');
+
       final ble = ref.read(bleServiceProvider);
       final response = await ble.pushSessionConfig(deviceId, config);
       if (!mounted) return;

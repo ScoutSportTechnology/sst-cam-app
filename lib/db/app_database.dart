@@ -51,6 +51,24 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
+      // Fix 16: Add indexes on FK columns used as primary query filters.
+      await customStatement('CREATE INDEX idx_teams_user_id ON teams(user_id)');
+      await customStatement(
+        'CREATE INDEX idx_sport_presets_user_id ON sport_presets(user_id)',
+      );
+      await customStatement(
+        'CREATE INDEX idx_streaming_destinations_user_id '
+        'ON streaming_destinations(user_id)',
+      );
+      await customStatement(
+        'CREATE INDEX idx_team_matches_team_id ON team_matches(team_id)',
+      );
+      await customStatement(
+        'CREATE INDEX idx_players_team_id ON players(team_id)',
+      );
+      await customStatement(
+        'CREATE INDEX idx_clips_match_id ON clips(match_id)',
+      );
       // Built-in presets are seeded per-user at user creation time
       // (SportPresetsDao.seedBuiltInsForUser), not globally here.
     },
@@ -70,7 +88,10 @@ class AppDatabase extends _$AppDatabase {
 /// [AppDatabase] constructor to complete synchronously.
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    final dir = await getApplicationDocumentsDirectory();
+    // Fix 10: Use getApplicationSupportDirectory so the SQLite file is stored
+    // in the app-private support directory (not in Documents, which is
+    // user-visible and backed up by iCloud/Google Drive).
+    final dir = await getApplicationSupportDirectory();
     final file = File(p.join(dir.path, 'scout_camera.sqlite'));
     return NativeDatabase.createInBackground(file);
   });

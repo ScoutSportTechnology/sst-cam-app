@@ -273,6 +273,22 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
         userId; // then update in-memory
   }
 
+  /// Restore the active user after a backup import. Writes to SharedPreferences
+  /// and updates [activeUserProvider]. Pass null to clear the active user.
+  ///
+  /// Fix 11: Centralises the SharedPreferences write that was previously
+  /// duplicated in settings_page.dart's restore handler.
+  Future<void> restoreActive(String? userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (userId != null) {
+      ref.read(activeUserProvider.notifier).state = userId;
+      await prefs.setString(_kActiveUserIdKey, userId);
+    } else {
+      ref.read(activeUserProvider.notifier).state = null;
+      await prefs.remove(_kActiveUserIdKey);
+    }
+  }
+
   /// Delete a user. UI-rule pre-checks raise [UsersControllerException]
   /// BEFORE touching the DB so the form can render an inline message and
   /// no DB state is touched on a UI-rule violation.
@@ -490,20 +506,29 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
 
     final dao = ref.watch(teamsDaoProvider);
 
-    // Subscribe to all team mutations for live updates. The listener fires
-    // on every DB write; Drift guarantees at least one emission with the
-    // current state. We skip the first tick to avoid a redundant rebuild
-    // (the initial snapshot is returned below).
-    bool first = true;
-    final sub = dao
+    // Helper that rebuilds state from the latest team rows.
+    Future<void> rebuild() async {
+      try {
+        final rows = await dao.getForUser(userId);
+        state = AsyncValue.data(await _buildRecords(dao, rows));
+      } catch (e, st) {
+        state = AsyncValue.error(e, st);
+      }
+    }
+
+    // Fix 7: Subscribe to both teamsTable and playersTable so roster mutations
+    // also invalidate the stream. Skip the very first emission from each stream
+    // to avoid double-building on startup (the initial snapshot is returned
+    // below).
+    bool firstTeam = true;
+    final teamSub = dao
         .watchForUser(userId)
         .listen(
           (rows) async {
-            if (first) {
-              first = false;
+            if (firstTeam) {
+              firstTeam = false;
               return;
             }
-            // For each team row, load its players and build the model.
             final records = await _buildRecords(dao, rows);
             state = AsyncValue.data(records);
           },
@@ -511,24 +536,46 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
             state = AsyncValue.error(e, st);
           },
         );
-    ref.onDispose(sub.cancel);
+    ref.onDispose(teamSub.cancel);
+
+    bool firstPlayer = true;
+    final playerSub = dao.watchAllPlayers().listen(
+      (_) async {
+        if (firstPlayer) {
+          firstPlayer = false;
+          return;
+        }
+        await rebuild();
+      },
+      onError: (Object e, StackTrace st) {
+        state = AsyncValue.error(e, st);
+      },
+    );
+    ref.onDispose(playerSub.cancel);
 
     // Initial snapshot.
     final rows = await dao.getForUser(userId);
     return _buildRecords(dao, rows);
   }
 
-  /// Fetch players for each team and assemble [TeamRecord] list.
+  /// Bulk-fetch players for all teams and assemble [TeamRecord] list.
+  ///
+  /// Uses a single bulk query instead of one-per-team to avoid N+1 queries
+  /// (Fix 6).
   Future<List<TeamRecord>> _buildRecords(
     TeamsDao dao,
     List<TeamsTableData> rows,
   ) async {
-    final records = <TeamRecord>[];
-    for (final row in rows) {
-      final players = await dao.getPlayersForTeam(row.id);
-      records.add(_rowToTeamRecord(row, players));
+    if (rows.isEmpty) return const [];
+    final teamIds = rows.map((r) => r.id).toList();
+    final allPlayers = await dao.getPlayersForTeams(teamIds);
+    final playersByTeam = <String, List<PlayersTableData>>{};
+    for (final p in allPlayers) {
+      playersByTeam.putIfAbsent(p.teamId, () => []).add(p);
     }
-    return records;
+    return rows
+        .map((r) => _rowToTeamRecord(r, playersByTeam[r.id] ?? const []))
+        .toList();
   }
 
   Future<TeamRecord> create(TeamDraft draft) async {
@@ -598,18 +645,20 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     PlayerDraft draft,
   ) async {
     final dao = ref.read(teamsDaoProvider);
-    // Delete the old row (keyed by teamId + number) then re-insert with the
-    // updated fields (which may include a new jersey number).
-    await dao.deletePlayer(teamId, currentNumber);
-    await dao.insertPlayer(
-      PlayersTableCompanion.insert(
-        teamId: teamId,
-        number: draft.number,
-        name: draft.name,
-        position: draft.position,
-        captain: Value(draft.captain),
-      ),
-    );
+    // Fix 8: Wrap delete + re-insert in a transaction so the operation is
+    // atomic — no window where the player row is absent.
+    await ref.read(appDatabaseProvider).transaction(() async {
+      await dao.deletePlayer(teamId, currentNumber);
+      await dao.insertPlayer(
+        PlayersTableCompanion.insert(
+          teamId: teamId,
+          number: draft.number,
+          name: draft.name,
+          position: draft.position,
+          captain: Value(draft.captain),
+        ),
+      );
+    });
   }
 
   Future<void> removePlayer(String teamId, int number) async {
@@ -682,10 +731,7 @@ class UpcomingMatch {
 /// ordered as stored in Drift. Backed by a Drift watch stream — no camera
 /// connection required (R2 fix, U5).
 ///
-/// Implementation note: `AsyncNotifier.build()` cannot return a `Stream`
-/// directly, so we use a `StreamProvider` and combine the teams stream with
-/// a per-team match query. Each emission re-fetches all upcoming matches for
-/// all teams; this is acceptable for the expected dataset size (<100 matches).
+/// Uses bulk DAO queries (Fix 5) to avoid N+1 per-team fetches.
 final upcomingMatchesProvider = StreamProvider<List<UpcomingMatch>>((
   ref,
 ) async* {
@@ -697,13 +743,27 @@ final upcomingMatchesProvider = StreamProvider<List<UpcomingMatch>>((
   final dao = ref.watch(teamsDaoProvider);
   // Watch the teams stream; on each emission re-query all upcoming matches.
   await for (final teamRows in dao.watchForUser(userId)) {
+    final visibleRows = teamRows.where((r) => !r.hidden).toList();
+    if (visibleRows.isEmpty) {
+      yield const [];
+      continue;
+    }
+    final teamIds = visibleRows.map((r) => r.id).toList();
+
+    // Bulk queries — two round trips regardless of number of teams (Fix 5).
+    final allMatches = await dao.getTeamMatchesForTeams(teamIds);
+    final allPlayers = await dao.getPlayersForTeams(teamIds);
+
+    final playersByTeam = <String, List<PlayersTableData>>{};
+    for (final p in allPlayers) {
+      playersByTeam.putIfAbsent(p.teamId, () => []).add(p);
+    }
+
     final out = <UpcomingMatch>[];
-    for (final row in teamRows) {
-      if (row.hidden) continue;
-      final matchRows = await dao.getTeamMatches(row.id);
-      final players = await dao.getPlayersForTeam(row.id);
-      final team = _rowToTeamRecord(row, players);
-      for (final m in matchRows) {
+    for (final row in visibleRows) {
+      final team = _rowToTeamRecord(row, playersByTeam[row.id] ?? const []);
+      for (final m in allMatches) {
+        if (m.teamId != row.id) continue;
         if (m.kind != 'upcoming') continue;
         out.add(UpcomingMatch(team: team, match: _rowToTeamMatch(m)));
       }

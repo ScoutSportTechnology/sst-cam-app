@@ -45,6 +45,9 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   drift_dev: ^2.20.2
   build_runner: ^2.4.13
+  # For mocking PathProviderPlatform in widget tests (Fix 2)
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
 
 flutter:
   uses-material-design: true

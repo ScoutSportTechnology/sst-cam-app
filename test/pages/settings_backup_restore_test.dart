@@ -19,6 +19,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:scout_camera/ble/mock_ble_service.dart';
 import 'package:scout_camera/models/device.dart';
 import 'package:scout_camera/pages/settings_page.dart';
@@ -29,6 +31,20 @@ import 'package:scout_camera/state/db_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';
+
+// ---------------------------------------------------------------------------
+// Fake PathProviderPlatform so the path containment check (Fix 2) in
+// settings_page.dart can resolve a predictable docs dir in widget tests.
+// ---------------------------------------------------------------------------
+
+const String _kTestDocsDir = '/tmp/sst-test-docs';
+
+class _FakePathProvider extends Fake
+    with MockPlatformInterfaceMixin
+    implements PathProviderPlatform {
+  @override
+  Future<String?> getApplicationDocumentsPath() async => _kTestDocsDir;
+}
 
 const String _kFakeDeviceId = 'SST-CAM-001';
 
@@ -105,6 +121,12 @@ Widget _buildHarness({
 
 void main() {
   final db = useInMemoryDb();
+
+  setUpAll(() {
+    // Register the fake path provider so Fix 2's path containment check
+    // resolves a predictable docs directory in widget tests.
+    PathProviderPlatform.instance = _FakePathProvider();
+  });
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -184,6 +206,12 @@ void main() {
 
       await tester.scrollUntilVisible(find.text('Export backup'), 100);
       await tester.tap(find.text('Export backup'));
+      await tester.pumpAndSettle();
+
+      // Fix 3: Credentials warning dialog is shown before export proceeds.
+      expect(find.text('Backup contains credentials'), findsOneWidget);
+      expect(find.text('Export Anyway'), findsOneWidget);
+      await tester.tap(find.text('Export Anyway'));
       await tester.pumpAndSettle();
 
       // export() was called on our fake.
@@ -299,8 +327,11 @@ void main() {
       await tester.tap(find.text('Restore'));
       await tester.pumpAndSettle();
 
-      // Enter any path — fake throws regardless.
-      await tester.enterText(find.byType(TextField), '/tmp/any-backup.json');
+      // Enter a path inside the test docs dir so the Fix 2 containment check passes.
+      await tester.enterText(
+        find.byType(TextField),
+        '$_kTestDocsDir/any-backup.json',
+      );
       await tester.tap(find.textContaining('Restore').last);
       await tester.pumpAndSettle();
 
@@ -333,8 +364,11 @@ void main() {
     await tester.tap(find.text('Restore'));
     await tester.pumpAndSettle();
 
-    // Enter any path — fake succeeds regardless.
-    await tester.enterText(find.byType(TextField), '/tmp/sst-backup.json');
+    // Enter a path inside the test docs dir so the Fix 2 containment check passes.
+    await tester.enterText(
+      find.byType(TextField),
+      '$_kTestDocsDir/sst-backup.json',
+    );
     await tester.tap(find.textContaining('Restore').last);
     await tester.pumpAndSettle();
 
@@ -362,6 +396,11 @@ void main() {
 
     await tester.scrollUntilVisible(find.text('Export backup'), 100);
     await tester.tap(find.text('Export backup'));
+    await tester.pumpAndSettle();
+
+    // Fix 3: Credentials warning dialog — tap Export Anyway to proceed.
+    expect(find.text('Backup contains credentials'), findsOneWidget);
+    await tester.tap(find.text('Export Anyway'));
     await tester.pumpAndSettle();
 
     // Error SnackBar shown.
