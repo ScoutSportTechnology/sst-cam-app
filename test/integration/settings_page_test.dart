@@ -87,7 +87,7 @@ void main() {
 
   // Every test gets a fresh in-memory DB seeded with user-1 / user-2.
   final db = useInMemoryDb();
-  // DevDataStore is still used by TeamsController (until U5).
+  // DevDataStore is still used by SportPresetsController (until U6).
   useDevDataStoreReset();
 
   setUp(() {
@@ -620,10 +620,9 @@ void main() {
       streamingDestinationsControllerProvider.future,
     );
     expect(dests, isEmpty);
-    // Teams controller does not crash. (It reads from the camera; the
-    // mock scopes that call to DevDataStore.getActiveUser() — which is
-    // the seeded user-1, so seeded teams come back. The integration
-    // assertion that matters is "no crash", not "empty".)
+    // Teams controller does not crash when activeUserProvider is null.
+    // It returns empty (no userId → no DB query). The integration
+    // assertion that matters is "no crash", not "empty".
     final teams = await container.read(teamsControllerProvider.future);
     expect(teams, isNotNull);
 

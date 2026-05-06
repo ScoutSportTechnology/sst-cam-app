@@ -1,9 +1,9 @@
 // Local app data — library, live match state, team controller.
 //
-// Users + streaming destinations are owned by the local Drift DB. Teams,
-// rosters, and sport presets will migrate in U5/U6. Library + LiveMatch are
-// still local — the library will move to BLE in Phase 7 once recordings are
-// wired up.
+// Users, streaming destinations, teams, rosters, and upcoming matches are all
+// owned by the local Drift DB (U4/U5). Sport presets will migrate in U6.
+// Library + LiveMatch are still local — the library will move to BLE in Phase 7
+// once recordings are wired up.
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 
 import '../db/app_database.dart';
 import '../db/daos/streaming_destinations_dao.dart';
+import '../db/daos/teams_dao.dart';
 import '../models/sport_preset.dart';
 import '../models/streaming.dart';
 import '../models/team.dart';
@@ -160,9 +161,9 @@ const _seedLibrary = <LibraryMatch>[
 
 // ---------------------------------------------------------------------------
 // Camera handle — `activeCameraIdProvider` is set by the discovery flow on a
-// successful connect and cleared on disconnect. Team/match data still goes
-// through BLE (migrated in U5); this provider remains until U7 removes all
-// device gates.
+// successful connect and cleared on disconnect. Team/match data now comes from
+// Drift (U5); this provider remains for camera-connected UI (settings header,
+// telemetry) until U7 removes remaining device gates.
 // ---------------------------------------------------------------------------
 
 final activeCameraIdProvider = StateProvider<String?>((ref) => null);
@@ -258,22 +259,13 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
   }
 
   /// Switch the active user. Writes SharedPreferences then updates the
-  /// provider. Invalidates `upcomingMatchesProvider` (no userId arg there).
-  ///
-  /// Bridge (removed in U5): also calls BleService.setActiveUser so that
-  /// DevDataStore stays in sync while TeamsController still reads from BLE.
+  /// provider. `upcomingMatchesProvider` rebuilds automatically because
+  /// TeamsController (which feeds it) watches `activeUserProvider`.
   Future<void> setActive(String userId) async {
     if (userId == ref.read(activeUserProvider)) return;
-    // BLE bridge — keeps DevDataStore in sync while TeamsController uses BLE.
-    // Remove this block in U5 when TeamsController migrates to Drift.
-    final deviceId = _resolveDeviceId(ref);
-    if (deviceId != null) {
-      await ref.read(bleServiceProvider).setActiveUser(deviceId, userId);
-    }
     ref.read(activeUserProvider.notifier).state = userId;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kActiveUserIdKey, userId);
-    ref.invalidate(upcomingMatchesProvider);
   }
 
   /// Delete a user. UI-rule pre-checks raise [UsersControllerException]
@@ -431,73 +423,166 @@ final streamingDestinationsControllerProvider =
 // ---------------------------------------------------------------------------
 // Teams — controller + filter providers. The controller is the only writer;
 // UI mutates by calling its methods.
+//
+// Design note (U5): `AsyncNotifier` is kept (rather than `StreamNotifier`)
+// because write methods need to be on the same class as `build()`. The pattern
+// mirrors `UsersController`: get initial snapshot, subscribe to watch stream
+// for mutations, push subsequent emissions into `state` via a listener. No
+// `_refresh()` calls — Drift emits on every mutation automatically.
 // ---------------------------------------------------------------------------
 
-class TeamsController extends AsyncNotifier<List<TeamRecord>> {
-  String? get _deviceId => _resolveDeviceId(ref);
+/// Convert a raw [TeamsTableData] row and its [PlayersTableData] list into the
+/// app-model [TeamRecord].
+TeamRecord _rowToTeamRecord(
+  TeamsTableData t,
+  List<PlayersTableData> players,
+) => TeamRecord(
+  id: t.id,
+  name: t.name,
+  shortName: t.shortName,
+  sport: t.sport,
+  hidden: t.hidden,
+  roster: players.map(_rowToPlayer).toList(),
+);
 
-  /// Throws when callers try to mutate without an active connection. UI is
-  /// expected to gate these calls behind `activeCameraIdProvider`, so this is
-  /// a safety net rather than a routine error path.
-  String _requireDevice() {
-    final id = _deviceId;
-    if (id == null) {
-      throw StateError('No camera connected');
-    }
-    return id;
+Player _rowToPlayer(PlayersTableData p) => Player(
+  number: p.number,
+  name: p.name,
+  position: p.position,
+  captain: p.captain,
+);
+
+/// Convert a raw [TeamMatchesTableData] row into the app-model [TeamMatch].
+TeamMatch _rowToTeamMatch(TeamMatchesTableData m) => TeamMatch(
+  id: m.id,
+  opponent: m.opponent,
+  date: m.date,
+  result: m.result,
+  kind: m.kind == 'upcoming' ? MatchKind.upcoming : MatchKind.past,
+  numPeriods: m.numPeriods,
+  periodLengthSeconds: m.periodLengthSeconds,
+  clips: m.clips,
+  sizeMb: m.sizeMb,
+);
+
+class TeamsController extends AsyncNotifier<List<TeamRecord>> {
+  String _requireActiveUser() {
+    final userId = ref.read(activeUserProvider);
+    if (userId == null) throw StateError('No active user');
+    return userId;
   }
 
   @override
   Future<List<TeamRecord>> build() async {
-    final svc = ref.watch(bleServiceProvider);
-    // Rebuild on user switch — the actual scoping happens inside the
-    // BleService impl via DevDataStore.getActiveUser().
-    ref.watch(activeUserProvider);
-    final id = _deviceId;
-    if (id == null) return const [];
-    return svc.listTeams(id);
+    final userId = ref.watch(activeUserProvider);
+    if (userId == null) return const [];
+
+    final dao = ref.watch(teamsDaoProvider);
+
+    // Subscribe to all team mutations for live updates. The listener fires
+    // on every DB write; Drift guarantees at least one emission with the
+    // current state. We skip the first tick to avoid a redundant rebuild
+    // (the initial snapshot is returned below).
+    bool first = true;
+    final sub = dao.watchForUser(userId).listen((rows) async {
+      if (first) {
+        first = false;
+        return;
+      }
+      // For each team row, load its players and build the model.
+      final records = await _buildRecords(dao, rows);
+      state = AsyncValue.data(records);
+    });
+    ref.onDispose(sub.cancel);
+
+    // Initial snapshot.
+    final rows = await dao.getForUser(userId);
+    return _buildRecords(dao, rows);
   }
 
-  Future<void> _refresh() async {
-    final svc = ref.read(bleServiceProvider);
-    final id = _deviceId;
-    state = AsyncValue.data(id == null ? const [] : await svc.listTeams(id));
+  /// Fetch players for each team and assemble [TeamRecord] list.
+  Future<List<TeamRecord>> _buildRecords(
+    TeamsDao dao,
+    List<TeamsTableData> rows,
+  ) async {
+    final records = <TeamRecord>[];
+    for (final row in rows) {
+      final players = await dao.getPlayersForTeam(row.id);
+      records.add(_rowToTeamRecord(row, players));
+    }
+    return records;
   }
 
   Future<TeamRecord> create(TeamDraft draft) async {
-    final svc = ref.read(bleServiceProvider);
-    final created = await svc.createTeam(_requireDevice(), draft);
-    await _refresh();
-    return created;
+    final userId = _requireActiveUser();
+    final dao = ref.read(teamsDaoProvider);
+    final id = _uuid.v4();
+    await dao.insertTeam(
+      TeamsTableCompanion.insert(
+        id: id,
+        userId: userId,
+        name: draft.name.trim(),
+        shortName: draft.shortName.trim(),
+        sport: draft.sport,
+      ),
+    );
+    return TeamRecord(
+      id: id,
+      name: draft.name.trim(),
+      shortName: draft.shortName.trim(),
+      sport: draft.sport,
+      roster: const [],
+    );
   }
 
   Future<void> edit(TeamDraft draft) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.updateTeam(_requireDevice(), draft);
-    await _refresh();
-    // Team rename / sport change can affect how upcoming matches render.
-    ref.invalidate(upcomingMatchesProvider);
+    final userId = _requireActiveUser();
+    final dao = ref.read(teamsDaoProvider);
+    await dao.updateTeam(
+      TeamsTableCompanion.insert(
+        id: draft.id,
+        userId: userId,
+        name: draft.name.trim(),
+        shortName: draft.shortName.trim(),
+        sport: draft.sport,
+      ),
+    );
   }
 
   Future<void> delete(String teamId) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.deleteTeam(_requireDevice(), teamId);
-    await _refresh();
-    ref.invalidate(upcomingMatchesProvider);
+    await ref.read(teamsDaoProvider).deleteTeamById(teamId);
+    // FK cascade removes players and team_matches automatically.
+    // upcomingMatchesProvider rebuilds automatically via its Drift stream.
   }
 
   Future<void> setHidden(String teamId, {required bool hidden}) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.setTeamHidden(_requireDevice(), teamId, hidden: hidden);
-    await _refresh();
-    // Hidden teams are filtered out of the upcoming-matches list.
-    ref.invalidate(upcomingMatchesProvider);
+    final userId = _requireActiveUser();
+    final dao = ref.read(teamsDaoProvider);
+    // Fetch current row so we can do a full replace (Drift's update.replace).
+    final rows = await dao.getForUser(userId);
+    final row = rows.firstWhere((r) => r.id == teamId);
+    await dao.updateTeam(
+      TeamsTableCompanion.insert(
+        id: teamId,
+        userId: userId,
+        name: row.name,
+        shortName: row.shortName,
+        sport: row.sport,
+        hidden: Value(hidden),
+      ),
+    );
   }
 
   Future<void> addPlayer(String teamId, PlayerDraft draft) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.addPlayer(_requireDevice(), teamId, draft);
-    await _refresh();
+    await ref.read(teamsDaoProvider).insertPlayer(
+      PlayersTableCompanion.insert(
+        teamId: teamId,
+        number: draft.number,
+        name: draft.name,
+        position: draft.position,
+        captain: Value(draft.captain),
+      ),
+    );
   }
 
   Future<void> updatePlayer(
@@ -505,30 +590,58 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     int currentNumber,
     PlayerDraft draft,
   ) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.updatePlayer(_requireDevice(), teamId, currentNumber, draft);
-    await _refresh();
+    final dao = ref.read(teamsDaoProvider);
+    // Delete the old row (keyed by teamId + number) then re-insert with the
+    // updated fields (which may include a new jersey number).
+    await dao.deletePlayer(teamId, currentNumber);
+    await dao.insertPlayer(
+      PlayersTableCompanion.insert(
+        teamId: teamId,
+        number: draft.number,
+        name: draft.name,
+        position: draft.position,
+        captain: Value(draft.captain),
+      ),
+    );
   }
 
   Future<void> removePlayer(String teamId, int number) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.removePlayer(_requireDevice(), teamId, number);
-    await _refresh();
+    await ref.read(teamsDaoProvider).deletePlayer(teamId, number);
   }
 
   Future<TeamMatch> addMatch(String teamId, TeamMatchDraft draft) async {
-    final svc = ref.read(bleServiceProvider);
-    final created = await svc.addTeamMatch(_requireDevice(), teamId, draft);
-    ref.invalidate(teamMatchesProvider(teamId));
-    ref.invalidate(upcomingMatchesProvider);
-    return created;
+    final dao = ref.read(teamsDaoProvider);
+    final id = draft.id.isEmpty ? _uuid.v4() : draft.id;
+    await dao.insertTeamMatch(
+      TeamMatchesTableCompanion.insert(
+        id: id,
+        teamId: teamId,
+        opponent: draft.opponent,
+        date: draft.date,
+        result: draft.result,
+        kind: draft.kind == MatchKind.upcoming ? 'upcoming' : 'past',
+        numPeriods: draft.numPeriods,
+        periodLengthSeconds: draft.periodLengthSeconds,
+      ),
+    );
+    // teamMatchesProvider and upcomingMatchesProvider rebuild automatically
+    // via their Drift watch streams.
+    return TeamMatch(
+      id: id,
+      opponent: draft.opponent,
+      date: draft.date,
+      result: draft.result,
+      kind: draft.kind,
+      numPeriods: draft.numPeriods,
+      periodLengthSeconds: draft.periodLengthSeconds,
+      clips: 0,
+      sizeMb: 0,
+    );
   }
 
   Future<void> removeMatch(String teamId, String matchId) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.removeTeamMatch(_requireDevice(), teamId, matchId);
-    ref.invalidate(teamMatchesProvider(teamId));
-    ref.invalidate(upcomingMatchesProvider);
+    await ref.read(teamsDaoProvider).deleteTeamMatch(matchId);
+    // teamMatchesProvider and upcomingMatchesProvider rebuild automatically.
   }
 }
 
@@ -537,16 +650,16 @@ final teamsControllerProvider =
       TeamsController.new,
     );
 
-/// Per-team match list — fetched fresh per page mount, empty while no
-/// camera is connected.
-final teamMatchesProvider = FutureProvider.family<List<TeamMatch>, String>((
+/// Per-team match list — live stream backed by Drift. Emits on every mutation
+/// to the team_matches table for the given team. No camera connection required.
+final teamMatchesProvider = StreamProvider.family<List<TeamMatch>, String>((
   ref,
   teamId,
-) async {
-  final svc = ref.watch(bleServiceProvider);
-  final id = _resolveDeviceId(ref);
-  if (id == null) return const [];
-  return svc.listTeamMatches(id, teamId);
+) {
+  return ref
+      .watch(teamsDaoProvider)
+      .watchTeamMatches(teamId)
+      .map((rows) => rows.map(_rowToTeamMatch).toList());
 });
 
 /// Joined view of an upcoming match with its owning team — used by the
@@ -558,31 +671,38 @@ class UpcomingMatch {
   final TeamMatch match;
 }
 
-/// All upcoming matches across all teams on the camera, ordered by date
-/// as returned by firmware. Reads teams directly via [BleService] instead
-/// of watching [teamsControllerProvider] — that would create a circular
-/// dependency, since [TeamsController] mutations explicitly invalidate
-/// this provider when matches change.
+/// All upcoming matches across all non-hidden teams for the active user,
+/// ordered as stored in Drift. Backed by a Drift watch stream — no camera
+/// connection required (R2 fix, U5).
 ///
-/// Team-level mutations (edit / delete / setHidden) also invalidate this
-/// provider, see [TeamsController].
-final upcomingMatchesProvider = FutureProvider<List<UpcomingMatch>>((
+/// Implementation note: `AsyncNotifier.build()` cannot return a `Stream`
+/// directly, so we use a `StreamProvider` and combine the teams stream with
+/// a per-team match query. Each emission re-fetches all upcoming matches for
+/// all teams; this is acceptable for the expected dataset size (<100 matches).
+final upcomingMatchesProvider = StreamProvider<List<UpcomingMatch>>((
   ref,
-) async {
-  final svc = ref.watch(bleServiceProvider);
-  final id = _resolveDeviceId(ref);
-  if (id == null) return const [];
-  final teams = await svc.listTeams(id);
-  final out = <UpcomingMatch>[];
-  for (final t in teams) {
-    if (t.hidden) continue;
-    final matches = await svc.listTeamMatches(id, t.id);
-    for (final m in matches) {
-      if (m.kind != MatchKind.upcoming) continue;
-      out.add(UpcomingMatch(team: t, match: m));
-    }
+) async* {
+  final userId = ref.watch(activeUserProvider);
+  if (userId == null) {
+    yield const [];
+    return;
   }
-  return out;
+  final dao = ref.watch(teamsDaoProvider);
+  // Watch the teams stream; on each emission re-query all upcoming matches.
+  await for (final teamRows in dao.watchForUser(userId)) {
+    final out = <UpcomingMatch>[];
+    for (final row in teamRows) {
+      if (row.hidden) continue;
+      final matchRows = await dao.getTeamMatches(row.id);
+      final players = await dao.getPlayersForTeam(row.id);
+      final team = _rowToTeamRecord(row, players);
+      for (final m in matchRows) {
+        if (m.kind != 'upcoming') continue;
+        out.add(UpcomingMatch(team: team, match: _rowToTeamMatch(m)));
+      }
+    }
+    yield out;
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,8 @@
 //   * Switching `activeUserProvider` causes `streamingDestinationsController`
 //     to refetch with the right scope.
 //   * Edge cases: no active user, delete pre-checks.
+//   * `teamsControllerProvider` reads from Drift without a camera connection.
+//   * `upcomingMatchesProvider` returns data without a camera connection.
 //
 // SharedPreferences is mocked with `setMockInitialValues`.
 // Drift is backed by a fresh in-memory DB per test via `useInMemoryDb()`.
@@ -166,6 +168,145 @@ void main() {
         );
         expect(list, isEmpty);
         expect(container.read(activeUserProvider), isNull);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // TeamsController — Drift-backed (U5)
+  // ---------------------------------------------------------------------------
+
+  group('teamsControllerProvider', () {
+    test(
+      'returns seeded teams for user-1 without a camera connection',
+      () async {
+        // No activeCameraIdProvider override → it starts null.
+        final container = ProviderContainer(
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(_newMock()),
+            activeUserProvider.overrideWith((_) => 'user-1'),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final teams = await container.read(teamsControllerProvider.future);
+        // Seed has 4 teams under user-1.
+        expect(teams, hasLength(4));
+        expect(teams.map((t) => t.id), contains('nr-u14'));
+        // activeCameraIdProvider was never set — data still came through.
+        expect(container.read(activeCameraIdProvider), isNull);
+      },
+    );
+
+    test(
+      'returns empty list when activeUserProvider is null',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(_newMock()),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final teams = await container.read(teamsControllerProvider.future);
+        expect(teams, isEmpty);
+      },
+    );
+
+    test(
+      'returns empty for user-2 (no seed teams)',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(_newMock()),
+            activeUserProvider.overrideWith((_) => 'user-2'),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final teams = await container.read(teamsControllerProvider.future);
+        expect(teams, isEmpty);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // upcomingMatchesProvider — Drift-backed (U5 regression fix)
+  // ---------------------------------------------------------------------------
+
+  group('upcomingMatchesProvider', () {
+    test(
+      'returns upcoming matches without a camera connection (R2 fix)',
+      () async {
+        // No activeCameraIdProvider — must still return data.
+        final container = ProviderContainer(
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(_newMock()),
+            activeUserProvider.overrideWith((_) => 'user-1'),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // upcomingMatchesProvider is a StreamProvider — get first value.
+        final upcoming = await container
+            .read(upcomingMatchesProvider.future);
+        // Seed has 2 upcoming matches on nr-u14 under user-1.
+        expect(upcoming, hasLength(2));
+        expect(
+          upcoming.every((u) => u.match.kind == MatchKind.upcoming),
+          isTrue,
+        );
+        // Confirmed: no camera needed.
+        expect(container.read(activeCameraIdProvider), isNull);
+      },
+    );
+
+    test(
+      'returns empty when activeUserProvider is null',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(_newMock()),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final upcoming = await container
+            .read(upcomingMatchesProvider.future);
+        expect(upcoming, isEmpty);
+      },
+    );
+
+    test(
+      'excludes matches for hidden teams',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(_newMock()),
+            activeUserProvider.overrideWith((_) => 'user-1'),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Hide nr-u14 (the team with upcoming matches).
+        await container
+            .read(teamsControllerProvider.notifier)
+            .setHidden('nr-u14', hidden: true);
+
+        // Allow stream to propagate.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        final upcoming = await container
+            .read(upcomingMatchesProvider.future);
+        // All upcoming matches belonged to nr-u14 — now hidden.
+        expect(upcoming, isEmpty);
       },
     );
   });
