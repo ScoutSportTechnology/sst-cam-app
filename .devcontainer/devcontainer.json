@@ -10,7 +10,7 @@
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
   },
   "mounts": [
-    "source=claude-code-config-${devcontainerId},target=/root/.claude,type=volume"
+    "source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind"
   ],
   "runArgs": [
     "--add-host=host.docker.internal:host-gateway"
@@ -34,14 +34,17 @@
             80
           ]
         },
-        "dart.flutterSdkPath": "/sdks/flutter",
-        "dart.sdkPath": "/sdks/flutter/bin/cache/dart-sdk"
+        "dart.flutterSdkPath": "/opt/flutter",
+        "dart.sdkPath": "/opt/flutter/bin/cache/dart-sdk"
       }
     }
   },
+  "initializeCommand": ".devcontainer/script/initialize-command.sh",
   "postCreateCommand": ".devcontainer/script/post-create.sh",
   "postStartCommand": ".devcontainer/script/post-start.sh",
   "remoteEnv": {
-    "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037"
+    "CHOKIDAR_USEPOLLING": "true",
+    "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037",
+    "CLAUDE_CONFIG_DIR": "/root/.claude"
   }
 }
