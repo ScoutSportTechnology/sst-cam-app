@@ -347,11 +347,11 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // 9. Team matches serialized in both teams.matches and top-level matches
+  // 9. Team matches serialized in top-level matches list (inline removed — #19)
   // ---------------------------------------------------------------------------
 
   test(
-    'team matches appear in teams.matches and top-level matches list',
+    'team matches appear in top-level matches list',
     () async {
       final userId = _uuid.v4();
       final teamId = _uuid.v4();
@@ -388,16 +388,15 @@ void main() {
       final json =
           jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
 
-      // Check top-level matches list
+      // Matches only in top-level list (inline per-team matches removed)
       final matches = json['matches'] as List;
       expect(matches, hasLength(1));
       expect(matches.first['id'], matchId);
       expect(matches.first['opponent'], 'Bears');
 
-      // Check inline in teams
-      final teamMatches = (json['teams'] as List).first['matches'] as List;
-      expect(teamMatches, hasLength(1));
-      expect(teamMatches.first['id'], matchId);
+      // Teams do NOT have inline matches
+      final teamMap = (json['teams'] as List).first as Map<String, dynamic>;
+      expect(teamMap.containsKey('matches'), isFalse);
     },
   );
 
