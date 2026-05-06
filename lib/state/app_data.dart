@@ -206,14 +206,21 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
       final exists = await dao.getUserById(savedId);
       if (exists != null) {
         ref.read(activeUserProvider.notifier).state = savedId;
+      } else {
+        await prefs.remove(_kActiveUserIdKey);
       }
     }
 
     // Subscribe to watch stream for all mutations. The listener may fire once
     // with the same data as the initial snapshot below; that is acceptable.
-    final sub = dao.watchAll().listen((rows) {
-      state = AsyncValue.data(_toUserRecords(rows));
-    });
+    final sub = dao.watchAll().listen(
+      (rows) {
+        state = AsyncValue.data(_toUserRecords(rows));
+      },
+      onError: (Object e, StackTrace st) {
+        state = AsyncValue.error(e, st);
+      },
+    );
     ref.onDispose(sub.cancel);
 
     // Return initial snapshot.
@@ -260,9 +267,10 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
   /// TeamsController (which feeds it) watches `activeUserProvider`.
   Future<void> setActive(String userId) async {
     if (userId == ref.read(activeUserProvider)) return;
-    ref.read(activeUserProvider.notifier).state = userId;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kActiveUserIdKey, userId);
+    await prefs.setString(_kActiveUserIdKey, userId); // persist first
+    ref.read(activeUserProvider.notifier).state =
+        userId; // then update in-memory
   }
 
   /// Delete a user. UI-rule pre-checks raise [UsersControllerException]
@@ -319,9 +327,16 @@ class StreamingDestinationsController
 
     // Subscribe to all mutations. The listener may fire once with the same
     // data as the initial snapshot below; that is acceptable.
-    final sub = dao.watchForUser(activeUserId).listen((rows) {
-      state = AsyncValue.data(_toDestinations(rows));
-    });
+    final sub = dao
+        .watchForUser(activeUserId)
+        .listen(
+          (rows) {
+            state = AsyncValue.data(_toDestinations(rows));
+          },
+          onError: (Object e, StackTrace st) {
+            state = AsyncValue.error(e, st);
+          },
+        );
     ref.onDispose(sub.cancel);
 
     return _toDestinations(await dao.getForUser(activeUserId));
@@ -480,15 +495,22 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
     // current state. We skip the first tick to avoid a redundant rebuild
     // (the initial snapshot is returned below).
     bool first = true;
-    final sub = dao.watchForUser(userId).listen((rows) async {
-      if (first) {
-        first = false;
-        return;
-      }
-      // For each team row, load its players and build the model.
-      final records = await _buildRecords(dao, rows);
-      state = AsyncValue.data(records);
-    });
+    final sub = dao
+        .watchForUser(userId)
+        .listen(
+          (rows) async {
+            if (first) {
+              first = false;
+              return;
+            }
+            // For each team row, load its players and build the model.
+            final records = await _buildRecords(dao, rows);
+            state = AsyncValue.data(records);
+          },
+          onError: (Object e, StackTrace st) {
+            state = AsyncValue.error(e, st);
+          },
+        );
     ref.onDispose(sub.cancel);
 
     // Initial snapshot.
@@ -552,21 +574,8 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
   }
 
   Future<void> setHidden(String teamId, {required bool hidden}) async {
-    final userId = _requireActiveUser();
     final dao = ref.read(teamsDaoProvider);
-    // Fetch current row so we can do a full replace (Drift's update.replace).
-    final rows = await dao.getForUser(userId);
-    final row = rows.firstWhere((r) => r.id == teamId);
-    await dao.updateTeam(
-      TeamsTableCompanion.insert(
-        id: teamId,
-        userId: userId,
-        name: row.name,
-        shortName: row.shortName,
-        sport: row.sport,
-        hidden: Value(hidden),
-      ),
-    );
+    await dao.setTeamHidden(teamId, hidden);
   }
 
   Future<void> addPlayer(String teamId, PlayerDraft draft) async {
@@ -739,13 +748,20 @@ class SportPresetsController extends AsyncNotifier<List<SportPreset>> {
     // Subscribe to watch stream for live updates. Skip the first tick to avoid
     // a redundant rebuild (the initial snapshot is returned below).
     bool first = true;
-    final sub = dao.watchForUser(userId).listen((rows) {
-      if (first) {
-        first = false;
-        return;
-      }
-      state = AsyncValue.data(rows.map(_rowToSportPreset).toList());
-    });
+    final sub = dao
+        .watchForUser(userId)
+        .listen(
+          (rows) {
+            if (first) {
+              first = false;
+              return;
+            }
+            state = AsyncValue.data(rows.map(_rowToSportPreset).toList());
+          },
+          onError: (Object e, StackTrace st) {
+            state = AsyncValue.error(e, st);
+          },
+        );
     ref.onDispose(sub.cancel);
 
     // Initial snapshot.

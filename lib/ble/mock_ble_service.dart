@@ -420,7 +420,10 @@ class MockBleService implements BleService {
             )
             as T?,
       ),
-      _ => BleCommandResponse.ok(),
+      _ => BleCommandResponse<T>(
+        status: BleResponseStatus.error,
+        errorMessage: 'Unsupported command: ${command.runtimeType}',
+      ),
     };
   }
 

@@ -1,8 +1,6 @@
 // Per-user live-streaming destinations. Each destination targets one
 // streaming endpoint (YouTube Live, a custom RTMP/RTSP server, etc.) and
-// lives on the camera, scoped to the user that owns it. The phone is a thin
-// client over `BleService`; reads and writes are passed an explicit
-// `userId`.
+// is stored in the local Drift DB, scoped to the user that owns it.
 //
 // Shape:
 //

@@ -802,6 +802,9 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
       final response = await ble.pushSessionConfig(deviceId, config);
       if (!mounted) return;
       if (response.isOk) {
+        setState(() {
+          _pushing = false;
+        });
         widget.onStart();
       } else {
         setState(() {

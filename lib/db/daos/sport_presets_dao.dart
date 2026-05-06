@@ -41,9 +41,6 @@ class SportPresetsDao extends DatabaseAccessor<AppDatabase>
   ///
   /// Uses [insertOnConflictUpdate] so this is safe to call more than once —
   /// existing rows are updated in-place and no duplicates are created.
-  ///
-  /// The preset data mirrors [DevDataStore._builtInSportPresets()] exactly so
-  /// that test data and production data stay in sync.
   Future<void> seedBuiltInsForUser(String userId) async {
     final presets = _builtInPresets(userId);
     await batch((b) {

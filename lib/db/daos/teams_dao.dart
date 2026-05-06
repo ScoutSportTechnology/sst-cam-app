@@ -34,6 +34,12 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
   Future<int> deleteTeamById(String id) =>
       (delete(teamsTable)..where((t) => t.id.equals(id))).go();
 
+  /// Targeted update of a team's hidden flag — no full-row load required.
+  Future<void> setTeamHidden(String teamId, bool hidden) =>
+      (update(teamsTable)..where((t) => t.id.equals(teamId))).write(
+        TeamsTableCompanion(hidden: Value(hidden)),
+      );
+
   // ---------------------------------------------------------------------------
   // Players
   // ---------------------------------------------------------------------------

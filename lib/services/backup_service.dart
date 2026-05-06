@@ -105,7 +105,6 @@ class BackupService {
 
     final teamsJson = allTeams.map((team) {
       final players = teamPlayers[team.id] ?? [];
-      final matches = teamMatches[team.id] ?? [];
       return <String, dynamic>{
         'id': team.id,
         'user_id': team.userId,
@@ -120,22 +119,6 @@ class BackupService {
                 'name': p.name,
                 'position': p.position,
                 'captain': p.captain,
-              },
-            )
-            .toList(),
-        'matches': matches
-            .map(
-              (m) => <String, dynamic>{
-                'id': m.id,
-                'team_id': m.teamId,
-                'opponent': m.opponent,
-                'date': m.date,
-                'result': m.result,
-                'kind': m.kind,
-                'num_periods': m.numPeriods,
-                'period_length_seconds': m.periodLengthSeconds,
-                'clips': m.clips,
-                'size_mb': m.sizeMb,
               },
             )
             .toList(),
@@ -246,9 +229,15 @@ class BackupService {
   /// see U11 open question in the refactor plan.
   Future<String?> import(File file, {String? currentCameraDeviceId}) async {
     // 1. Parse JSON ---------------------------------------------------------------
+    late String contents;
+    try {
+      contents = await file.readAsString();
+    } on FileSystemException catch (e) {
+      throw BackupImportException('file not found or unreadable: ${e.message}');
+    }
     late Map<String, dynamic> json;
     try {
-      json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      json = jsonDecode(contents) as Map<String, dynamic>;
     } catch (_) {
       throw const BackupImportException('malformed JSON');
     }

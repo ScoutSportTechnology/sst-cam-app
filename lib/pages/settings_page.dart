@@ -568,11 +568,15 @@ class _DataSection extends ConsumerWidget {
       ref.invalidate(streamingDestinationsControllerProvider);
       ref.invalidate(upcomingMatchesProvider);
 
-      // Update active user to the first restored user, if any.
+      // Update active user to the first restored user, or clear if empty.
       if (firstUserId != null) {
         ref.read(activeUserProvider.notifier).state = firstUserId;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_kActiveUserIdKey, firstUserId);
+      } else {
+        ref.read(activeUserProvider.notifier).state = null;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_kActiveUserIdKey);
       }
 
       if (!context.mounted) return;

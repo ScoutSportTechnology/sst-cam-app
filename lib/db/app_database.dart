@@ -58,6 +58,7 @@ class AppDatabase extends _$AppDatabase {
       // SQLite disables FK enforcement by default. Enable it for every
       // connection so cascades, restrict constraints, and FK checks work.
       await customStatement('PRAGMA foreign_keys = ON;');
+      await customStatement('PRAGMA journal_mode = WAL;');
     },
   );
 }

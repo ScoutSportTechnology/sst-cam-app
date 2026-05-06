@@ -233,7 +233,10 @@ class BleServiceImpl implements BleService {
     PushSessionConfig config,
   ) async {
     // TODO (Phase 7): encode PushSessionConfigCommand as proto + BLE write.
-    throw UnimplementedError('Phase 7: pushSessionConfig');
+    return BleCommandResponse(
+      status: BleResponseStatus.error,
+      errorMessage: 'Phase 7: pushSessionConfig not yet wired',
+    );
   }
 
   // ---------------------------------------------------------------------------
