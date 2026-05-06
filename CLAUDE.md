@@ -49,6 +49,12 @@ See `proto/README.md` for UUIDs and the full BLE protocol spec.
 ### Directory layout
 
 ```text
+docs/
+  solutions/         Documented solutions to past problems (architecture patterns, bugs,
+                     conventions) with YAML frontmatter (module, tags, problem_type).
+                     Relevant when implementing features or debugging in documented areas.
+  brainstorms/       Requirements documents from ce-brainstorm
+  plans/             Implementation plans from ce-plan
 proto/               Proto3 schemas — wire format + firmware contract
   README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/
