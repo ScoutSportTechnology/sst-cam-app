@@ -78,10 +78,10 @@ class _StubBleService implements BleService {
     String recordingId,
   ) async => throw UnimplementedError();
   @override
-  Future<BleCommandResponse<void>> pushSessionConfig(
+  Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
-  ) async => BleCommandResponse.ok();
+  ) async {}
   @override
   Future<void> dispose() async {}
 }
@@ -287,19 +287,19 @@ void main() {
   // 7. File is named with today's date
   // ---------------------------------------------------------------------------
 
-  test('exported file is named sst-backup-YYYY-MM-DD.json', () async {
+  test('exported file is named sst-backup-YYYY-MM-DD-HHmm.json', () async {
     final service = BackupService(db);
     final path = await service.export(outputDir: tempDir);
 
     final filename = path.split('/').last;
     expect(filename, startsWith('sst-backup-'));
     expect(filename, endsWith('.json'));
-    // Date portion is 10 chars: YYYY-MM-DD
+    // Date-time portion is 15 chars: YYYY-MM-DD-HHmm
     final datePart = filename
         .replaceAll('sst-backup-', '')
         .replaceAll('.json', '');
-    expect(datePart.length, 10);
-    expect(RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(datePart), isTrue);
+    expect(datePart.length, 15);
+    expect(RegExp(r'^\d{4}-\d{2}-\d{2}-\d{4}$').hasMatch(datePart), isTrue);
   });
 
   // ---------------------------------------------------------------------------

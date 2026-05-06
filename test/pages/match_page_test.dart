@@ -3,7 +3,7 @@
 // Verifies that:
 //   - Happy path: pushSessionConfig succeeds → session screen entered,
 //     MockBleService.lastPushedConfig has correct matchUuid / sport / numPeriods.
-//   - Error path: pushSessionConfig returns error response → setup screen stays,
+//   - Error path: pushSessionConfig throws BleTimeoutException → setup screen stays,
 //     error text shown.
 //   - Exception path: pushSessionConfig throws BleTimeoutException or
 //     BleConnectionException → same error UX.
@@ -46,7 +46,7 @@ class _TimeoutMockBleService extends MockBleService {
       );
 
   @override
-  Future<BleCommandResponse<void>> pushSessionConfig(
+  Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
   ) async {
@@ -65,7 +65,7 @@ class _ConnectionErrorMockBleService extends MockBleService {
       );
 
   @override
-  Future<BleCommandResponse<void>> pushSessionConfig(
+  Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
   ) async {
@@ -203,7 +203,7 @@ void main() {
     });
 
     testWidgets(
-      'error response: pushSessionConfig returns BleResponseStatus.error → '
+      'error path: pushSessionConfig throws BleTimeoutException → '
       'setup screen stays, error text shown, no navigation',
       (tester) async {
         final mock = _newMock();

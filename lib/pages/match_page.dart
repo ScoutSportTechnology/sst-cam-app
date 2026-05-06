@@ -818,20 +818,12 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
       _validateUuid(matchUuid, 'matchUuid');
 
       final ble = ref.read(bleServiceProvider);
-      final response = await ble.pushSessionConfig(deviceId, config);
+      await ble.pushSessionConfig(deviceId, config);
       if (!mounted) return;
-      if (response.isOk) {
-        setState(() {
-          _pushing = false;
-        });
-        widget.onStart();
-      } else {
-        setState(() {
-          _pushing = false;
-          _pushError =
-              'Failed to configure camera. Check connection and retry.';
-        });
-      }
+      setState(() {
+        _pushing = false;
+      });
+      widget.onStart();
     } catch (_) {
       if (!mounted) return;
       setState(() {

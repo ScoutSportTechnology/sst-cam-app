@@ -468,17 +468,16 @@ class MockBleService implements BleService {
   bool failNextPushSessionConfig = false;
 
   @override
-  Future<BleCommandResponse<void>> pushSessionConfig(
+  Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
   ) async {
     await Future.delayed(const Duration(milliseconds: 80));
     if (failNextPushSessionConfig) {
       failNextPushSessionConfig = false;
-      return BleCommandResponse.error('Simulated pushSessionConfig failure');
+      throw const BleTimeoutException('Simulated pushSessionConfig failure');
     }
     lastPushedConfig = config;
-    return BleCommandResponse.ok();
   }
 
   @override

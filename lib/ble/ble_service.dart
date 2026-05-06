@@ -94,7 +94,7 @@ abstract class BleService {
   /// Must be called and awaited successfully before calling any recording /
   /// period-control commands. On failure the camera has no session context
   /// and the UI must stay on the setup screen.
-  Future<BleCommandResponse<void>> pushSessionConfig(
+  Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
   );

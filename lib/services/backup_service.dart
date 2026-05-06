@@ -192,12 +192,16 @@ class BackupService {
     // 5. Resolve output directory ---------------------------------------------------
     final dir = outputDir ?? await getApplicationDocumentsDirectory();
 
-    // 6. Write file as sst-backup-YYYY-MM-DD.json -----------------------------------
-    final dateStr =
+    // 6. Write file as sst-backup-YYYY-MM-DD-HHmm.json ----------------------------
+    final filename =
+        'sst-backup-'
         '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')}';
-    final file = File('${dir.path}/sst-backup-$dateStr.json');
+        '${now.day.toString().padLeft(2, '0')}-'
+        '${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}'
+        '.json';
+    final file = File('${dir.path}/$filename');
     await file.writeAsString(json);
 
     // 7. Return path ----------------------------------------------------------------

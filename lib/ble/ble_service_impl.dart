@@ -228,15 +228,11 @@ class BleServiceImpl implements BleService {
   // ---------------------------------------------------------------------------
 
   @override
-  Future<BleCommandResponse<void>> pushSessionConfig(
+  Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
-  ) async {
-    // TODO (Phase 7): encode PushSessionConfigCommand as proto + BLE write.
-    return BleCommandResponse(
-      status: BleResponseStatus.error,
-      errorMessage: 'Phase 7: pushSessionConfig not yet wired',
-    );
+  ) {
+    throw UnimplementedError('Phase 7: pushSessionConfig not yet wired');
   }
 
   // ---------------------------------------------------------------------------
