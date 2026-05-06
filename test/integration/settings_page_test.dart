@@ -87,8 +87,6 @@ void main() {
 
   // Every test gets a fresh in-memory DB seeded with user-1 / user-2.
   final db = useInMemoryDb();
-  // DevDataStore is still used by SportPresetsController (until U6).
-  useDevDataStoreReset();
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -281,7 +279,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Default seed: user-1 (Coach Diego) active with 4 seed teams; user-2
-    // (Coach Maria) has zero teams (via BLE/DevDataStore).
+    // (Coach Maria) has zero teams.
     expect(container.read(activeUserProvider), 'user-1');
     // Pre-load teams under user-1 so the AsyncNotifier resolves; user-1
     // has 4 seed teams.

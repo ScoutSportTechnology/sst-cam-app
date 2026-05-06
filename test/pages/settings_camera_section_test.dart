@@ -89,8 +89,6 @@ class _SpyBleService extends MockBleService {
 
 void main() {
   final db = useInMemoryDb();
-  // Process-global DevDataStore reset between tests.
-  useDevDataStoreReset();
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});

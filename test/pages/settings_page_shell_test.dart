@@ -2,8 +2,6 @@
 //
 // Verifies the two render shapes (empty vs populated), the
 // connection-state transition, and the empty-state CTA navigation.
-// Uses `useDevDataStoreReset()` so the process-global DevDataStore is
-// fresh before every test.
 //
 // To avoid Timer.periodic-driven streams from MockBleService that prevent
 // `pumpAndSettle` from terminating, we override `connectionStateProvider`
@@ -36,7 +34,6 @@ MockBleService _newMock() => MockBleService(
 
 void main() {
   final db = useInMemoryDb();
-  useDevDataStoreReset();
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});

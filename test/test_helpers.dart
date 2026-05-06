@@ -1,31 +1,16 @@
-// Shared test harness. Every BLE / state / page / integration test that
-// touches DevDataStore directly or transitively imports this and calls
-// `useDevDataStoreReset()` at the top of its `main()` so the
-// process-global store can't leak across tests when `flutter test` runs
-// them in the same isolate.
-//
-// `useInMemoryDb()` provides a Drift in-memory [AppDatabase] seeded with
-// the same data as [DevDataStore._seed()] for DAO-level and controller
-// tests that talk to the database directly. It registers setUp/tearDown
-// automatically and returns the live instance for use in tests.
+// Shared test harness. Provides `useInMemoryDb()` with a Drift in-memory
+// [AppDatabase] seeded with the canonical dev data for DAO-level and
+// controller tests. Registers setUp/tearDown automatically and returns
+// the live instance for use in tests.
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/dev_data_store.dart';
 import 'package:scout_camera/db/app_database.dart';
 import 'package:scout_camera/state/db_providers.dart';
 
 export 'package:scout_camera/db/app_database.dart';
-
-/// Registers a `setUp` that resets the process-global [DevDataStore]
-/// before every test in the enclosing group / file.
-void useDevDataStoreReset() {
-  setUp(() {
-    DevDataStore.instance.reset();
-  });
-}
 
 /// Registers setUp/tearDown that create and close a fresh Drift in-memory
 /// [AppDatabase] for every test, seeded with the canonical dev data that

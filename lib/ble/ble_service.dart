@@ -2,11 +2,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
-import '../models/sport_preset.dart';
-import '../models/streaming.dart';
-import '../models/team.dart';
 import '../models/telemetry.dart';
-import '../models/user.dart';
 
 /// Abstract BLE interface. Injected via Riverpod so the real and mock
 /// implementations are fully swappable without touching UI code.
@@ -89,123 +85,6 @@ abstract class BleService {
   Future<List<RecordingMetadata>> listRecordings(String deviceId);
 
   Future<DownloadToken> requestDownload(String deviceId, String recordingId);
-
-  // ---------------------------------------------------------------------------
-  // Teams / roster — camera-owned. Every mutation returns the updated team
-  // (or list) so the app doesn't need to refetch after a write.
-  // ---------------------------------------------------------------------------
-
-  Future<List<TeamRecord>> listTeams(String deviceId);
-
-  Future<List<TeamMatch>> listTeamMatches(String deviceId, String teamId);
-
-  Future<TeamRecord> createTeam(String deviceId, TeamDraft draft);
-
-  Future<TeamRecord> updateTeam(String deviceId, TeamDraft draft);
-
-  Future<void> deleteTeam(String deviceId, String teamId);
-
-  Future<TeamRecord> setTeamHidden(
-    String deviceId,
-    String teamId, {
-    required bool hidden,
-  });
-
-  Future<Player> addPlayer(String deviceId, String teamId, PlayerDraft draft);
-
-  Future<Player> updatePlayer(
-    String deviceId,
-    String teamId,
-    int currentNumber,
-    PlayerDraft draft,
-  );
-
-  Future<void> removePlayer(String deviceId, String teamId, int number);
-
-  // ---------------------------------------------------------------------------
-  // Per-team matches — past results and scheduled upcoming matches.
-  // Both kinds count toward stats; upcoming additionally drive the camera's
-  // recording / streaming schedule.
-  // ---------------------------------------------------------------------------
-
-  Future<TeamMatch> addTeamMatch(
-    String deviceId,
-    String teamId,
-    TeamMatchDraft draft,
-  );
-
-  Future<void> removeTeamMatch(String deviceId, String teamId, String matchId);
-
-  // ---------------------------------------------------------------------------
-  // Sport setups (presets) — saved per-camera time configurations grouped by
-  // base sport. Picked at match-schedule time to materialize the match's
-  // periods + period length.
-  // ---------------------------------------------------------------------------
-
-  Future<List<SportPreset>> listSportPresets(String deviceId);
-
-  Future<SportPreset> createSportPreset(
-    String deviceId,
-    SportPresetDraft draft,
-  );
-
-  Future<SportPreset> updateSportPreset(
-    String deviceId,
-    SportPresetDraft draft,
-  );
-
-  Future<void> deleteSportPreset(String deviceId, String presetId);
-
-  // ---------------------------------------------------------------------------
-  // Users — camera-side operator profiles. Each user scopes everything the
-  // camera owns (teams, match history, sport setups, streaming destinations)
-  // so a single camera can be shared across coaches without their data
-  // bleeding together.
-  // ---------------------------------------------------------------------------
-
-  Future<List<UserRecord>> listUsers(String deviceId);
-
-  Future<UserRecord> createUser(String deviceId, UserDraft draft);
-
-  Future<UserRecord> updateUser(String deviceId, UserDraft draft);
-
-  Future<void> deleteUser(String deviceId, String userId);
-
-  /// Returns the camera's currently-active user id, or `null` if none is set
-  /// (no users on the camera, or the previously-active user was deleted).
-  Future<String?> getActiveUser(String deviceId);
-
-  Future<void> setActiveUser(String deviceId, String userId);
-
-  // ---------------------------------------------------------------------------
-  // Streaming destinations — per-user live-streaming endpoints. Reads and
-  // writes are scoped by an explicit [userId] passed by the caller (sourced
-  // from the app's `activeUserProvider`); the camera does not implicitly
-  // scope by its persisted active user.
-  // ---------------------------------------------------------------------------
-
-  Future<List<StreamingDestination>> listStreamingDestinations(
-    String deviceId,
-    String userId,
-  );
-
-  Future<StreamingDestination> createStreamingDestination(
-    String deviceId,
-    String userId,
-    StreamingDestinationDraft draft,
-  );
-
-  Future<StreamingDestination> updateStreamingDestination(
-    String deviceId,
-    String userId,
-    StreamingDestinationDraft draft,
-  );
-
-  Future<void> deleteStreamingDestination(
-    String deviceId,
-    String userId,
-    String destinationId,
-  );
 
   // ---------------------------------------------------------------------------
   // Lifecycle

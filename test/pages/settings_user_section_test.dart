@@ -6,10 +6,6 @@
 //
 // Delete, add-user, and full-list management are tested in
 // manage_users_page_test.dart.
-//
-// Test isolation: `useDevDataStoreReset()` re-seeds the DevDataStore between
-// tests so the seed users (Coach Diego = user-1, Coach Maria = user-2) are
-// always there.
 
 import 'dart:async';
 
@@ -38,7 +34,6 @@ MockBleService _newMock() => MockBleService(
 
 void main() {
   final db = useInMemoryDb();
-  useDevDataStoreReset();
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
