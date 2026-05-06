@@ -1,10 +1,20 @@
 {
   "name": "Scout Camera — Flutter Dev",
-  "dockerComposeFile": [
-    "docker-compose.yaml"
-  ],
-  "service": "workspace",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
   "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "mounts": [
+    "source=claude-code-config-${devcontainerId},target=/root/.claude,type=volume"
+  ],
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -13,8 +23,7 @@
         "drblury.protobuf-vsc",
         "dbcode.dbcode",
         "hanwang.android-adb-wlan",
-        "diemasmichiels.emulate",
-        "anthropic.claude-code"
+        "diemasmichiels.emulate"
       ],
       "settings": {
         "editor.formatOnSave": true,
@@ -32,9 +41,7 @@
   },
   "postCreateCommand": ".devcontainer/script/post-create.sh",
   "postStartCommand": ".devcontainer/script/post-start.sh",
-  "waitFor": "postStartCommand",
   "remoteEnv": {
-    "ADB_SERVER_SOCKET": "tcp:127.0.0.1:5037"
-  },
-  "features": {}
+    "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037"
+  }
 }

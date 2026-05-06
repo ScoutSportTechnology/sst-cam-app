@@ -11,7 +11,9 @@
       "Bash(just test *)",
       "Bash(dart analyze *)",
       "Bash(just format-check *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(ls -la ~/.local/bin/claude 2>&1 || echo \"PATH DOES NOT EXIST ON HOST\")",
+      "Read(//root/.local/bin/**)"
     ],
     "additionalDirectories": [
       "/root/.vscode-server/data/Machine",
