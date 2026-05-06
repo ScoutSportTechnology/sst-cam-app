@@ -87,6 +87,19 @@ abstract class BleService {
   Future<DownloadToken> requestDownload(String deviceId, String recordingId);
 
   // ---------------------------------------------------------------------------
+  // Session push (U9)
+  // ---------------------------------------------------------------------------
+
+  /// Push session configuration to the camera before a match starts.
+  /// Must be called and awaited successfully before calling any recording /
+  /// period-control commands. On failure the camera has no session context
+  /// and the UI must stay on the setup screen.
+  Future<BleCommandResponse<void>> pushSessionConfig(
+    String deviceId,
+    PushSessionConfig config,
+  );
+
+  // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
 

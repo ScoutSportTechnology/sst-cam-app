@@ -224,6 +224,19 @@ class BleServiceImpl implements BleService {
   }
 
   // ---------------------------------------------------------------------------
+  // Session push (U9)
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<BleCommandResponse<void>> pushSessionConfig(
+    String deviceId,
+    PushSessionConfig config,
+  ) async {
+    // TODO (Phase 7): encode PushSessionConfigCommand as proto + BLE write.
+    throw UnimplementedError('Phase 7: pushSessionConfig');
+  }
+
+  // ---------------------------------------------------------------------------
   // Recordings
   // ---------------------------------------------------------------------------
 

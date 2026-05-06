@@ -93,6 +93,9 @@ message Command {
     FactoryResetCommand   factory_reset    = 50;
     FirmwareUpdateCommand firmware_update  = 51;
 
+    // Session push (U9) — sent once before recording starts
+    PushSessionConfigCommand push_session_config = 52;
+
     reserved 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70;
     reserved "list_teams", "list_team_matches", "create_team", "update_team",
              "delete_team", "set_team_hidden", "add_player", "update_player",
@@ -372,4 +375,24 @@ message StreamingConfig {
   string youtube_stream_key   = 1;
   string instagram_stream_key = 2;
   string custom_rtmp_url      = 3;  // full RTMP URL including key
+}
+
+// ===========================================================================
+// 9. Session push (U9)
+// ===========================================================================
+
+// Sent by the app once before the session starts. The camera holds this
+// in-memory for the duration of the session and forgets it on reset.
+// Replaces the previous CRUD-based data sync: the camera receives everything
+// it needs to execute the session in a single call.
+message PushSessionConfigCommand {
+  string match_uuid              = 1;
+  string user_uuid               = 2;
+  string sport                   = 3;  // lowercase, e.g. "soccer"
+  int32  num_periods             = 4;
+  int32  period_length_seconds   = 5;
+  optional string rtmp_url       = 6;  // null = no streaming
+  optional string stream_key     = 7;  // null when embedded in rtmp_url
+  string video_output_path       = 8;  // "/data/video/{userUuid}/{matchUuid}/"
+  string thumbnail_output_path   = 9;  // "/data/thumbnail/{userUuid}/{matchUuid}/"
 }

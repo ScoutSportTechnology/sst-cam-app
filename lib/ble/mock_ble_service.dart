@@ -449,6 +449,32 @@ class MockBleService implements BleService {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Session push (U9)
+  // ---------------------------------------------------------------------------
+
+  /// The last config pushed via [pushSessionConfig]. Test code can inspect
+  /// this after a "Start match" tap to verify the correct values were sent.
+  PushSessionConfig? lastPushedConfig;
+
+  /// Whether [pushSessionConfig] should return an error on the next call.
+  /// Reset to false after each call. Useful for error-path tests.
+  bool failNextPushSessionConfig = false;
+
+  @override
+  Future<BleCommandResponse<void>> pushSessionConfig(
+    String deviceId,
+    PushSessionConfig config,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    if (failNextPushSessionConfig) {
+      failNextPushSessionConfig = false;
+      return BleCommandResponse.error('Simulated pushSessionConfig failure');
+    }
+    lastPushedConfig = config;
+    return BleCommandResponse.ok();
+  }
+
   @override
   Future<void> dispose() async {
     await stopScan();

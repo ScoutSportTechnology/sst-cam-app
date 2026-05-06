@@ -87,6 +87,54 @@ class FactoryResetCommand extends BleCommand {}
 
 class FirmwareUpdateCommand extends BleCommand {}
 
+// Session config — sent once before recording starts (U9)
+class PushSessionConfigCommand extends BleCommand {
+  PushSessionConfigCommand(this.config);
+  final PushSessionConfig config;
+}
+
+// ---------------------------------------------------------------------------
+// Session configuration payload pushed to the camera before a match starts.
+// ---------------------------------------------------------------------------
+
+class PushSessionConfig {
+  const PushSessionConfig({
+    required this.matchUuid,
+    required this.userUuid,
+    required this.sport,
+    required this.numPeriods,
+    required this.periodLengthSeconds,
+    this.rtmpUrl,
+    this.streamKey,
+    required this.videoOutputPath,
+    required this.thumbnailOutputPath,
+  });
+
+  final String matchUuid;
+  final String userUuid;
+
+  /// Sport as a lowercase string, e.g. 'soccer'.
+  final String sport;
+
+  final int numPeriods;
+  final int periodLengthSeconds;
+
+  /// Full RTMP URL including stream key (optional — null means no streaming).
+  final String? rtmpUrl;
+
+  /// Stream key extracted separately when the RTMP URL does not embed it
+  /// (optional). May be null even when [rtmpUrl] is provided.
+  final String? streamKey;
+
+  /// Absolute path on the camera where video files will be written, e.g.
+  /// `/data/video/{userUuid}/{matchUuid}/`.
+  final String videoOutputPath;
+
+  /// Absolute path on the camera where thumbnail files will be written, e.g.
+  /// `/data/thumbnail/{userUuid}/{matchUuid}/`.
+  final String thumbnailOutputPath;
+}
+
 // ---------------------------------------------------------------------------
 
 enum BleResponseStatus { ok, error, timeout, unsupported }
