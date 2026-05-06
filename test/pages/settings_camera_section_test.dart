@@ -45,29 +45,6 @@ MockBleService _newMock({double failureRate = 0.0}) => MockBleService(
   randomSeed: 1,
 );
 
-/// Builds a Settings page harness. When [activeCameraId] is set the
-/// connection state is forced to [connectionState] via a finite Stream so
-/// `pumpAndSettle` can terminate. Pass [serviceOverride] when the test
-/// needs a custom mock that records connect/disconnect calls.
-Widget _buildHarness({
-  required BleService service,
-  String? activeCameraId,
-  CameraConnectionState connectionState = CameraConnectionState.connected,
-}) {
-  return ProviderScope(
-    overrides: [
-      bleServiceProvider.overrideWithValue(service),
-      if (activeCameraId != null)
-        activeCameraIdProvider.overrideWith((_) => activeCameraId),
-      if (activeCameraId != null)
-        connectionStateProvider(activeCameraId).overrideWith(
-          (_) => Stream<CameraConnectionState>.value(connectionState),
-        ),
-    ],
-    child: const MaterialApp(home: SettingsPage()),
-  );
-}
-
 /// A spy mock that records connect/disconnect calls without starting the
 /// telemetry Timer.periodic that prevents pumpAndSettle from settling. We
 /// only spy the methods Settings actually drives (connect/disconnect); all
@@ -110,12 +87,35 @@ class _SpyBleService extends MockBleService {
 }
 
 void main() {
-  // Process-global DevDataStore reset between tests.
-  useDevDataStoreReset();
+  final db = useInMemoryDb();
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
   });
+
+  /// Builds a Settings page harness. When [activeCameraId] is set the
+  /// connection state is forced to [connectionState] via a finite Stream so
+  /// `pumpAndSettle` can terminate. Pass [serviceOverride] when the test
+  /// needs a custom mock that records connect/disconnect calls.
+  Widget buildHarness({
+    required BleService service,
+    String? activeCameraId,
+    CameraConnectionState connectionState = CameraConnectionState.connected,
+  }) {
+    return ProviderScope(
+      overrides: [
+        ...dbOverrides(db),
+        bleServiceProvider.overrideWithValue(service),
+        if (activeCameraId != null)
+          activeCameraIdProvider.overrideWith((_) => activeCameraId),
+        if (activeCameraId != null)
+          connectionStateProvider(activeCameraId).overrideWith(
+            (_) => Stream<CameraConnectionState>.value(connectionState),
+          ),
+      ],
+      child: const MaterialApp(home: SettingsPage()),
+    );
+  }
 
   group('Camera card — connected state', () {
     testWidgets(
@@ -125,7 +125,7 @@ void main() {
         addTearDown(mock.dispose);
 
         await tester.pumpWidget(
-          _buildHarness(service: mock, activeCameraId: _kFakeDeviceId),
+          buildHarness(service: mock, activeCameraId: _kFakeDeviceId),
         );
         await tester.pumpAndSettle();
 
@@ -147,7 +147,7 @@ void main() {
         addTearDown(mock.dispose);
 
         await tester.pumpWidget(
-          _buildHarness(service: mock, activeCameraId: _kFakeDeviceId),
+          buildHarness(service: mock, activeCameraId: _kFakeDeviceId),
         );
         await tester.pumpAndSettle();
 
@@ -172,7 +172,7 @@ void main() {
         addTearDown(mock.dispose);
 
         await tester.pumpWidget(
-          _buildHarness(service: mock, activeCameraId: _kFakeDeviceId),
+          buildHarness(service: mock, activeCameraId: _kFakeDeviceId),
         );
         await tester.pumpAndSettle();
 
@@ -199,6 +199,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(spy),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
             connectionStateProvider(
@@ -239,7 +240,7 @@ void main() {
         final mock = _newMock();
         addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(service: mock));
+        await tester.pumpWidget(buildHarness(service: mock));
         await tester.pumpAndSettle();
 
         expect(find.text('Connect camera'), findsOneWidget);
@@ -286,6 +287,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(spy),
             connectionStateProvider(
               _kFakeDeviceId,

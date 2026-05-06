@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
+import '../models/command.dart';
 import '../models/device.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
@@ -559,6 +561,15 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
   final Set<_StreamMethod> _streamMethods = {};
   String _customRtmpUrl = '';
 
+  // Session push state (U9).
+  bool _pushing = false;
+  String? _pushError;
+  // Stable match UUID for the current setup session. Generated on first tap
+  // and reused on retry so the camera always sees the same UUID.
+  String? _matchUuid;
+
+  static const _uuid = Uuid();
+
   @override
   Widget build(BuildContext context) {
     final team = widget.match.team;
@@ -704,18 +715,122 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
             child: WfButton(
-              label: 'Start match',
+              label: _pushing ? 'Configuring camera…' : 'Start match',
               variant: WfButtonVariant.primary,
               size: WfButtonSize.lg,
               full: true,
-              onPressed: widget.onStart,
+              onPressed: _pushing
+                  ? null
+                  : () => _startMatch(
+                      periods,
+                      _preset?.periodLengthSeconds ?? _customPeriodSeconds,
+                    ),
             ),
           ),
+          if (_pushing)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(child: LinearProgressIndicator()),
+            ),
+          if (_pushError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _pushError!,
+                    style: const TextStyle(color: T.danger, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  WfButton(
+                    label: 'Retry',
+                    variant: WfButtonVariant.outline,
+                    full: true,
+                    onPressed: () => _startMatch(
+                      periods,
+                      _preset?.periodLengthSeconds ?? _customPeriodSeconds,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            const SizedBox(height: 14),
         ],
       ),
     );
+  }
+
+  // Fix 17: UUID v4 format regex used to validate UUIDs before interpolating
+  // them into output paths.
+  static final _uuidRegex = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+  );
+
+  void _validateUuid(String uuid, String name) {
+    if (!_uuidRegex.hasMatch(uuid)) {
+      throw ArgumentError('$name is not a valid UUID: $uuid');
+    }
+  }
+
+  Future<void> _startMatch(int periods, int periodLengthSeconds) async {
+    final deviceId = ref.read(activeCameraIdProvider);
+    if (deviceId == null) return;
+
+    final userUuid = ref.read(activeUserProvider);
+    if (userUuid == null) return;
+
+    // Generate a stable match UUID on first tap; reuse on retry.
+    _matchUuid ??= _uuid.v4();
+    final matchUuid = _matchUuid!;
+
+    final rtmpUrl =
+        _streamMethods.contains(_StreamMethod.custom) &&
+            _customRtmpUrl.isNotEmpty
+        ? _customRtmpUrl
+        : null;
+
+    final config = PushSessionConfig(
+      matchUuid: matchUuid,
+      userUuid: userUuid,
+      sport: widget.match.team.sport.toLowerCase(),
+      numPeriods: periods,
+      periodLengthSeconds: periodLengthSeconds,
+      rtmpUrl: rtmpUrl,
+      videoOutputPath: '/data/video/$userUuid/$matchUuid/',
+      thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
+    );
+
+    setState(() {
+      _pushing = true;
+      _pushError = null;
+    });
+
+    try {
+      // Fix 17: Validate matchUuid against the UUID v4 format before
+      // interpolating it into the camera filesystem path. matchUuid is
+      // generated above via Uuid().v4(), so this guard should never fire in
+      // practice — it defends against accidental code changes that replace the
+      // UUID generator with unvalidated input.
+      _validateUuid(matchUuid, 'matchUuid');
+
+      final ble = ref.read(bleServiceProvider);
+      await ble.pushSessionConfig(deviceId, config);
+      if (!mounted) return;
+      setState(() {
+        _pushing = false;
+      });
+      widget.onStart();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _pushing = false;
+        _pushError = 'Failed to configure camera. Check connection and retry.';
+      });
+    }
   }
 
   Future<void> _toggleStreamMethod(_StreamMethod method) async {

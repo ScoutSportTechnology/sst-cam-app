@@ -6,10 +6,6 @@
 //
 // Delete, add-user, and full-list management are tested in
 // manage_users_page_test.dart.
-//
-// Test isolation: `useDevDataStoreReset()` re-seeds the DevDataStore between
-// tests so the seed users (Coach Diego = user-1, Coach Maria = user-2) are
-// always there.
 
 import 'dart:async';
 
@@ -23,6 +19,8 @@ import 'package:scout_camera/state/app_data.dart';
 import 'package:scout_camera/state/ble_providers.dart';
 import 'package:scout_camera/widgets/wf_chip.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../test_helpers.dart';
 
 const String _kFakeDeviceId = 'SST-CAM-001';
@@ -34,43 +32,33 @@ MockBleService _newMock() => MockBleService(
   randomSeed: 1,
 );
 
-/// MockBleService variant that returns null from `getActiveUser`, simulating
-/// the post-reconnect path where the camera reports no active user.
-class _NullActiveUserMock extends MockBleService {
-  _NullActiveUserMock()
-    : super(
-        scanDeviceAppearDelays: const [Duration.zero, Duration.zero],
-        connectionDelay: Duration.zero,
-        failureRate: 0.0,
-        randomSeed: 1,
-      );
-
-  @override
-  Future<String?> getActiveUser(String deviceId) async => null;
-}
-
-Widget _buildHarness({
-  required MockBleService service,
-  String? activeUserId = 'user-1',
-}) {
-  return ProviderScope(
-    overrides: [
-      bleServiceProvider.overrideWithValue(service),
-      activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-      connectionStateProvider(_kFakeDeviceId).overrideWith(
-        (_) => Stream<CameraConnectionState>.value(
-          CameraConnectionState.connected,
-        ),
-      ),
-      if (activeUserId != null)
-        activeUserProvider.overrideWith((_) => activeUserId),
-    ],
-    child: const MaterialApp(home: SettingsPage()),
-  );
-}
-
 void main() {
-  useDevDataStoreReset();
+  final db = useInMemoryDb();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  Widget buildHarness({
+    required MockBleService service,
+    String? activeUserId = 'user-1',
+  }) {
+    return ProviderScope(
+      overrides: [
+        ...dbOverrides(db),
+        bleServiceProvider.overrideWithValue(service),
+        activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
+        connectionStateProvider(_kFakeDeviceId).overrideWith(
+          (_) => Stream<CameraConnectionState>.value(
+            CameraConnectionState.connected,
+          ),
+        ),
+        if (activeUserId != null)
+          activeUserProvider.overrideWith((_) => activeUserId),
+      ],
+      child: const MaterialApp(home: SettingsPage()),
+    );
+  }
 
   group('Compact user row (AE3)', () {
     testWidgets('Active chip + user name displayed in compact row', (
@@ -79,7 +67,7 @@ void main() {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
       // Active chip and user name visible.
@@ -102,7 +90,7 @@ void main() {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
       expect(find.text('Manage users'), findsOneWidget);
@@ -115,7 +103,7 @@ void main() {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
       // Tap the expand icon to open the full-width picker.
@@ -142,7 +130,7 @@ void main() {
         final mock = _newMock();
         addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(service: mock));
+        await tester.pumpWidget(buildHarness(service: mock));
         await tester.pumpAndSettle();
 
         await tester.tap(find.byIcon(Icons.expand_more));
@@ -173,6 +161,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(mock),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
             connectionStateProvider(_kFakeDeviceId).overrideWith(
@@ -210,7 +199,7 @@ void main() {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.expand_more));
@@ -228,12 +217,14 @@ void main() {
     testWidgets('with null activeUser, compact row shows "Pick a user" note', (
       tester,
     ) async {
-      final mock = _NullActiveUserMock();
+      // No active_user_id in SharedPreferences → activeUserProvider stays null.
+      final mock = _newMock();
       addTearDown(mock.dispose);
 
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(mock),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
             connectionStateProvider(_kFakeDeviceId).overrideWith(

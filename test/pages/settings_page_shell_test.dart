@@ -2,8 +2,6 @@
 //
 // Verifies the two render shapes (empty vs populated), the
 // connection-state transition, and the empty-state CTA navigation.
-// Uses `useDevDataStoreReset()` so the process-global DevDataStore is
-// fresh before every test.
 //
 // To avoid Timer.periodic-driven streams from MockBleService that prevent
 // `pumpAndSettle` from terminating, we override `connectionStateProvider`
@@ -21,6 +19,8 @@ import 'package:scout_camera/pages/settings_page.dart';
 import 'package:scout_camera/state/app_data.dart';
 import 'package:scout_camera/state/ble_providers.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../test_helpers.dart';
 
 const String _kFakeDeviceId = 'SST-CAM-001';
@@ -32,36 +32,43 @@ MockBleService _newMock() => MockBleService(
   randomSeed: 1,
 );
 
-/// Build the harness, optionally overriding the connection state for the
-/// active camera id directly. We use a finite, immediately-completing Stream
-/// rather than `mock.connect()` to keep tests synchronous.
-Widget _buildHarness({
-  required MockBleService service,
-  String? activeCameraId,
-  CameraConnectionState? connectionState,
-  StreamController<CameraConnectionState>? connectionController,
-}) {
-  return ProviderScope(
-    overrides: [
-      bleServiceProvider.overrideWithValue(service),
-      if (activeCameraId != null)
-        activeCameraIdProvider.overrideWith((_) => activeCameraId),
-      if (connectionState != null)
-        connectionStateProvider(activeCameraId!).overrideWith(
-          (_) => Stream<CameraConnectionState>.value(connectionState),
-        ),
-      if (connectionController != null)
-        connectionStateProvider(
-          activeCameraId!,
-        ).overrideWith((_) => connectionController.stream),
-    ],
-    child: const MaterialApp(home: SettingsPage()),
-  );
-}
-
 void main() {
-  // Process-global DevDataStore reset between tests.
-  useDevDataStoreReset();
+  final db = useInMemoryDb();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  /// Build the harness, optionally overriding the connection state for the
+  /// active camera id directly. We use a finite, immediately-completing Stream
+  /// rather than `mock.connect()` to keep tests synchronous.
+  Widget buildHarness({
+    required MockBleService service,
+    String? activeCameraId,
+    CameraConnectionState? connectionState,
+    StreamController<CameraConnectionState>? connectionController,
+    String? activeUserId,
+  }) {
+    return ProviderScope(
+      overrides: [
+        ...dbOverrides(db),
+        bleServiceProvider.overrideWithValue(service),
+        if (activeCameraId != null)
+          activeCameraIdProvider.overrideWith((_) => activeCameraId),
+        if (connectionState != null)
+          connectionStateProvider(activeCameraId!).overrideWith(
+            (_) => Stream<CameraConnectionState>.value(connectionState),
+          ),
+        if (connectionController != null)
+          connectionStateProvider(
+            activeCameraId!,
+          ).overrideWith((_) => connectionController.stream),
+        if (activeUserId != null)
+          activeUserProvider.overrideWith((_) => activeUserId),
+      ],
+      child: const MaterialApp(home: SettingsPage()),
+    );
+  }
 
   group('Settings shell — empty state (no camera connected)', () {
     testWidgets(
@@ -70,7 +77,7 @@ void main() {
         final mock = _newMock();
         addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(service: mock));
+        await tester.pumpWidget(buildHarness(service: mock));
         await tester.pumpAndSettle();
 
         // Empty-state copy is present.
@@ -115,10 +122,11 @@ void main() {
         addTearDown(mock.dispose);
 
         await tester.pumpWidget(
-          _buildHarness(
+          buildHarness(
             service: mock,
             activeCameraId: _kFakeDeviceId,
             connectionState: CameraConnectionState.connected,
+            activeUserId: 'user-1',
           ),
         );
         await tester.pumpAndSettle();
@@ -204,7 +212,7 @@ void main() {
         addTearDown(controller.close);
 
         await tester.pumpWidget(
-          _buildHarness(
+          buildHarness(
             service: mock,
             activeCameraId: _kFakeDeviceId,
             connectionController: controller,
@@ -234,7 +242,7 @@ void main() {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
       expect(find.byType(DiscoveryPage), findsNothing);

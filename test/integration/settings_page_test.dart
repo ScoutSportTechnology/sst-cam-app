@@ -10,9 +10,8 @@
 //     under another (cross-user isolation),
 //   * the cascade-delete dialog enumerates "teams", "match history",
 //     "sport setups", and "streaming destinations", and that confirming the
-//     delete actually removes the user from `DevDataStore`,
-//   * the "Pick a user" prompt renders when `getActiveUser` returns null
-//     post-reconnect.
+//     delete actually removes the user from the DB,
+//   * the "Pick a user" prompt renders when no active user is set.
 //
 // CRITICAL — never call `mock.connect()` followed by `pumpAndSettle()`.
 // The MockBleService starts a `Timer.periodic` for telemetry on connect,
@@ -22,18 +21,16 @@
 // real connect path.
 //
 // For the one-tap-reconnect-failure scenario we use a small spy that
-// overrides `connect` to throw without starting telemetry; for the
-// "pick a user" scenario we use a mock that returns `null` from
-// `getActiveUser`.
+// overrides `connect` to throw without starting telemetry.
 
 import 'dart:async';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:scout_camera/ble/ble_service.dart';
-import 'package:scout_camera/ble/dev_data_store.dart';
 import 'package:scout_camera/ble/mock_ble_service.dart';
 import 'package:scout_camera/models/device.dart';
 import 'package:scout_camera/pages/discovery_page.dart';
@@ -86,27 +83,11 @@ class _SpyBleService extends MockBleService {
   }
 }
 
-/// Mock variant whose `getActiveUser` returns `null`, simulating a camera
-/// that has no active user post-reconnect. Used by the "Pick a user" prompt
-/// scenario.
-class _NullActiveUserMock extends MockBleService {
-  _NullActiveUserMock()
-    : super(
-        scanDeviceAppearDelays: const [Duration.zero, Duration.zero],
-        connectionDelay: Duration.zero,
-        failureRate: 0.0,
-        randomSeed: 1,
-      );
-
-  @override
-  Future<String?> getActiveUser(String deviceId) async => null;
-}
-
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  // Every test gets a fresh DevDataStore (re-runs the seed).
-  useDevDataStoreReset();
+  // Every test gets a fresh in-memory DB seeded with user-1 / user-2.
+  final db = useInMemoryDb();
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -126,7 +107,10 @@ void main() {
       late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
-          overrides: [bleServiceProvider.overrideWithValue(mock)],
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(mock),
+          ],
           child: Builder(
             builder: (ctx) {
               container = ProviderScope.containerOf(ctx);
@@ -198,6 +182,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(spy),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
             connectionStateProvider(
@@ -267,10 +252,15 @@ void main() {
     final mock = _newMock();
     addTearDown(mock.dispose);
 
+    // Pre-seed active user in SharedPreferences so UsersController.build()
+    // hydrates user-1 as the active user.
+    SharedPreferences.setMockInitialValues({'active_user_id': 'user-1'});
+
     late ProviderContainer container;
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          ...dbOverrides(db),
           bleServiceProvider.overrideWithValue(mock),
           activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
           connectionStateProvider(_kFakeDeviceId).overrideWith(
@@ -330,14 +320,11 @@ void main() {
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      // Pre-set active user to user-2 (Coach Maria) so any new destinations
-      // attach to user-2 in DevDataStore via the controller.
-      DevDataStore.instance.setActiveUser('user-2');
-
       late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(mock),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
             connectionStateProvider(_kFakeDeviceId).overrideWith(
@@ -439,10 +426,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Both rows present on the destinations page.
-      expect(
-        DevDataStore.instance.listStreamingDestinations('user-2'),
-        hasLength(2),
+      final user2Dests = await db.value.streamingDestinationsDao.getForUser(
+        'user-2',
       );
+      expect(user2Dests, hasLength(2));
       expect(find.text('Backyard cam'), findsOneWidget);
       expect(find.text('RTSP'), findsOneWidget);
 
@@ -457,58 +444,56 @@ void main() {
 
       // Switch active user to user-1 — neither destination should be
       // visible.
-      DevDataStore.instance.setActiveUser('user-1');
       container.read(activeUserProvider.notifier).state = 'user-1';
+      // Allow the controller rebuild and Drift stream to propagate.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       await tester.pumpAndSettle();
 
       // Count badge clears (user-1 has no destinations).
       expect(find.text('2 destinations'), findsNothing);
-      // user-1's destination list is empty.
-      expect(
-        DevDataStore.instance.listStreamingDestinations('user-1'),
-        isEmpty,
+      // user-1's destination list is empty in the DB.
+      final user1Dests = await db.value.streamingDestinationsDao.getForUser(
+        'user-1',
       );
+      expect(user1Dests, isEmpty);
     },
   );
 
   // -------------------------------------------------------------------------
   // AE4 + cascade — delete dialog enumerates the four cascaded collections;
-  // confirming actually removes the user from DevDataStore.
+  // confirming actually removes the user from the DB.
   // -------------------------------------------------------------------------
   testWidgets(
     'AE4 + cascade: delete dialog body enumerates teams / match history / '
-    'sport setups / streaming destinations; confirm cascades through '
-    'DevDataStore',
+    'sport setups / streaming destinations; confirm cascades through DB',
     (tester) async {
-      // user-1 (Diego, active) has seed teams + built-in presets. Add a
-      // streaming destination under user-1 directly via the store so the
-      // cascade probe is meaningful.
-      DevDataStore.instance.createStreamingDestination(
-        'user-1',
-        const StreamingDestinationDraft(
+      // Add a streaming destination under user-1 directly via the DAO.
+      await db.value.streamingDestinationsDao.insertDestination(
+        StreamingDestinationsTableCompanion.insert(
+          id: 'dest-diego-yt',
+          userId: 'user-1',
           name: 'Diego YT',
-          provider: StreamingProvider.youtube,
-          protocol: StreamingProtocol.rtmp,
-          config: RtmpConfig(
-            url: 'rtmp://a.rtmp.youtube.com/live2/',
-            streamKey: 'k',
-          ),
+          provider: 'youtube',
+          protocol: 'rtmp',
+          configType: 'rtmp',
+          configUrl: 'rtmp://a.rtmp.youtube.com/live2/',
+          configStreamKey: const Value('diego-stream-key'),
         ),
       );
-      expect(
-        DevDataStore.instance.listStreamingDestinations('user-1'),
-        hasLength(1),
-      );
+      final user1DestsBefore = await db.value.streamingDestinationsDao
+          .getForUser('user-1');
+      expect(user1DestsBefore, hasLength(1));
 
       final mock = _newMock();
       addTearDown(mock.dispose);
 
       // Switch active user to user-2 first (otherwise we can't delete user-1).
-      DevDataStore.instance.setActiveUser('user-2');
       late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(mock),
             activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
             connectionStateProvider(_kFakeDeviceId).overrideWith(
@@ -572,16 +557,15 @@ void main() {
       // Diego's row is gone from ManageUsersPage.
       expect(find.text('Coach Diego'), findsNothing);
 
-      // DevDataStore directly: user-1 is gone.
-      final users = DevDataStore.instance.listUsers();
+      // DB directly: user-1 is gone (FK cascade removed destinations too).
+      final users = await db.value.usersDao.getAll();
       expect(users.map((u) => u.id), isNot(contains('user-1')));
       expect(users.map((u) => u.id), contains('user-2'));
 
-      // setActiveUser('user-1') throws DevDataStoreException now.
-      expect(
-        () => DevDataStore.instance.setActiveUser('user-1'),
-        throwsA(isA<DevDataStoreException>()),
-      );
+      // Destinations for user-1 are also gone (FK cascade).
+      final user1DestsAfter = await db.value.streamingDestinationsDao
+          .getForUser('user-1');
+      expect(user1DestsAfter, isEmpty);
 
       // Container reads still resolve.
       expect(container.read(activeUserProvider), 'user-2');
@@ -594,13 +578,14 @@ void main() {
   testWidgets('Edge: when getActiveUser returns null, User section renders the '
       '"Pick a user" prompt; Teams + Streaming sections are empty without '
       'crashing', (tester) async {
-    final mock = _NullActiveUserMock();
+    final mock = _newMock();
     addTearDown(mock.dispose);
 
     late ProviderContainer container;
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          ...dbOverrides(db),
           bleServiceProvider.overrideWithValue(mock),
           activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
           connectionStateProvider(_kFakeDeviceId).overrideWith(
@@ -608,6 +593,8 @@ void main() {
               CameraConnectionState.connected,
             ),
           ),
+          // No activeUserProvider override — it starts null and build() won't
+          // set it because SharedPreferences has no saved id.
         ],
         child: Builder(
           builder: (ctx) {
@@ -619,7 +606,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // activeUserProvider stayed null because getActiveUser returned null.
+    // activeUserProvider stayed null because SharedPreferences is empty and
+    // no activeUserProvider override was set.
     expect(container.read(activeUserProvider), isNull);
 
     // The "Pick a user" copy is present in the compact row.
@@ -629,15 +617,14 @@ void main() {
 
     // StreamingDestinations controller returns empty without crashing
     // when activeUserProvider is null (its build() returns const [] in
-    // that case without making a BLE call).
+    // that case without making a DB call).
     final dests = await container.read(
       streamingDestinationsControllerProvider.future,
     );
     expect(dests, isEmpty);
-    // Teams controller does not crash. (It reads from the camera; the
-    // mock scopes that call to DevDataStore.getActiveUser() — which is
-    // the seeded user-1, so seeded teams come back. The integration
-    // assertion that matters is "no crash", not "empty".)
+    // Teams controller does not crash when activeUserProvider is null.
+    // It returns empty (no userId → no DB query). The integration
+    // assertion that matters is "no crash", not "empty".
     final teams = await container.read(teamsControllerProvider.future);
     expect(teams, isNotNull);
 
@@ -664,7 +651,10 @@ void main() {
       late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
-          overrides: [bleServiceProvider.overrideWithValue(spy)],
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(spy),
+          ],
           child: Builder(
             builder: (ctx) {
               container = ProviderScope.containerOf(ctx);

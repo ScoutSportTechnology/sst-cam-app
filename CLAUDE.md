@@ -18,6 +18,7 @@ just analyze          # flutter analyze
 just format           # dart format
 just format-check     # CI format check (exits non-zero on diff)
 just gen-proto        # regenerate lib/models/proto/ from proto/*.proto (devcontainer)
+just gen-db              # regenerate lib/db/*.g.dart from Drift tables (devcontainer)
 just build-android    # debug APK
 just ci               # format-check + analyze + test (mirrors CI)
 ```
@@ -48,6 +49,12 @@ See `proto/README.md` for UUIDs and the full BLE protocol spec.
 ### Directory layout
 
 ```text
+docs/
+  solutions/         Documented solutions to past problems (architecture patterns, bugs,
+                     conventions) with YAML frontmatter (module, tags, problem_type).
+                     Relevant when implementing features or debugging in documented areas.
+  brainstorms/       Requirements documents from ce-brainstorm
+  plans/             Implementation plans from ce-plan
 proto/               Proto3 schemas — wire format + firmware contract
   README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/
@@ -56,6 +63,12 @@ lib/
   ble/
     ble_service.dart       Abstract interface (all app code targets this)
     ble_service_impl.dart  flutter_blue_plus implementation; Phase 7
+  db/
+    app_database.dart  Drift database class, migration, AppDatabase
+    tables/            Table definitions (one file per entity group)
+    daos/              Data access objects (one file per entity group)
+  services/
+    backup_service.dart  BackupService — export/import full DB as JSON
   models/            Plain Dart view models (app compiles without generated protos)
     device.dart      ScoutDevice, CameraConnectionState, ThumbnailResult
     telemetry.dart   DeviceTelemetry, WifiState
@@ -79,6 +92,7 @@ test/
 
 Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
 
+- `db_providers.dart` — `appDatabaseProvider` + per-DAO providers + `backupServiceProvider`
 - `bleServiceProvider` — `Provider<BleService>`; override in tests with `MockBleService`
 - `discoveredDevicesProvider` — `StreamProvider<List<ScoutDevice>>`
 - `connectionStateProvider(deviceId)` — `StreamProvider.family`

@@ -1,0 +1,9 @@
+targets:
+  $default:
+    builders:
+      drift_dev:
+        options:
+          skip_verification_code: true
+          store_date_time_values_as_text: true
+          sql:
+            dialect: sqlite

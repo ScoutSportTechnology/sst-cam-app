@@ -53,5 +53,9 @@ run:
 clean:
     flutter clean
 
+# Regenerate Drift database bindings
+gen-db:
+    dart run build_runner build --delete-conflicting-outputs
+
 # Full CI check
 ci: format-check analyze test

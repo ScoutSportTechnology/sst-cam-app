@@ -1,23 +1,22 @@
 // ManageUsersPage tests — covers AE4 delete rules + switch affordance.
 //
 // This page is the nav destination for "Manage users" on SettingsPage.
-// It lists all camera-side users with active badge, switch, and delete.
+// It lists all local-DB users with active badge, switch, and delete.
 //
-// Test isolation: `useDevDataStoreReset()` re-seeds the DevDataStore.
+// Test isolation: `useInMemoryDb()` provides a fresh Drift in-memory DB
+// seeded with user-1 / user-2 for every test.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/dev_data_store.dart';
 import 'package:scout_camera/ble/mock_ble_service.dart';
 import 'package:scout_camera/pages/manage_users_page.dart';
 import 'package:scout_camera/state/app_data.dart';
 import 'package:scout_camera/state/ble_providers.dart';
 import 'package:scout_camera/widgets/wf_chip.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';
-
-const String _kFakeDeviceId = 'SST-CAM-001';
 
 MockBleService _newMock() => MockBleService(
   scanDeviceAppearDelays: const [Duration.zero, Duration.zero],
@@ -26,32 +25,34 @@ MockBleService _newMock() => MockBleService(
   randomSeed: 1,
 );
 
-Widget _buildHarness({
-  required MockBleService service,
-  String? activeUserId = 'user-1',
-}) {
-  return ProviderScope(
-    overrides: [
-      bleServiceProvider.overrideWithValue(service),
-      activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-      if (activeUserId != null)
-        activeUserProvider.overrideWith((_) => activeUserId),
-    ],
-    child: const MaterialApp(home: ManageUsersPage()),
-  );
-}
-
 void main() {
-  useDevDataStoreReset();
+  final db = useInMemoryDb();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  Widget buildHarness({
+    String? activeUserId = 'user-1',
+    MockBleService? service,
+  }) {
+    final mock = service ?? _newMock();
+    return ProviderScope(
+      overrides: [
+        ...dbOverrides(db),
+        bleServiceProvider.overrideWithValue(mock),
+        if (activeUserId != null)
+          activeUserProvider.overrideWith((_) => activeUserId),
+      ],
+      child: const MaterialApp(home: ManageUsersPage()),
+    );
+  }
 
   group('User list (AE4)', () {
     testWidgets('active user row shows Active chip; non-active row does not', (
       tester,
     ) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       expect(find.text('Coach Diego'), findsOneWidget);
@@ -66,10 +67,7 @@ void main() {
     });
 
     testWidgets('active user delete icon is disabled', (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       // The subtitle under Diego's row (active user).
@@ -80,10 +78,7 @@ void main() {
     });
 
     testWidgets('non-active user has enabled delete icon', (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       // Maria's row has a delete icon. Both rows have a delete icon widget
@@ -100,10 +95,7 @@ void main() {
     testWidgets('tapping a non-active user row opens the switch dialog', (
       tester,
     ) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       // Tap Coach Maria's row (non-active).
@@ -115,15 +107,15 @@ void main() {
     });
 
     testWidgets('confirming switch updates the active user', (tester) async {
+      late ProviderContainer container;
       final mock = _newMock();
       addTearDown(mock.dispose);
 
-      late ProviderContainer container;
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            ...dbOverrides(db),
             bleServiceProvider.overrideWithValue(mock),
-            activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
             activeUserProvider.overrideWith((_) => 'user-1'),
           ],
           child: Builder(
@@ -156,14 +148,10 @@ void main() {
     testWidgets(
       'delete dialog body contains the four cascaded collection names',
       (tester) async {
-        final mock = _newMock();
-        addTearDown(mock.dispose);
-
-        await tester.pumpWidget(_buildHarness(service: mock));
+        await tester.pumpWidget(buildHarness());
         await tester.pumpAndSettle();
 
         // Maria is the non-active user; her delete icon should be enabled.
-        // Find delete icon in Maria's row.
         final mariaRow = find.ancestor(
           of: find.text('Coach Maria'),
           matching: find.byType(InkWell),
@@ -192,23 +180,7 @@ void main() {
     );
 
     testWidgets('confirming delete removes the user row', (tester) async {
-      DevDataStore.instance.createStreamingDestination(
-        'user-2',
-        const StreamingDestinationDraft(
-          name: 'Maria YT',
-          provider: StreamingProvider.youtube,
-          protocol: StreamingProtocol.rtmp,
-          config: RtmpConfig(
-            url: 'rtmp://a.rtmp.youtube.com/live2',
-            streamKey: 'k',
-          ),
-        ),
-      );
-
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       final mariaRow = find.ancestor(
@@ -227,17 +199,15 @@ void main() {
       expect(find.text('Coach Maria'), findsNothing);
       expect(find.text('Coach Diego'), findsOneWidget);
 
-      final users = DevDataStore.instance.listUsers();
+      // Verify deletion via DAO directly.
+      final users = await db.value.usersDao.getAll();
       expect(users.map((u) => u.id), isNot(contains('user-2')));
     });
   });
 
   group('Add user FAB', () {
     testWidgets('tapping FAB opens the Add user form sheet', (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       await tester.tap(find.byType(FloatingActionButton));
@@ -250,10 +220,7 @@ void main() {
     testWidgets('adding a user via FAB shows the new user in the list', (
       tester,
     ) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       await tester.tap(find.byType(FloatingActionButton));
@@ -271,13 +238,10 @@ void main() {
     testWidgets(
       'with only one user, delete is blocked with the last-user message',
       (tester) async {
-        DevDataStore.instance.deleteUser('user-2');
-        expect(DevDataStore.instance.listUsers(), hasLength(1));
+        // Delete user-2 from the in-memory DB before building the widget.
+        await db.value.usersDao.deleteById('user-2');
 
-        final mock = _newMock();
-        addTearDown(mock.dispose);
-
-        await tester.pumpWidget(_buildHarness(service: mock));
+        await tester.pumpWidget(buildHarness());
         await tester.pumpAndSettle();
 
         expect(find.text('Coach Diego'), findsOneWidget);

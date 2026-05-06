@@ -1,9 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../models/device.dart';
+import '../services/backup_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
+import '../state/db_providers.dart' show backupServiceProvider;
 import '../state/last_camera.dart';
 import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
@@ -15,10 +21,11 @@ import 'manage_users_page.dart';
 import 'sport_presets_page.dart';
 import 'streaming_destinations_page.dart';
 
-/// Settings page. Renders an empty-state CTA when no camera is connected
-/// (with one-tap reconnect to the last-known camera before falling back to
-/// `DiscoveryPage`); otherwise renders Camera, User, Match Setup, Streaming
-/// Setup, and App sections.
+/// Settings page. Always shows a single Scaffold.
+///
+/// When no camera is connected the body shows a slim `_ConnectCameraBanner`
+/// in place of the camera-gated sections. The Data (Backup & Restore) section
+/// is always visible at the bottom, regardless of camera connection state.
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
@@ -29,17 +36,6 @@ class SettingsPage extends ConsumerWidget {
         activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
-
-    if (!connected) {
-      return const _ConnectCameraEmptyState();
-    }
-
-    final streamingCount =
-        ref
-            .watch(streamingDestinationsControllerProvider)
-            .valueOrNull
-            ?.length ??
-        0;
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -55,85 +51,118 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          _CameraCard(deviceId: activeId),
-          const SizedBox(height: 14),
-          const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
-          const _UserSection(),
-          const SizedBox(height: 14),
-          const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
-          WfCard(
-            padding: EdgeInsets.zero,
-            child: _NavRow(
-              leading: const Icon(Icons.sports_soccer_outlined),
-              label: 'Sport setups',
-              sub: 'Saved time configs per sport',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const SportPresetsPage()),
-                );
-              },
+          if (connected) ...[
+            _CameraCard(deviceId: activeId),
+            const SizedBox(height: 14),
+            const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
+            const _UserSection(),
+            const SizedBox(height: 14),
+            const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
+            WfCard(
+              padding: EdgeInsets.zero,
+              child: _NavRow(
+                leading: const Icon(Icons.sports_soccer_outlined),
+                label: 'Sport setups',
+                sub: 'Saved time configs per sport',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SportPresetsPage()),
+                  );
+                },
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          const WfSection(
-            'Streaming setup',
-            padding: EdgeInsets.only(bottom: 6),
-          ),
-          WfCard(
-            padding: EdgeInsets.zero,
-            child: _NavRow(
-              leading: const Icon(Icons.cast_outlined),
-              label: 'Streaming destinations',
-              badge: streamingCount > 0
-                  ? '$streamingCount ${streamingCount == 1 ? 'destination' : 'destinations'}'
-                  : null,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const StreamingDestinationsPage(),
-                  ),
-                );
-              },
+            const SizedBox(height: 14),
+            _StreamingSection(deviceId: activeId),
+            const SizedBox(height: 14),
+            const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
+            const _RowItem(
+              leading: Icon(Icons.palette_outlined),
+              label: 'Theme',
+              trailing: Text(
+                'Dark',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
-          const _RowItem(
-            leading: Icon(Icons.palette_outlined),
-            label: 'Theme',
-            trailing: Text(
-              'Dark',
-              style: TextStyle(color: T.ink2, fontSize: 12),
+            const Divider(height: 1, color: T.rule),
+            const _RowItem(
+              leading: Icon(Icons.lock_outline),
+              label: 'Permissions',
+              trailing: Text(
+                '3 granted',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
             ),
-          ),
-          const Divider(height: 1, color: T.rule),
-          const _RowItem(
-            leading: Icon(Icons.lock_outline),
-            label: 'Permissions',
-            trailing: Text(
-              '3 granted',
-              style: TextStyle(color: T.ink2, fontSize: 12),
+            const Divider(height: 1, color: T.rule),
+            const _RowItem(
+              leading: Icon(Icons.info_outline),
+              label: 'About',
+              trailing: Text(
+                '0.3.2',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
             ),
-          ),
-          const Divider(height: 1, color: T.rule),
-          const _RowItem(
-            leading: Icon(Icons.info_outline),
-            label: 'About',
-            trailing: Text(
-              '0.3.2',
-              style: TextStyle(color: T.ink2, fontSize: 12),
-            ),
-          ),
+            const SizedBox(height: 14),
+          ] else ...[
+            const _ConnectCameraBanner(),
+            const SizedBox(height: 14),
+          ],
+          const _DataSection(),
         ],
       ),
     );
   }
 }
 
+// ---------------------------------------------------------------------------
+// Streaming setup section — extracted to read streamingCount only when
+// connected so the provider isn't watched in the disconnected path.
+// ---------------------------------------------------------------------------
+
+class _StreamingSection extends ConsumerWidget {
+  const _StreamingSection({required this.deviceId});
+
+  final String deviceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final streamingCount =
+        ref
+            .watch(streamingDestinationsControllerProvider)
+            .valueOrNull
+            ?.length ??
+        0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const WfSection('Streaming setup', padding: EdgeInsets.only(bottom: 6)),
+        WfCard(
+          padding: EdgeInsets.zero,
+          child: _NavRow(
+            leading: const Icon(Icons.cast_outlined),
+            label: 'Streaming destinations',
+            badge: streamingCount > 0
+                ? '$streamingCount ${streamingCount == 1 ? 'destination' : 'destinations'}'
+                : null,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const StreamingDestinationsPage(),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Camera card. Reboot and Update fw remain visual placeholders until
 // firmware lands; they render disabled with a tooltip explaining that.
 // fw / proto values are placeholder strings — pipe them from the
 // ScoutDevice / telemetry stream when that data is reachable here.
+// ---------------------------------------------------------------------------
 
 class _CameraCard extends ConsumerWidget {
   const _CameraCard({required this.deviceId});
@@ -252,9 +281,9 @@ class _CameraCard extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state — full-screen "Connect camera" prompt mirroring
-// `_ConnectCameraScreen` from match_page.dart so the three tabs feel like
-// one product when no camera is paired.
+// Slim "connect camera" banner — shown inside the shared Scaffold when no
+// camera is connected. Replaces the old full-Scaffold _ConnectCameraEmptyState
+// so the Data section can always render below it.
 //
 // The CTA runs a small state machine:
 //   1. On tap → loading (disabled, "Connecting…", inline spinner).
@@ -270,16 +299,15 @@ class _CameraCard extends ConsumerWidget {
 //      attempting reconnect (no loading state, no snackbar).
 // ---------------------------------------------------------------------------
 
-class _ConnectCameraEmptyState extends ConsumerStatefulWidget {
-  const _ConnectCameraEmptyState();
+class _ConnectCameraBanner extends ConsumerStatefulWidget {
+  const _ConnectCameraBanner();
 
   @override
-  ConsumerState<_ConnectCameraEmptyState> createState() =>
-      _ConnectCameraEmptyStateState();
+  ConsumerState<_ConnectCameraBanner> createState() =>
+      _ConnectCameraBannerState();
 }
 
-class _ConnectCameraEmptyStateState
-    extends ConsumerState<_ConnectCameraEmptyState> {
+class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
   bool _isConnecting = false;
 
   Future<void> _onConnectTapped() async {
@@ -288,9 +316,7 @@ class _ConnectCameraEmptyStateState
       final lastIdAsync = ref.read(lastConnectedDeviceIdProvider);
       final lastId = lastIdAsync.valueOrNull;
       if (lastId == null) {
-        // First-launch path: just push DiscoveryPage. No loading state
-        // would have been useful, but we already entered it on tap; the
-        // finally block resets us when the route returns.
+        // First-launch path: just push DiscoveryPage.
         if (!mounted) return;
         await Navigator.of(
           context,
@@ -303,7 +329,6 @@ class _ConnectCameraEmptyStateState
       try {
         await svc.connect(lastId).timeout(const Duration(seconds: 5));
         // Success: set active camera id; the page rerenders to populated.
-        // Active-user hydration happens lazily via UsersController.build.
         ref.read(activeCameraIdProvider.notifier).state = lastId;
       } catch (_) {
         // BleConnectionException, TimeoutException, anything else — same
@@ -327,19 +352,15 @@ class _ConnectCameraEmptyStateState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: T.bg,
-      appBar: AppBar(title: const Text('Settings')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return WfCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
               Container(
-                width: 64,
-                height: 64,
+                width: 40,
+                height: 40,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: T.fillSoft,
@@ -349,67 +370,282 @@ class _ConnectCameraEmptyStateState
                 child: const Icon(
                   Icons.videocam_off_outlined,
                   color: T.ink2,
-                  size: 28,
+                  size: 20,
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'No camera connected',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  color: T.ink,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Connect a camera to manage users, formats, and streaming '
-                'destinations.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
-              ),
-              const SizedBox(height: 18),
-              if (_isConnecting)
-                Row(
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Expanded(
-                      child: WfButton(
-                        label: 'Connecting…',
-                        variant: WfButtonVariant.primary,
-                        full: true,
-                        onPressed: null,
+                    Text(
+                      'No camera connected',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: T.ink,
                       ),
                     ),
-                    SizedBox(width: 10),
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation(T.accent),
+                    SizedBox(height: 2),
+                    Text(
+                      'Connect a camera to manage users, formats, and streaming '
+                      'destinations.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: T.ink2,
+                        height: 1.4,
                       ),
                     ),
                   ],
-                )
-              else
-                WfButton(
-                  label: 'Connect camera',
-                  variant: WfButtonVariant.primary,
-                  full: true,
-                  onPressed: _onConnectTapped,
                 ),
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: 12),
+          if (_isConnecting)
+            Row(
+              children: const [
+                Expanded(
+                  child: WfButton(
+                    label: 'Connecting…',
+                    variant: WfButtonVariant.primary,
+                    full: true,
+                    onPressed: null,
+                  ),
+                ),
+                SizedBox(width: 10),
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation(T.accent),
+                  ),
+                ),
+              ],
+            )
+          else
+            WfButton(
+              label: 'Connect camera',
+              variant: WfButtonVariant.primary,
+              full: true,
+              onPressed: _onConnectTapped,
+            ),
+        ],
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
+// Data section — always visible, regardless of camera connection state.
+// Provides Export backup and Restore backup flows wired to BackupService.
+// ---------------------------------------------------------------------------
+
+class _DataSection extends ConsumerWidget {
+  const _DataSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const WfSection('Data', padding: EdgeInsets.only(bottom: 6)),
+        WfCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              _NavRow(
+                leading: const Icon(Icons.upload_outlined),
+                label: 'Export backup',
+                onTap: () => _onExportTapped(context, ref),
+              ),
+              const Divider(height: 1, color: T.rule),
+              _NavRow(
+                leading: const Icon(Icons.download_outlined),
+                label: 'Restore backup',
+                onTap: () => _onRestoreTapped(context, ref),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _onExportTapped(BuildContext context, WidgetRef ref) async {
+    // Fix 3: Warn the user that the backup contains credentials before exporting.
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Backup contains credentials'),
+        content: const Text(
+          'This backup includes your streaming keys and passwords. '
+          'Store the file securely.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Export Anyway'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return;
+    if (!context.mounted) return;
+
+    final service = ref.read(backupServiceProvider);
+    final activeCameraId = ref.read(activeCameraIdProvider);
+    try {
+      final path = await service.export(deviceId: activeCameraId);
+      final filename = path.split('/').last;
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Backup saved: $filename')));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Export failed: ${e is BackupImportException ? e.message : e.toString()}',
+          ),
+          backgroundColor: T.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onRestoreTapped(BuildContext context, WidgetRef ref) async {
+    // Step 1: Confirmation dialog.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Restore backup?'),
+        content: const Text('This will replace all your data.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+
+    // Step 2: File path input dialog.
+    final pathController = TextEditingController();
+    final path = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Enter backup file path'),
+        content: TextField(
+          controller: pathController,
+          autofocus: true,
+          style: const TextStyle(color: T.ink, fontSize: 13),
+          decoration: const InputDecoration(
+            hintText: '/path/to/sst-backup-YYYY-MM-DD.json',
+            hintStyle: TextStyle(color: T.ink3, fontSize: 12),
+          ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(pathController.text.trim()),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (path == null || path.isEmpty) return;
+    if (!context.mounted) return;
+
+    // Fix 2: Path canonicalization — resolve symlinks and `..` segments before
+    // passing to File() so path traversal sequences in the user-supplied input
+    // cannot escape the intended directory. If path_provider is unavailable
+    // (test environments, early startup), fall back to the raw path.
+    final canonical = p.canonicalize(path);
+    String? docsDir;
+    try {
+      docsDir = (await getApplicationDocumentsDirectory()).path;
+    } catch (_) {
+      // path_provider unavailable; skip directory containment check.
+    }
+    if (docsDir != null && !canonical.startsWith(docsDir)) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Invalid path. Select a file from the Documents folder.',
+          ),
+          backgroundColor: T.danger,
+        ),
+      );
+      return;
+    }
+
+    // Step 3: Run import.
+    final activeCameraId = ref.read(activeCameraIdProvider);
+    final service = ref.read(backupServiceProvider);
+    try {
+      final firstUserId = await service.import(
+        File(canonical),
+        currentCameraDeviceId: activeCameraId,
+      );
+
+      // Step 4: Invalidate all dependent providers.
+      ref.invalidate(usersControllerProvider);
+      ref.invalidate(teamsControllerProvider);
+      ref.invalidate(sportPresetsControllerProvider);
+      ref.invalidate(streamingDestinationsControllerProvider);
+      ref.invalidate(upcomingMatchesProvider);
+
+      // Fix 11: Update active user via the controller (centralises the
+      // SharedPreferences write).
+      await ref
+          .read(usersControllerProvider.notifier)
+          .restoreActive(firstUserId);
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Backup restored successfully')),
+      );
+    } on BackupImportException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: T.danger),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Restore failed'),
+          backgroundColor: T.danger,
+        ),
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Shared row primitives reused across User, Match Setup, Streaming Setup,
-// and App sections.
+// App, and Data sections.
 // ---------------------------------------------------------------------------
 
 class _RowItem extends StatelessWidget {

@@ -3,6 +3,21 @@
 
 sealed class BleCommand {}
 
+// ---------------------------------------------------------------------------
+// Response payloads returned via BleCommandResponse<T>
+// ---------------------------------------------------------------------------
+
+/// Response payload for [GetDeviceInfoCommand].
+///
+/// NOTE: [deviceId] is assumed to be a stable hardware UUID, but this has
+/// not been confirmed with firmware. If the firmware returns an advertising
+/// ID instead, the restore UUID-check in BackupService.import() will need
+/// updating. See U10/U11 plan notes.
+class DeviceInfoResponse {
+  const DeviceInfoResponse({required this.deviceId});
+  final String deviceId;
+}
+
 // Device
 class GetDeviceInfoCommand extends BleCommand {}
 
@@ -24,40 +39,7 @@ class RequestThumbnailCommand extends BleCommand {
   final int quality;
 }
 
-// Match control
-class MatchConfigCommand extends BleCommand {
-  MatchConfigCommand(this.config);
-  final dynamic config; // models/match.dart MatchConfig
-}
-
-class MatchControlCommand extends BleCommand {
-  MatchControlCommand(this.action);
-  final dynamic action; // models/match.dart MatchControlAction
-}
-
-class ScoreUpdateCommand extends BleCommand {
-  ScoreUpdateCommand({required this.teamId, required this.delta});
-  final String teamId;
-  final int delta;
-}
-
-class BannerEventCommand extends BleCommand {
-  BannerEventCommand(this.event);
-  final dynamic event; // models/match.dart BannerEvent
-}
-
-// Recording / streaming
-class StartRecordingCommand extends BleCommand {}
-
-class StopRecordingCommand extends BleCommand {}
-
-class StartStreamingCommand extends BleCommand {
-  StartStreamingCommand({required this.rtmpUrl});
-  final String rtmpUrl;
-}
-
-class StopStreamingCommand extends BleCommand {}
-
+// Recording / file transfer
 class ListRecordingsCommand extends BleCommand {}
 
 class DownloadRequestCommand extends BleCommand {
@@ -65,78 +47,50 @@ class DownloadRequestCommand extends BleCommand {
   final String recordingId;
 }
 
-// Configuration
-class SetWifiConfigCommand extends BleCommand {
-  SetWifiConfigCommand({required this.ssid, required this.password});
-  final String ssid;
-  final String password;
-}
+// ---------------------------------------------------------------------------
+// Session configuration payload pushed to the camera before a match starts.
+// Sent via BleService.pushSessionConfig() — not routed through sendCommand().
+// Fix 14: PushSessionConfigCommand has been removed from the sealed hierarchy
+// because the dedicated pushSessionConfig() method on BleService is the
+// correct API.
+// ---------------------------------------------------------------------------
 
-class SetStreamingConfigCommand extends BleCommand {
-  SetStreamingConfigCommand({
-    this.youtubeStreamKey,
-    this.instagramStreamKey,
-    this.customRtmpUrl,
+class PushSessionConfig {
+  const PushSessionConfig({
+    required this.matchUuid,
+    required this.userUuid,
+    required this.sport,
+    required this.numPeriods,
+    required this.periodLengthSeconds,
+    this.rtmpUrl,
+    this.streamKey,
+    required this.videoOutputPath,
+    required this.thumbnailOutputPath,
   });
-  final String? youtubeStreamKey;
-  final String? instagramStreamKey;
-  final String? customRtmpUrl;
-}
 
-class FactoryResetCommand extends BleCommand {}
+  final String matchUuid;
+  final String userUuid;
 
-class FirmwareUpdateCommand extends BleCommand {}
+  /// Sport as a lowercase string, e.g. 'soccer'.
+  final String sport;
 
-// Teams / roster — every mutation round-trips through the firmware.
-class ListTeamsCommand extends BleCommand {}
+  final int numPeriods;
+  final int periodLengthSeconds;
 
-class ListTeamMatchesCommand extends BleCommand {
-  ListTeamMatchesCommand({required this.teamId});
-  final String teamId;
-}
+  /// Full RTMP URL including stream key (optional — null means no streaming).
+  final String? rtmpUrl;
 
-class CreateTeamCommand extends BleCommand {
-  CreateTeamCommand(this.draft);
-  final dynamic draft; // models/team.dart TeamDraft
-}
+  /// Stream key extracted separately when the RTMP URL does not embed it
+  /// (optional). May be null even when [rtmpUrl] is provided.
+  final String? streamKey;
 
-class UpdateTeamCommand extends BleCommand {
-  UpdateTeamCommand(this.draft);
-  final dynamic draft; // models/team.dart TeamDraft, id required
-}
+  /// Absolute path on the camera where video files will be written, e.g.
+  /// `/data/video/{userUuid}/{matchUuid}/`.
+  final String videoOutputPath;
 
-class DeleteTeamCommand extends BleCommand {
-  DeleteTeamCommand({required this.teamId});
-  final String teamId;
-}
-
-class SetTeamHiddenCommand extends BleCommand {
-  SetTeamHiddenCommand({required this.teamId, required this.hidden});
-  final String teamId;
-  final bool hidden;
-}
-
-class AddPlayerCommand extends BleCommand {
-  AddPlayerCommand({required this.teamId, required this.draft});
-  final String teamId;
-  final dynamic draft; // models/team.dart PlayerDraft
-}
-
-class UpdatePlayerCommand extends BleCommand {
-  UpdatePlayerCommand({
-    required this.teamId,
-    required this.currentNumber,
-    required this.draft,
-  });
-  final String teamId;
-  final int currentNumber;
-  final dynamic draft;
-}
-
-class RemovePlayerCommand extends BleCommand {
-  RemovePlayerCommand({required this.teamId, required this.number});
-  final String teamId;
-  final int number;
+  /// Absolute path on the camera where thumbnail files will be written, e.g.
+  /// `/data/thumbnail/{userUuid}/{matchUuid}/`.
+  final String thumbnailOutputPath;
 }
 
 // ---------------------------------------------------------------------------
