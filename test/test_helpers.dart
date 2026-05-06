@@ -37,34 +37,54 @@ void useDevDataStoreReset() {
 /// - 7 built-in sport presets per user
 /// - empty streaming destinations
 ///
-/// Returns the late-initialised [AppDatabase] so tests can call DAOs
-/// directly. To wire the db into Riverpod, include
-/// `appDatabaseProvider.overrideWithValue(db)` in your [ProviderScope]
-/// overrides.
-AppDatabase useInMemoryDb() {
-  late AppDatabase db;
+/// Returns a [DbRef] whose `.value` is the live [AppDatabase] for the
+/// current test. To wire the db into Riverpod, include
+/// `appDatabaseProvider.overrideWithValue(db.value)` in your
+/// [ProviderScope] overrides, or use the [dbOverrides] helper.
+///
+/// Use [db.value] inside test/setUp callbacks (after setUp has run).
+DbRef useInMemoryDb() {
+  final ref = DbRef();
 
   setUp(() async {
-    db = AppDatabase.forTesting(
+    // ignore: invalid_use_of_visible_for_testing_member
+    ref._db = AppDatabase.forTesting(
       DatabaseConnection(
         NativeDatabase.memory(),
         closeStreamsSynchronously: true,
       ),
     );
-    await _seedInMemoryDb(db);
+    await _seedInMemoryDb(ref._db);
   });
 
-  tearDown(() => db.close());
+  tearDown(() => ref._db.close());
 
-  // ignore: invalid_use_of_visible_for_testing_member
-  return db;
+  return ref;
+}
+
+/// Mutable wrapper returned by [useInMemoryDb]. Access [value] inside a
+/// test callback (after setUp has populated it).
+class DbRef {
+  late AppDatabase _db;
+
+  /// The database for the current test. Must not be accessed before setUp.
+  AppDatabase get value => _db;
 }
 
 /// Provides an override list for [ProviderScope] that wires [db] into
 /// [appDatabaseProvider] (and therefore all DAO providers).
-List<Override> dbOverrides(AppDatabase db) => [
-  appDatabaseProvider.overrideWithValue(db),
-];
+///
+/// Accepts either an [AppDatabase] directly or a [DbRef] returned by
+/// [useInMemoryDb]. In the latter case the [DbRef.value] is read lazily
+/// inside each test callback, so it is always the instance created by setUp.
+List<Override> dbOverrides(Object db) {
+  final database = switch (db) {
+    AppDatabase d => d,
+    DbRef r => r.value,
+    _ => throw ArgumentError('dbOverrides: expected AppDatabase or DbRef'),
+  };
+  return [appDatabaseProvider.overrideWithValue(database)];
+}
 
 // ---------------------------------------------------------------------------
 // Seed helpers — mirrors DevDataStore._seed() exactly.

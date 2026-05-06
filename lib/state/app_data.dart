@@ -1,17 +1,24 @@
 // Local app data — library, live match state, team controller.
 //
-// Team / roster / per-team match data is owned by the camera. The app reads
-// and writes it through `BleService`. Library + LiveMatch are still local —
-// the library will move to BLE in Phase 7 once recordings are wired up.
+// Users + streaming destinations are owned by the local Drift DB. Teams,
+// rosters, and sport presets will migrate in U5/U6. Library + LiveMatch are
+// still local — the library will move to BLE in Phase 7 once recordings are
+// wired up.
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
+import '../db/app_database.dart';
+import '../db/daos/streaming_destinations_dao.dart';
 import '../models/sport_preset.dart';
 import '../models/streaming.dart';
 import '../models/team.dart';
 import '../models/user.dart';
 import 'ble_providers.dart';
+import 'db_providers.dart';
 
 export '../models/sport_preset.dart';
 export '../models/streaming.dart';
@@ -153,9 +160,9 @@ const _seedLibrary = <LibraryMatch>[
 
 // ---------------------------------------------------------------------------
 // Camera handle — `activeCameraIdProvider` is set by the discovery flow on a
-// successful connect and cleared on disconnect. Team data lives on the
-// camera, so every team query is gated on this id: if there's no active
-// camera, the controllers return empty and the UI prompts to connect.
+// successful connect and cleared on disconnect. Team/match data still goes
+// through BLE (migrated in U5); this provider remains until U7 removes all
+// device gates.
 // ---------------------------------------------------------------------------
 
 final activeCameraIdProvider = StateProvider<String?>((ref) => null);
@@ -163,17 +170,20 @@ final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 String? _resolveDeviceId(Ref ref) => ref.watch(activeCameraIdProvider);
 
 // ---------------------------------------------------------------------------
-// Active user — single source of truth on the app side. Mirrors
-// `activeCameraIdProvider`. Hydrated from the camera in `UsersController.build`
-// when null. Per-user-scoped controllers (teams, sport presets, streaming
-// destinations) watch this provider so they rebuild on user switch.
+// Active user — single source of truth on the app side. Hydrated from
+// SharedPreferences in `UsersController.build()`. Per-user-scoped controllers
+// (teams, sport presets, streaming destinations) watch this provider so they
+// rebuild on user switch.
 //
 // `upcomingMatchesProvider` does NOT watch this — it has no userId arg, and
-// is invalidated explicitly by `UsersController.setActive` instead. That
-// matches the existing pattern from `TeamsController` mutations.
+// is invalidated explicitly by `UsersController.setActive` instead.
 // ---------------------------------------------------------------------------
 
 final activeUserProvider = StateProvider<String?>((_) => null);
+
+const _kActiveUserIdKey = 'active_user_id';
+
+const _uuid = Uuid();
 
 /// Typed exception for `UsersController` UI-rule pre-checks. Surfaced to the
 /// UI so the user / form layers can render an inline message rather than
@@ -187,75 +197,88 @@ class UsersControllerException implements Exception {
 }
 
 class UsersController extends AsyncNotifier<List<UserRecord>> {
-  String? get _deviceId => _resolveDeviceId(ref);
-
-  String _requireDevice() {
-    final id = _deviceId;
-    if (id == null) {
-      throw StateError('No camera connected');
-    }
-    return id;
-  }
-
   @override
   Future<List<UserRecord>> build() async {
-    final svc = ref.watch(bleServiceProvider);
-    final id = _deviceId;
-    if (id == null) return const [];
-    final currentActive = ref.read(activeUserProvider);
-    if (currentActive != null) {
-      return svc.listUsers(id);
+    final dao = ref.watch(usersDaoProvider);
+
+    // Hydrate active user from SharedPreferences.
+    final prefs = await SharedPreferences.getInstance();
+    final savedId = prefs.getString(_kActiveUserIdKey);
+    if (savedId != null) {
+      final exists = await dao.getUserById(savedId);
+      if (exists != null) {
+        ref.read(activeUserProvider.notifier).state = savedId;
+      }
     }
-    // Independent BLE round-trips — fetch in parallel, then hydrate.
-    final results = await Future.wait([
-      svc.listUsers(id),
-      svc.getActiveUser(id),
-    ]);
-    final users = results[0] as List<UserRecord>;
-    final cameraActive = results[1] as String?;
-    if (cameraActive != null) {
-      ref.read(activeUserProvider.notifier).state = cameraActive;
-    }
-    return users;
+
+    // Subscribe to watch stream for all mutations. The listener may fire once
+    // with the same data as the initial snapshot below; that is acceptable.
+    final sub = dao.watchAll().listen((rows) {
+      state = AsyncValue.data(_toUserRecords(rows));
+    });
+    ref.onDispose(sub.cancel);
+
+    // Return initial snapshot.
+    return _toUserRecords(await dao.getAll());
   }
 
-  Future<void> _refresh() async {
-    final svc = ref.read(bleServiceProvider);
-    final id = _deviceId;
-    state = AsyncValue.data(id == null ? const [] : await svc.listUsers(id));
-  }
+  static List<UserRecord> _toUserRecords(List<UsersTableData> rows) =>
+      rows.map((r) => UserRecord(id: r.id, name: r.name)).toList();
 
   Future<UserRecord> create(String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) {
       throw const UsersControllerException('User name is required');
     }
-    final svc = ref.read(bleServiceProvider);
-    final created = await svc.createUser(
-      _requireDevice(),
-      UserDraft(name: trimmed),
-    );
-    await _refresh();
-    return created;
+    final userId = _uuid.v4();
+    final dao = ref.read(usersDaoProvider);
+    await dao.insertUser(UsersTableCompanion.insert(id: userId, name: trimmed));
+
+    // Seed built-in sport presets for this user.
+    await ref.read(sportPresetsDaoProvider).seedBuiltInsForUser(userId);
+
+    // If no active user yet, auto-activate the first user.
+    if (ref.read(activeUserProvider) == null) {
+      ref.read(activeUserProvider.notifier).state = userId;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kActiveUserIdKey, userId);
+    }
+
+    return UserRecord(id: userId, name: trimmed);
   }
 
-  /// Switch the camera's active user. Order is load-bearing: the BleService
-  /// call resolves FIRST so DevDataStore's `_activeUserId` is set before any
-  /// controller refetch reads through it; only AFTER that do we write
-  /// `activeUserProvider`.
+  Future<void> rename(String userId, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const UsersControllerException('User name is required');
+    }
+    await ref
+        .read(usersDaoProvider)
+        .updateUser(UsersTableCompanion.insert(id: userId, name: trimmed));
+  }
+
+  /// Switch the active user. Writes SharedPreferences then updates the
+  /// provider. Invalidates `upcomingMatchesProvider` (no userId arg there).
+  ///
+  /// Bridge (removed in U5): also calls BleService.setActiveUser so that
+  /// DevDataStore stays in sync while TeamsController still reads from BLE.
   Future<void> setActive(String userId) async {
     if (userId == ref.read(activeUserProvider)) return;
-    final svc = ref.read(bleServiceProvider);
-    await svc.setActiveUser(_requireDevice(), userId);
+    // BLE bridge — keeps DevDataStore in sync while TeamsController uses BLE.
+    // Remove this block in U5 when TeamsController migrates to Drift.
+    final deviceId = _resolveDeviceId(ref);
+    if (deviceId != null) {
+      await ref.read(bleServiceProvider).setActiveUser(deviceId, userId);
+    }
     ref.read(activeUserProvider.notifier).state = userId;
-    // upcomingMatchesProvider has no userId arg so it can't watch
-    // activeUserProvider — invalidate explicitly.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kActiveUserIdKey, userId);
     ref.invalidate(upcomingMatchesProvider);
   }
 
   /// Delete a user. UI-rule pre-checks raise [UsersControllerException]
-  /// BEFORE the BLE call so the form can render an inline message and the
-  /// camera-side state is never touched on a UI-rule violation.
+  /// BEFORE touching the DB so the form can render an inline message and
+  /// no DB state is touched on a UI-rule violation.
   Future<void> delete(String userId) async {
     final users = state.valueOrNull ?? const [];
     final activeUserId = ref.read(activeUserProvider);
@@ -265,18 +288,15 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
     if (users.length <= 1) {
       throw const UsersControllerException('At least one user must remain');
     }
-    // Block delete while any match is live. Stricter than per-user
-    // cross-reference because LiveMatchState only carries display-name
-    // strings, not owning ids — refine if/when ownership ids are added.
+    // Block delete while any match is live.
     if (isLiveMatchRunning(ref.read(liveMatchProvider))) {
       throw const UsersControllerException(
         'End the live match before deleting',
       );
     }
 
-    final svc = ref.read(bleServiceProvider);
-    await svc.deleteUser(_requireDevice(), userId);
-    await _refresh();
+    // FK cascade removes all owned teams / presets / destinations.
+    await ref.read(usersDaoProvider).deleteById(userId);
   }
 }
 
@@ -293,16 +313,6 @@ final usersControllerProvider =
 
 class StreamingDestinationsController
     extends AsyncNotifier<List<StreamingDestination>> {
-  String? get _deviceId => _resolveDeviceId(ref);
-
-  String _requireDevice() {
-    final id = _deviceId;
-    if (id == null) {
-      throw StateError('No camera connected');
-    }
-    return id;
-  }
-
   String _requireActiveUser() {
     final activeUserId = ref.read(activeUserProvider);
     if (activeUserId == null) {
@@ -313,54 +323,102 @@ class StreamingDestinationsController
 
   @override
   Future<List<StreamingDestination>> build() async {
-    final svc = ref.watch(bleServiceProvider);
     final activeUserId = ref.watch(activeUserProvider);
-    final id = _deviceId;
-    if (id == null || activeUserId == null) return const [];
-    return svc.listStreamingDestinations(id, activeUserId);
+    if (activeUserId == null) return const [];
+
+    final dao = ref.watch(streamingDestinationsDaoProvider);
+
+    // Subscribe to all mutations. The listener may fire once with the same
+    // data as the initial snapshot below; that is acceptable.
+    final sub = dao.watchForUser(activeUserId).listen((rows) {
+      state = AsyncValue.data(_toDestinations(rows));
+    });
+    ref.onDispose(sub.cancel);
+
+    return _toDestinations(await dao.getForUser(activeUserId));
   }
 
-  Future<void> _refresh() async {
-    final svc = ref.read(bleServiceProvider);
-    final activeUserId = ref.read(activeUserProvider);
-    final id = _deviceId;
-    state = AsyncValue.data(
-      (id == null || activeUserId == null)
-          ? const []
-          : await svc.listStreamingDestinations(id, activeUserId),
-    );
+  static List<StreamingDestination> _toDestinations(
+    List<StreamingDestinationsTableData> rows,
+  ) =>
+      rows
+          .map(
+            (r) => StreamingDestination(
+              id: r.id,
+              name: r.name,
+              provider: StreamingProvider.values.byName(r.provider),
+              protocol: StreamingProtocol.values.byName(r.protocol),
+              config: StreamingDestinationsDao.configFromRow(r),
+            ),
+          )
+          .toList();
+
+  StreamingDestinationsTableCompanion _draftToCompanion(
+    String id,
+    String userId,
+    StreamingDestinationDraft draft,
+  ) {
+    final config = draft.config;
+    return switch (config) {
+      RtmpConfig() => StreamingDestinationsTableCompanion.insert(
+        id: id,
+        userId: userId,
+        name: draft.name,
+        provider: draft.provider.name,
+        protocol: draft.protocol.name,
+        configType: 'rtmp',
+        configUrl: config.url,
+        configStreamKey: Value(config.streamKey),
+        configUsername: const Value(null),
+        configPassword: const Value(null),
+      ),
+      RtspConfig() => StreamingDestinationsTableCompanion.insert(
+        id: id,
+        userId: userId,
+        name: draft.name,
+        provider: draft.provider.name,
+        protocol: draft.protocol.name,
+        configType: 'rtsp',
+        configUrl: config.url,
+        configStreamKey: const Value(null),
+        configUsername: Value(config.username),
+        configPassword: Value(config.password),
+      ),
+    };
   }
 
   Future<StreamingDestination> create(StreamingDestinationDraft draft) async {
-    final svc = ref.read(bleServiceProvider);
-    final created = await svc.createStreamingDestination(
-      _requireDevice(),
-      _requireActiveUser(),
-      draft,
+    final userId = _requireActiveUser();
+    final id = _uuid.v4();
+    final companion = _draftToCompanion(id, userId, draft);
+    await ref.read(streamingDestinationsDaoProvider).insertDestination(companion);
+    final config = draft.config;
+    return StreamingDestination(
+      id: id,
+      name: draft.name,
+      provider: draft.provider,
+      protocol: draft.protocol,
+      config: config,
     );
-    await _refresh();
-    return created;
   }
 
   Future<StreamingDestination> edit(StreamingDestinationDraft draft) async {
-    final svc = ref.read(bleServiceProvider);
-    final updated = await svc.updateStreamingDestination(
-      _requireDevice(),
-      _requireActiveUser(),
-      draft,
+    final userId = _requireActiveUser();
+    final companion = _draftToCompanion(draft.id, userId, draft);
+    await ref.read(streamingDestinationsDaoProvider).updateDestination(companion);
+    return StreamingDestination(
+      id: draft.id,
+      name: draft.name,
+      provider: draft.provider,
+      protocol: draft.protocol,
+      config: draft.config,
     );
-    await _refresh();
-    return updated;
   }
 
   Future<void> delete(String destinationId) async {
-    final svc = ref.read(bleServiceProvider);
-    await svc.deleteStreamingDestination(
-      _requireDevice(),
-      _requireActiveUser(),
-      destinationId,
-    );
-    await _refresh();
+    await ref
+        .read(streamingDestinationsDaoProvider)
+        .deleteById(destinationId);
   }
 }
 
