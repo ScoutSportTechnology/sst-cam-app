@@ -5,6 +5,8 @@ import '../db/daos/users_dao.dart';
 import '../db/daos/teams_dao.dart';
 import '../db/daos/sport_presets_dao.dart';
 import '../db/daos/streaming_destinations_dao.dart';
+import '../services/backup_service.dart';
+import 'ble_providers.dart';
 
 // ---------------------------------------------------------------------------
 // Database — single instance, lazy-opened via LazyDatabase.
@@ -38,3 +40,15 @@ final streamingDestinationsDaoProvider =
     Provider<StreamingDestinationsDao>((ref) {
       return ref.watch(appDatabaseProvider).streamingDestinationsDao;
     });
+
+// ---------------------------------------------------------------------------
+// BackupService — wired to appDatabaseProvider and bleServiceProvider so the
+// widget just reads this provider. Tests override it to inject a stub.
+// ---------------------------------------------------------------------------
+
+final backupServiceProvider = Provider<BackupService>((ref) {
+  return BackupService(
+    ref.watch(appDatabaseProvider),
+    ble: ref.watch(bleServiceProvider),
+  );
+});
