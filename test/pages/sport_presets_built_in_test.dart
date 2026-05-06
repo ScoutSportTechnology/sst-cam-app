@@ -1,46 +1,33 @@
-// U10 — SportPresetsPage built-in visual treatment + sport coverage tests.
+// U6 — SportPresetsPage built-in visual treatment + sport coverage tests.
 //
-// We pump SportPresetsPage directly under a ProviderScope with
-// `bleServiceProvider` overridden to a fresh `MockBleService` and the
-// `activeCameraIdProvider` set so `listSportPresets` resolves to the seed
-// active user (`user-1`). Test isolation is automatic via
-// `useDevDataStoreReset()`.
+// SportPresetsController is now backed by Drift. Tests use `useInMemoryDb()`
+// for isolation and `dbOverrides(db)` to wire the in-memory database into the
+// ProviderScope. No BleService or DevDataStore references remain.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/dev_data_store.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:scout_camera/pages/sport_presets_page.dart';
 import 'package:scout_camera/state/app_data.dart';
-import 'package:scout_camera/state/ble_providers.dart';
 import 'package:scout_camera/widgets/wf_card.dart';
 import 'package:scout_camera/widgets/wf_chip.dart';
 
 import '../test_helpers.dart';
 
-const String _kFakeDeviceId = 'SST-CAM-001';
-
-MockBleService _newMock() => MockBleService(
-  scanDeviceAppearDelays: const [Duration.zero, Duration.zero],
-  connectionDelay: Duration.zero,
-  failureRate: 0.0,
-  randomSeed: 1,
-);
-
-Widget _buildHarness({required MockBleService service}) {
-  return ProviderScope(
-    overrides: [
-      bleServiceProvider.overrideWithValue(service),
-      activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-      activeUserProvider.overrideWith((_) => 'user-1'),
-    ],
-    child: const MaterialApp(home: SportPresetsPage()),
-  );
-}
-
 void main() {
-  useDevDataStoreReset();
+  SharedPreferences.setMockInitialValues({'active_user_id': 'user-1'});
+  final db = useInMemoryDb();
+
+  Widget buildHarness() {
+    return ProviderScope(
+      overrides: [
+        ...dbOverrides(db),
+        activeUserProvider.overrideWith((_) => 'user-1'),
+      ],
+      child: const MaterialApp(home: SportPresetsPage()),
+    );
+  }
 
   group('Built-in row treatment (AE5)', () {
     testWidgets('Soccer · Standard and Soccer · Youth (U14) render at the top '
@@ -48,9 +35,10 @@ void main() {
         'preset renders below them with both affordances', (tester) async {
       // Add a custom soccer preset so we can verify ordering and the
       // delete affordance is rendered for non-builtin rows.
-      DevDataStore.instance.createSportPreset(
-        'user-1',
-        const SportPresetDraft(
+      await db.value.sportPresetsDao.insertPreset(
+        SportPresetsTableCompanion.insert(
+          id: 'custom-soccer-01',
+          userId: 'user-1',
           name: 'Soccer · Custom',
           sport: 'Soccer',
           numPeriods: 2,
@@ -58,10 +46,7 @@ void main() {
         ),
       );
 
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       // Soccer group header is present (filter chip also shows "Soccer").
@@ -145,16 +130,13 @@ void main() {
   group('Sport coverage', () {
     testWidgets('every entry in kSports has at least one built-in preset '
         'row in the page after seed', (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       // The page has pinned filter chips + a scrollable preset list.
       // Filter chips and section headers share sport name text, so we
       // check findsAtLeastNWidgets(1) rather than findsOneWidget.
-      final presets = DevDataStore.instance.listSportPresets('user-1');
+      final presets = await db.value.sportPresetsDao.getForUser('user-1');
       for (final sport in kSports) {
         // Scroll using the section-header WfSection widget. Use scrollable:
         // param to target the preset ListView specifically so the pinned
@@ -182,10 +164,7 @@ void main() {
   group('Group with only built-ins still renders', () {
     testWidgets('Volleyball group renders its header and built-in row even '
         'with no custom preset', (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(_buildHarness(service: mock));
+      await tester.pumpWidget(buildHarness());
       await tester.pumpAndSettle();
 
       // "Volleyball" appears as both a filter chip and a section header.
@@ -222,10 +201,7 @@ void main() {
     testWidgets(
       'selecting Soccer shows only soccer rows; All restores all groups',
       (tester) async {
-        final mock = _newMock();
-        addTearDown(mock.dispose);
-
-        await tester.pumpWidget(_buildHarness(service: mock));
+        await tester.pumpWidget(buildHarness());
         await tester.pumpAndSettle();
 
         // Tap the Soccer filter chip (not a section header WfSection).
@@ -264,14 +240,27 @@ void main() {
   });
 
   group('Bypass-controller delete throws', () {
-    test('deleting a built-in preset directly via DevDataStore throws '
-        'a DevDataStoreException', () {
-      final builtIn = DevDataStore.instance
-          .listSportPresets('user-1')
-          .firstWhere((p) => p.builtIn);
+    test('deleting a built-in preset via SportPresetsController throws '
+        'a SportPresetsControllerException', () async {
+      final presets = await db.value.sportPresetsDao.getForUser('user-1');
+      final builtIn = presets.firstWhere((p) => p.builtIn);
+      // Create a ProviderContainer with the in-memory DB and active user.
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          activeUserProvider.overrideWith((_) => 'user-1'),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Build the controller state.
+      await container.read(sportPresetsControllerProvider.future);
+
       expect(
-        () => DevDataStore.instance.deleteSportPreset('user-1', builtIn.id),
-        throwsA(isA<DevDataStoreException>()),
+        () => container.read(sportPresetsControllerProvider.notifier).delete(
+          builtIn.id,
+        ),
+        throwsA(isA<SportPresetsControllerException>()),
       );
     });
   });
