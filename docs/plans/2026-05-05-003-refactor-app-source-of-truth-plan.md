@@ -1,7 +1,7 @@
 ---
 title: "refactor: App as Source of Truth (Drift SQLite Migration)"
 type: refactor
-status: active
+status: completed
 date: 2026-05-05
 origin: docs/brainstorms/app-as-source-of-truth-requirements.md
 ---
