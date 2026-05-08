@@ -9,8 +9,9 @@
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
   },
+  "remoteUser": "vscode",
   "mounts": [
-    "source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind"
+    "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
   ],
   "runArgs": [
     "--add-host=host.docker.internal:host-gateway"
@@ -45,6 +46,6 @@
   "remoteEnv": {
     "CHOKIDAR_USEPOLLING": "true",
     "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037",
-    "CLAUDE_CONFIG_DIR": "/root/.claude"
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
   }
 }
