@@ -64,6 +64,7 @@ RUN dpkg --add-architecture amd64 \
     openjdk-17-jdk \
     libglu1-mesa \
     libc6:amd64 \
+    socat \
     sudo \
     && apt-get autoremove -y \
     && apt-get clean -y \
