@@ -2,25 +2,41 @@
   "name": "Scout Camera — Flutter Dev",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": ".."
+    "options": [
+      "--tag",
+      "flutter4android"
+    ],
+    "args": {
+      "USERNAME": "${localEnv:USER}${localEnv:USERNAME}"
+    }
   },
-  "workspaceFolder": "/workspace",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-  "features": {
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  "containerEnv": {
+    "SHELL": "/bin/bash"
   },
-  "remoteUser": "vscode",
-  "mounts": [
-    "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
-  ],
   "runArgs": [
+    "--platform",
+    "linux/amd64",
+    "--name",
+    "${localWorkspaceFolderBasename}_flutter4android_devcontainer",
     "--add-host=host.docker.internal:host-gateway"
+  ],
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    "ghcr.io/devcontainers-extra/features/starship": {},
+    "ghcr.io/devcontainers-extra/features/go-task:1": {}
+  },
+  "remoteUser": "${localEnv:USER}${localEnv:USERNAME}",
+  "mounts": [
+    "source=claude-code-config-${devcontainerId},target=/home/${localEnv:USER}${localEnv:USERNAME}/.claude,type=volume",
+    "source=${localWorkspaceFolder}/.devcontainer/.bashrc,target=/home/${localEnv:USER}${localEnv:USERNAME}/.bashrc.1,readonly,type=bind"
   ],
   "customizations": {
     "vscode": {
       "extensions": [
         "dart-code.flutter",
         "dart-code.dart-code",
+        "task.vscode-task",
+        "redhat.vscode-yaml",
         "drblury.protobuf-vsc",
         "dbcode.dbcode",
         "hanwang.android-adb-wlan",
@@ -35,17 +51,20 @@
             80
           ]
         },
-        "dart.flutterSdkPath": "/opt/flutter",
-        "dart.sdkPath": "/opt/flutter/bin/cache/dart-sdk"
+        "dart.flutterSdkPath": "/home/${localEnv:USER}${localEnv:USERNAME}/flutter",
+        "dart.sdkPath": "/home/${localEnv:USER}${localEnv:USERNAME}/flutter/bin/cache/dart-sdk"
       }
     }
   },
   "initializeCommand": ".devcontainer/script/initialize-command.sh",
+  "onCreateCommand": ".devcontainer/script/on-create.sh",
   "postCreateCommand": ".devcontainer/script/post-create.sh",
   "postStartCommand": ".devcontainer/script/post-start.sh",
+  "postAttachCommand": ".devcontainer/script/post-attach.sh",
+  "waitFor": "postStartCommand",
   "remoteEnv": {
     "CHOKIDAR_USEPOLLING": "true",
     "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037",
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+    "CLAUDE_CONFIG_DIR": "/home/${localEnv:USER}${localEnv:USERNAME}/.claude"
   }
 }

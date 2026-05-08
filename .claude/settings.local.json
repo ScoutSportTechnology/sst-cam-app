@@ -16,7 +16,9 @@
       "Bash(git commit *)",
       "Bash(grep \"\\\\[E\\\\]$\")",
       "Bash(dart run *)",
-      "Bash(xdg-user-dir DOCUMENTS)"
+      "Bash(xdg-user-dir DOCUMENTS)",
+      "Read(//opt/android-sdk/ndk/**)",
+      "Read(//opt/android-sdk/**)"
     ]
   }
 }

@@ -1,50 +1,86 @@
-FROM mingc/android-build-box:latest
+# Inspired by: https://blog.devops.dev/developing-flutter-applications-inside-a-devcontainer-4b13de5369e2
 
-ENV ANDROID_HOME=/opt/android-sdk
-ENV ANDROID_SDK_ROOT=/opt/android-sdk
-ENV PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools"
+# --- Builder Stage ---
+FROM --platform=linux/amd64 debian:bookworm-slim AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    protobuf-compiler \
-    git \
-    curl \
+# Avoid warnings by switching to noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
+
+ENV ANDROID_SDK_ROOT=/android-sdk
+ENV ANDROID_NDK_VERSION=26.3.11579264
+ENV ANDROID_PLATFORM_VERSION=android-35
+ENV FLUTTER_SDK_ROOT=/flutter
+ENV FLUTTER_SDK_VERSION=3.41.9-stable
+
+RUN apt-get update \
+    && apt-get -y install --no-install-recommends \
+    wget \
     unzip \
-    python3 \
-    python3-pip \
+    xz-utils \
+    openjdk-17-jdk \
+    && apt-get autoremove -y \
+    && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+# Download and install Android Command Line Tools
+RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
+    && wget -O commandlinetools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" \
+    && unzip commandlinetools.zip -d ${ANDROID_SDK_ROOT}/cmdline-tools \
+    && mv ${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools ${ANDROID_SDK_ROOT}/cmdline-tools/latest \
+    && rm commandlinetools.zip
 
-ENV PATH="$PATH:/home/vscode/.pub-cache/bin"
+# Accept Android SDK licenses and install necessary components
+RUN yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses && \
+    ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "cmake;3.22.1" "ndk;${ANDROID_NDK_VERSION}" "platform-tools" "platforms;${ANDROID_PLATFORM_VERSION}"
 
-RUN yes | sdkmanager --licenses >/dev/null
-RUN sdkmanager \
-    "platform-tools" \
-    "platforms;android-35" \
-    "build-tools;35.0.0"
+# Download and install Flutter
+RUN mkdir -p ${FLUTTER_SDK_ROOT} \
+    && wget -O flutter.tar.xz "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_SDK_VERSION}.tar.xz" \
+    && tar xf flutter.tar.xz -C ${FLUTTER_SDK_ROOT} --strip-components=1 \
+    && rm flutter.tar.xz
 
+# --- Final Stage ---
+FROM --platform=linux/amd64 debian:bookworm-slim AS final
 
+ARG USERNAME=vscode
 ARG USER_UID=1000
-ARG USER_GID=1000
+ARG USER_GID=$USER_UID
+ARG HOME=/home/${USERNAME}
 
-RUN if getent group ${USER_GID} >/dev/null 2>&1; then \
-      groupmod -n vscode $(getent group ${USER_GID} | cut -d: -f1); \
-    else \
-      groupadd --gid ${USER_GID} vscode; \
-    fi \
-  && if getent passwd ${USER_UID} >/dev/null 2>&1; then \
-      usermod -l vscode -d /home/vscode -m $(getent passwd ${USER_UID} | cut -d: -f1); \
-    else \
-      useradd --uid ${USER_UID} --gid ${USER_GID} -m --shell /bin/bash vscode; \
-    fi
+ENV ANDROID_SDK_ROOT=${HOME}/android-sdk
+ENV FLUTTER_SDK_ROOT=${HOME}/flutter
+ENV PATH=$PATH:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin
+ENV PATH=$PATH:${ANDROID_SDK_ROOT}/platform-tools
+ENV PATH=$PATH:${FLUTTER_SDK_ROOT}/bin
 
-ENV PATH="/root/.local/bin:${PATH}"
+RUN dpkg --add-architecture amd64 \
+    && apt-get update \
+    && apt-get -y install --no-install-recommends \
+    curl \
+    git \
+    unzip \
+    xz-utils \
+    zip \
+    openjdk-17-jdk \
+    libglu1-mesa \
+    libc6:amd64 \
+    sudo \
+    && apt-get autoremove -y \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /home/vscode/.claude && chown -R vscode:vscode /home/vscode/.claude
+# Create a non-root user
+RUN groupadd --gid ${USER_GID} ${USERNAME} \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} \
+    # [Optional add sudo support if needed in your devcontainer.
+    && echo ${USERNAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME}
 
-WORKDIR /workspace
-RUN chown vscode:vscode /workspace
-RUN chown vscode:vscode /opt/android-sdk
-RUN chown -R vscode:vscode /opt/flutter
+USER ${USERNAME}
 
-USER vscode
+# Copy SDKs from the builder stage to the user's home directory
+COPY --from=builder --chown=${USERNAME}:${USERNAME} /android-sdk ${ANDROID_SDK_ROOT}
+COPY --from=builder --chown=${USERNAME}:${USERNAME} /flutter ${FLUTTER_SDK_ROOT}
+
+# Set claude config directory permissions
+RUN mkdir -p ${HOME}/.claude && chmod 700 ${HOME}/.claude

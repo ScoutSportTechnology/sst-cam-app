@@ -13,7 +13,10 @@
       "Bash(just format-check *)",
       "Bash(git stash *)",
       "Bash(ls -la ~/.local/bin/claude 2>&1 || echo \"PATH DOES NOT EXIST ON HOST\")",
-      "Read(//root/.local/bin/**)"
+      "Read(//root/.local/bin/**)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(chmod +x /home/rs/Documents/sst/sst-cam-app/.devcontainer/script/on-create.sh /home/rs/Documents/sst/sst-cam-app/.devcontainer/script/post-attach.sh)",
+      "Bash(git update-index *)"
     ],
     "additionalDirectories": [
       "/root/.vscode-server/data/Machine",
