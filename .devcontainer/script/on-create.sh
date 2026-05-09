@@ -8,7 +8,7 @@ flutter config --no-enable-linux-desktop
 flutter doctor
 
 echo '' >> $HOME/.bashrc
-echo 'eval -- "$(/usr/local/bin/starship init bash --print-full-init)"' >> $HOME/.bashrc
+#echo 'eval -- "$(/usr/local/bin/starship init bash --print-full-init)"' >> $HOME/.bashrc
 echo '' >> $HOME/.bashrc
 echo 'source ~/.bashrc.1' >> $HOME/.bashrc
 

@@ -22,8 +22,7 @@
   ],
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
-    "ghcr.io/devcontainers-extra/features/starship": {},
-    "ghcr.io/devcontainers-extra/features/go-task:1": {}
+"ghcr.io/devcontainers-extra/features/go-task:1": {}
   },
   "remoteUser": "${localEnv:USER}${localEnv:USERNAME}",
   "mounts": [

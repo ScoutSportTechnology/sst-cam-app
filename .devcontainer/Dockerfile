@@ -31,7 +31,7 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
 
 # Accept Android SDK licenses and install necessary components
 RUN yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses && \
-    ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "cmake;3.22.1" "ndk;${ANDROID_NDK_VERSION}" "platform-tools" "platforms;${ANDROID_PLATFORM_VERSION}"
+    ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "ndk;${ANDROID_NDK_VERSION}" "platform-tools" "platforms;${ANDROID_PLATFORM_VERSION}"
 
 # Download and install Flutter
 RUN mkdir -p ${FLUTTER_SDK_ROOT} \
