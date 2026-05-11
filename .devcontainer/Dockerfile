@@ -22,8 +22,6 @@ RUN apt-get update \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
 
-USER vscode
-
 # Download and install Android Command Line Tools
 RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
     && wget -O commandlinetools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" \
@@ -76,6 +74,8 @@ RUN groupadd --gid ${USER_GID} vscode \
     && useradd --uid ${USER_UID} --gid ${USER_GID} -m vscode \
     && echo vscode ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/vscode \
     && chmod 0440 /etc/sudoers.d/vscode
+
+USER vscode
 
 # Copy SDKs from the builder stage to the user's home directory
 COPY --from=builder --chown=vscode:vscode /android-sdk ${ANDROID_SDK_ROOT}
