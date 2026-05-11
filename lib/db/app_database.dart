@@ -124,7 +124,13 @@ LazyDatabase _openConnection() {
     // app-private support directory (not in Documents, which is user-visible
     // and backed up by iCloud/Google Drive).
     final dir = await getApplicationSupportDirectory();
+    // One-time migration: rename the old scout_camera.sqlite to kDbName so
+    // existing installs keep their data after the app rename.
+    final oldFile = File(p.join(dir.path, 'scout_camera.sqlite'));
     final file = File(p.join(dir.path, kDbName));
+    if (oldFile.existsSync() && !file.existsSync()) {
+      await oldFile.rename(file.path);
+    }
     return NativeDatabase.createInBackground(file);
   });
 }
