@@ -11,7 +11,7 @@ import 'ble_service.dart';
 
 // UUIDs defined in proto/README.md.
 //
-// When wiring proto encoding (Phase 7), regenerate Dart bindings from
+// When wiring proto encoding, regenerate Dart bindings from
 // `proto/bluetooth.proto` (the schema was consolidated from six smaller
 // files; see proto/README.md history note).
 final _serviceUuid = Guid('A1B2C3D401000000800000805F9B34FB');
@@ -210,7 +210,7 @@ class BleServiceImpl implements BleService {
 
   // ---------------------------------------------------------------------------
   // Commands — write ChunkedPayload to cmdWrite; await response on cmdResponse
-  // TODO (Phase 7): implement proto encoding + chunking
+  // TODO: wire to firmware — proto encoding + BLE chunking not yet implemented
   // ---------------------------------------------------------------------------
 
   @override
@@ -219,7 +219,7 @@ class BleServiceImpl implements BleService {
     BleCommand command,
   ) async {
     throw UnimplementedError(
-      'Phase 7: proto encoding + BLE write not yet implemented',
+      'TODO: wire to firmware — proto encoding + BLE write not yet implemented',
     );
   }
 
@@ -232,7 +232,9 @@ class BleServiceImpl implements BleService {
     String deviceId,
     PushSessionConfig config,
   ) {
-    throw UnimplementedError('Phase 7: pushSessionConfig not yet wired');
+    throw UnimplementedError(
+      'TODO: wire to firmware — pushSessionConfig not yet implemented',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -301,7 +303,7 @@ class _ConnectedDevice {
 
   void _startResponseListener() {
     _responseSub = _cmdResponse?.onValueReceived.listen((_) {
-      // TODO (Phase 7): reassemble ChunkedPayload → proto CommandResponse → route
+      // TODO: wire to firmware — reassemble ChunkedPayload → proto CommandResponse → route
     });
   }
 

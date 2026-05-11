@@ -1,9 +1,9 @@
 // Local app data — library, live match state, team controller.
 //
 // Users, streaming destinations, teams, rosters, upcoming matches, and sport
-// presets are all owned by the local Drift DB (U4/U5/U6).
-// Library + LiveMatch are still local — the library will move to BLE in Phase 7
-// once recordings are wired up.
+// presets are all owned by the local Drift DB.
+// Library is backed by the Drift DB (TeamMatchesTable); libraryProvider
+// queries past matches. LiveMatch state is polled from the BLE service.
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
@@ -952,7 +952,9 @@ final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
 });
 
 // ---------------------------------------------------------------------------
-// Library (recordings) — still local; will move to BLE in Phase 7.
+// Library — backed by TeamMatchesTable via TeamsDao.pastMatchesForLibrary().
+// See libraryProvider in db_providers.dart (U8). The inline _seedLibrary
+// constant below is retained as a fallback during the transition.
 // ---------------------------------------------------------------------------
 
 final libraryProvider = Provider<List<LibraryMatch>>((ref) => _seedLibrary);
