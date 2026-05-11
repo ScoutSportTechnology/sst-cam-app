@@ -1,0 +1,14 @@
+// Schema: each object maps to a TeamsTable row.
+// userId must match the default-user id seeded by base seed ('default-user').
+// Fields: id (String), userId (String), name (String), shortName (String),
+//         sport (String), hidden (bool)
+[
+  {
+    "id": "mock-team-nr-u14",
+    "userId": "default-user",
+    "name": "Northridge U14",
+    "shortName": "NR",
+    "sport": "soccer",
+    "hidden": false
+  }
+]

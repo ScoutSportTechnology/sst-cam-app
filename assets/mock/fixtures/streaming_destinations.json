@@ -1,0 +1,19 @@
+// Schema: each object maps to a StreamingDestinationsTable row.
+// Fields: id (String), userId (String), name (String), provider (String),
+//         protocol (String), configType ('rtmp'|'rtsp'), configUrl (String),
+//         configStreamKey (String|null), configUsername (String|null),
+//         configPassword (String|null)
+[
+  {
+    "id": "mock-dest-001",
+    "userId": "default-user",
+    "name": "YouTube Live",
+    "provider": "youtube",
+    "protocol": "rtmp",
+    "configType": "rtmp",
+    "configUrl": "rtmp://a.rtmp.youtube.com/live2",
+    "configStreamKey": "xxxx-xxxx-xxxx-xxxx",
+    "configUsername": null,
+    "configPassword": null
+  }
+]
