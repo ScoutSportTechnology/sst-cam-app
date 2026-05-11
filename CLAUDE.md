@@ -61,8 +61,8 @@ lib/
   main.dart          Entry: ProviderScope → ScoutCameraApp
   app.dart           MaterialApp (dark theme) + 5-tab NavigationBar shell
   ble/
-    ble_service.dart       Abstract interface (all app code targets this)
-    ble_service_impl.dart  flutter_blue_plus implementation; Phase 7
+    ble_service.dart
+    ble_service_impl.dart  flutter_blue_plus implementation
   db/
     app_database.dart  Drift database class, migration, AppDatabase
     tables/            Table definitions (one file per entity group)
@@ -103,7 +103,7 @@ Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
 ### BLE interface contract
 
 `BleService` (abstract) is the only BLE surface the UI touches.
-`BleServiceImpl` uses `flutter_blue_plus` and is implemented in Phase 7.
+`BleServiceImpl` uses `flutter_blue_plus` and is implemented
 Tests inject `MockBleService` from `test/ble/` via Riverpod overrides:
 
 ```dart
@@ -123,7 +123,7 @@ ProviderScope(
 - `lib/models/proto/` — gitignored generated bindings; only `BleServiceImpl` uses them
 
 The app compiles and runs from plain Dart models. `just gen-proto` regenerates
-`lib/models/proto/` for use when implementing `BleServiceImpl` in Phase 7.
+`lib/models/proto/` for use when implementing `BleServiceImpl`
 
 ### Theme
 

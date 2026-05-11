@@ -44,7 +44,11 @@
       "Bash(pkill -f \"socat TCP-LISTEN\")",
       "Bash(timeout 2 bash -c '</dev/tcp/127.0.0.1/__TRACKED_VAR__')",
       "Bash(chmod +x *)",
-      "Bash(awk '{print $2}')"
+      "Bash(awk '{print $2}')",
+      "Bash(grep -E \"\\\\.dart$\")",
+      "Skill(code-review:code-review)",
+      "Bash(git rm *)",
+      "Bash(echo \"Exit: $?\")"
     ]
   }
 }
