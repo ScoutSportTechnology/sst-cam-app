@@ -3,6 +3,7 @@ import 'dart:math';
 
 import '../models/recording.dart';
 import '../models/wifi.dart';
+import '../services/video_path_service.dart';
 import 'wifi_service.dart';
 
 class _GroupState {
@@ -209,7 +210,8 @@ class MockWifiService implements WifiService {
 
     final downloadId =
         'dl-${DateTime.now().millisecondsSinceEpoch}-${_rng.nextInt(0xFFFF)}';
-    final savePath = saveAs ?? '/tmp/${token.recordingId}.mp4';
+    final savePath =
+        saveAs ?? await VideoPathService().recordingPath(token.recordingId);
     // Pretend the recording is around 60 MB; matches a few minutes of 1080p.
     final totalBytes = 60 * 1024 * 1024;
     final controller = StreamController<VideoDownloadProgress>.broadcast();

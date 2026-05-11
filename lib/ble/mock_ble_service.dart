@@ -221,6 +221,8 @@ class MockBleService implements BleService {
       firmwareVersion: '0.1.0',
       model: 'Jetson Orin NX',
       protocolVersion: 1,
+      batteryPercent: 82,
+      rssi: -58,
     ),
     const ScoutDevice(
       id: 'SST-CAM-002',
@@ -228,6 +230,8 @@ class MockBleService implements BleService {
       firmwareVersion: '0.1.0',
       model: 'Jetson Orin NX',
       protocolVersion: 1,
+      batteryPercent: 45,
+      rssi: -71,
     ),
   ];
 
