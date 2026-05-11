@@ -44,13 +44,12 @@ class _DebugPageState extends ConsumerState<DebugPage>
       // connection open — this keeps the Riverpod provider valid and avoids
       // WAL/SHM file inconsistencies from manual file deletion.
       await db.transaction(() async {
-        await db.delete(db.clipsTable).go();
-        await db.delete(db.teamMatchesTable).go();
+        await db.delete(db.clipsTable).go();       // cascade-deletes thumbnails
+        await db.delete(db.teamMatchesTable).go();  // cascade-deletes (already empty) clips
         await db.delete(db.playersTable).go();
         await db.delete(db.teamsTable).go();
         await db.delete(db.streamingDestinationsTable).go();
         await db.delete(db.sportPresetsTable).go();
-        await db.delete(db.thumbnailsTable).go();
         await db.delete(db.usersTable).go();
       });
 

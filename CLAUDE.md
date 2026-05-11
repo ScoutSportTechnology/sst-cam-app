@@ -70,7 +70,7 @@ lib/
   services/
     backup_service.dart  BackupService — export/import full DB as JSON
   models/            Plain Dart view models (app compiles without generated protos)
-    device.dart      SSTCamDevice, CameraConnectionState, ThumbnailResult
+    device.dart      SstDevice, CameraConnectionState, ThumbnailResult
     telemetry.dart   DeviceTelemetry, WifiState
     match.dart       MatchConfig, MatchState, Sport, BannerEvent …
     recording.dart   RecordingMetadata, DownloadToken
@@ -94,7 +94,7 @@ Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
 
 - `db_providers.dart` — `appDatabaseProvider` + per-DAO providers + `backupServiceProvider`
 - `bleServiceProvider` — `Provider<BleService>`; override in tests with `MockBleService`
-- `discoveredDevicesProvider` — `StreamProvider<List<SSTCamDevice>>`
+- `discoveredDevicesProvider` — `StreamProvider<List<SstDevice>>`
 - `connectionStateProvider(deviceId)` — `StreamProvider.family`
 - `telemetryProvider(deviceId)` — `StreamProvider.family`; impl polls internally
 - `matchStateProvider(deviceId)` — `StreamProvider.family`; impl polls internally
