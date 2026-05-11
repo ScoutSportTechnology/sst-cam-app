@@ -16,8 +16,7 @@ class VideoPage extends ConsumerWidget {
     // Phone-side only: the app cannot enumerate camera storage when the
     // device isn't connected, so the library shows only matches with at
     // least one clip already on the phone (`all-local` or `partial`).
-    final library = ref
-        .watch(libraryProvider)
+    final library = (ref.watch(libraryProvider).valueOrNull ?? const [])
         .where((m) => m.downloadState != 'remote')
         .toList();
     final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];

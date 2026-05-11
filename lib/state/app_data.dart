@@ -5,6 +5,8 @@
 // Library is backed by the Drift DB (TeamMatchesTable); libraryProvider
 // queries past matches. LiveMatch state is polled from the BLE service.
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,96 +69,6 @@ class LibraryMatch {
   final List<LibraryEvent> events;
   final String downloadState; // 'all-local', 'partial', 'remote'
 }
-
-const _seedLibrary = <LibraryMatch>[
-  LibraryMatch(
-    id: 'nr-u14-m1',
-    teamId: 'nr-u14',
-    date: 'Mar 12',
-    opponent: 'vs Eastfield FC',
-    result: 'W 3–1',
-    fullDuration: '01:23:42',
-    fullSizeMb: 3100,
-    highlightSizeMb: 380,
-    events: [
-      LibraryEvent(
-        timeSeconds: 6 * 60 + 18,
-        label: 'Goal · NR · #07',
-        team: 'NR',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 14 * 60 + 42,
-        label: 'Foul · EFC',
-        team: 'EFC',
-        kind: 'foul',
-      ),
-      LibraryEvent(
-        timeSeconds: 22 * 60 + 48,
-        label: 'Goal · NR · #11',
-        team: 'NR',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 27 * 60 + 18,
-        label: 'Goal · EFC · #14',
-        team: 'EFC',
-        kind: 'goal',
-      ),
-    ],
-    downloadState: 'all-local',
-  ),
-  LibraryMatch(
-    id: 'nr-u14-m2',
-    teamId: 'nr-u14',
-    date: 'Mar 05',
-    opponent: 'vs Riverdale Utd',
-    result: 'L 0–2',
-    fullDuration: '01:25:48',
-    fullSizeMb: 3000,
-    highlightSizeMb: 180,
-    events: [
-      LibraryEvent(
-        timeSeconds: 18 * 60 + 30,
-        label: 'Goal · RU · #09',
-        team: 'RU',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 56 * 60 + 12,
-        label: 'Goal · RU · #11',
-        team: 'RU',
-        kind: 'goal',
-      ),
-    ],
-    downloadState: 'partial',
-  ),
-  LibraryMatch(
-    id: 'nr-u14-m3',
-    teamId: 'nr-u14',
-    date: 'Feb 26',
-    opponent: 'vs Lakeside',
-    result: 'D 1–1',
-    fullDuration: '01:28:12',
-    fullSizeMb: 3200,
-    highlightSizeMb: 540,
-    events: [
-      LibraryEvent(
-        timeSeconds: 12 * 60,
-        label: 'Goal · NR · #07',
-        team: 'NR',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 71 * 60,
-        label: 'Goal · LK · #06',
-        team: 'LK',
-        kind: 'goal',
-      ),
-    ],
-    downloadState: 'remote',
-  ),
-];
 
 // ---------------------------------------------------------------------------
 // Camera handle — `activeCameraIdProvider` is set by the discovery flow on a
@@ -952,15 +864,66 @@ final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
 });
 
 // ---------------------------------------------------------------------------
-// Library — backed by TeamMatchesTable via TeamsDao.pastMatchesForLibrary().
-// See libraryProvider in db_providers.dart (U8). The inline _seedLibrary
-// constant below is retained as a fallback during the transition.
+// Library — backed by TeamMatchesTable joined with TeamsTable.
+// Emits the current list of past matches with events parsed from eventsJson.
 // ---------------------------------------------------------------------------
 
-final libraryProvider = Provider<List<LibraryMatch>>((ref) => _seedLibrary);
+final libraryProvider = StreamProvider<List<LibraryMatch>>((ref) {
+  final dao = ref.watch(teamsDaoProvider);
+  return dao.watchPastMatchesForLibrary().map((rows) => rows.map(_rowToLibraryMatch).toList());
+});
+
+LibraryMatch _rowToLibraryMatch(LibraryMatchRow row) {
+  final match = row.match;
+  final team = row.team;
+
+  // Derive download state from size: sizeMb > 0 means content is available.
+  final downloadState = match.sizeMb > 0 ? 'all-local' : 'remote';
+
+  // Format duration: numPeriods × periodLengthSeconds → HH:MM:SS.
+  final totalSec = match.numPeriods * match.periodLengthSeconds;
+  final h = (totalSec ~/ 3600).toString().padLeft(2, '0');
+  final m = ((totalSec % 3600) ~/ 60).toString().padLeft(2, '0');
+  final s = (totalSec % 60).toString().padLeft(2, '0');
+  final fullDuration = '$h:$m:$s';
+
+  // Parse events from JSON stored in eventsJson column.
+  final events = _parseEvents(match.eventsJson);
+
+  return LibraryMatch(
+    id: match.id,
+    teamId: team.id,
+    date: match.date,
+    opponent: match.opponent,
+    result: match.result,
+    fullDuration: fullDuration,
+    fullSizeMb: match.sizeMb,
+    highlightSizeMb: 0,
+    events: events,
+    downloadState: downloadState,
+  );
+}
+
+List<LibraryEvent> _parseEvents(String eventsJson) {
+  try {
+    final raw = jsonDecode(eventsJson) as List<dynamic>;
+    return raw.map((e) {
+      final m = e as Map<String, dynamic>;
+      return LibraryEvent(
+        timeSeconds: m['timeSeconds'] as int,
+        label: m['label'] as String,
+        team: m['team'] as String,
+        kind: m['kind'] as String,
+      );
+    }).toList();
+  } catch (_) {
+    return const [];
+  }
+}
 
 final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
-  return ref.watch(libraryProvider).where((m) => m.id == id).firstOrNull;
+  final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+  return library.where((m) => m.id == id).firstOrNull;
 });
 
 // ---------------------------------------------------------------------------
