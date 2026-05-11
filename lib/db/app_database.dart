@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'daos/clips_dao.dart';
 import 'daos/sport_presets_dao.dart';
 import 'daos/streaming_destinations_dao.dart';
 import 'daos/teams_dao.dart';
@@ -30,7 +31,7 @@ part 'app_database.g.dart';
     ClipsTable,
     ThumbnailsTable,
   ],
-  daos: [UsersDao, TeamsDao, SportPresetsDao, StreamingDestinationsDao],
+  daos: [UsersDao, TeamsDao, SportPresetsDao, StreamingDestinationsDao, ClipsDao],
 )
 class AppDatabase extends _$AppDatabase {
   /// Production constructor: opens or creates the SQLite file on disk.
@@ -45,13 +46,13 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
-      // Fix 16: Add indexes on FK columns used as primary query filters.
+      // Add indexes on FK columns used as primary query filters.
       await customStatement('CREATE INDEX idx_teams_user_id ON teams(user_id)');
       await customStatement(
         'CREATE INDEX idx_sport_presets_user_id ON sport_presets(user_id)',
@@ -71,6 +72,19 @@ class AppDatabase extends _$AppDatabase {
       );
       // Built-in presets are seeded per-user at user creation time
       // (SportPresetsDao.seedBuiltInsForUser), not globally here.
+      // Base data (default user + presets) is seeded by MockDataSeeder / init.
+    },
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        // v1→v2: add start_seconds + label to clips; events_json to team_matches.
+        await customStatement(
+          'ALTER TABLE clips ADD COLUMN start_seconds INTEGER NOT NULL DEFAULT 0',
+        );
+        await customStatement('ALTER TABLE clips ADD COLUMN label TEXT');
+        await customStatement(
+          "ALTER TABLE team_matches ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'",
+        );
+      }
     },
     beforeOpen: (details) async {
       // SQLite disables FK enforcement by default. Enable it for every
