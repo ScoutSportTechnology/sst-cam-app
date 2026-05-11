@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Flutter companion app for the ScoutCamera — open-source sports camera on NVIDIA Jetson.
+Flutter companion app for the SST Cam — open-source sports camera on NVIDIA Jetson.
 Controls firmware over BLE (command/control) and WiFi (video download).
 Greenfield project; built contract-first against a test double BLE layer.
 
@@ -58,7 +58,7 @@ docs/
 proto/               Proto3 schemas — wire format + firmware contract
   README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/
-  main.dart          Entry: ProviderScope → ScoutCameraApp
+  main.dart          Entry: ProviderScope → SSTCamApp
   app.dart           MaterialApp (dark theme) + 5-tab NavigationBar shell
   ble/
     ble_service.dart
@@ -70,7 +70,7 @@ lib/
   services/
     backup_service.dart  BackupService — export/import full DB as JSON
   models/            Plain Dart view models (app compiles without generated protos)
-    device.dart      ScoutDevice, CameraConnectionState, ThumbnailResult
+    device.dart      SSTCamDevice, CameraConnectionState, ThumbnailResult
     telemetry.dart   DeviceTelemetry, WifiState
     match.dart       MatchConfig, MatchState, Sport, BannerEvent …
     recording.dart   RecordingMetadata, DownloadToken
@@ -94,7 +94,7 @@ Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
 
 - `db_providers.dart` — `appDatabaseProvider` + per-DAO providers + `backupServiceProvider`
 - `bleServiceProvider` — `Provider<BleService>`; override in tests with `MockBleService`
-- `discoveredDevicesProvider` — `StreamProvider<List<ScoutDevice>>`
+- `discoveredDevicesProvider` — `StreamProvider<List<SSTCamDevice>>`
 - `connectionStateProvider(deviceId)` — `StreamProvider.family`
 - `telemetryProvider(deviceId)` — `StreamProvider.family`; impl polls internally
 - `matchStateProvider(deviceId)` — `StreamProvider.family`; impl polls internally

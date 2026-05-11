@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:scout_camera/app.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/state/ble_providers.dart';
+import 'package:sst_cam_app/app.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/state/ble_providers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +28,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Scout Camera'), findsOneWidget);
+    expect(find.text('SST Cam'), findsOneWidget);
 
     // Trigger scan
     await tester.tap(find.byIcon(Icons.refresh));

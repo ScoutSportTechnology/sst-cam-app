@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/ble_service.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/models/command.dart';
-import 'package:scout_camera/models/device.dart';
-import 'package:scout_camera/models/recording.dart';
+import 'package:sst_cam_app/ble/ble_service.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/models/command.dart';
+import 'package:sst_cam_app/models/device.dart';
+import 'package:sst_cam_app/models/recording.dart';
 
 void main() {
   late MockBleService svc;
@@ -26,7 +26,7 @@ void main() {
     });
 
     test('emits devices progressively during scan', () async {
-      final emitted = <List<ScoutDevice>>[];
+      final emitted = <List<SstDevice>>[];
       final sub = svc.discoveredDevices.listen(emitted.add);
 
       await svc.startScan(timeout: const Duration(seconds: 10));
@@ -40,7 +40,7 @@ void main() {
     });
 
     test('device names follow sst-cam-#### convention', () async {
-      final emitted = <List<ScoutDevice>>[];
+      final emitted = <List<SstDevice>>[];
       final sub = svc.discoveredDevices.listen(emitted.add);
 
       await svc.startScan();

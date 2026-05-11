@@ -4,14 +4,14 @@ import 'dart:io';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/ble_service.dart';
-import 'package:scout_camera/db/app_database.dart';
-import 'package:scout_camera/models/command.dart';
-import 'package:scout_camera/models/device.dart';
-import 'package:scout_camera/models/match.dart';
-import 'package:scout_camera/models/recording.dart';
-import 'package:scout_camera/models/telemetry.dart';
-import 'package:scout_camera/services/backup_service.dart';
+import 'package:sst_cam_app/ble/ble_service.dart';
+import 'package:sst_cam_app/db/app_database.dart';
+import 'package:sst_cam_app/models/command.dart';
+import 'package:sst_cam_app/models/device.dart';
+import 'package:sst_cam_app/models/match.dart';
+import 'package:sst_cam_app/models/recording.dart';
+import 'package:sst_cam_app/models/telemetry.dart';
+import 'package:sst_cam_app/services/backup_service.dart';
 import 'package:uuid/uuid.dart';
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ class _StubBleService implements BleService {
   @override
   bool get isScanning => false;
   @override
-  Stream<List<ScoutDevice>> get discoveredDevices => const Stream.empty();
+  Stream<List<SstDevice>> get discoveredDevices => const Stream.empty();
   @override
   Future<void> startScan({
     Duration timeout = const Duration(seconds: 10),

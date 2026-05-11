@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-class ScoutDevice {
-  const ScoutDevice({
+class SstDevice {
+  const SstDevice({
     required this.id,
     required this.name,
     required this.firmwareVersion,
@@ -22,7 +22,7 @@ class ScoutDevice {
   final int? rssi;
 
   @override
-  bool operator ==(Object other) => other is ScoutDevice && other.id == id;
+  bool operator ==(Object other) => other is SstDevice && other.id == id;
 
   @override
   int get hashCode => id.hashCode;

@@ -170,7 +170,7 @@ class _DeviceState {
       telemetryController = StreamController<DeviceTelemetry>.broadcast(),
       matchStateController = StreamController<MatchState>.broadcast();
 
-  final ScoutDevice device;
+  final SstDevice device;
   final StreamController<CameraConnectionState> connController;
   final StreamController<DeviceTelemetry> telemetryController;
   final StreamController<MatchState> matchStateController;
@@ -208,14 +208,14 @@ class MockBleService implements BleService {
   final double failureRate;
 
   final Random _rng;
-  final _discoveryController = StreamController<List<ScoutDevice>>.broadcast();
+  final _discoveryController = StreamController<List<SstDevice>>.broadcast();
   final Map<String, _DeviceState> _devices = {};
   bool _isScanning = false;
   Timer? _scanTimer;
-  final List<ScoutDevice> _discovered = [];
+  final List<SstDevice> _discovered = [];
 
   static final _fakeDevices = [
-    const ScoutDevice(
+    const SstDevice(
       id: 'SST-CAM-001',
       name: 'sst-cam-0001',
       firmwareVersion: '0.1.0',
@@ -224,7 +224,7 @@ class MockBleService implements BleService {
       batteryPercent: 82,
       rssi: -58,
     ),
-    const ScoutDevice(
+    const SstDevice(
       id: 'SST-CAM-002',
       name: 'sst-cam-0002',
       firmwareVersion: '0.1.0',
@@ -266,7 +266,7 @@ class MockBleService implements BleService {
   bool get isScanning => _isScanning;
 
   @override
-  Stream<List<ScoutDevice>> get discoveredDevices =>
+  Stream<List<SstDevice>> get discoveredDevices =>
       _discoveryController.stream;
 
   @override
@@ -494,7 +494,7 @@ class MockBleService implements BleService {
     await _discoveryController.close();
   }
 
-  _DeviceState _deviceState(String id, ScoutDevice device) {
+  _DeviceState _deviceState(String id, SstDevice device) {
     return _devices.putIfAbsent(id, () => _DeviceState(device));
   }
 }

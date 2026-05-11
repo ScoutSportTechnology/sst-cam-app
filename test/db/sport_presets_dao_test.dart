@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/db/app_database.dart';
+import 'package:sst_cam_app/db/app_database.dart';
 import 'package:uuid/uuid.dart';
 
 void main() {

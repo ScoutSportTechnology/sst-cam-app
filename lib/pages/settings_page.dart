@@ -173,7 +173,7 @@ class _StreamingSection extends ConsumerWidget {
 // Camera card. Reboot and Update fw remain visual placeholders until
 // firmware lands; they render disabled with a tooltip explaining that.
 // fw / proto values are placeholder strings — pipe them from the
-// ScoutDevice / telemetry stream when that data is reachable here.
+// SstDevice / telemetry stream when that data is reachable here.
 // ---------------------------------------------------------------------------
 
 class _CameraCard extends ConsumerWidget {

@@ -19,7 +19,7 @@ abstract class BleService {
   bool get isScanning;
 
   /// Emits the accumulated list of discovered devices (grows during a scan).
-  Stream<List<ScoutDevice>> get discoveredDevices;
+  Stream<List<SstDevice>> get discoveredDevices;
 
   /// Starts a BLE scan. Completes when the scan timer fires or [stopScan] is
   /// called. Safe to call when already scanning (no-op).

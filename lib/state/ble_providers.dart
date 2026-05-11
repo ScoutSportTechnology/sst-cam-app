@@ -26,7 +26,7 @@ final bleServiceProvider = Provider<BleService>((ref) {
 // Discovery
 // ---------------------------------------------------------------------------
 
-final discoveredDevicesProvider = StreamProvider<List<ScoutDevice>>((ref) {
+final discoveredDevicesProvider = StreamProvider<List<SstDevice>>((ref) {
   return ref.watch(bleServiceProvider).discoveredDevices;
 });
 

@@ -2,9 +2,9 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/app.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/state/ble_providers.dart';
+import 'package:sst_cam_app/app.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/state/ble_providers.dart';
 
 void main() {
   testWidgets('app boots and shows the bottom-nav tabs', (

@@ -22,7 +22,7 @@ final _cmdResponseUuid = Guid('A1B2C3D401200000800000805F9B34FB');
 const _kNamePrefix = 'sst-cam-';
 
 class BleServiceImpl implements BleService {
-  final _discoveryController = StreamController<List<ScoutDevice>>.broadcast();
+  final _discoveryController = StreamController<List<SstDevice>>.broadcast();
   final Map<String, _ConnectedDevice> _connected = {};
   bool _isScanning = false;
 
@@ -30,7 +30,7 @@ class BleServiceImpl implements BleService {
   bool get isScanning => _isScanning;
 
   @override
-  Stream<List<ScoutDevice>> get discoveredDevices =>
+  Stream<List<SstDevice>> get discoveredDevices =>
       _discoveryController.stream;
 
   // ---------------------------------------------------------------------------
@@ -44,14 +44,14 @@ class BleServiceImpl implements BleService {
     if (_isScanning) return;
     _isScanning = true;
 
-    final accumulated = <String, ScoutDevice>{};
+    final accumulated = <String, SstDevice>{};
     StreamSubscription<List<ScanResult>>? sub;
 
     sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
         final name = r.advertisementData.advName.toLowerCase();
         if (!name.startsWith(_kNamePrefix)) continue;
-        accumulated[r.device.remoteId.str] = ScoutDevice(
+        accumulated[r.device.remoteId.str] = SstDevice(
           id: r.device.remoteId.str,
           name: r.advertisementData.advName,
           firmwareVersion: '',

@@ -48,7 +48,13 @@
       "Bash(grep -E \"\\\\.dart$\")",
       "Skill(code-review:code-review)",
       "Bash(git rm *)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(grep -E \"\\\\.\\(dart|json\\)$\")",
+      "Bash(bash scripts/resolve-base.sh)",
+      "Bash(grep *)",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); [print\\(m.get\\('teamId'\\)\\) for m in data]\")",
+      "Bash(git push *)",
+      "Bash(gh pr *)"
     ]
   }
 }

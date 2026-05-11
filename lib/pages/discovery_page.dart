@@ -173,7 +173,7 @@ class _ScanIndicatorState extends State<_ScanIndicator>
 
 class _DeviceRow extends ConsumerWidget {
   const _DeviceRow({required this.device});
-  final ScoutDevice device;
+  final SstDevice device;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

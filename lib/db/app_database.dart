@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../app_config.dart';
 import 'daos/clips_dao.dart';
 import 'daos/sport_presets_dao.dart';
 import 'daos/streaming_destinations_dao.dart';
@@ -123,7 +124,7 @@ LazyDatabase _openConnection() {
     // app-private support directory (not in Documents, which is user-visible
     // and backed up by iCloud/Google Drive).
     final dir = await getApplicationSupportDirectory();
-    final file = File(p.join(dir.path, 'scout_camera.sqlite'));
+    final file = File(p.join(dir.path, kDbName));
     return NativeDatabase.createInBackground(file);
   });
 }

@@ -1,5 +1,5 @@
 {
-  "name": "Scout Camera — Flutter Dev",
+  "name": "SST Cam — Flutter Dev",
   "build": {
     "dockerfile": "Dockerfile",
     "options": [
