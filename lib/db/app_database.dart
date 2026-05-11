@@ -20,6 +20,8 @@ import 'tables/users_table.dart';
 
 part 'app_database.g.dart';
 
+const _kDefaultUserId = 'default-user';
+
 @DriftDatabase(
   tables: [
     UsersTable,
@@ -70,9 +72,10 @@ class AppDatabase extends _$AppDatabase {
       await customStatement(
         'CREATE INDEX idx_clips_match_id ON clips(match_id)',
       );
-      // Built-in presets are seeded per-user at user creation time
-      // (SportPresetsDao.seedBuiltInsForUser), not globally here.
-      // Base data (default user + presets) is seeded by MockDataSeeder / init.
+      // Seed minimum viable state: one default user + all built-in sport
+      // presets. This runs unconditionally — the app must always have at
+      // least one user and the preset list populated for core flows to work.
+      await _seedBaseData();
     },
     onUpgrade: (m, from, to) async {
       if (from < 2) {
@@ -93,6 +96,20 @@ class AppDatabase extends _$AppDatabase {
       await customStatement('PRAGMA journal_mode = WAL;');
     },
   );
+
+  /// Seeds the default user and built-in sport presets.
+  ///
+  /// Safe to call multiple times — uses insertOnConflictUpdate internally.
+  Future<void> _seedBaseData() async {
+    await usersDao.insertUser(
+      UsersTableCompanion.insert(id: _kDefaultUserId, name: 'Coach'),
+    );
+    await sportPresetsDao.seedBuiltInsForUser(_kDefaultUserId);
+  }
+
+  /// Re-seeds base data after a manual reset (e.g., from the debug screen).
+  /// Public so the debug screen can call it after wiping the DB.
+  Future<void> seedBaseData() => _seedBaseData();
 }
 
 /// Opens (or creates) the application SQLite database file.
@@ -102,9 +119,9 @@ class AppDatabase extends _$AppDatabase {
 /// [AppDatabase] constructor to complete synchronously.
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    // Fix 10: Use getApplicationSupportDirectory so the SQLite file is stored
-    // in the app-private support directory (not in Documents, which is
-    // user-visible and backed up by iCloud/Google Drive).
+    // Use getApplicationSupportDirectory so the SQLite file is stored in the
+    // app-private support directory (not in Documents, which is user-visible
+    // and backed up by iCloud/Google Drive).
     final dir = await getApplicationSupportDirectory();
     final file = File(p.join(dir.path, 'scout_camera.sqlite'));
     return NativeDatabase.createInBackground(file);

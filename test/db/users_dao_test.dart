@@ -7,13 +7,15 @@ import 'package:uuid/uuid.dart';
 void main() {
   late AppDatabase db;
 
-  setUp(() {
+  setUp(() async {
     db = AppDatabase.forTesting(
       DatabaseConnection(
         NativeDatabase.memory(),
         closeStreamsSynchronously: true,
       ),
     );
+    // Trigger onCreate which seeds the default user + sport presets.
+    await db.usersDao.getAll();
   });
 
   tearDown(() => db.close());
@@ -22,21 +24,21 @@ void main() {
   // watchAll
   // ---------------------------------------------------------------------------
 
-  test('watchAll with no rows emits empty list', () async {
+  test('watchAll on fresh DB emits the default user from base seed', () async {
     final result = await db.usersDao.watchAll().first;
-    expect(result, isEmpty);
+    expect(result, hasLength(1));
+    expect(result.first.id, 'default-user');
   });
 
-  test('insert user → watchAll emits it', () async {
+  test('insert user → watchAll emits it alongside the default user', () async {
     final id = const Uuid().v4();
     await db.usersDao.insertUser(
       UsersTableCompanion.insert(id: id, name: 'Coach Alice'),
     );
 
     final users = await db.usersDao.watchAll().first;
-    expect(users, hasLength(1));
-    expect(users.first.id, id);
-    expect(users.first.name, 'Coach Alice');
+    expect(users, hasLength(2));
+    expect(users.any((u) => u.id == id && u.name == 'Coach Alice'), isTrue);
   });
 
   test('getUserById returns correct user', () async {
@@ -73,7 +75,7 @@ void main() {
   // deleteById + FK cascade
   // ---------------------------------------------------------------------------
 
-  test('deleteById removes user', () async {
+  test('deleteById removes a specific user, leaving default user intact', () async {
     final id = const Uuid().v4();
     await db.usersDao.insertUser(
       UsersTableCompanion.insert(id: id, name: 'Temp User'),
@@ -82,7 +84,8 @@ void main() {
     await db.usersDao.deleteById(id);
 
     final users = await db.usersDao.getAll();
-    expect(users, isEmpty);
+    expect(users, hasLength(1));
+    expect(users.first.id, 'default-user');
   });
 
   test('deleteById cascades to teams', () async {
