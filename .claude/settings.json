@@ -19,7 +19,7 @@
       "Bash(git update-index *)"
     ],
     "additionalDirectories": [
-      "/root/.vscode-server/data/Machine",
+      "/home/vscode/.vscode-server/data/Machine",
       "/opt/android-sdk-linux/ndk/28.2.13676358"
     ]
   }

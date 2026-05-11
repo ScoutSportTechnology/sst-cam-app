@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+includes: {}
+
+vars:
+  NC: \033[0m
+  BLACK: \033[0;30m
+  RED: \033[0;31m
+  GREEN: \033[0;32m
+  YELLOW: \033[0;33m
+  BLUE: \033[0;34m
+  PURPLE: \033[0;35m
+  CYAN: \033[0;36m
+  WHITE: \033[0;37m
+
+tasks:
+  default:
+    internal: false
+    silent: true
+    cmds:
+      - 'echo -e "\n👋 Welcome to Task! To see available commands, run: task -l"'
+      - 'echo -e "📝 To see instructions for a specific command run: task command-name --summary\n"'
+      - task -l
+
+  connect-device:
+    desc: Connect a device with adb via WiFi
+    summary: |
+      Usage:
+        - task {{.TASK}} -- device_ip:port
+    aliases: [con]
+    internal: false
+    silent: true
+    cmds:
+      - >
+        {{if (not .CLI_ARGS)}} echo -e '\n❌ Missing IP address\n' && exit 1 {{end}}
+      - >
+        adb connect {{.CLI_ARGS}}
+        | grep 'connected to {{.CLI_ARGS}}' > /dev/null
+        && echo '🚀 Device connected'
+        || echo '❌ Failed in connecting to device'
+
+  pair-device:
+    desc: Pair a device with adb via WiFi
+    summary: |
+      (This only needs to be run once when connecting to a new device.)
+      Usage:
+      Open Wireless debugging options on your phone, then click on "Pair device with pairing code."
+      Take note of the IP address and port and run:
+        - task {{.TASK}} -- device_ip:port
+    aliases: [pair]
+    internal: false
+    silent: true
+    interactive: true
+    cmds:
+      - >
+        {{if (not .CLI_ARGS)}} echo -e '\n❌ Missing IP address\n' && exit 1 {{end}}
+      - adb pair {{.CLI_ARGS}}
+
+  onboarding:
+    desc: Prints onboarding instuctions
+    internal: false
+    silent: true
+    cmds:
+      - clear
+      - echo '👋 Welcome to your Flutter development environment!'
+      - echo
+      - echo 'If this is your first time using this devcontainer, please read on to connect your Android device.'
+      - echo "If you're a seasoned pro, feel free to close this terminal."
+      - echo
+      - >
+        echo "This environment helps you build Flutter apps for Android. You'll need an Android device for testing."
+      - echo -e "Because this runs in Docker, WiFi connection is easiest (unless you're on Linux)."
+      - >
+        echo -e "\n{{.RED}}Note: Android 10 and older need extra USB setup, which isn't supported yet.{{.NC}}\n"
+      - echo "📲 To start, you need to enable developer mode on your device, if you haven't yet."
+      - echo -e '\nThen, to connect your device:\n'
+      - echo -e '1. go to {{.CYAN}}Settings > Developer options > Wireless debugging{{.NC}} and enable it.'
+      - echo -e "2. Click on 'Pair device with pairing code'. Take note of the IP address and port."
+      - echo -e '3. Open a {{.CYAN}}new terminal{{.NC}}.'
+      - echo -e '4. Run this command, replacing {{.CYAN}}IP_ADDRESS:PORT{{.NC}} with the values you noted before:'
+      - echo -e '\n\t{{.GREEN}}task{{.NC}} pair-device -- IP_ADDRESS:PORT\n'
+      - echo -e "5. Input the pairing code"
+      - echo -e '6. Now run this other command, with the IP ADDRESS and PORT you see in the Wireless Debugging page (note that the port is different):'
+      - echo -e '\n\t{{.GREEN}}task{{.NC}} connect-device -- IP_ADDRESS:PORT\n'
+      - echo
+      - echo $'🎉 That\'s it! To ensure your device is actually connected, run:'
+      - echo -e '\n\t{{.GREEN}}flutter{{.NC}} doctor\n'
+      - echo -e "If you see a green {{.GREEN}}✔︎{{.NC}} next to 'Connected device', you're good to go!"
+      - echo

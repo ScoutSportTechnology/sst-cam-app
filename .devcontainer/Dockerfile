@@ -42,13 +42,11 @@ RUN mkdir -p ${FLUTTER_SDK_ROOT} \
 # --- Final Stage ---
 FROM --platform=linux/amd64 debian:bookworm-slim AS final
 
-ARG USERNAME=vscode
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
-ARG HOME=/home/${USERNAME}
 
-ENV ANDROID_SDK_ROOT=${HOME}/android-sdk
-ENV FLUTTER_SDK_ROOT=${HOME}/flutter
+ENV ANDROID_SDK_ROOT=/home/vscode/android-sdk
+ENV FLUTTER_SDK_ROOT=/home/vscode/flutter
 ENV PATH=$PATH:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin
 ENV PATH=$PATH:${ANDROID_SDK_ROOT}/platform-tools
 ENV PATH=$PATH:${FLUTTER_SDK_ROOT}/bin
@@ -65,23 +63,23 @@ RUN dpkg --add-architecture amd64 \
     libglu1-mesa \
     libc6:amd64 \
     socat \
+    openssh-client \
     sudo \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
-RUN groupadd --gid ${USER_GID} ${USERNAME} \
-    && useradd --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} \
-    # [Optional add sudo support if needed in your devcontainer.
-    && echo ${USERNAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USERNAME} \
-    && chmod 0440 /etc/sudoers.d/${USERNAME}
+RUN groupadd --gid ${USER_GID} vscode \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} -m vscode \
+    && echo vscode ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/vscode \
+    && chmod 0440 /etc/sudoers.d/vscode
 
-USER ${USERNAME}
+USER vscode
 
 # Copy SDKs from the builder stage to the user's home directory
-COPY --from=builder --chown=${USERNAME}:${USERNAME} /android-sdk ${ANDROID_SDK_ROOT}
-COPY --from=builder --chown=${USERNAME}:${USERNAME} /flutter ${FLUTTER_SDK_ROOT}
+COPY --from=builder --chown=vscode:vscode /android-sdk ${ANDROID_SDK_ROOT}
+COPY --from=builder --chown=vscode:vscode /flutter ${FLUTTER_SDK_ROOT}
 
 # Set claude config directory permissions
-RUN mkdir -p ${HOME}/.claude && chmod 700 ${HOME}/.claude
+RUN mkdir -p /home/vscode/.claude && chmod 700 /home/vscode/.claude
