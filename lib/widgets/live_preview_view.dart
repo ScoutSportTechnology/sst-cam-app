@@ -77,7 +77,11 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   void dispose() {
     _vlc?.removeListener(_onVlcChange);
     _vlc?.dispose();
-    _mock?.dispose();
+    // Null before dispose so any in-flight initialize().then() callback
+    // fails the _mock == controller identity check and skips play().
+    final mock = _mock;
+    _mock = null;
+    mock?.dispose();
     super.dispose();
   }
 

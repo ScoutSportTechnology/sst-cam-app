@@ -16,11 +16,12 @@ class VideoPathService {
     return p.join(dir.path, '$recordingId.mp4');
   }
 
-  /// Returns the path for a highlight clip derived from [recordingId].
-  /// [startSeconds] is encoded in the filename to make clips identifiable.
-  Future<String> clipPath(String recordingId, int startSeconds) async {
+  /// Returns the path for a highlight clip.
+  /// [clipId] is included to guarantee uniqueness when multiple clips share
+  /// the same [recordingId] and [startSeconds].
+  Future<String> clipPath(String recordingId, String clipId) async {
     final dir = await _videosDir();
-    return p.join(dir.path, '${recordingId}_clip_$startSeconds.mp4');
+    return p.join(dir.path, '${recordingId}_clip_$clipId.mp4');
   }
 
   Future<Directory> _videosDir() async {

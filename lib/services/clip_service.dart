@@ -36,7 +36,7 @@ class ClipService {
     }
 
     final clipId = _uuid.v4();
-    final outputPath = await VideoPathService().clipPath(matchId, startSeconds);
+    final outputPath = await VideoPathService().clipPath(matchId, clipId);
 
     // -ss before -i for fast seek; -c copy for no re-encode.
     final cmd = '-y -ss $startSeconds -t $durationSeconds '
@@ -47,9 +47,11 @@ class ClipService {
 
     if (!ReturnCode.isSuccess(returnCode)) {
       final log = await session.getOutput();
-      // Clean up any partial output file.
-      final out = File(outputPath);
-      if (out.existsSync()) out.deleteSync();
+      // Clean up any partial output file; ignore cleanup failures.
+      try {
+        final out = File(outputPath);
+        if (out.existsSync()) out.deleteSync();
+      } catch (_) {}
       throw ClipTrimException('FFmpeg failed (rc=$returnCode): $log');
     }
 

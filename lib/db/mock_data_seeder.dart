@@ -9,7 +9,8 @@ import 'app_database.dart';
 ///
 /// Reads JSON fixtures committed to the repo and inserts them into the DB
 /// so every screen has realistic data in development without a real device.
-/// Uses insertOrIgnore so the seeder is safe to call multiple times.
+/// Uses insertOnConflictUpdate — calling seed() twice overwrites existing rows
+/// with fixture values. Safe to call on a fresh or pre-seeded DB.
 class MockDataSeeder {
   const MockDataSeeder(this._db);
 
@@ -26,9 +27,13 @@ class MockDataSeeder {
       _loadFixture('matches'),
       _loadFixture('streaming_destinations'),
     ]);
-    await _insertTeams(results[0]);
-    await _insertMatches(results[1]);
-    await _insertStreamingDestinations(results[2]);
+    // Wrap all inserts in a single transaction — if any insert fails the
+    // entire seed is rolled back, leaving the DB in a clean state.
+    await _db.transaction(() async {
+      await _insertTeams(results[0]);
+      await _insertMatches(results[1]);
+      await _insertStreamingDestinations(results[2]);
+    });
   }
 
   Future<void> _insertTeams(List<Map<String, dynamic>> rows) async {

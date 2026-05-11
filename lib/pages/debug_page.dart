@@ -81,9 +81,6 @@ class _DebugPageState extends ConsumerState<DebugPage>
         backgroundColor: T.bg,
         bottom: TabBar(
           controller: _tabs,
-          labelColor: T.ink,
-          indicatorColor: T.accent,
-          unselectedLabelColor: T.ink2,
           tabs: const [
             Tab(text: 'Users'),
             Tab(text: 'Teams'),

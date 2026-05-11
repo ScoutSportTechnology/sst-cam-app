@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/wifi.dart';
 import '../services/clip_service.dart';
+import '../services/video_path_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
 import '../state/db_providers.dart' show clipServiceProvider;
@@ -136,12 +137,13 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     final startSeconds = (_playheadFraction * maxSecs).round();
     final durationSeconds = 30; // default 30-second clip
 
-    // Source path: the local recording file.
-    // In mock mode this file may not exist — catch and surface the error.
+    // Source path: the local recording file in the app-private videos/ dir.
+    // In mock mode this file may not exist — the error is surfaced below.
+    final sourcePath = await VideoPathService().recordingPath(match.id);
     try {
       final clipPath = await clipSvc.trim(
         matchId: match.id,
-        sourcePath: '${match.id}.mp4', // resolved by VideoPathService
+        sourcePath: sourcePath,
         startSeconds: startSeconds,
         durationSeconds: durationSeconds,
       );

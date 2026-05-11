@@ -19,9 +19,9 @@ class UsersDao extends DatabaseAccessor<AppDatabase> with _$UsersDaoMixin {
   Future<UsersTableData?> getUserById(String id) =>
       (select(usersTable)..where((t) => t.id.equals(id))).getSingleOrNull();
 
-  /// Insert a new user row.
+  /// Insert or update a user row (upsert on primary key).
   Future<void> insertUser(UsersTableCompanion companion) =>
-      into(usersTable).insert(companion);
+      into(usersTable).insertOnConflictUpdate(companion);
 
   /// Update an existing user row (matched by id in the companion).
   Future<bool> updateUser(UsersTableCompanion companion) =>
