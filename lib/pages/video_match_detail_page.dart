@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/wifi.dart';
+import '../services/clip_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
+import '../state/db_providers.dart' show clipServiceProvider;
 import '../state/wifi_providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
@@ -108,6 +110,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
           _Footer(
             selectedCount: selectedCount,
             onDownload: () => _showDownloadSheet(context, match),
+            onCreateClip: match.downloadState == 'all-local'
+                ? () => _createClip(context, match)
+                : null,
           ),
         ],
       ),
@@ -123,6 +128,39 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
       builder: (_) =>
           _DownloadSheet(match: match, selectedCount: _selected.length),
     );
+  }
+
+  Future<void> _createClip(BuildContext context, LibraryMatch match) async {
+    final clipSvc = ref.read(clipServiceProvider);
+    final maxSecs = _parseDuration(match.fullDuration);
+    final startSeconds = (_playheadFraction * maxSecs).round();
+    final durationSeconds = 30; // default 30-second clip
+
+    // Source path: the local recording file.
+    // In mock mode this file may not exist — catch and surface the error.
+    try {
+      final clipPath = await clipSvc.trim(
+        matchId: match.id,
+        sourcePath: '${match.id}.mp4', // resolved by VideoPathService
+        startSeconds: startSeconds,
+        durationSeconds: durationSeconds,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Clip saved: ${clipPath.split('/').last}'),
+          action: SnackBarAction(
+            label: 'Share',
+            onPressed: () {/* share action wired in follow-up */},
+          ),
+        ),
+      );
+    } on ClipTrimException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Clip failed: $e')),
+      );
+    }
   }
 }
 
@@ -497,9 +535,14 @@ class _EventRow extends StatelessWidget {
 }
 
 class _Footer extends StatelessWidget {
-  const _Footer({required this.selectedCount, required this.onDownload});
+  const _Footer({
+    required this.selectedCount,
+    required this.onDownload,
+    this.onCreateClip,
+  });
   final int selectedCount;
   final VoidCallback onDownload;
+  final VoidCallback? onCreateClip;
 
   @override
   Widget build(BuildContext context) {
@@ -510,7 +553,12 @@ class _Footer extends StatelessWidget {
       ).toBoxDecoration(),
       child: Row(
         children: [
-          const Expanded(child: WfButton(label: 'Share')),
+          Expanded(
+            child: WfButton(
+              label: 'Clip',
+              onPressed: onCreateClip,
+            ),
+          ),
           const SizedBox(width: 8),
           Expanded(
             flex: 2,

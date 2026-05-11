@@ -26,6 +26,8 @@ dependencies:
   video_player: ^2.9.2
   # RTSP H.264 preview from the camera (libVLC). Used by LivePreviewView.
   flutter_vlc_player: ^7.4.2
+  # Cut-only MP4 trimming (no re-encode). LGPL variant — no GPL codecs.
+  ffmpeg_kit_flutter_min: ^6.0.3
 
   # Storage
   drift: ^2.20.2
