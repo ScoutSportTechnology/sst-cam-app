@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../env.dart';
 import '../models/device.dart';
+import '../pages/debug_page.dart';
 import '../services/backup_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
@@ -93,12 +95,22 @@ class SettingsPage extends ConsumerWidget {
               ),
             ),
             const Divider(height: 1, color: T.rule),
-            const _RowItem(
-              leading: Icon(Icons.info_outline),
-              label: 'About',
-              trailing: Text(
-                '0.3.2',
-                style: TextStyle(color: T.ink2, fontSize: 12),
+            GestureDetector(
+              onLongPress: kAppEnv != AppEnv.prod
+                  ? () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const DebugPage(),
+                        ),
+                      )
+                  : null,
+              child: const _RowItem(
+                leading: Icon(Icons.info_outline),
+                label: 'About',
+                trailing: Text(
+                  '0.3.2',
+                  style: TextStyle(color: T.ink2, fontSize: 12),
+                ),
               ),
             ),
             const SizedBox(height: 14),
