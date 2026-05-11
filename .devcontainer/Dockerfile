@@ -82,4 +82,4 @@ COPY --from=builder --chown=vscode:vscode /android-sdk ${ANDROID_SDK_ROOT}
 COPY --from=builder --chown=vscode:vscode /flutter ${FLUTTER_SDK_ROOT}
 
 # Set claude config directory permissions
-RUN mkdir -p /home/vscode/.claude && chmod 700 /home/vscode/.claude
+RUN mkdir -p /home/vscode/.claude && chown -R vscode:vscode /home/vscode/.claude
