@@ -1,9 +1,5 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../db/app_database.dart';
 import '../db/mock_data_seeder.dart';
@@ -44,26 +40,34 @@ class _DebugPageState extends ConsumerState<DebugPage>
     try {
       final db = ref.read(appDatabaseProvider);
 
-      // Close and delete the SQLite file.
-      await db.close();
-      final dir = await getApplicationSupportDirectory();
-      final file = File(p.join(dir.path, 'scout_camera.sqlite'));
-      if (file.existsSync()) file.deleteSync();
+      // Wipe all user data in a single transaction while keeping the DB
+      // connection open — this keeps the Riverpod provider valid and avoids
+      // WAL/SHM file inconsistencies from manual file deletion.
+      await db.transaction(() async {
+        await db.delete(db.clipsTable).go();
+        await db.delete(db.teamMatchesTable).go();
+        await db.delete(db.playersTable).go();
+        await db.delete(db.teamsTable).go();
+        await db.delete(db.streamingDestinationsTable).go();
+        await db.delete(db.sportPresetsTable).go();
+        await db.delete(db.thumbnailsTable).go();
+        await db.delete(db.usersTable).go();
+      });
 
-      // Re-open by creating a fresh AppDatabase (onCreate re-runs).
-      final newDb = AppDatabase();
-      // Wait for the first query to trigger onCreate + base seed.
-      await newDb.usersDao.getAll();
-
+      // Re-apply base seed and optional mock fixtures.
+      await db.seedBaseData();
       if (kUseMockData) {
-        await MockDataSeeder(newDb).seed();
+        await MockDataSeeder(db).seed();
       }
 
-      // Override the provider so the rest of the app uses the new instance.
-      // ignore: use_build_context_synchronously
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Database reset. Restart the app for full effect.')),
+        const SnackBar(content: Text('Database reset.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Reset failed: $e')),
       );
     } finally {
       if (mounted) setState(() => _resetting = false);

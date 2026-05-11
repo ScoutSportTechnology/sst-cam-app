@@ -14,15 +14,21 @@ Future<void> main() async {
   final container = ProviderContainer();
 
   if (kUseMockData) {
-    // Trigger the lazy DB open and seed fixture data.
-    final db = container.read(appDatabaseProvider);
-    await MockDataSeeder(db).seed();
+    try {
+      // Trigger the lazy DB open and seed fixture data.
+      final db = container.read(appDatabaseProvider);
+      await MockDataSeeder(db).seed();
+    } catch (e, st) {
+      // Log the failure but continue — the app starts with base seed only
+      // rather than crashing on a fixture error.
+      debugPrint('MockDataSeeder failed: $e\n$st');
+    }
   }
 
   runApp(
     UncontrolledProviderScope(
       container: container,
-      child: const ScoutCameraApp(),
+      child: const SstCamApp(),
     ),
   );
 }

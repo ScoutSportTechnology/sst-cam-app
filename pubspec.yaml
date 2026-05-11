@@ -1,5 +1,5 @@
 name: scout_camera
-description: "Mobile companion app for ScoutCamera — AI-powered sports camera on NVIDIA Jetson."
+description: "SST Cam — mobile companion app for the SST sports camera on NVIDIA Jetson."
 publish_to: none
 version: 0.1.0+1
 
@@ -59,7 +59,7 @@ flutter:
     - assets/mock/fixtures/
 
 flutter_app_name:
-  name: "Scout Camera"
-  id: "com.scout.scoutcamera"
+  name: "SST Cam"
+  id: "com.sst.sstcam"
   android: true
   ios: true

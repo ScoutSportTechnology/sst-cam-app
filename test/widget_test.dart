@@ -20,7 +20,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [bleServiceProvider.overrideWithValue(mock)],
-        child: const ScoutCameraApp(),
+        child: const SstCamApp(),
       ),
     );
     await tester.pumpAndSettle(const Duration(milliseconds: 200));

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app_config.dart';
 import 'pages/main_page.dart';
 import 'pages/match_page.dart';
 import 'pages/settings_page.dart';
@@ -10,13 +11,13 @@ import 'pages/video_page.dart';
 import 'state/wifi_handoff.dart';
 import 'theme/tokens.dart';
 
-class ScoutCameraApp extends StatelessWidget {
-  const ScoutCameraApp({super.key});
+class SstCamApp extends StatelessWidget {
+  const SstCamApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Scout Camera',
+      title: kAppName,
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: _buildTheme(),
