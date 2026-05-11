@@ -19,13 +19,19 @@ class MockDataSeeder {
   /// The default user ('default-user') is assumed to already exist (created by
   /// AppDatabase._seedBaseData via onCreate).
   Future<void> seed() async {
-    await _seedTeams();
-    await _seedMatches();
-    await _seedStreamingDestinations();
+    // Load all fixture files in parallel, then insert in dependency order
+    // (teams must exist before matches reference them via FK).
+    final results = await Future.wait([
+      _loadFixture('teams'),
+      _loadFixture('matches'),
+      _loadFixture('streaming_destinations'),
+    ]);
+    await _insertTeams(results[0]);
+    await _insertMatches(results[1]);
+    await _insertStreamingDestinations(results[2]);
   }
 
-  Future<void> _seedTeams() async {
-    final rows = await _loadFixture('teams');
+  Future<void> _insertTeams(List<Map<String, dynamic>> rows) async {
     for (final row in rows) {
       await _db.into(_db.teamsTable).insertOnConflictUpdate(
         TeamsTableCompanion.insert(
@@ -40,8 +46,7 @@ class MockDataSeeder {
     }
   }
 
-  Future<void> _seedMatches() async {
-    final rows = await _loadFixture('matches');
+  Future<void> _insertMatches(List<Map<String, dynamic>> rows) async {
     for (final row in rows) {
       await _db.into(_db.teamMatchesTable).insertOnConflictUpdate(
         TeamMatchesTableCompanion.insert(
@@ -61,8 +66,9 @@ class MockDataSeeder {
     }
   }
 
-  Future<void> _seedStreamingDestinations() async {
-    final rows = await _loadFixture('streaming_destinations');
+  Future<void> _insertStreamingDestinations(
+    List<Map<String, dynamic>> rows,
+  ) async {
     for (final row in rows) {
       await _db.into(_db.streamingDestinationsTable).insertOnConflictUpdate(
         StreamingDestinationsTableCompanion.insert(

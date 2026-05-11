@@ -113,7 +113,7 @@ class _DebugPageState extends ConsumerState<DebugPage>
 }
 
 // ---------------------------------------------------------------------------
-// Tab views
+// Tab views — each builds on _StreamTab to eliminate StreamBuilder boilerplate
 // ---------------------------------------------------------------------------
 
 class _UsersTab extends StatelessWidget {
@@ -121,20 +121,11 @@ class _UsersTab extends StatelessWidget {
   final AppDatabase db;
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: db.usersDao.watchAll(),
-      builder: (_, snap) {
-        final rows = snap.data ?? [];
-        if (rows.isEmpty) return const _Empty('No users');
-        return ListView(
-          children: rows
-              .map((u) => _Row(primary: u.id, secondary: u.name))
-              .toList(),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => _StreamTab(
+        stream: db.usersDao.watchAll(),
+        empty: 'No users',
+        rowBuilder: (u) => _Row(primary: u.id, secondary: u.name),
+      );
 }
 
 class _TeamsTab extends StatelessWidget {
@@ -142,20 +133,14 @@ class _TeamsTab extends StatelessWidget {
   final AppDatabase db;
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: db.teamsDao.watchForUser('default-user'),
-      builder: (_, snap) {
-        final rows = snap.data ?? [];
-        if (rows.isEmpty) return const _Empty('No teams');
-        return ListView(
-          children: rows
-              .map((t) => _Row(primary: t.name, secondary: '${t.sport} · ${t.id}'))
-              .toList(),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => _StreamTab(
+        stream: db.teamsDao.watchForUser('default-user'),
+        empty: 'No teams',
+        rowBuilder: (t) => _Row(
+          primary: t.name,
+          secondary: '${t.sport} · ${t.id}',
+        ),
+      );
 }
 
 class _MatchesTab extends StatelessWidget {
@@ -163,25 +148,14 @@ class _MatchesTab extends StatelessWidget {
   final AppDatabase db;
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: db.select(db.teamMatchesTable).watch(),
-      builder: (_, snap) {
-        final rows = snap.data ?? [];
-        if (rows.isEmpty) return const _Empty('No matches');
-        return ListView(
-          children: rows
-              .map(
-                (m) => _Row(
-                  primary: '${m.opponent} (${m.kind})',
-                  secondary: '${m.date} · ${m.result}',
-                ),
-              )
-              .toList(),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => _StreamTab(
+        stream: db.select(db.teamMatchesTable).watch(),
+        empty: 'No matches',
+        rowBuilder: (m) => _Row(
+          primary: '${m.opponent} (${m.kind})',
+          secondary: '${m.date} · ${m.result}',
+        ),
+      );
 }
 
 class _ClipsTab extends StatelessWidget {
@@ -189,22 +163,34 @@ class _ClipsTab extends StatelessWidget {
   final AppDatabase db;
 
   @override
+  Widget build(BuildContext context) => _StreamTab(
+        stream: db.select(db.clipsTable).watch(),
+        empty: 'No clips',
+        rowBuilder: (c) => _Row(
+          primary: c.label ?? c.id,
+          secondary: 'start=${c.startSeconds}s dur=${c.durationSeconds}s',
+        ),
+      );
+}
+
+class _StreamTab<R> extends StatelessWidget {
+  const _StreamTab({
+    required this.stream,
+    required this.empty,
+    required this.rowBuilder,
+  });
+  final Stream<List<R>> stream;
+  final String empty;
+  final Widget Function(R) rowBuilder;
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: db.select(db.clipsTable).watch(),
+    return StreamBuilder<List<R>>(
+      stream: stream,
       builder: (_, snap) {
         final rows = snap.data ?? [];
-        if (rows.isEmpty) return const _Empty('No clips');
-        return ListView(
-          children: rows
-              .map(
-                (c) => _Row(
-                  primary: c.label ?? c.id,
-                  secondary: 'start=${c.startSeconds}s dur=${c.durationSeconds}s',
-                ),
-              )
-              .toList(),
-        );
+        if (rows.isEmpty) return _Empty(empty);
+        return ListView(children: rows.map(rowBuilder).toList());
       },
     );
   }

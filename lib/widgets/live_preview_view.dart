@@ -66,7 +66,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         }
       }).catchError((_) {
         // Platform not available in test environments — fall back to placeholder.
-        if (_mock == controller) {
+        if (mounted && _mock == controller) {
           controller.dispose();
           _mock = null;
         }

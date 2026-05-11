@@ -3,10 +3,13 @@ import 'dart:io';
 import 'package:drift/drift.dart' show Value;
 import 'package:ffmpeg_kit_flutter_min/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_min/return_code.dart';
+import 'package:uuid/uuid.dart';
 
 import '../db/app_database.dart';
 import '../db/daos/clips_dao.dart';
 import 'video_path_service.dart';
+
+const _uuid = Uuid();
 
 /// Trims a source MP4 to produce a highlight clip.
 ///
@@ -32,7 +35,7 @@ class ClipService {
       throw ClipTrimException('Source file not found: $sourcePath');
     }
 
-    final clipId = '${matchId}_${startSeconds}_$durationSeconds';
+    final clipId = _uuid.v4();
     final outputPath = await VideoPathService().clipPath(matchId, startSeconds);
 
     // -ss before -i for fast seek; -c copy for no re-encode.
