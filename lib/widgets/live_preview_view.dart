@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
+import 'package:video_player/video_player.dart';
 
+import '../env.dart';
 import '../models/wifi.dart';
 import '../state/wifi_providers.dart';
 import '../theme/tokens.dart';
@@ -41,10 +43,33 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   String? _vlcUrl;
   bool _vlcError = false;
 
+  // Dev-mode mock video player (used when no real RTSP stream is available).
+  VideoPlayerController? _mock;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kAppEnv.isDevBackend) {
+      _initMockPlayer();
+    }
+  }
+
+  void _initMockPlayer() {
+    _mock = VideoPlayerController.asset('assets/mock/mock-video.mp4')
+      ..setLooping(true)
+      ..initialize().then((_) {
+        if (mounted) {
+          _mock?.play();
+          setState(() {});
+        }
+      });
+  }
+
   @override
   void dispose() {
     _vlc?.removeListener(_onVlcChange);
     _vlc?.dispose();
+    _mock?.dispose();
     super.dispose();
   }
 
@@ -142,6 +167,17 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             controller: _vlc!,
             aspectRatio: 16 / 9,
             placeholder: const ThumbPlaceholder(),
+          )
+        else if (kAppEnv.isDevBackend &&
+            (_mock?.value.isInitialized ?? false))
+          // In dev mode with no real RTSP stream, loop the mock video asset.
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _mock!.value.size.width,
+              height: _mock!.value.size.height,
+              child: VideoPlayer(_mock!),
+            ),
           )
         else
           ThumbPlaceholder(label: liveBadgeOn ? null : statusLabel),
