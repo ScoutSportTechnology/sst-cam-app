@@ -54,7 +54,13 @@
       "Bash(grep *)",
       "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); [print\\(m.get\\('teamId'\\)\\) for m in data]\")",
       "Bash(git push *)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(git -C /workspaces/sst-cam-app log --oneline --all)",
+      "Bash(git -C /workspaces/sst-cam-app log --all --oneline --follow -- lib/app_config.dart)",
+      "Bash(git -C /workspaces/sst-cam-app show cc47fdd --stat)",
+      "Bash(git *)",
+      "Bash(python3 /workspaces/sst-cam-app/scripts/validate-frontmatter.py docs/solutions/database-issues/sqlite-filename-rename-data-loss-2026-05-11.md docs/solutions/architecture-patterns/riverpod-drift-db-reset-in-place-2026-05-11.md)",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }
