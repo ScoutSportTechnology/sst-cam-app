@@ -76,6 +76,11 @@ List<Override> dbOverrides(Object db) {
 // ---------------------------------------------------------------------------
 
 Future<void> _seedInMemoryDb(AppDatabase db) async {
+  // Remove the default-user inserted by AppDatabase._seedBaseData() so tests
+  // operate with only their own explicitly-seeded users. FK cascade removes
+  // the associated sport presets automatically.
+  await db.usersDao.deleteById('default-user');
+
   // Users
   await db.usersDao.insertUser(
     UsersTableCompanion.insert(id: 'user-1', name: 'Coach Diego'),

@@ -55,12 +55,20 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   }
 
   void _initMockPlayer() {
-    _mock = VideoPlayerController.asset('assets/mock/mock-video.mp4')
+    final controller = VideoPlayerController.asset('assets/mock/mock-video.mp4');
+    _mock = controller;
+    controller
       ..setLooping(true)
       ..initialize().then((_) {
-        if (mounted) {
+        if (mounted && _mock == controller) {
           _mock?.play();
           setState(() {});
+        }
+      }).catchError((_) {
+        // Platform not available in test environments — fall back to placeholder.
+        if (_mock == controller) {
+          controller.dispose();
+          _mock = null;
         }
       });
   }
