@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
-import 'package:ffmpeg_kit_flutter_min/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_min/return_code.dart';
+import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 import 'package:uuid/uuid.dart';
 
 import '../db/app_database.dart';

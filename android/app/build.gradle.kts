@@ -37,6 +37,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    packaging {
+        jniLibs {
+            // flutter_vlc_player and ffmpeg_kit_flutter_new both ship libc++_shared.so.
+            pickFirsts += "**/*.so"
+        }
+    }
 }
 
 flutter {

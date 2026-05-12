@@ -60,7 +60,26 @@
       "Bash(git -C /workspaces/sst-cam-app show cc47fdd --stat)",
       "Bash(git *)",
       "Bash(python3 /workspaces/sst-cam-app/scripts/validate-frontmatter.py docs/solutions/database-issues/sqlite-filename-rename-data-loss-2026-05-11.md docs/solutions/architecture-patterns/riverpod-drift-db-reset-in-place-2026-05-11.md)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://repo.maven.apache.org/maven2/com/arthenica/ffmpeg-kit-min/6.0-2/ffmpeg-kit-min-6.0-2.pom\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://repo1.maven.org/maven2/com/arthenica/ffmpeg-kit-min/6.0-2/ffmpeg-kit-min-6.0-2.pom\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://oss.sonatype.org/content/repositories/releases/com/arthenica/ffmpeg-kit-min/6.0-2/ffmpeg-kit-min-6.0-2.pom\")",
+      "Bash(curl *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(x['id'],x.get\\('latestVersion',''\\)\\) for x in d['response']['docs']]\")",
+      "Bash(python3 -c \"import sys,json; releases=json.load\\(sys.stdin\\); [print\\(r['tag_name'], r['html_url']\\) for r in releases]\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d if isinstance\\(d,list\\) else list\\(d.keys\\(\\)\\)[:5]\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(a['name'], a['browser_download_url']\\) for a in d.get\\('assets',[]\\)]\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('assets:', len\\(d.get\\('assets',[]\\)\\)\\); print\\('body preview:', d.get\\('body',''\\)[:500]\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('assets:', len\\(d.get\\('assets',[]\\)\\)\\); body=d.get\\('body',''\\); print\\(body[:2000]\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(x['id'], x.get\\('latestVersion',''\\)\\) for x in d['response']['docs']]\")",
+      "Bash(python3 -c \"import sys,json; issues=json.load\\(sys.stdin\\); [print\\(i['number'], i['title']\\) for i in issues[:5] if isinstance\\(issues, list\\)]\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('body',''\\)[:3000]\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('latest:', d.get\\('latest',{}\\).get\\('version'\\)\\); pv=d.get\\('latest',{}\\).get\\('pubspec',{}\\); print\\('desc:', pv.get\\('description',''\\)\\); print\\('deps:', list\\(pv.get\\('dependencies',{}\\).keys\\(\\)\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; [print\\(f['name']\\) for f in json.load\\(sys.stdin\\)]\")",
+      "Bash(python3 -c \"import sys,json; import base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d['content']\\).decode\\(\\)\\)\")",
+      "Bash(python3 -c \"import sys,json,base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d['content']\\).decode\\(\\)\\)\")",
+      "Bash(flutter build *)"
     ]
   }
 }
