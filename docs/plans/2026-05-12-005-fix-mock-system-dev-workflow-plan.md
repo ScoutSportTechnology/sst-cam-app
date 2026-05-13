@@ -1,7 +1,7 @@
 ---
 title: "fix: Mock system dev workflow — seven targeted defect fixes"
 type: fix
-status: active
+status: completed
 date: 2026-05-12
 origin: docs/brainstorms/2026-05-12-mock-system-bug-fixes-requirements.md
 ---
