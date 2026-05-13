@@ -14,7 +14,6 @@ import '../widgets/live_preview_view.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
 import '../widgets/wf_chip.dart';
-import 'discovery_page.dart';
 import 'team_match_form_sheet.dart';
 
 /// The Match tab routes between Landing → Setup → Session based on user
@@ -92,13 +91,6 @@ class _MatchPageState extends ConsumerState<MatchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final activeId = ref.watch(activeCameraIdProvider);
-    final connected =
-        activeId != null &&
-        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
-            CameraConnectionState.connected;
-    if (!connected) return const _ConnectCameraScreen();
-
     final selected = _selected;
 
     // Live state owns the truth about whether the user is mid-session.
@@ -121,75 +113,6 @@ class _MatchPageState extends ConsumerState<MatchPage> {
       match: selected,
       onBack: () => setState(() => _selected = null),
       onStart: () => setState(() => _setupConfirmed = true),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Connect-camera empty state
-// ---------------------------------------------------------------------------
-
-class _ConnectCameraScreen extends StatelessWidget {
-  const _ConnectCameraScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: T.bg,
-      appBar: AppBar(title: const Text('Match')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: T.fillSoft,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: T.hair),
-                ),
-                child: const Icon(
-                  Icons.videocam_off_outlined,
-                  color: T.ink2,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'No camera connected',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  color: T.ink,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Connect a camera to schedule and run matches.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
-              ),
-              const SizedBox(height: 18),
-              WfButton(
-                label: 'Connect camera',
-                variant: WfButtonVariant.primary,
-                full: true,
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const DiscoveryPage()),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -575,6 +498,11 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
     final team = widget.match.team;
     final m = widget.match.match;
     final presets = ref.watch(sportPresetsForSportProvider(team.sport));
+    final activeId = ref.watch(activeCameraIdProvider);
+    final connected =
+        activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
 
     if (!_initialized) {
       _customPeriods = m.numPeriods > 0 ? m.numPeriods : 2;
@@ -721,7 +649,7 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
               variant: WfButtonVariant.primary,
               size: WfButtonSize.lg,
               full: true,
-              onPressed: _pushing
+              onPressed: (_pushing || !connected)
                   ? null
                   : () => _startMatch(
                       periods,
@@ -729,6 +657,15 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
                     ),
             ),
           ),
+          if (!connected)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: Text(
+                'Connect a camera to start the match.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: T.ink2),
+              ),
+            ),
           if (_pushing)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8),
@@ -1251,15 +1188,24 @@ class _SessionScreen extends ConsumerWidget {
               padding: EdgeInsets.fromLTRB(14, 10, 14, 4),
             ),
             Expanded(
-              child: state.events.isEmpty
-                  ? const Center(child: WfNote('No events yet'))
-                  : ListView.separated(
-                      padding: EdgeInsets.zero,
-                      itemCount: state.events.length,
-                      separatorBuilder: (_, _) =>
-                          const Divider(height: 1, color: T.rule),
-                      itemBuilder: (_, i) => _EventLogRow(e: state.events[i]),
-                    ),
+              child: Builder(
+                builder: (context) {
+                  final visibleEvents =
+                      state.events
+                          .where((e) => e.kind != 'phase')
+                          .toList();
+                  return visibleEvents.isEmpty
+                      ? const Center(child: WfNote('No events yet'))
+                      : ListView.separated(
+                          padding: EdgeInsets.zero,
+                          itemCount: visibleEvents.length,
+                          separatorBuilder: (_, _) =>
+                              const Divider(height: 1, color: T.rule),
+                          itemBuilder:
+                              (_, i) => _EventLogRow(e: visibleEvents[i]),
+                        );
+                },
+              ),
             ),
             _BottomControls(
               state: state,
@@ -1953,7 +1899,6 @@ class _EventLogRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPhase = e.kind == 'phase';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(
@@ -1962,10 +1907,10 @@ class _EventLogRow extends StatelessWidget {
             width: 44,
             child: Text(
               e.clock,
-              style: TextStyle(
+              style: const TextStyle(
                 fontFamily: T.mono,
-                fontWeight: isPhase ? FontWeight.w700 : FontWeight.w400,
-                color: isPhase ? T.accent : T.ink2,
+                fontWeight: FontWeight.w400,
+                color: T.ink2,
                 fontSize: 12,
               ),
             ),
@@ -1974,25 +1919,10 @@ class _EventLogRow extends StatelessWidget {
           Expanded(
             child: Text(
               e.label,
-              style: TextStyle(
-                fontSize: 12,
-                color: T.ink,
-                fontWeight: isPhase ? FontWeight.w600 : FontWeight.w400,
-              ),
+              style: const TextStyle(fontSize: 12, color: T.ink),
             ),
           ),
-          if (isPhase)
-            const Text(
-              'PHASE',
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: T.accent,
-                letterSpacing: 0.5,
-              ),
-            )
-          else
-            const Text('edit', style: TextStyle(fontSize: 11, color: T.ink2)),
+          const Text('edit', style: TextStyle(fontSize: 11, color: T.ink2)),
         ],
       ),
     );

@@ -30,7 +30,7 @@ const AppEnv kAppEnv = _envName == 'prod'
 
 /// Whether to load mock fixture data from assets/mock/fixtures/ into the DB.
 /// Set via --dart-define=kUseMockData=true at build/run time.
-const bool kUseMockData = bool.fromEnvironment('kUseMockData', defaultValue: false);
+const bool kUseMockData = bool.fromEnvironment('kUseMockData', defaultValue: true);
 
 extension AppEnvX on AppEnv {
   /// Whether the BLE/WiFi backend is the in-memory dev mock.

@@ -10,5 +10,13 @@
     "shortName": "NR",
     "sport": "Soccer",
     "hidden": false
+  },
+  {
+    "id": "mock-team-efc-u14",
+    "userId": "default-user",
+    "name": "Eastfield FC",
+    "shortName": "EFC",
+    "sport": "Soccer",
+    "hidden": false
   }
 ]

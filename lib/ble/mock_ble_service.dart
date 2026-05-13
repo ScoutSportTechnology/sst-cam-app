@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../models/command.dart';
 import '../models/device.dart';
@@ -235,7 +238,7 @@ class MockBleService implements BleService {
     ),
   ];
 
-  static final _fakeRecordings = [
+  static final _fallbackRecordings = [
     RecordingMetadata(
       id: 'rec-001',
       durationSeconds: 5400,
@@ -249,18 +252,47 @@ class MockBleService implements BleService {
       durationSeconds: 2700,
       sizeBytes: 2 * 1024 * 1024 * 1024,
       startedAt: DateTime.now().subtract(const Duration(days: 3)),
-      sport: 'Basketball',
+      sport: 'Soccer',
       teams: 'Eagles vs Lions',
     ),
-    RecordingMetadata(
-      id: 'rec-003',
-      durationSeconds: 900,
-      sizeBytes: 800 * 1024 * 1024,
-      startedAt: DateTime.now().subtract(const Duration(days: 7)),
-      sport: 'Soccer',
-      teams: 'City FC vs Rovers',
-    ),
   ];
+
+  List<RecordingMetadata> _recordings = _fallbackRecordings;
+  bool _recordingsLoaded = false;
+
+  /// Loads recordings from the fixture JSON on the first call; subsequent
+  /// calls return immediately. Falls back to [_fallbackRecordings] if the
+  /// asset bundle is unavailable (e.g. in unit tests without widget bindings).
+  Future<void> _ensureRecordingsLoaded() async {
+    if (_recordingsLoaded) return;
+    _recordingsLoaded = true;
+    try {
+      final raw = await rootBundle.loadString(
+        'assets/mock/fixtures/recordings.json',
+      );
+      final stripped = raw
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
+      final rows = (jsonDecode(stripped) as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      _recordings = rows
+          .map(
+            (r) => RecordingMetadata(
+              id: r['id'] as String,
+              durationSeconds: r['durationSeconds'] as int,
+              sizeBytes: r['sizeBytes'] as int,
+              startedAt: DateTime.parse(r['startedAt'] as String),
+              sport: r['sport'] as String,
+              teams: r['teams'] as String,
+            ),
+          )
+          .toList();
+    } catch (e) {
+      debugPrint('MockBleService: recordings.json unavailable — $e');
+      _recordings = _fallbackRecordings;
+    }
+  }
 
   @override
   bool get isScanning => _isScanning;
@@ -407,6 +439,7 @@ class MockBleService implements BleService {
     BleCommand command,
   ) async {
     await Future.delayed(const Duration(milliseconds: 80));
+    if (command is ListRecordingsCommand) await _ensureRecordingsLoaded();
 
     return switch (command) {
       GetDeviceInfoCommand() => BleCommandResponse.ok(
@@ -414,7 +447,7 @@ class MockBleService implements BleService {
       ),
       GetTelemetryCommand() => BleCommandResponse.ok(_makeTelemetry(0) as T?),
       GetMatchStateCommand() => BleCommandResponse.ok(MatchState.idle() as T?),
-      ListRecordingsCommand() => BleCommandResponse.ok(_fakeRecordings as T?),
+      ListRecordingsCommand() => BleCommandResponse.ok(_recordings as T?),
       DownloadRequestCommand(:final recordingId) => BleCommandResponse.ok(
         DownloadToken(
               recordingId: recordingId,
@@ -441,8 +474,9 @@ class MockBleService implements BleService {
 
   @override
   Future<List<RecordingMetadata>> listRecordings(String deviceId) async {
+    await _ensureRecordingsLoaded();
     await Future.delayed(const Duration(milliseconds: 300));
-    return List.unmodifiable(_fakeRecordings);
+    return List.unmodifiable(_recordings);
   }
 
   @override

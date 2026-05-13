@@ -10,7 +10,7 @@
   {
     "id": "mock-match-001",
     "teamId": "mock-team-nr-u14",
-    "opponent": "Eastfield FC",
+    "opponent": "vs Eastfield FC",
     "date": "2026-03-12",
     "result": "W 3–1",
     "kind": "past",
@@ -23,7 +23,7 @@
   {
     "id": "mock-match-002",
     "teamId": "mock-team-nr-u14",
-    "opponent": "Riverdale Utd",
+    "opponent": "vs Riverdale Utd",
     "date": "2026-03-05",
     "result": "L 0–2",
     "kind": "past",
@@ -36,7 +36,7 @@
   {
     "id": "mock-match-003",
     "teamId": "mock-team-nr-u14",
-    "opponent": "Lakeside FC",
+    "opponent": "vs Lakeside FC",
     "date": "2026-02-26",
     "result": "D 1–1",
     "kind": "past",
@@ -49,7 +49,7 @@
   {
     "id": "mock-match-004",
     "teamId": "mock-team-nr-u14",
-    "opponent": "Westview SC",
+    "opponent": "vs Westview SC",
     "date": "2026-05-18",
     "result": "",
     "kind": "upcoming",

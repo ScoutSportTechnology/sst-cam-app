@@ -72,7 +72,7 @@ void main() {
 
   group('Settings shell — empty state (no camera connected)', () {
     testWidgets(
-      'renders empty-state CTA only; no section headers in the tree (AE1)',
+      'renders connect-camera banner; DB-backed sections always visible',
       (tester) async {
         final mock = _newMock();
         addTearDown(mock.dispose);
@@ -80,35 +80,22 @@ void main() {
         await tester.pumpWidget(buildHarness(service: mock));
         await tester.pumpAndSettle();
 
-        // Empty-state copy is present.
+        // Connect-camera banner replaces the camera card.
         expect(find.text('No camera connected'), findsOneWidget);
-        expect(
-          find.text(
-            'Connect a camera to manage users, formats, and streaming '
-            'destinations.',
-          ),
-          findsOneWidget,
-        );
         expect(find.text('Connect camera'), findsOneWidget);
 
-        // None of the populated-layout section headers are present.
-        expect(find.text('User'), findsNothing);
-        expect(find.text('Match setup'), findsNothing);
-        expect(find.text('Streaming setup'), findsNothing);
-        expect(find.text('App'), findsNothing);
-
-        // None of the populated-layout placeholder copy. The Camera
-        // section is the real card now (U7); we still check the
-        // remaining placeholders aren't bleeding into the empty state.
+        // The real camera card is NOT present (only shown when connected).
         expect(find.text('Connected camera'), findsNothing);
         expect(find.text('Disconnect'), findsNothing);
-        // U8 has replaced the placeholder — the User section no longer
-        // exists at all in the empty state (no section cards render).
-        expect(find.text('Coach Diego'), findsNothing);
-        expect(
-          find.text('Streaming Setup section — populated in U9'),
-          findsNothing,
-        );
+
+        // DB-backed sections always render — no camera connection needed.
+        expect(find.text('User'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Match setup'), 200);
+        expect(find.text('Match setup'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
+        expect(find.text('Streaming setup'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('App'), 200);
+        expect(find.text('App'), findsOneWidget);
       },
     );
   });
@@ -226,12 +213,14 @@ void main() {
         expect(find.text('Connected camera'), findsOneWidget);
         expect(find.text('No camera connected'), findsNothing);
 
-        // Emit disconnected; the page should rerender to the empty state.
+        // Emit disconnected; camera card replaced by banner; DB sections stay.
         controller.add(CameraConnectionState.disconnected);
         await tester.pumpAndSettle();
         expect(find.text('No camera connected'), findsOneWidget);
         expect(find.text('Connect camera'), findsOneWidget);
         expect(find.text('Connected camera'), findsNothing);
+        // User section still present (DB-backed, no connection needed).
+        expect(find.text('User'), findsOneWidget);
       },
     );
   });

@@ -53,71 +53,72 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          if (connected) ...[
-            _CameraCard(deviceId: activeId),
-            const SizedBox(height: 14),
-            const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
-            const _UserSection(),
-            const SizedBox(height: 14),
-            const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
-            WfCard(
-              padding: EdgeInsets.zero,
-              child: _NavRow(
-                leading: const Icon(Icons.sports_soccer_outlined),
-                label: 'Sport setups',
-                sub: 'Saved time configs per sport',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SportPresetsPage()),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 14),
-            _StreamingSection(deviceId: activeId),
-            const SizedBox(height: 14),
-            const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
-            const _RowItem(
-              leading: Icon(Icons.palette_outlined),
-              label: 'Theme',
-              trailing: Text(
-                'Dark',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-            ),
-            const Divider(height: 1, color: T.rule),
-            const _RowItem(
-              leading: Icon(Icons.lock_outline),
-              label: 'Permissions',
-              trailing: Text(
-                '3 granted',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-            ),
-            const Divider(height: 1, color: T.rule),
-            GestureDetector(
-              onLongPress: kAppEnv != AppEnv.prod
-                  ? () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => const DebugPage(),
-                        ),
-                      )
-                  : null,
-              child: const _RowItem(
-                leading: Icon(Icons.info_outline),
-                label: 'About',
-                trailing: Text(
-                  '0.3.2',
-                  style: TextStyle(color: T.ink2, fontSize: 12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-          ] else ...[
+          // Camera card: only when connected. _ConnectCameraBanner replaces it
+          // when no camera is present so the user can reconnect.
+          if (connected)
+            _CameraCard(deviceId: activeId)
+          else
             const _ConnectCameraBanner(),
-            const SizedBox(height: 14),
-          ],
+          const SizedBox(height: 14),
+          // DB-backed sections — no camera connection required.
+          const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
+          const _UserSection(),
+          const SizedBox(height: 14),
+          const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
+          WfCard(
+            padding: EdgeInsets.zero,
+            child: _NavRow(
+              leading: const Icon(Icons.sports_soccer_outlined),
+              label: 'Sport setups',
+              sub: 'Saved time configs per sport',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SportPresetsPage()),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 14),
+          _StreamingSection(deviceId: activeId),
+          const SizedBox(height: 14),
+          const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
+          const _RowItem(
+            leading: Icon(Icons.palette_outlined),
+            label: 'Theme',
+            trailing: Text(
+              'Dark',
+              style: TextStyle(color: T.ink2, fontSize: 12),
+            ),
+          ),
+          const Divider(height: 1, color: T.rule),
+          const _RowItem(
+            leading: Icon(Icons.lock_outline),
+            label: 'Permissions',
+            trailing: Text(
+              '3 granted',
+              style: TextStyle(color: T.ink2, fontSize: 12),
+            ),
+          ),
+          const Divider(height: 1, color: T.rule),
+          GestureDetector(
+            onLongPress: kAppEnv != AppEnv.prod
+                ? () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const DebugPage(),
+                      ),
+                    )
+                : null,
+            child: const _RowItem(
+              leading: Icon(Icons.info_outline),
+              label: 'About',
+              trailing: Text(
+                '0.3.2',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
           const _DataSection(),
         ],
       ),
@@ -133,7 +134,8 @@ class SettingsPage extends ConsumerWidget {
 class _StreamingSection extends ConsumerWidget {
   const _StreamingSection({required this.deviceId});
 
-  final String deviceId;
+  // ignore: unused_field
+  final String? deviceId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

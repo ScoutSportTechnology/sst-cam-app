@@ -359,7 +359,10 @@ void main() {
         late ProviderContainer container;
         await tester.pumpWidget(
           ProviderScope(
-            overrides: [bleServiceProvider.overrideWithValue(spy)],
+            overrides: [
+              ...dbOverrides(db),
+              bleServiceProvider.overrideWithValue(spy),
+            ],
             child: Builder(
               builder: (context) {
                 container = ProviderScope.containerOf(context);

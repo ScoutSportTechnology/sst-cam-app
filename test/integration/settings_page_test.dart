@@ -123,9 +123,9 @@ void main() {
 
       expect(find.text('No camera connected'), findsOneWidget);
       expect(find.text('Connect camera'), findsOneWidget);
-      // No populated section headers.
-      expect(find.text('User'), findsNothing);
-      expect(find.text('Match setup'), findsNothing);
+      // Camera card absent; DB-backed sections always present.
+      expect(find.text('Connected camera'), findsNothing);
+      expect(find.text('User'), findsOneWidget);
 
       // Tap CTA — navigates to DiscoveryPage. Use bounded pumps because
       // DiscoveryPage's initState starts a scan timer that would block
