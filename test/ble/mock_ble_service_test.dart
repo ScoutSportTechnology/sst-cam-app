@@ -6,6 +6,11 @@ import 'package:sst_cam_app/models/device.dart';
 import 'package:sst_cam_app/models/recording.dart';
 
 void main() {
+  // Required so rootBundle can load fixture assets in unit tests.
+  // Without this, _doLoadRecordings falls back silently but logs
+  // a "Binding has not yet been initialized" error on every test run.
+  setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
+
   late MockBleService svc;
 
   setUp(() {

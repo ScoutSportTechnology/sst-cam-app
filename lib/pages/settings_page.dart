@@ -60,7 +60,6 @@ class SettingsPage extends ConsumerWidget {
           else
             const _ConnectCameraBanner(),
           const SizedBox(height: 14),
-          // DB-backed sections — no camera connection required.
           const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
           const _UserSection(),
           const SizedBox(height: 14),
@@ -127,8 +126,7 @@ class SettingsPage extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming setup section — extracted to read streamingCount only when
-// connected so the provider isn't watched in the disconnected path.
+// Streaming setup section
 // ---------------------------------------------------------------------------
 
 class _StreamingSection extends ConsumerWidget {

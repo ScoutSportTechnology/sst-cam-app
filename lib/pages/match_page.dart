@@ -686,10 +686,12 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
                     label: 'Retry',
                     variant: WfButtonVariant.outline,
                     full: true,
-                    onPressed: () => _startMatch(
-                      periods,
-                      _preset?.periodLengthSeconds ?? _customPeriodSeconds,
-                    ),
+                    onPressed: connected
+                        ? () => _startMatch(
+                            periods,
+                            _preset?.periodLengthSeconds ?? _customPeriodSeconds,
+                          )
+                        : null,
                   ),
                 ],
               ),
