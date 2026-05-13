@@ -258,14 +258,15 @@ class MockBleService implements BleService {
   ];
 
   List<RecordingMetadata> _recordings = _fallbackRecordings;
-  bool _recordingsLoaded = false;
+  Future<void>? _loadFuture;
 
   /// Loads recordings from the fixture JSON on the first call; subsequent
-  /// calls return immediately. Falls back to [_fallbackRecordings] if the
-  /// asset bundle is unavailable (e.g. in unit tests without widget bindings).
-  Future<void> _ensureRecordingsLoaded() async {
-    if (_recordingsLoaded) return;
-    _recordingsLoaded = true;
+  /// calls share the same [Future] so concurrent callers never double-load.
+  /// Falls back to [_fallbackRecordings] if the asset bundle is unavailable
+  /// (e.g. in unit tests without widget bindings).
+  Future<void> _ensureRecordingsLoaded() => _loadFuture ??= _doLoadRecordings();
+
+  Future<void> _doLoadRecordings() async {
     try {
       final raw = await rootBundle.loadString(
         'assets/mock/fixtures/recordings.json',

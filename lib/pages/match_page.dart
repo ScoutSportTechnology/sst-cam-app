@@ -1188,24 +1188,7 @@ class _SessionScreen extends ConsumerWidget {
               padding: EdgeInsets.fromLTRB(14, 10, 14, 4),
             ),
             Expanded(
-              child: Builder(
-                builder: (context) {
-                  final visibleEvents =
-                      state.events
-                          .where((e) => e.kind != 'phase')
-                          .toList();
-                  return visibleEvents.isEmpty
-                      ? const Center(child: WfNote('No events yet'))
-                      : ListView.separated(
-                          padding: EdgeInsets.zero,
-                          itemCount: visibleEvents.length,
-                          separatorBuilder: (_, _) =>
-                              const Divider(height: 1, color: T.rule),
-                          itemBuilder:
-                              (_, i) => _EventLogRow(e: visibleEvents[i]),
-                        );
-                },
-              ),
+              child: _buildEventLog(state),
             ),
             _BottomControls(
               state: state,
@@ -1217,6 +1200,17 @@ class _SessionScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildEventLog(LiveMatchState state) {
+    final visible = state.events.where((e) => e.kind != 'phase').toList();
+    if (visible.isEmpty) return const Center(child: WfNote('No events yet'));
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: visible.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
+      itemBuilder: (_, i) => _EventLogRow(e: visible[i]),
     );
   }
 

@@ -79,7 +79,7 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 14),
-          _StreamingSection(deviceId: activeId),
+          const _StreamingSection(),
           const SizedBox(height: 14),
           const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
           const _RowItem(
@@ -132,10 +132,7 @@ class SettingsPage extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _StreamingSection extends ConsumerWidget {
-  const _StreamingSection({required this.deviceId});
-
-  // ignore: unused_field
-  final String? deviceId;
+  const _StreamingSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
