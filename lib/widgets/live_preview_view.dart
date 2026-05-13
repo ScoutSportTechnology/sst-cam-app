@@ -146,16 +146,20 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
     // Spin up / replace the VLC controller whenever the descriptor URL changes.
-    final url = descriptor?.url;
-    if (url != null && url != _vlcUrl) {
-      _swapVlcController(url);
-    } else if (url == null && _vlc != null) {
-      _vlc?.removeListener(_onVlcChange);
-      // ignore: discarded_futures
-      _vlc?.dispose();
-      _vlc = null;
-      _vlcUrl = null;
-      _vlcError = false;
+    // Skipped in dev-backend mode: _vlc stays null so the mock-video branch
+    // in the Stack below renders instead of the VLC loading phase.
+    if (!kAppEnv.isDevBackend) {
+      final url = descriptor?.url;
+      if (url != null && url != _vlcUrl) {
+        _swapVlcController(url);
+      } else if (url == null && _vlc != null) {
+        _vlc?.removeListener(_onVlcChange);
+        // ignore: discarded_futures
+        _vlc?.dispose();
+        _vlc = null;
+        _vlcUrl = null;
+        _vlcError = false;
+      }
     }
 
     final wifiConnected = wifiState == WifiDirectState.connected;
@@ -221,8 +225,6 @@ class _LiveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fps = stats?.fps ?? 0;
-    final kbps = stats?.kbps ?? 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -242,7 +244,7 @@ class _LiveBadge extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            'LIVE · ${fps.toStringAsFixed(0)} FPS · ${kbps.toStringAsFixed(0)} KB/S',
+            'LIVE · ${(stats?.fps ?? 0).toStringAsFixed(0)} FPS · ${(stats?.kbps ?? 0).toStringAsFixed(0)} KB/S',
             style: const TextStyle(
               fontFamily: T.mono,
               fontSize: 9,
