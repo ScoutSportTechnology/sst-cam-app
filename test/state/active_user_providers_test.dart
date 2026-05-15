@@ -105,6 +105,31 @@ void main() {
         expect(container.read(activeUserProvider), 'user-2');
       },
     );
+
+    test(
+      'build() auto-selects the sole user when SharedPreferences is empty',
+      () async {
+        // SharedPreferences is empty (set in setUp), DB has two seed users.
+        // Delete user-2 so only one remains, then verify auto-selection fires.
+        final container = makeContainer(activeUserId: 'user-1');
+        await container.read(usersControllerProvider.future);
+        await container.read(usersControllerProvider.notifier).delete('user-2');
+        await Future<void>.delayed(Duration.zero);
+
+        // Now build a fresh container with no activeUserId override and empty prefs.
+        final fresh = ProviderContainer(
+          overrides: [...dbOverrides(db), bleServiceProvider.overrideWithValue(_newMock())],
+        );
+        addTearDown(fresh.dispose);
+
+        await fresh.read(usersControllerProvider.future);
+
+        // The sole remaining user should have been auto-activated.
+        expect(fresh.read(activeUserProvider), 'user-1');
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('active_user_id'), 'user-1');
+      },
+    );
   });
 
   group('create(name)', () {

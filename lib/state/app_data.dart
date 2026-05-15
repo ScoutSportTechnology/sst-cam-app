@@ -123,6 +123,17 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
       }
     }
 
+    // Auto-select the only user on first launch or after the saved user was
+    // deleted — avoids a blank-screen state where all per-user data is empty.
+    if (ref.read(activeUserProvider) == null) {
+      final all = await dao.getAll();
+      if (all.length == 1) {
+        final onlyId = all.first.id;
+        ref.read(activeUserProvider.notifier).state = onlyId;
+        await prefs.setString(_kActiveUserIdKey, onlyId);
+      }
+    }
+
     // Subscribe to watch stream for all mutations. The listener may fire once
     // with the same data as the initial snapshot below; that is acceptable.
     final sub = dao.watchAll().listen(
