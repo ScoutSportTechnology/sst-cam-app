@@ -16,21 +16,23 @@ class MockDataSeeder {
 
   final AppDatabase _db;
 
-  /// Seeds teams, matches, and streaming destinations from fixture JSON files.
-  /// The default user ('default-user') is assumed to already exist (created by
-  /// AppDatabase._seedBaseData via onCreate).
+  /// Seeds teams, players, matches, and streaming destinations from fixture
+  /// JSON files. The default user ('default-user') is assumed to already exist
+  /// (created by AppDatabase._seedBaseData via onCreate).
   Future<void> seed() async {
     // Load all fixture files in parallel, then insert in dependency order
-    // (teams must exist before matches reference them via FK).
+    // (teams must exist before matches/players reference them via FK).
     final results = await Future.wait([
       _loadFixture('teams'),
       _loadFixture('matches'),
       _loadFixture('streaming_destinations'),
+      _loadFixture('players'),
     ]);
     // Wrap all inserts in a single transaction — if any insert fails the
     // entire seed is rolled back, leaving the DB in a clean state.
     await _db.transaction(() async {
       await _insertTeams(results[0]);
+      await _insertPlayers(results[3]); // after teams (FK dependency)
       await _insertMatches(results[1]);
       await _insertStreamingDestinations(results[2]);
     });
@@ -46,6 +48,20 @@ class MockDataSeeder {
           shortName: row['shortName'] as String,
           sport: row['sport'] as String,
           hidden: Value(row['hidden'] as bool? ?? false),
+        ),
+      );
+    }
+  }
+
+  Future<void> _insertPlayers(List<Map<String, dynamic>> rows) async {
+    for (final row in rows) {
+      await _db.into(_db.playersTable).insertOnConflictUpdate(
+        PlayersTableCompanion.insert(
+          teamId: row['teamId'] as String,
+          number: row['number'] as int,
+          name: row['name'] as String,
+          position: row['position'] as String,
+          captain: Value(row['captain'] as bool? ?? false),
         ),
       );
     }
