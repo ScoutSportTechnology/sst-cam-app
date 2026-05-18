@@ -134,11 +134,42 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
         )
         .toList());
   }
+
+  /// Watch all upcoming matches for a user across all visible teams.
+  ///
+  /// Emits on every mutation to either [teamMatchesTable] or [teamsTable].
+  /// Results are ordered ascending by [TeamMatchesTable.date].
+  Stream<List<UpcomingMatchRow>> watchUpcomingMatchesForUser(String userId) {
+    final query = select(teamMatchesTable).join([
+      innerJoin(teamsTable, teamsTable.id.equalsExp(teamMatchesTable.teamId)),
+    ]);
+    query
+      ..where(teamMatchesTable.kind.equals('upcoming'))
+      ..where(teamsTable.hidden.equals(false))
+      ..where(teamsTable.userId.equals(userId))
+      ..orderBy([OrderingTerm.asc(teamMatchesTable.date)]);
+    return query.watch().map(
+      (rows) => rows
+          .map(
+            (r) => UpcomingMatchRow(
+              match: r.readTable(teamMatchesTable),
+              team: r.readTable(teamsTable),
+            ),
+          )
+          .toList(),
+    );
+  }
 }
 
 /// Lightweight join result for the library screen.
 class LibraryMatchRow {
   const LibraryMatchRow({required this.match, required this.team});
+  final TeamMatchesTableData match;
+  final TeamsTableData team;
+}
+
+class UpcomingMatchRow {
+  const UpcomingMatchRow({required this.match, required this.team});
   final TeamMatchesTableData match;
   final TeamsTableData team;
 }
