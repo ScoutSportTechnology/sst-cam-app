@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../env.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../state/app_data.dart';
@@ -500,9 +501,10 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
     final presets = ref.watch(sportPresetsForSportProvider(team.sport));
     final activeId = ref.watch(activeCameraIdProvider);
     final connected =
-        activeId != null &&
-        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
-            CameraConnectionState.connected;
+        kAppEnv.isDevBackend ||
+        (activeId != null &&
+            ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+                CameraConnectionState.connected);
 
     if (!_initialized) {
       _customPeriods = m.numPeriods > 0 ? m.numPeriods : 2;
@@ -657,7 +659,7 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
                     ),
             ),
           ),
-          if (!connected)
+          if (!kAppEnv.isDevBackend && !connected)
             const Padding(
               padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
               child: Text(
@@ -716,7 +718,8 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
   }
 
   Future<void> _startMatch(int periods, int periodLengthSeconds) async {
-    final deviceId = ref.read(activeCameraIdProvider);
+    final deviceId = ref.read(activeCameraIdProvider) ??
+        (kAppEnv.isDevBackend ? 'SST-CAM-001' : null);
     if (deviceId == null) return;
 
     final userUuid = ref.read(activeUserProvider);
