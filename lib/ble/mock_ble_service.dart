@@ -169,7 +169,9 @@ const _kPlaceholderJpeg = [
 
 class _DeviceState {
   _DeviceState(this.device)
-    : connController = StreamController<CameraConnectionState>.broadcast(),
+    : connController = StreamController<CameraConnectionState>.broadcast(
+        sync: true,
+      ),
       telemetryController = StreamController<DeviceTelemetry>.broadcast(),
       matchStateController = StreamController<MatchState>.broadcast();
 
@@ -299,8 +301,12 @@ class MockBleService implements BleService {
   bool get isScanning => _isScanning;
 
   @override
-  Stream<List<SstDevice>> get discoveredDevices =>
-      _discoveryController.stream;
+  Stream<List<SstDevice>> get discoveredDevices async* {
+    // Emit current snapshot immediately so callers get the initial empty state
+    // before any scan has started. Subsequent updates come from the controller.
+    yield List.unmodifiable(_discovered);
+    yield* _discoveryController.stream;
+  }
 
   @override
   Future<void> startScan({

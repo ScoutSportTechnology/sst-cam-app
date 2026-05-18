@@ -171,7 +171,7 @@ class _LandingScreen extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton(heroTag: null,
         onPressed: () => _schedule(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,
