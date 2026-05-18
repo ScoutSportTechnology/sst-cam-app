@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scout_camera/db/app_database.dart';
+import 'package:scout_camera/db/daos/teams_dao.dart';
 import 'package:uuid/uuid.dart';
 
 void main() {
@@ -324,5 +325,180 @@ void main() {
     final matches = await db.teamsDao.getTeamMatches(teamId);
     expect(matches, hasLength(1));
     expect(matches.first.id, matchId2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // watchUpcomingMatchesForUser
+  // ---------------------------------------------------------------------------
+
+  group('watchUpcomingMatchesForUser', () {
+    Future<String> makeTeam({
+      String? teamId,
+      String? name,
+      String? ownerId,
+      bool hidden = false,
+    }) async {
+      final id = teamId ?? const Uuid().v4();
+      final owner = ownerId ?? userId;
+      await db.teamsDao.insertTeam(
+        TeamsTableCompanion.insert(
+          id: id,
+          userId: owner,
+          name: name ?? 'Test FC',
+          shortName: 'TFC',
+          sport: 'Soccer',
+          hidden: Value(hidden),
+        ),
+      );
+      return id;
+    }
+
+    Future<String> makeMatch({
+      required String teamId,
+      required String opponent,
+      required String date,
+      String kind = 'upcoming',
+    }) async {
+      final id = const Uuid().v4();
+      await db.teamsDao.insertTeamMatch(
+        TeamMatchesTableCompanion.insert(
+          id: id,
+          teamId: teamId,
+          opponent: opponent,
+          date: date,
+          result: '',
+          kind: kind,
+          numPeriods: 2,
+          periodLengthSeconds: 45 * 60,
+        ),
+      );
+      return id;
+    }
+
+    test('happy path: visible team with one upcoming match emits list of 1',
+        () async {
+      final teamId = await makeTeam(name: 'Northside FC');
+      await makeMatch(teamId: teamId, opponent: 'Rival FC', date: '2026-06-01');
+
+      final rows =
+          await db.teamsDao.watchUpcomingMatchesForUser(userId).first;
+      expect(rows, hasLength(1));
+      expect(rows.first.match.opponent, 'Rival FC');
+      expect(rows.first.team.name, 'Northside FC');
+    });
+
+    test('reactivity on match insert: second upcoming match triggers re-emit',
+        () async {
+      final teamId = await makeTeam(name: 'Northside FC');
+      await makeMatch(teamId: teamId, opponent: 'Alpha FC', date: '2026-06-01');
+
+      final stream = db.teamsDao.watchUpcomingMatchesForUser(userId);
+
+      // Collect two emissions.
+      final emissions = <List<UpcomingMatchRow>>[];
+      final subscription = stream.listen(emissions.add);
+
+      // Give the first emission time to arrive.
+      await Future<void>.delayed(Duration.zero);
+      expect(emissions, hasLength(1));
+      expect(emissions.first, hasLength(1));
+
+      // Insert a second match — should trigger a second emission.
+      await makeMatch(
+        teamId: teamId,
+        opponent: 'Beta FC',
+        date: '2026-06-08',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      await subscription.cancel();
+
+      expect(emissions, hasLength(2));
+      expect(emissions.last, hasLength(2));
+    });
+
+    test(
+        'reactivity on match delete: deleting only match triggers empty emission',
+        () async {
+      final teamId = await makeTeam();
+      final matchId =
+          await makeMatch(teamId: teamId, opponent: 'Rival FC', date: '2026-06-01');
+
+      final stream = db.teamsDao.watchUpcomingMatchesForUser(userId);
+
+      final emissions = <List<UpcomingMatchRow>>[];
+      final subscription = stream.listen(emissions.add);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(emissions.last, hasLength(1));
+
+      await db.teamsDao.deleteTeamMatch(matchId);
+      await Future<void>.delayed(Duration.zero);
+
+      await subscription.cancel();
+
+      expect(emissions.last, isEmpty);
+    });
+
+    test('scoping: only returns rows for the specified userId', () async {
+      final otherUserId = const Uuid().v4();
+      await db.usersDao.insertUser(
+        UsersTableCompanion.insert(id: otherUserId, name: 'Coach Other'),
+      );
+
+      final myTeamId = await makeTeam(name: 'My Team');
+      final otherTeamId = await makeTeam(
+        name: 'Other Team',
+        ownerId: otherUserId,
+      );
+
+      await makeMatch(teamId: myTeamId, opponent: 'A', date: '2026-06-01');
+      await makeMatch(teamId: otherTeamId, opponent: 'B', date: '2026-06-01');
+
+      final rows =
+          await db.teamsDao.watchUpcomingMatchesForUser(userId).first;
+      expect(rows, hasLength(1));
+      expect(rows.first.match.opponent, 'A');
+    });
+
+    test('hidden teams excluded', () async {
+      final hiddenTeamId = await makeTeam(hidden: true);
+      await makeMatch(
+        teamId: hiddenTeamId,
+        opponent: 'Hidden Rival',
+        date: '2026-06-01',
+      );
+
+      final rows =
+          await db.teamsDao.watchUpcomingMatchesForUser(userId).first;
+      expect(rows, isEmpty);
+    });
+
+    test('kind=past excluded', () async {
+      final teamId = await makeTeam();
+      await makeMatch(
+        teamId: teamId,
+        opponent: 'Past Rival',
+        date: '2026-05-01',
+        kind: 'past',
+      );
+
+      final rows =
+          await db.teamsDao.watchUpcomingMatchesForUser(userId).first;
+      expect(rows, isEmpty);
+    });
+
+    test('ordering: two upcoming matches emit in ascending date order',
+        () async {
+      final teamId = await makeTeam();
+      await makeMatch(teamId: teamId, opponent: 'Later', date: '2026-07-01');
+      await makeMatch(teamId: teamId, opponent: 'Earlier', date: '2026-06-01');
+
+      final rows =
+          await db.teamsDao.watchUpcomingMatchesForUser(userId).first;
+      expect(rows, hasLength(2));
+      expect(rows[0].match.opponent, 'Earlier');
+      expect(rows[1].match.opponent, 'Later');
+    });
   });
 }
