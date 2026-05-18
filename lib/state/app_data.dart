@@ -651,49 +651,22 @@ class UpcomingMatch {
 }
 
 /// All upcoming matches across all non-hidden teams for the active user,
-/// ordered as stored in Drift. Backed by a Drift watch stream — no camera
-/// connection required (R2 fix, U5).
-///
-/// Uses bulk DAO queries (Fix 5) to avoid N+1 per-team fetches.
-final upcomingMatchesProvider = StreamProvider<List<UpcomingMatch>>((
-  ref,
-) async* {
+/// ordered ascending by date. Backed by a Drift JOIN watch stream — emits on
+/// every mutation to teamMatchesTable or teamsTable. No camera connection
+/// required (R2 fix, U2).
+final upcomingMatchesProvider = StreamProvider<List<UpcomingMatch>>((ref) {
   final userId = ref.watch(activeUserProvider);
-  if (userId == null) {
-    yield const [];
-    return;
-  }
+  if (userId == null) return Stream.value(const []);
   final dao = ref.watch(teamsDaoProvider);
-  // Watch the teams stream; on each emission re-query all upcoming matches.
-  await for (final teamRows in dao.watchForUser(userId)) {
-    final visibleRows = teamRows.where((r) => !r.hidden).toList();
-    if (visibleRows.isEmpty) {
-      yield const [];
-      continue;
-    }
-    final teamIds = visibleRows.map((r) => r.id).toList();
-
-    // Bulk queries — two round trips regardless of number of teams (Fix 5).
-    final allMatches = await dao.getTeamMatchesForTeams(teamIds);
-    final allPlayers = await dao.getPlayersForTeams(teamIds);
-
-    final playersByTeam = <String, List<PlayersTableData>>{};
-    for (final p in allPlayers) {
-      playersByTeam.putIfAbsent(p.teamId, () => []).add(p);
-    }
-
-    final out = <UpcomingMatch>[];
-    for (final row in visibleRows) {
-      final team = _rowToTeamRecord(row, playersByTeam[row.id] ?? const []);
-      for (final m in allMatches) {
-        if (m.teamId != row.id) continue;
-        if (m.kind != 'upcoming') continue;
-        out.add(UpcomingMatch(team: team, match: _rowToTeamMatch(m)));
-      }
-    }
-    yield out;
-  }
+  return dao
+      .watchUpcomingMatchesForUser(userId)
+      .map((rows) => rows.map(_rowToUpcomingMatch).toList());
 });
+
+UpcomingMatch _rowToUpcomingMatch(UpcomingMatchRow row) => UpcomingMatch(
+  team: _rowToTeamRecord(row.team, const []),
+  match: _rowToTeamMatch(row.match),
+);
 
 // ---------------------------------------------------------------------------
 // Sport setups (presets) — saved per-user time configs grouped by base

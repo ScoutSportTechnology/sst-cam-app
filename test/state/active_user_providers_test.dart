@@ -323,6 +323,79 @@ void main() {
       // All upcoming matches belonged to nr-u14 — now hidden.
       expect(upcoming, isEmpty);
     });
+
+    test('re-emits when a team match row is inserted', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+          activeUserProvider.overrideWith((_) => 'user-1'),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Collect emissions into a list.
+      final emissions = <List<UpcomingMatch>>[];
+      final sub = container.listen(
+        upcomingMatchesProvider,
+        (_, next) {
+          if (next.hasValue) emissions.add(next.value!);
+        },
+      );
+
+      // Consume the initial emission (2 upcoming matches in seed data).
+      final initial = await container.read(upcomingMatchesProvider.future);
+      expect(initial, hasLength(2));
+      emissions.clear();
+
+      // Insert a new upcoming match for nr-u14.
+      await db.value.teamsDao.insertTeamMatch(
+        TeamMatchesTableCompanion.insert(
+          id: 'nr-u14-up3',
+          teamId: 'nr-u14',
+          opponent: 'vs Hillside FC',
+          date: 'May 25',
+          result: '',
+          kind: 'upcoming',
+          numPeriods: 2,
+          periodLengthSeconds: 35 * 60,
+        ),
+      );
+
+      // Allow the Drift watch stream to propagate.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final updated = await container.read(upcomingMatchesProvider.future);
+      expect(updated, hasLength(3));
+      sub.close();
+    });
+
+    test('re-emits when a team match row is deleted', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+          activeUserProvider.overrideWith((_) => 'user-1'),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Confirm seed state: 2 upcoming matches.
+      final initial = await container.read(upcomingMatchesProvider.future);
+      expect(initial, hasLength(2));
+
+      // Delete one upcoming match directly via the DAO.
+      await db.value.teamsDao.deleteTeamMatch('nr-u14-up1');
+
+      // Allow the Drift watch stream to propagate.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final updated = await container.read(upcomingMatchesProvider.future);
+      expect(updated, hasLength(1));
+      expect(updated.first.match.id, 'nr-u14-up2');
+    });
   });
 
   group('UsersController.delete pre-checks', () {
