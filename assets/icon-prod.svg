@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="ScoutCamera">
+  <title>ScoutCamera</title>
+  
+  <rect width="1024" height="1024" rx="225" ry="225" fill="#E8FF3C"></rect>
+  
+  <text x="512" y="696" text-anchor="middle" font-family="Inter, &#39;SF Pro Display&#39;, system-ui, sans-serif" font-weight="900" font-size="573" letter-spacing="-20" fill="#0A0A0A">SC</text>
+  
+  <line x1="184" y1="819" x2="840" y2="819" stroke="#0A0A0A" stroke-width="25.6"></line>
+  
+  <circle cx="512" cy="819" r="56" fill="#FF3B3B" stroke="#0A0A0A" stroke-width="25.6"></circle>
+</svg>
