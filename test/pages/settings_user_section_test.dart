@@ -14,7 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/ble/mock_ble_service.dart';
 import 'package:sst_cam_app/models/device.dart';
-import 'package:sst_cam_app/pages/settings_page.dart';
+import 'package:sst_cam_app/pages/users_settings_page.dart';
 import 'package:sst_cam_app/state/app_data.dart';
 import 'package:sst_cam_app/state/ble_providers.dart';
 import 'package:sst_cam_app/widgets/wf_chip.dart';
@@ -56,7 +56,7 @@ void main() {
         if (activeUserId != null)
           activeUserProvider.overrideWith((_) => activeUserId),
       ],
-      child: const MaterialApp(home: SettingsPage()),
+      child: const MaterialApp(home: UsersSettingsPage()),
     );
   }
 
@@ -174,7 +174,7 @@ void main() {
           child: Builder(
             builder: (context) {
               container = ProviderScope.containerOf(context);
-              return const MaterialApp(home: SettingsPage());
+              return const MaterialApp(home: UsersSettingsPage());
             },
           ),
         ),
@@ -233,7 +233,7 @@ void main() {
               ),
             ),
           ],
-          child: const MaterialApp(home: SettingsPage()),
+          child: const MaterialApp(home: UsersSettingsPage()),
         ),
       );
       await tester.pumpAndSettle();
