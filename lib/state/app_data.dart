@@ -841,6 +841,67 @@ final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
 });
 
 // ---------------------------------------------------------------------------
+// Filter / search state for the Match landing page.
+// ---------------------------------------------------------------------------
+
+final upcomingSearchQueryProvider = StateProvider<String>((_) => '');
+final upcomingMatchSportFilterProvider = StateProvider<String?>((_) => null); // null = All
+
+final filteredUpcomingMatchesProvider = Provider<List<UpcomingMatch>>((ref) {
+  final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
+  final query = ref.watch(upcomingSearchQueryProvider).trim().toLowerCase();
+  final sport = ref.watch(upcomingMatchSportFilterProvider);
+  return matches.where((m) {
+    if (sport != null && m.team.sport != sport) return false;
+    if (query.isEmpty) return true;
+    return m.team.name.toLowerCase().contains(query) ||
+        m.match.opponent.toLowerCase().contains(query);
+  }).toList();
+});
+
+// ---------------------------------------------------------------------------
+// Filter / search state for the Library (Video) page.
+// ---------------------------------------------------------------------------
+
+final librarySearchQueryProvider = StateProvider<String>((_) => '');
+final librarySportFilterProvider = StateProvider<String?>((_) => null); // null = All
+
+/// Sports actually present in the current library set, in `kSports` order.
+final availableLibrarySportsProvider = Provider<List<String>>((ref) {
+  final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final teamMap = {for (final t in teams) t.id: t};
+  final present = library
+      .map((m) => teamMap[m.teamId]?.sport)
+      .whereType<String>()
+      .toSet();
+  return kSports.where(present.contains).toList();
+});
+
+/// Teams that have at least one local library entry, after applying search +
+/// sport filter.
+final filteredLibraryTeamsProvider = Provider<List<TeamRecord>>((ref) {
+  final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final query = ref.watch(librarySearchQueryProvider).trim().toLowerCase();
+  final sport = ref.watch(librarySportFilterProvider);
+
+  // Build set of team IDs that have local library entries.
+  final presentIds = library
+      .where((m) => m.downloadState != 'remote')
+      .map((m) => m.teamId)
+      .toSet();
+
+  return teams.where((t) {
+    if (!presentIds.contains(t.id)) return false;
+    if (sport != null && t.sport != sport) return false;
+    if (query.isEmpty) return true;
+    return t.name.toLowerCase().contains(query) ||
+        t.shortName.toLowerCase().contains(query);
+  }).toList();
+});
+
+// ---------------------------------------------------------------------------
 // Library — backed by TeamMatchesTable joined with TeamsTable.
 // Emits the current list of past matches with events parsed from eventsJson.
 // ---------------------------------------------------------------------------
