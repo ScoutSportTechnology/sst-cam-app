@@ -34,7 +34,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     final m = _match();
     _selected = {
       for (int i = 0; i < (m?.events.length ?? 0); i++)
-        if (i.isEven) i,
+        if (m!.events[i].kind == 'goal') i,
     };
   }
 
