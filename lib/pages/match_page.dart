@@ -132,43 +132,62 @@ class _LandingScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(title: const Text('Match')),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              'Could not load matches: $e',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: T.ink2, fontSize: 12),
-            ),
+      body: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
+            child: _MatchSearchField(),
           ),
-        ),
-        data: (matches) {
-          if (matches.isEmpty) {
-            return _NoUpcomingState(onSchedule: () => _schedule(context, ref));
-          }
-          return Column(
-            children: [
-              WfSection(
-                'Upcoming · ${matches.length}',
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-              ),
-              Expanded(
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: matches.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(height: 1, color: T.rule),
-                  itemBuilder: (_, i) => _UpcomingRow(
-                    match: matches[i],
-                    onTap: () => onSelect(matches[i]),
+          const SizedBox(height: 32, child: _MatchSportFilterChips()),
+          Expanded(
+            child: async.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'Could not load matches: $e',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: T.ink2, fontSize: 12),
                   ),
                 ),
               ),
-            ],
-          );
-        },
+              data: (matches) {
+                final filtered = ref.watch(filteredUpcomingMatchesProvider);
+                if (matches.isEmpty) {
+                  return _NoUpcomingState(
+                    onSchedule: () => _schedule(context, ref),
+                  );
+                }
+                if (filtered.isEmpty) {
+                  return const Center(
+                    child: WfNote('No matches match your filters'),
+                  );
+                }
+                return Column(
+                  children: [
+                    WfSection(
+                      'Upcoming · ${filtered.length}',
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: EdgeInsets.zero,
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, _) =>
+                            const Divider(height: 1, color: T.rule),
+                        itemBuilder: (_, i) => _UpcomingRow(
+                          match: filtered[i],
+                          onTap: () => onSelect(filtered[i]),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(heroTag: null,
         onPressed: () => _schedule(context, ref),
@@ -207,6 +226,109 @@ class _LandingScreen extends ConsumerWidget {
         context,
       ).showSnackBar(SnackBar(content: Text('Could not add match: $e')));
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SEARCH FIELD — mirrors _SearchField from teams_page.dart
+// ---------------------------------------------------------------------------
+
+class _MatchSearchField extends ConsumerStatefulWidget {
+  const _MatchSearchField();
+
+  @override
+  ConsumerState<_MatchSearchField> createState() => _MatchSearchFieldState();
+}
+
+class _MatchSearchFieldState extends ConsumerState<_MatchSearchField> {
+  late final TextEditingController _ctl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctl = TextEditingController(
+      text: ref.read(upcomingSearchQueryProvider),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: T.fillSoft,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, size: 16, color: T.ink3),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _ctl,
+              onChanged: (v) =>
+                  ref.read(upcomingSearchQueryProvider.notifier).state = v,
+              decoration: const InputDecoration(
+                hintText: 'Search matches',
+                hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                border: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              style: const TextStyle(color: T.ink, fontSize: 13),
+            ),
+          ),
+          if (_ctl.text.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _ctl.clear();
+                ref.read(upcomingSearchQueryProvider.notifier).state = '';
+              },
+              child: const Icon(Icons.close, size: 16, color: T.ink3),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SPORT FILTER CHIPS — mirrors _SportFilterChips from teams_page.dart
+// ---------------------------------------------------------------------------
+
+class _MatchSportFilterChips extends ConsumerWidget {
+  const _MatchSportFilterChips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final matches =
+        ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
+    final sports = matches.map((m) => m.team.sport).toSet().toList()..sort();
+    final selected = ref.watch(upcomingMatchSportFilterProvider);
+    final entries = <String?>[null, ...sports];
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      itemCount: entries.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 6),
+      itemBuilder: (_, i) {
+        final s = entries[i];
+        final active = s == selected;
+        return GestureDetector(
+          onTap: () =>
+              ref.read(upcomingMatchSportFilterProvider.notifier).state = s,
+          child: WfChip(label: s ?? 'All', active: active),
+        );
+      },
+    );
   }
 }
 
