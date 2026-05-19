@@ -243,8 +243,7 @@ class _NoTeamsYet extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Teams live on the camera. Add your first one to start '
-              'recording matches.',
+              'Add your first team to start organising matches.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
             ),
@@ -403,8 +402,7 @@ Future<bool> _confirmDelete(BuildContext context, TeamRecord team) async {
       backgroundColor: T.surface,
       title: const Text('Delete team?'),
       content: Text(
-        '${team.name} and its match history will be removed from the camera. '
-        'Recordings on the camera storage are not affected.',
+        '${team.name} and its match history will be permanently deleted.',
       ),
       actions: [
         TextButton(

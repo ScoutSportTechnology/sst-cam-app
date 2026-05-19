@@ -313,8 +313,7 @@ class _NoVideosEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Connect a camera to browse recordings and download them '
-              'to this phone.',
+              'Record a match to start building your library.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
             ),

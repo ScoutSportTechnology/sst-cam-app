@@ -537,7 +537,7 @@ class _NoUpcomingState extends StatelessWidget {
             const SizedBox(height: 6),
             const Text(
               'Schedule a match to set it up and run it from this tab. '
-              'Past matches live in the Video and Teams tabs.',
+              'Past matches are in the Video and Teams tabs.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
             ),
