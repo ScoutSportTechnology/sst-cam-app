@@ -1,7 +1,7 @@
 ---
 title: "feat: UI Polish Sprint — navigation, layout parity, copy, assets, and settings"
 type: feat
-status: active
+status: completed
 date: 2026-05-19
 origin: docs/brainstorms/ui-polish-sprint-requirements.md
 ---
