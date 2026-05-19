@@ -84,16 +84,18 @@ MockBleService _newMock() => MockBleService(
 // Harness
 // ---------------------------------------------------------------------------
 
-Widget _buildHarness({required MockBleService service, required DbRef db}) {
+Widget _buildHarness({
+  required MockBleService service,
+  required DbRef db,
+  CameraConnectionState connectionState = CameraConnectionState.connected,
+}) {
   return ProviderScope(
     overrides: [
       ...dbOverrides(db),
       bleServiceProvider.overrideWithValue(service),
       activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
       connectionStateProvider(_kFakeDeviceId).overrideWith(
-        (_) => Stream<CameraConnectionState>.value(
-          CameraConnectionState.connected,
-        ),
+        (_) => Stream<CameraConnectionState>.value(connectionState),
       ),
       activeUserProvider.overrideWith((_) => 'user-1'),
     ],
@@ -294,6 +296,45 @@ void main() {
 
         expect(find.text('Match setup'), findsNothing);
         expect(mock.lastPushedConfig, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'Start match button is disabled when camera is disconnected',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 1400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final mock = _newMock();
+        await tester.pumpWidget(
+          _buildHarness(
+            service: mock,
+            db: db,
+            connectionState: CameraConnectionState.disconnected,
+          ),
+        );
+        await _navigateToSetup(tester);
+
+        // Scroll to the button so the finder can locate it.
+        final buttonFinder = find.text('Start match');
+        await tester.scrollUntilVisible(buttonFinder, 200);
+        await tester.pump();
+
+        // Button must be disabled (no onPressed) — tapping it must NOT
+        // call pushSessionConfig.
+        await tester.tap(buttonFinder, warnIfMissed: false);
+        await _pumpAfterTap(tester);
+
+        expect(mock.lastPushedConfig, isNull,
+            reason:
+                'pushSessionConfig must not be called when camera is disconnected');
+        expect(find.text('Match setup'), findsOneWidget,
+            reason: 'Setup screen must remain visible — session must not start');
+        expect(
+          find.text('Connect a camera to start the match.'),
+          findsOneWidget,
+          reason: 'Hint text must appear when disconnected',
+        );
       },
     );
 

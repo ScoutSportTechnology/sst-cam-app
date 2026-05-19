@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import '../env.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../state/app_data.dart';
@@ -501,10 +500,9 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
     final presets = ref.watch(sportPresetsForSportProvider(team.sport));
     final activeId = ref.watch(activeCameraIdProvider);
     final connected =
-        kAppEnv.isDevBackend ||
-        (activeId != null &&
-            ref.watch(connectionStateProvider(activeId)).valueOrNull ==
-                CameraConnectionState.connected);
+        activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
 
     if (!_initialized) {
       _customPeriods = m.numPeriods > 0 ? m.numPeriods : 2;
@@ -659,7 +657,7 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
                     ),
             ),
           ),
-          if (!kAppEnv.isDevBackend && !connected)
+          if (!connected)
             const Padding(
               padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
               child: Text(
@@ -718,8 +716,7 @@ class _SetupScreenState extends ConsumerState<_SetupScreen> {
   }
 
   Future<void> _startMatch(int periods, int periodLengthSeconds) async {
-    final deviceId = ref.read(activeCameraIdProvider) ??
-        (kAppEnv.isDevBackend ? 'SST-CAM-001' : null);
+    final deviceId = ref.read(activeCameraIdProvider);
     if (deviceId == null) return;
 
     final userUuid = ref.read(activeUserProvider);
@@ -1137,6 +1134,11 @@ class _SessionScreen extends ConsumerWidget {
     final state = ref.watch(liveMatchProvider);
     final ctl = ref.read(liveMatchProvider.notifier);
 
+    final activeId = ref.watch(activeCameraIdProvider);
+    final connected = activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
+
     final isEnded = state.phase == MatchPhase.ended;
     final isPeriodActive = state.phase == MatchPhase.period;
 
@@ -1198,9 +1200,10 @@ class _SessionScreen extends ConsumerWidget {
             _BottomControls(
               state: state,
               onTimerTap: ctl.toggleTimer,
-              onRecToggle: ctl.toggleRecPause,
-              onRecStop: ctl.stopRecording,
-              onStreamToggle: () => ctl.setStreaming(!state.streaming),
+              onRecToggle: connected ? ctl.toggleRecPause : null,
+              onRecStop: connected ? ctl.stopRecording : null,
+              onStreamToggle:
+                  connected ? () => ctl.setStreaming(!state.streaming) : null,
             ),
           ],
         ),
@@ -1631,9 +1634,9 @@ class _BottomControls extends StatelessWidget {
 
   final LiveMatchState state;
   final VoidCallback onTimerTap;
-  final VoidCallback onRecToggle;
-  final VoidCallback onRecStop;
-  final VoidCallback onStreamToggle;
+  final VoidCallback? onRecToggle;
+  final VoidCallback? onRecStop;
+  final VoidCallback? onStreamToggle;
 
   @override
   Widget build(BuildContext context) {
