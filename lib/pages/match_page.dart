@@ -139,6 +139,7 @@ class _LandingScreen extends ConsumerWidget {
             child: _MatchSearchField(),
           ),
           const SizedBox(height: 32, child: _MatchSportFilterChips()),
+          const SizedBox(height: 32, child: _MatchTeamFilterChips()),
           Expanded(
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -326,6 +327,34 @@ class _MatchSportFilterChips extends ConsumerWidget {
           onTap: () =>
               ref.read(upcomingMatchSportFilterProvider.notifier).state = s,
           child: WfChip(label: s ?? 'All', active: active),
+        );
+      },
+    );
+  }
+}
+
+class _MatchTeamFilterChips extends ConsumerWidget {
+  const _MatchTeamFilterChips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
+    final teams = matches.map((m) => m.team.name).toSet().toList()..sort();
+    final selected = ref.watch(upcomingMatchTeamFilterProvider);
+    final entries = <String?>[null, ...teams];
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      itemCount: entries.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 6),
+      itemBuilder: (_, i) {
+        final t = entries[i];
+        final active = t == selected;
+        return GestureDetector(
+          onTap: () =>
+              ref.read(upcomingMatchTeamFilterProvider.notifier).state = t,
+          child: WfChip(label: t ?? 'All teams', active: active),
         );
       },
     );
@@ -2194,7 +2223,7 @@ class _EventSheet extends ConsumerStatefulWidget {
 class _EventSheetState extends ConsumerState<_EventSheet> {
   static const _types = ['Goal', 'Foul', 'Card', 'Sub', 'Save', 'Other'];
 
-  int _step = 0;
+  int _step = 1; // start directly on team/jersey — Goal is the default type
   String _type = 'Goal';
   String? _team;
   final _jersey = StringBuffer();

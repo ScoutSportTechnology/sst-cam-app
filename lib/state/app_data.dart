@@ -850,13 +850,16 @@ final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
 
 final upcomingSearchQueryProvider = StateProvider<String>((_) => '');
 final upcomingMatchSportFilterProvider = StateProvider<String?>((_) => null); // null = All
+final upcomingMatchTeamFilterProvider = StateProvider<String?>((_) => null); // null = All teams
 
 final filteredUpcomingMatchesProvider = Provider<List<UpcomingMatch>>((ref) {
   final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
   final query = ref.watch(upcomingSearchQueryProvider).trim().toLowerCase();
   final sport = ref.watch(upcomingMatchSportFilterProvider);
+  final team = ref.watch(upcomingMatchTeamFilterProvider);
   return matches.where((m) {
     if (sport != null && m.team.sport != sport) return false;
+    if (team != null && m.team.name != team) return false;
     if (query.isEmpty) return true;
     return m.team.name.toLowerCase().contains(query) ||
         m.match.opponent.toLowerCase().contains(query);
