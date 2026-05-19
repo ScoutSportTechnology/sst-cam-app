@@ -125,7 +125,7 @@ void main() {
       expect(find.text('Connect camera'), findsOneWidget);
       // Camera card absent; DB-backed sections always present.
       expect(find.text('Connected camera'), findsNothing);
-      expect(find.text('User'), findsOneWidget);
+      expect(find.text('Users'), findsAtLeastNWidgets(1));
 
       // Tap CTA — navigates to DiscoveryPage. Use bounded pumps because
       // DiscoveryPage's initState starts a scan timer that would block
@@ -287,6 +287,10 @@ void main() {
     final teamsUser1 = await container.read(teamsControllerProvider.future);
     expect(teamsUser1, isNotEmpty);
 
+    // Open the Users sub-page to access the user picker.
+    await tester.tap(find.text('Users').last);
+    await tester.pumpAndSettle();
+
     // Open the popup and select Coach Maria → confirm dialog, then Switch.
     await tester.tap(find.byIcon(Icons.expand_more));
     await tester.pumpAndSettle();
@@ -299,7 +303,11 @@ void main() {
     // activeUserProvider switched to user-2.
     expect(container.read(activeUserProvider), 'user-2');
 
-    // The compact row now shows Coach Maria (the new active user).
+    // Pop back to Settings to verify the nav row badge updated.
+    Navigator.of(tester.element(find.byType(Scaffold).last)).pop();
+    await tester.pumpAndSettle();
+
+    // The compact row now shows Coach Maria (the new active user) as badge.
     expect(find.text('Coach Maria'), findsOneWidget);
     // Coach Diego is not visible on the main Settings page (only in popup).
     expect(find.text('Coach Diego'), findsNothing);
@@ -513,12 +521,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Settings shows Maria in the compact row.
+      // Settings shows Maria in the compact row badge.
       expect(find.text('Coach Maria'), findsOneWidget);
       // Diego is not visible on the Settings page (only in popup/ManageUsers).
       expect(find.text('Coach Diego'), findsNothing);
 
-      // Navigate to ManageUsersPage to delete Diego.
+      // Navigate to UsersSettingsPage first, then to ManageUsersPage.
+      await tester.tap(find.text('Users').last);
+      await tester.pumpAndSettle();
       expect(find.text('Manage users'), findsOneWidget);
       await tester.tap(find.text('Manage users'));
       await tester.pumpAndSettle();
