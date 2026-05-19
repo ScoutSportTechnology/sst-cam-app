@@ -903,6 +903,50 @@ final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
 });
 
 // ---------------------------------------------------------------------------
+// Filter / search state for the Video library page.
+// ---------------------------------------------------------------------------
+
+final librarySearchQueryProvider = StateProvider<String>((_) => '');
+final librarySportFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
+
+/// Sports actually present in the local library (non-remote matches), in
+/// `kSports` order. Used to drive the filter chip row.
+final availableLibrarySportsProvider = Provider<List<String>>((ref) {
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final library = (ref.watch(libraryProvider).valueOrNull ?? const [])
+      .where((m) => m.downloadState != 'remote')
+      .toList();
+  final teamIdsInLibrary = library.map((m) => m.teamId).toSet();
+  final present = teams
+      .where((t) => teamIdsInLibrary.contains(t.id))
+      .map((t) => t.sport)
+      .toSet();
+  return kSports.where(present.contains).toList();
+});
+
+/// Teams with at least one local library entry, after applying search + sport
+/// filter. Used by [VideoPage] to drive the team list.
+final filteredLibraryTeamsProvider = Provider<List<TeamRecord>>((ref) {
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final library = (ref.watch(libraryProvider).valueOrNull ?? const [])
+      .where((m) => m.downloadState != 'remote')
+      .toList();
+  final teamIdsInLibrary = library.map((m) => m.teamId).toSet();
+  final query = ref.watch(librarySearchQueryProvider).trim().toLowerCase();
+  final sport = ref.watch(librarySportFilterProvider);
+
+  return teams.where((t) {
+    if (!teamIdsInLibrary.contains(t.id)) return false;
+    if (sport != null && t.sport != sport) return false;
+    if (query.isEmpty) return true;
+    return t.name.toLowerCase().contains(query) ||
+        t.shortName.toLowerCase().contains(query);
+  }).toList();
+});
+
+// ---------------------------------------------------------------------------
 // Live match state — local mirror of what the firmware would push back over
 // BLE. The match flow drives this directly from the UI so the wireframe
 // interactions are end-to-end clickable without a real device.

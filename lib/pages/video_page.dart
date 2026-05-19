@@ -5,6 +5,7 @@ import '../state/app_data.dart';
 import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
+import '../widgets/wf_chip.dart';
 import 'discovery_page.dart';
 import 'video_team_matches_page.dart';
 
@@ -19,8 +20,8 @@ class VideoPage extends ConsumerWidget {
     final library = (ref.watch(libraryProvider).valueOrNull ?? const [])
         .where((m) => m.downloadState != 'remote')
         .toList();
-    final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
 
+    // Build stats map — same as before, used for row rendering.
     final byTeam =
         <String, ({int matches, int clips, int sizeMb, String date})>{};
     for (final m in library) {
@@ -34,7 +35,8 @@ class VideoPage extends ConsumerWidget {
       );
     }
 
-    final tiles = teams.where((t) => byTeam.containsKey(t.id)).toList();
+    // Use filtered provider instead of computing tiles manually.
+    final filteredTiles = ref.watch(filteredLibraryTeamsProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -48,20 +50,26 @@ class VideoPage extends ConsumerWidget {
         ],
       ),
       body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Padding(
-            padding: EdgeInsets.fromLTRB(14, 12, 14, 6),
-            child: WfNote('Videos saved on this phone'),
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
+            child: _LibrarySearchField(),
           ),
+          const SizedBox(height: 32, child: _LibrarySportFilterChips()),
+          if (filteredTiles.isNotEmpty)
+            WfSection(
+              'Library · ${filteredTiles.length}',
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+            ),
           Expanded(
-            child: tiles.isEmpty
+            child: filteredTiles.isEmpty
                 ? const _NoVideosEmptyState()
                 : ListView.builder(
-                    itemCount: tiles.length,
+                    itemCount: filteredTiles.length,
                     itemBuilder: (context, i) {
-                      final t = tiles[i];
-                      final stats = byTeam[t.id]!;
+                      final t = filteredTiles[i];
+                      final stats = byTeam[t.id];
+                      if (stats == null) return const SizedBox.shrink();
                       return _TeamLibraryRow(
                         team: t,
                         matches: stats.matches,
@@ -74,6 +82,97 @@ class VideoPage extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LibrarySearchField extends ConsumerStatefulWidget {
+  const _LibrarySearchField();
+
+  @override
+  ConsumerState<_LibrarySearchField> createState() =>
+      _LibrarySearchFieldState();
+}
+
+class _LibrarySearchFieldState extends ConsumerState<_LibrarySearchField> {
+  late final TextEditingController _ctl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctl = TextEditingController(text: ref.read(librarySearchQueryProvider));
+  }
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: T.fillSoft,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, size: 16, color: T.ink3),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _ctl,
+              onChanged: (v) =>
+                  ref.read(librarySearchQueryProvider.notifier).state = v,
+              decoration: const InputDecoration(
+                hintText: 'Search library',
+                hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                border: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              style: const TextStyle(color: T.ink, fontSize: 13),
+            ),
+          ),
+          if (_ctl.text.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _ctl.clear();
+                ref.read(librarySearchQueryProvider.notifier).state = '';
+              },
+              child: const Icon(Icons.close, size: 16, color: T.ink3),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LibrarySportFilterChips extends ConsumerWidget {
+  const _LibrarySportFilterChips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sports = ref.watch(availableLibrarySportsProvider);
+    final selected = ref.watch(librarySportFilterProvider);
+    final entries = <String?>[null, ...sports];
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      itemCount: entries.length,
+      separatorBuilder: (context, index) => const SizedBox(width: 6),
+      itemBuilder: (_, i) {
+        final s = entries[i];
+        final active = s == selected;
+        return GestureDetector(
+          onTap: () => ref.read(librarySportFilterProvider.notifier).state = s,
+          child: WfChip(label: s ?? 'All', active: active),
+        );
+      },
     );
   }
 }
