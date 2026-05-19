@@ -8,6 +8,7 @@ import 'pages/match_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/teams_page.dart';
 import 'pages/video_page.dart';
+import 'state/app_data.dart';
 import 'state/wifi_handoff.dart';
 import 'theme/tokens.dart';
 
@@ -230,6 +231,7 @@ class _AppShellState extends ConsumerState<_AppShell> {
     // It listens to BLE connection state and auto-connects / disconnects the
     // WiFi group; lazy NotifierProviders need a reader to run.
     ref.watch(wifiHandoffProvider);
+    ref.listen<int>(activeTabProvider, (_, i) => setState(() => _index = i));
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
       bottomNavigationBar: NavigationBar(

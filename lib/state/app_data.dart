@@ -77,6 +77,10 @@ class LibraryMatch {
 
 final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 
+/// App-level selected tab index. Write to this to switch tabs from anywhere.
+/// Tab indices: 0=Main, 1=Teams, 2=Match, 3=Video, 4=Settings.
+final activeTabProvider = StateProvider<int>((_) => 0);
+
 // ---------------------------------------------------------------------------
 // Active user — single source of truth on the app side. Hydrated from
 // SharedPreferences in `UsersController.build()`. Per-user-scoped controllers

@@ -88,14 +88,14 @@ void main() {
         expect(find.text('Connected camera'), findsNothing);
         expect(find.text('Disconnect'), findsNothing);
 
-        // DB-backed sections always render — no camera connection needed.
+        // DB-backed nav rows always render — no camera connection needed.
         expect(find.text('Users'), findsAtLeastNWidgets(1));
-        await tester.scrollUntilVisible(find.text('Match setup'), 200);
-        expect(find.text('Match setup'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
-        expect(find.text('Streaming setup'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('App').first, 200);
-        expect(find.text('App'), findsAtLeastNWidgets(1));
+        await tester.scrollUntilVisible(find.text('Sport setups'), 200);
+        expect(find.text('Sport setups'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
+        expect(find.text('Streaming destinations'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Theme'), 200);
+        expect(find.text('Theme'), findsOneWidget);
       },
     );
   });
@@ -134,26 +134,18 @@ void main() {
         // Users section collapses to a single nav row; badge shows active user.
         expect(find.text('Users'), findsAtLeastNWidgets(1));
         expect(find.text('Coach Diego'), findsOneWidget);
-        // Manage users and expanded user picker are now in UsersSettingsPage.
+        // Manage users nav row is gone — management is directly in UsersSettingsPage.
         expect(find.text('Manage users'), findsNothing);
-        await tester.scrollUntilVisible(find.text('Match setup'), 200);
-        expect(find.text('Match setup'), findsOneWidget);
+        // Nav rows are grouped in a single card; no separate WfSection headers.
+        await tester.scrollUntilVisible(find.text('Sport setups'), 200);
         expect(find.text('Sport setups'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
-        expect(find.text('Streaming setup'), findsOneWidget);
-        // Streaming section is a nav row — no inline destinations.
-        await tester.scrollUntilVisible(
-          find.text('Streaming destinations'),
-          200,
-        );
+        await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
         expect(find.text('Streaming destinations'), findsOneWidget);
-        // App section collapses to a single nav row.
-        await tester.scrollUntilVisible(find.text('App').first, 200);
-        expect(find.text('App'), findsAtLeastNWidgets(1));
-        // Theme / Permissions / About are now inside AppSettingsPage.
-        expect(find.text('Theme'), findsNothing);
-        expect(find.text('Permissions'), findsNothing);
-        expect(find.text('About'), findsNothing);
+        // App section rows are inline at the bottom.
+        await tester.scrollUntilVisible(find.text('Theme'), 200);
+        expect(find.text('Theme'), findsOneWidget);
+        expect(find.text('Permissions'), findsOneWidget);
+        expect(find.text('About'), findsOneWidget);
 
         // Removed cards from prior shell are gone.
         expect(find.text('Recording defaults'), findsNothing);

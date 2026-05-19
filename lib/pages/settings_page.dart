@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../env.dart';
 import '../models/device.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
@@ -8,8 +9,8 @@ import '../state/last_camera.dart';
 import '../theme/tokens.dart';
 import '../widgets/wf_button.dart';
 import '../widgets/wf_card.dart';
-import 'app_settings_page.dart';
 import 'data_settings_page.dart';
+import 'debug_page.dart';
 import 'diagnostics_page.dart';
 import 'discovery_page.dart';
 import 'sport_presets_page.dart';
@@ -46,77 +47,89 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          // Camera card: only when connected. _ConnectCameraBanner replaces it
-          // when no camera is present so the user can reconnect.
+          // Camera card / connect banner
           if (connected)
             _CameraCard(deviceId: activeId)
           else
             const _ConnectCameraBanner(),
-          const SizedBox(height: 14),
-          const WfSection('Users', padding: EdgeInsets.only(bottom: 6)),
-          Builder(
-            builder: (context) {
-              final activeId = ref.watch(activeUserProvider);
-              final usersAsync = ref.watch(usersControllerProvider);
-              final activeName = usersAsync.valueOrNull
-                  ?.where((u) => u.id == activeId)
-                  .firstOrNull
-                  ?.name;
-              return WfCard(
-                padding: EdgeInsets.zero,
-                child: _NavRow(
-                  leading: const Icon(Icons.person_outline),
-                  label: 'Users',
-                  badge: activeName ?? 'Pick a user to get started',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const UsersSettingsPage(),
+          const SizedBox(height: 16),
+          // Grouped nav rows — single card, no per-section headers
+          WfCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                Builder(builder: (ctx) {
+                  final activeUserId = ref.watch(activeUserProvider);
+                  final usersAsync = ref.watch(usersControllerProvider);
+                  final activeName = usersAsync.valueOrNull
+                      ?.where((u) => u.id == activeUserId)
+                      .firstOrNull
+                      ?.name;
+                  return _NavRow(
+                    leading: const Icon(Icons.person_outline),
+                    label: 'Users',
+                    sub: 'Manage operator profiles',
+                    badge: activeName,
+                    onTap: () => Navigator.of(ctx).push(
+                      MaterialPageRoute(builder: (_) => const UsersSettingsPage()),
                     ),
+                  );
+                }),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
+                  leading: const Icon(Icons.sports_soccer_outlined),
+                  label: 'Sport setups',
+                  sub: 'Saved time configs per sport',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SportPresetsPage()),
                   ),
                 ),
-              );
-            },
-          ),
-          const SizedBox(height: 14),
-          const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
-          WfCard(
-            padding: EdgeInsets.zero,
-            child: _NavRow(
-              leading: const Icon(Icons.sports_soccer_outlined),
-              label: 'Sport setups',
-              sub: 'Saved time configs per sport',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const SportPresetsPage()),
-                );
-              },
+                const Divider(height: 1, color: T.rule),
+                const _StreamingRow(),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
+                  leading: const Icon(Icons.storage_outlined),
+                  label: 'Backup & restore',
+                  sub: 'Export or restore app data',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const DataSettingsPage()),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 14),
-          const _StreamingSection(),
-          const SizedBox(height: 14),
-          const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
+          const SizedBox(height: 16),
+          // App section — static info, inline at the bottom
           WfCard(
             padding: EdgeInsets.zero,
-            child: _NavRow(
-              leading: const Icon(Icons.settings_outlined),
-              label: 'App',
-              sub: 'Theme, permissions, about',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AppSettingsPage()),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          const WfSection('Data', padding: EdgeInsets.only(bottom: 6)),
-          WfCard(
-            padding: EdgeInsets.zero,
-            child: _NavRow(
-              leading: const Icon(Icons.storage_outlined),
-              label: 'Backup & restore',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const DataSettingsPage()),
-              ),
+            child: Column(
+              children: [
+                const _RowItem(
+                  leading: Icon(Icons.palette_outlined),
+                  label: 'Theme',
+                  trailing: Text('Dark', style: TextStyle(color: T.ink2, fontSize: 12)),
+                ),
+                const Divider(height: 1, color: T.rule),
+                const _RowItem(
+                  leading: Icon(Icons.lock_outline),
+                  label: 'Permissions',
+                  trailing: Text('3 granted', style: TextStyle(color: T.ink2, fontSize: 12)),
+                ),
+                const Divider(height: 1, color: T.rule),
+                GestureDetector(
+                  onLongPress: kAppEnv != AppEnv.prod
+                      ? () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(builder: (_) => const DebugPage()),
+                          )
+                      : null,
+                  child: const _RowItem(
+                    leading: Icon(Icons.info_outline),
+                    label: 'About',
+                    trailing: Text('0.3.2', style: TextStyle(color: T.ink2, fontSize: 12)),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -126,42 +139,24 @@ class SettingsPage extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming setup section
+// Streaming nav row — used inside the grouped settings card.
 // ---------------------------------------------------------------------------
 
-class _StreamingSection extends ConsumerWidget {
-  const _StreamingSection();
+class _StreamingRow extends ConsumerWidget {
+  const _StreamingRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final streamingCount =
-        ref
-            .watch(streamingDestinationsControllerProvider)
-            .valueOrNull
-            ?.length ??
-        0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const WfSection('Streaming setup', padding: EdgeInsets.only(bottom: 6)),
-        WfCard(
-          padding: EdgeInsets.zero,
-          child: _NavRow(
-            leading: const Icon(Icons.cast_outlined),
-            label: 'Streaming destinations',
-            badge: streamingCount > 0
-                ? '$streamingCount ${streamingCount == 1 ? 'destination' : 'destinations'}'
-                : null,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const StreamingDestinationsPage(),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
+    final count =
+        ref.watch(streamingDestinationsControllerProvider).valueOrNull?.length ?? 0;
+    return _NavRow(
+      leading: const Icon(Icons.cast_outlined),
+      label: 'Streaming destinations',
+      sub: 'Live stream endpoints',
+      badge: count > 0 ? '$count ${count == 1 ? 'destination' : 'destinations'}' : null,
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const StreamingDestinationsPage()),
+      ),
     );
   }
 }

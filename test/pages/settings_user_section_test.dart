@@ -1,11 +1,10 @@
-// Settings User-section tests — compact chip shape.
+// Settings UsersSettingsPage tests — direct user list.
 //
-// The User section shows:
-//   - A WfCard with [Active chip] + name + expand_more icon (full-width menu)
-//   - A "Manage users" nav row (opens ManageUsersPage with FAB for Add user)
-//
-// Delete, add-user, and full-list management are tested in
-// manage_users_page_test.dart.
+// The Users page shows:
+//   - A list of users; active user has a checkmark icon
+//   - Non-active users are tappable (opens switch dialog) and have a delete icon
+//   - FAB opens the add-user form sheet
+//   - No "Manage users" nav row — management is inline
 
 import 'dart:async';
 
@@ -17,7 +16,6 @@ import 'package:sst_cam_app/models/device.dart';
 import 'package:sst_cam_app/pages/users_settings_page.dart';
 import 'package:sst_cam_app/state/app_data.dart';
 import 'package:sst_cam_app/state/ble_providers.dart';
-import 'package:sst_cam_app/widgets/wf_chip.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -60,8 +58,8 @@ void main() {
     );
   }
 
-  group('Compact user row (AE3)', () {
-    testWidgets('Active chip + user name displayed in compact row', (
+  group('User list (direct picker)', () {
+    testWidgets('both users visible; active user shows checkmark', (
       tester,
     ) async {
       final mock = _newMock();
@@ -70,62 +68,49 @@ void main() {
       await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      // Active chip and user name visible.
+      // Both users visible in the list.
       expect(find.text('Coach Diego'), findsOneWidget);
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is WfChip && w.label == 'Active' && w.active == true,
-        ),
-        findsOneWidget,
-      );
-      // Expand indicator.
-      expect(find.byIcon(Icons.expand_more), findsOneWidget);
-      // No delete icon on Settings page.
-      expect(find.byIcon(Icons.delete_outline), findsNothing);
-    });
-
-    testWidgets('Manage users nav row visible; Add user not on Settings page', (
-      tester,
-    ) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(buildHarness(service: mock));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Manage users'), findsOneWidget);
-      expect(find.text('Add user'), findsNothing);
-    });
-
-    testWidgets('full-width menu shows all users with Active chip', (
-      tester,
-    ) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
-
-      await tester.pumpWidget(buildHarness(service: mock));
-      await tester.pumpAndSettle();
-
-      // Tap the expand icon to open the full-width picker.
-      await tester.tap(find.byIcon(Icons.expand_more));
-      await tester.pumpAndSettle();
-
-      // Both users appear in the menu.
-      expect(find.text('Coach Diego'), findsAtLeastNWidgets(1));
       expect(find.text('Coach Maria'), findsOneWidget);
-      // Active badge on Diego's menu item.
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is WfChip && w.label == 'Active' && w.active == true,
-        ),
-        findsAtLeastNWidgets(1),
-      );
+      // Active user (Diego) shows checkmark.
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      // Non-active user (Maria) shows radio button unchecked.
+      expect(find.byIcon(Icons.radio_button_unchecked), findsOneWidget);
+      // No expand_more icon (no dropdown).
+      expect(find.byIcon(Icons.expand_more), findsNothing);
+      // No "Manage users" row.
+      expect(find.text('Manage users'), findsNothing);
+    });
+
+    testWidgets('non-active user row has delete icon', (tester) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+
+      await tester.pumpWidget(buildHarness(service: mock));
+      await tester.pumpAndSettle();
+
+      // Maria is non-active → has delete icon.
+      expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    });
+
+    testWidgets('active user row is not tappable (no switch for self)', (
+      tester,
+    ) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+
+      await tester.pumpWidget(buildHarness(service: mock));
+      await tester.pumpAndSettle();
+
+      // Tapping the active user (Diego) should not show the switch dialog.
+      await tester.tap(find.text('Coach Diego'));
+      await tester.pumpAndSettle();
+      expect(find.text('Switch user?'), findsNothing);
     });
   });
 
-  group('Switch dialog (AE3)', () {
+  group('Switch dialog', () {
     testWidgets(
-      'selecting a non-active user from the menu opens the switch dialog',
+      'tapping a non-active user opens the switch dialog',
       (tester) async {
         final mock = _newMock();
         addTearDown(mock.dispose);
@@ -133,8 +118,6 @@ void main() {
         await tester.pumpWidget(buildHarness(service: mock));
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byIcon(Icons.expand_more));
-        await tester.pumpAndSettle();
         await tester.tap(find.text('Coach Maria'));
         await tester.pumpAndSettle();
 
@@ -181,16 +164,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.expand_more));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Coach Maria'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Switch'));
       await tester.pumpAndSettle();
 
       expect(container.read(activeUserProvider), 'user-2');
-      // Compact row shows Coach Maria's name.
-      expect(find.text('Coach Maria'), findsOneWidget);
+      // Coach Maria is now the active user (checkmark on her row).
+      expect(find.byIcon(Icons.check), findsOneWidget);
     });
 
     testWidgets('canceling the dialog leaves active user unchanged', (
@@ -202,22 +183,22 @@ void main() {
       await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.expand_more));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Coach Maria'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Coach Diego'), findsOneWidget);
+      // Diego still has the checkmark.
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      // No "Switch user?" dialog.
+      expect(find.text('Switch user?'), findsNothing);
     });
   });
 
   group('No-active-user shape', () {
-    testWidgets('with null activeUser, compact row shows "Pick a user" note', (
+    testWidgets('with null activeUser, all users show radio buttons (none active)', (
       tester,
     ) async {
-      // No active_user_id in SharedPreferences → activeUserProvider stays null.
       final mock = _newMock();
       addTearDown(mock.dispose);
 
@@ -238,16 +219,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Pick a user to get started'), findsOneWidget);
-      // No Active chip in the main view.
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is WfChip && w.label == 'Active' && w.active == true,
-        ),
-        findsNothing,
-      );
-      // Manage users nav row remains.
-      expect(find.text('Manage users'), findsOneWidget);
+      // No checkmark — no active user.
+      expect(find.byIcon(Icons.check), findsNothing);
+      // Both users visible.
+      expect(find.text('Coach Diego'), findsOneWidget);
+      expect(find.text('Coach Maria'), findsOneWidget);
     });
   });
 }
