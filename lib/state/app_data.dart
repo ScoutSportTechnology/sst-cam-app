@@ -841,6 +841,30 @@ final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
 });
 
 // ---------------------------------------------------------------------------
+// Filter / search state for the Match landing screen.
+// ---------------------------------------------------------------------------
+
+final upcomingSearchQueryProvider = StateProvider<String>((_) => '');
+final upcomingMatchSportFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
+
+/// Upcoming matches after applying search + sport filter.
+final filteredUpcomingMatchesProvider = Provider<List<UpcomingMatch>>((ref) {
+  final matches =
+      ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
+  final query = ref.watch(upcomingSearchQueryProvider).trim().toLowerCase();
+  final sport = ref.watch(upcomingMatchSportFilterProvider);
+
+  return matches.where((m) {
+    if (sport != null && m.team.sport != sport) return false;
+    if (query.isEmpty) return true;
+    return m.team.name.toLowerCase().contains(query) ||
+        m.match.opponent.toLowerCase().contains(query);
+  }).toList();
+});
+
+// ---------------------------------------------------------------------------
 // Library — backed by TeamMatchesTable joined with TeamsTable.
 // Emits the current list of past matches with events parsed from eventsJson.
 // ---------------------------------------------------------------------------
