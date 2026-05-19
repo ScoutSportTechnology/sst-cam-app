@@ -1165,9 +1165,7 @@ class _SessionScreen extends ConsumerWidget {
               indicator: indicator,
               indicatorColor: indicatorColor,
               clock: state.clockText,
-              // Back arrow only after the match has ended — avoids
-              // accidental exits during the live session.
-              onBack: isEnded ? onLeave : null,
+              onBack: (isEnded || state.phase == MatchPhase.idle) ? onLeave : null,
             ),
             _LiveThumb(
               homeLabel: state.homeName,
