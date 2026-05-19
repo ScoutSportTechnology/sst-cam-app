@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../models/command.dart';
 import '../models/device.dart';
@@ -166,11 +169,13 @@ const _kPlaceholderJpeg = [
 
 class _DeviceState {
   _DeviceState(this.device)
-    : connController = StreamController<CameraConnectionState>.broadcast(),
+    : connController = StreamController<CameraConnectionState>.broadcast(
+        sync: true,
+      ),
       telemetryController = StreamController<DeviceTelemetry>.broadcast(),
       matchStateController = StreamController<MatchState>.broadcast();
 
-  final ScoutDevice device;
+  final SstDevice device;
   final StreamController<CameraConnectionState> connController;
   final StreamController<DeviceTelemetry> telemetryController;
   final StreamController<MatchState> matchStateController;
@@ -208,30 +213,34 @@ class MockBleService implements BleService {
   final double failureRate;
 
   final Random _rng;
-  final _discoveryController = StreamController<List<ScoutDevice>>.broadcast();
+  final _discoveryController = StreamController<List<SstDevice>>.broadcast();
   final Map<String, _DeviceState> _devices = {};
   bool _isScanning = false;
   Timer? _scanTimer;
-  final List<ScoutDevice> _discovered = [];
+  final List<SstDevice> _discovered = [];
 
   static final _fakeDevices = [
-    const ScoutDevice(
+    const SstDevice(
       id: 'SST-CAM-001',
       name: 'sst-cam-0001',
       firmwareVersion: '0.1.0',
       model: 'Jetson Orin NX',
       protocolVersion: 1,
+      batteryPercent: 82,
+      rssi: -58,
     ),
-    const ScoutDevice(
+    const SstDevice(
       id: 'SST-CAM-002',
       name: 'sst-cam-0002',
       firmwareVersion: '0.1.0',
       model: 'Jetson Orin NX',
       protocolVersion: 1,
+      batteryPercent: 45,
+      rssi: -71,
     ),
   ];
 
-  static final _fakeRecordings = [
+  static final _fallbackRecordings = [
     RecordingMetadata(
       id: 'rec-001',
       durationSeconds: 5400,
@@ -245,25 +254,59 @@ class MockBleService implements BleService {
       durationSeconds: 2700,
       sizeBytes: 2 * 1024 * 1024 * 1024,
       startedAt: DateTime.now().subtract(const Duration(days: 3)),
-      sport: 'Basketball',
+      sport: 'Soccer',
       teams: 'Eagles vs Lions',
     ),
-    RecordingMetadata(
-      id: 'rec-003',
-      durationSeconds: 900,
-      sizeBytes: 800 * 1024 * 1024,
-      startedAt: DateTime.now().subtract(const Duration(days: 7)),
-      sport: 'Soccer',
-      teams: 'City FC vs Rovers',
-    ),
   ];
+
+  List<RecordingMetadata> _recordings = _fallbackRecordings;
+  Future<void>? _loadFuture;
+
+  /// Loads recordings from the fixture JSON on the first call; subsequent
+  /// calls share the same [Future] so concurrent callers never double-load.
+  /// Falls back to [_fallbackRecordings] if the asset bundle is unavailable
+  /// (e.g. in unit tests without widget bindings).
+  Future<void> _ensureRecordingsLoaded() => _loadFuture ??= _doLoadRecordings();
+
+  Future<void> _doLoadRecordings() async {
+    try {
+      final raw = await rootBundle.loadString(
+        'assets/mock/fixtures/recordings.json',
+      );
+      final stripped = raw
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
+      final rows = (jsonDecode(stripped) as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      _recordings = rows
+          .map(
+            (r) => RecordingMetadata(
+              id: r['id'] as String,
+              durationSeconds: r['durationSeconds'] as int,
+              sizeBytes: r['sizeBytes'] as int,
+              startedAt: DateTime.parse(r['startedAt'] as String),
+              sport: r['sport'] as String,
+              teams: r['teams'] as String,
+            ),
+          )
+          .toList();
+    } catch (e) {
+      debugPrint('MockBleService: recordings.json unavailable — $e');
+      _recordings = _fallbackRecordings;
+    }
+  }
 
   @override
   bool get isScanning => _isScanning;
 
   @override
-  Stream<List<ScoutDevice>> get discoveredDevices =>
-      _discoveryController.stream;
+  Stream<List<SstDevice>> get discoveredDevices async* {
+    // Emit current snapshot immediately so callers get the initial empty state
+    // before any scan has started. Subsequent updates come from the controller.
+    yield List.unmodifiable(_discovered);
+    yield* _discoveryController.stream;
+  }
 
   @override
   Future<void> startScan({
@@ -403,6 +446,7 @@ class MockBleService implements BleService {
     BleCommand command,
   ) async {
     await Future.delayed(const Duration(milliseconds: 80));
+    if (command is ListRecordingsCommand) await _ensureRecordingsLoaded();
 
     return switch (command) {
       GetDeviceInfoCommand() => BleCommandResponse.ok(
@@ -410,7 +454,7 @@ class MockBleService implements BleService {
       ),
       GetTelemetryCommand() => BleCommandResponse.ok(_makeTelemetry(0) as T?),
       GetMatchStateCommand() => BleCommandResponse.ok(MatchState.idle() as T?),
-      ListRecordingsCommand() => BleCommandResponse.ok(_fakeRecordings as T?),
+      ListRecordingsCommand() => BleCommandResponse.ok(_recordings as T?),
       DownloadRequestCommand(:final recordingId) => BleCommandResponse.ok(
         DownloadToken(
               recordingId: recordingId,
@@ -437,8 +481,9 @@ class MockBleService implements BleService {
 
   @override
   Future<List<RecordingMetadata>> listRecordings(String deviceId) async {
+    await _ensureRecordingsLoaded();
     await Future.delayed(const Duration(milliseconds: 300));
-    return List.unmodifiable(_fakeRecordings);
+    return List.unmodifiable(_recordings);
   }
 
   @override
@@ -490,7 +535,7 @@ class MockBleService implements BleService {
     await _discoveryController.close();
   }
 
-  _DeviceState _deviceState(String id, ScoutDevice device) {
+  _DeviceState _deviceState(String id, SstDevice device) {
     return _devices.putIfAbsent(id, () => _DeviceState(device));
   }
 }

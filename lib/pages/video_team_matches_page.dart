@@ -15,8 +15,7 @@ class VideoTeamMatchesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
     final team = teams.where((t) => t.id == teamId).firstOrNull;
-    final matches = ref
-        .watch(libraryProvider)
+    final matches = (ref.watch(libraryProvider).valueOrNull ?? const [])
         .where((m) => m.teamId == teamId)
         .toList();
 
@@ -25,7 +24,7 @@ class VideoTeamMatchesPage extends ConsumerWidget {
     }
 
     final totalSizeGb =
-        matches.fold<int>(0, (a, m) => a + m.fullSizeMb + m.highlightSizeMb) /
+        matches.fold<int>(0, (a, m) => a + m.fullSizeMb) /
         1024;
 
     return Scaffold(
@@ -120,7 +119,7 @@ class _MatchGroup extends StatelessWidget {
                     kind: 'hi',
                     label: 'Highlights',
                     duration: '${match.events.length} events',
-                    sizeMb: match.highlightSizeMb,
+                    sizeMb: 0,
                   ),
                 ),
               ],

@@ -1,0 +1,22 @@
+// Schema: mock recordings as they would appear from the camera device.
+// These are raw recording stubs used by MockBleService.listRecordings().
+// Fields: id (String), durationSeconds (int), sizeBytes (int),
+//         startedAt (String ISO-8601), sport (String), teams (String)
+[
+  {
+    "id": "rec-mock-001",
+    "durationSeconds": 5022,
+    "sizeBytes": 3251634176,
+    "startedAt": "2026-03-12T10:00:00.000Z",
+    "sport": "Soccer",
+    "teams": "NR vs EFC"
+  },
+  {
+    "id": "rec-mock-002",
+    "durationSeconds": 5148,
+    "sizeBytes": 3145728000,
+    "startedAt": "2026-03-05T10:00:00.000Z",
+    "sport": "Soccer",
+    "teams": "NR vs RU"
+  }
+]

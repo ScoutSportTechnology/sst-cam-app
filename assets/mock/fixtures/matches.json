@@ -1,0 +1,62 @@
+// Schema: each object maps to a TeamMatchesTable row.
+// Fields: id (String), teamId (String), opponent (String), date (String ISO-8601),
+//         result (String), kind ('past'|'upcoming'), numPeriods (int),
+//         periodLengthSeconds (int), clips (int), sizeMb (int),
+//         eventsJson (String — JSON-encoded list of LibraryEvent objects)
+//
+// LibraryEvent fields: timeSeconds (int), label (String), team (String),
+//                      kind ('goal'|'foul'|'card'|'sub'|'save'|'other')
+[
+  {
+    "id": "mock-match-001",
+    "teamId": "mock-team-nr-u14",
+    "opponent": "vs Eastfield FC",
+    "date": "2026-03-12",
+    "result": "W 3–1",
+    "kind": "past",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 3,
+    "sizeMb": 3100,
+    "eventsJson": "[{\"timeSeconds\":378,\"label\":\"Goal · NR · #07\",\"team\":\"NR\",\"kind\":\"goal\"},{\"timeSeconds\":882,\"label\":\"Foul · EFC\",\"team\":\"EFC\",\"kind\":\"foul\"},{\"timeSeconds\":1368,\"label\":\"Goal · NR · #11\",\"team\":\"NR\",\"kind\":\"goal\"},{\"timeSeconds\":1638,\"label\":\"Goal · EFC · #14\",\"team\":\"EFC\",\"kind\":\"goal\"},{\"timeSeconds\":3960,\"label\":\"Goal · NR · #09\",\"team\":\"NR\",\"kind\":\"goal\"}]"
+  },
+  {
+    "id": "mock-match-002",
+    "teamId": "mock-team-nr-u14",
+    "opponent": "vs Riverdale Utd",
+    "date": "2026-03-05",
+    "result": "L 0–2",
+    "kind": "past",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 0,
+    "sizeMb": 3000,
+    "eventsJson": "[{\"timeSeconds\":1110,\"label\":\"Goal · RU · #09\",\"team\":\"RU\",\"kind\":\"goal\"},{\"timeSeconds\":3372,\"label\":\"Goal · RU · #11\",\"team\":\"RU\",\"kind\":\"goal\"}]"
+  },
+  {
+    "id": "mock-match-003",
+    "teamId": "mock-team-nr-u14",
+    "opponent": "vs Lakeside FC",
+    "date": "2026-02-26",
+    "result": "D 1–1",
+    "kind": "past",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 1,
+    "sizeMb": 3200,
+    "eventsJson": "[{\"timeSeconds\":720,\"label\":\"Goal · NR · #07\",\"team\":\"NR\",\"kind\":\"goal\"},{\"timeSeconds\":4260,\"label\":\"Goal · LK · #06\",\"team\":\"LK\",\"kind\":\"goal\"}]"
+  },
+  {
+    "id": "mock-match-004",
+    "teamId": "mock-team-nr-u14",
+    "opponent": "vs Westview SC",
+    "date": "2026-05-18",
+    "result": "",
+    "kind": "upcoming",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 0,
+    "sizeMb": 0,
+    "eventsJson": "[]"
+  }
+]

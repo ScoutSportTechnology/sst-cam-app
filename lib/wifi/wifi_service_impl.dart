@@ -6,7 +6,7 @@ import 'wifi_service.dart';
 
 /// Real WiFi Direct implementation.
 ///
-/// Phase 7 will wire this to:
+/// Pending firmware wiring:
 ///   * platform channels for WiFi Direct group negotiation
 ///     (Android: WifiP2pManager; iOS: NEHotspotConfiguration + Multipeer).
 ///     Group credentials are received over BLE in `WifiDirectGroupResponse`
@@ -20,13 +20,15 @@ class WifiServiceImpl implements WifiService {
   @override
   Future<WifiDirectGroup> connectGroup(String deviceId) {
     throw UnimplementedError(
-      'Phase 7: WiFi Direct group negotiation not yet implemented',
+      'TODO: wire to firmware — WiFi Direct group negotiation not yet implemented',
     );
   }
 
   @override
   Future<void> disconnectGroup(String deviceId) async {
-    throw UnimplementedError('Phase 7: disconnectGroup not yet implemented');
+    throw UnimplementedError(
+      'TODO: wire to firmware — disconnectGroup not yet implemented',
+    );
   }
 
   @override
@@ -52,7 +54,7 @@ class WifiServiceImpl implements WifiService {
     String? saveAs,
   }) {
     throw UnimplementedError(
-      'Phase 7: HTTP recording download not yet implemented',
+      'TODO: wire to firmware — HTTP recording download not yet implemented',
     );
   }
 

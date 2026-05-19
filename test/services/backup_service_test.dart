@@ -4,14 +4,14 @@ import 'dart:io';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/ble_service.dart';
-import 'package:scout_camera/db/app_database.dart';
-import 'package:scout_camera/models/command.dart';
-import 'package:scout_camera/models/device.dart';
-import 'package:scout_camera/models/match.dart';
-import 'package:scout_camera/models/recording.dart';
-import 'package:scout_camera/models/telemetry.dart';
-import 'package:scout_camera/services/backup_service.dart';
+import 'package:sst_cam_app/ble/ble_service.dart';
+import 'package:sst_cam_app/db/app_database.dart';
+import 'package:sst_cam_app/models/command.dart';
+import 'package:sst_cam_app/models/device.dart';
+import 'package:sst_cam_app/models/match.dart';
+import 'package:sst_cam_app/models/recording.dart';
+import 'package:sst_cam_app/models/telemetry.dart';
+import 'package:sst_cam_app/services/backup_service.dart';
 import 'package:uuid/uuid.dart';
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ class _StubBleService implements BleService {
   @override
   bool get isScanning => false;
   @override
-  Stream<List<ScoutDevice>> get discoveredDevices => const Stream.empty();
+  Stream<List<SstDevice>> get discoveredDevices => const Stream.empty();
   @override
   Future<void> startScan({
     Duration timeout = const Duration(seconds: 10),
@@ -119,7 +119,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   test(
-    'empty DB → valid JSON with empty arrays, device.uuid == null',
+    'fresh DB → JSON has base-seeded user and sport presets, device.uuid == null',
     () async {
       final service = BackupService(db);
       final path = await service.export(outputDir: tempDir);
@@ -131,9 +131,10 @@ void main() {
       expect(json['created_at'], isA<String>());
       expect(json['device']['uuid'], isNull);
       expect(json['device']['model'], 'SST-CAM-01');
-      expect(json['users'], isEmpty);
+      // Base seed always creates default-user with 7 sport presets.
+      expect(json['users'], hasLength(1));
+      expect(json['sport_configs'], hasLength(7));
       expect(json['teams'], isEmpty);
-      expect(json['sport_configs'], isEmpty);
       expect(json['streaming_configs'], isEmpty);
       expect(json['matches'], isEmpty);
       expect(json['clips'], isEmpty);
@@ -181,8 +182,10 @@ void main() {
     final content = await File(path).readAsString();
     final json = jsonDecode(content) as Map<String, dynamic>;
 
-    expect(json['users'], hasLength(1));
-    expect((json['users'] as List).first['name'], 'Coach Diego');
+    // DB has default-user (base seed) + Coach Diego = 2 users.
+    final users = json['users'] as List;
+    expect(users, hasLength(2));
+    expect(users.any((u) => (u as Map)['name'] == 'Coach Diego'), isTrue);
 
     final teams = json['teams'] as List;
     expect(teams, hasLength(1));
@@ -194,8 +197,8 @@ void main() {
     expect(roster.first['name'], 'Alice');
     expect(roster.first['number'], 7);
 
-    // 7 built-in presets seeded
-    expect(json['sport_configs'], hasLength(7));
+    // 7 presets for default-user + 7 for Coach Diego = 14 total.
+    expect(json['sport_configs'], hasLength(14));
   });
 
   // ---------------------------------------------------------------------------
@@ -412,6 +415,9 @@ void main() {
     final userId = _uuid.v4();
     final teamId = _uuid.v4();
 
+    // Remove base-seeded default-user so only Coach Diego is in the export.
+    await db.usersDao.deleteById('default-user');
+
     await db.usersDao.insertUser(
       UsersTableCompanion.insert(id: userId, name: 'Coach Diego'),
     );
@@ -437,6 +443,8 @@ void main() {
     final firstUserId = await importService.import(File(exportPath));
 
     expect(firstUserId, userId);
+    // Import wipes the DB before importing — fresh DB's default-user is removed
+    // and only Coach Diego (from export) is present.
     expect(await freshDb.usersDao.getAll(), hasLength(1));
     expect(await freshDb.teamsDao.getForUser(userId), hasLength(1));
     expect(await freshDb.sportPresetsDao.getForUser(userId), hasLength(7));
@@ -495,10 +503,11 @@ void main() {
       throwsA(isNot(isA<BackupImportException>())),
     );
 
-    // Crucially, the seed user must still be present — rollback worked.
+    // Crucially, both the default-user (base seed) and the Seed User must
+    // still be present — rollback worked, no partial state was committed.
     final users = await db.usersDao.getAll();
-    expect(users, hasLength(1));
-    expect(users.first.id, seedUserId);
+    expect(users, hasLength(2));
+    expect(users.any((u) => u.id == seedUserId), isTrue);
   });
 
   // ---------------------------------------------------------------------------
@@ -662,7 +671,8 @@ void main() {
     await db.usersDao.insertUser(
       UsersTableCompanion.insert(id: _uuid.v4(), name: 'Existing User'),
     );
-    expect(await db.usersDao.getAll(), hasLength(1));
+    // DB has default-user (base seed) + Existing User = 2 rows.
+    expect(await db.usersDao.getAll(), hasLength(2));
 
     final emptyBackup = jsonEncode({
       'backup_version': 1,

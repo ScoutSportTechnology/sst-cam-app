@@ -7,10 +7,10 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/db/app_database.dart';
-import 'package:scout_camera/state/db_providers.dart';
+import 'package:sst_cam_app/db/app_database.dart';
+import 'package:sst_cam_app/state/db_providers.dart';
 
-export 'package:scout_camera/db/app_database.dart';
+export 'package:sst_cam_app/db/app_database.dart';
 
 /// Registers setUp/tearDown that create and close a fresh Drift in-memory
 /// [AppDatabase] for every test, seeded with the canonical dev data that
@@ -76,6 +76,11 @@ List<Override> dbOverrides(Object db) {
 // ---------------------------------------------------------------------------
 
 Future<void> _seedInMemoryDb(AppDatabase db) async {
+  // Remove the default-user inserted by AppDatabase._seedBaseData() so tests
+  // operate with only their own explicitly-seeded users. FK cascade removes
+  // the associated sport presets automatically.
+  await db.usersDao.deleteById('default-user');
+
   // Users
   await db.usersDao.insertUser(
     UsersTableCompanion.insert(id: 'user-1', name: 'Coach Diego'),

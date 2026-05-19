@@ -15,7 +15,7 @@ import '../models/recording.dart';
 // ---------------------------------------------------------------------------
 
 final bleServiceProvider = Provider<BleService>((ref) {
-  final BleService svc = kAppEnv.isMock
+  final BleService svc = kAppEnv.isDevBackend
       ? MockBleService(failureRate: 0)
       : BleServiceImpl();
   ref.onDispose(svc.dispose);
@@ -26,7 +26,7 @@ final bleServiceProvider = Provider<BleService>((ref) {
 // Discovery
 // ---------------------------------------------------------------------------
 
-final discoveredDevicesProvider = StreamProvider<List<ScoutDevice>>((ref) {
+final discoveredDevicesProvider = StreamProvider<List<SstDevice>>((ref) {
   return ref.watch(bleServiceProvider).discoveredDevices;
 });
 

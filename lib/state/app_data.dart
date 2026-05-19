@@ -1,9 +1,11 @@
 // Local app data — library, live match state, team controller.
 //
 // Users, streaming destinations, teams, rosters, upcoming matches, and sport
-// presets are all owned by the local Drift DB (U4/U5/U6).
-// Library + LiveMatch are still local — the library will move to BLE in Phase 7
-// once recordings are wired up.
+// presets are all owned by the local Drift DB.
+// Library is backed by the Drift DB (TeamMatchesTable); libraryProvider
+// queries past matches. LiveMatch state is polled from the BLE service.
+
+import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
@@ -52,7 +54,6 @@ class LibraryMatch {
     required this.result,
     required this.fullDuration,
     required this.fullSizeMb,
-    required this.highlightSizeMb,
     required this.events,
     required this.downloadState,
   });
@@ -63,100 +64,9 @@ class LibraryMatch {
   final String result;
   final String fullDuration; // 01:23:42
   final int fullSizeMb;
-  final int highlightSizeMb;
   final List<LibraryEvent> events;
   final String downloadState; // 'all-local', 'partial', 'remote'
 }
-
-const _seedLibrary = <LibraryMatch>[
-  LibraryMatch(
-    id: 'nr-u14-m1',
-    teamId: 'nr-u14',
-    date: 'Mar 12',
-    opponent: 'vs Eastfield FC',
-    result: 'W 3–1',
-    fullDuration: '01:23:42',
-    fullSizeMb: 3100,
-    highlightSizeMb: 380,
-    events: [
-      LibraryEvent(
-        timeSeconds: 6 * 60 + 18,
-        label: 'Goal · NR · #07',
-        team: 'NR',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 14 * 60 + 42,
-        label: 'Foul · EFC',
-        team: 'EFC',
-        kind: 'foul',
-      ),
-      LibraryEvent(
-        timeSeconds: 22 * 60 + 48,
-        label: 'Goal · NR · #11',
-        team: 'NR',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 27 * 60 + 18,
-        label: 'Goal · EFC · #14',
-        team: 'EFC',
-        kind: 'goal',
-      ),
-    ],
-    downloadState: 'all-local',
-  ),
-  LibraryMatch(
-    id: 'nr-u14-m2',
-    teamId: 'nr-u14',
-    date: 'Mar 05',
-    opponent: 'vs Riverdale Utd',
-    result: 'L 0–2',
-    fullDuration: '01:25:48',
-    fullSizeMb: 3000,
-    highlightSizeMb: 180,
-    events: [
-      LibraryEvent(
-        timeSeconds: 18 * 60 + 30,
-        label: 'Goal · RU · #09',
-        team: 'RU',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 56 * 60 + 12,
-        label: 'Goal · RU · #11',
-        team: 'RU',
-        kind: 'goal',
-      ),
-    ],
-    downloadState: 'partial',
-  ),
-  LibraryMatch(
-    id: 'nr-u14-m3',
-    teamId: 'nr-u14',
-    date: 'Feb 26',
-    opponent: 'vs Lakeside',
-    result: 'D 1–1',
-    fullDuration: '01:28:12',
-    fullSizeMb: 3200,
-    highlightSizeMb: 540,
-    events: [
-      LibraryEvent(
-        timeSeconds: 12 * 60,
-        label: 'Goal · NR · #07',
-        team: 'NR',
-        kind: 'goal',
-      ),
-      LibraryEvent(
-        timeSeconds: 71 * 60,
-        label: 'Goal · LK · #06',
-        team: 'LK',
-        kind: 'goal',
-      ),
-    ],
-    downloadState: 'remote',
-  ),
-];
 
 // ---------------------------------------------------------------------------
 // Camera handle — `activeCameraIdProvider` is set by the discovery flow on a
@@ -208,6 +118,17 @@ class UsersController extends AsyncNotifier<List<UserRecord>> {
         ref.read(activeUserProvider.notifier).state = savedId;
       } else {
         await prefs.remove(_kActiveUserIdKey);
+      }
+    }
+
+    // Auto-select the only user on first launch or after the saved user was
+    // deleted — avoids a blank-screen state where all per-user data is empty.
+    if (ref.read(activeUserProvider) == null) {
+      final all = await dao.getAll();
+      if (all.length == 1) {
+        final onlyId = all.first.id;
+        ref.read(activeUserProvider.notifier).state = onlyId;
+        await prefs.setString(_kActiveUserIdKey, onlyId);
       }
     }
 
@@ -506,16 +427,6 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
 
     final dao = ref.watch(teamsDaoProvider);
 
-    // Helper that rebuilds state from the latest team rows.
-    Future<void> rebuild() async {
-      try {
-        final rows = await dao.getForUser(userId);
-        state = AsyncValue.data(await _buildRecords(dao, rows));
-      } catch (e, st) {
-        state = AsyncValue.error(e, st);
-      }
-    }
-
     // Fix 7: Subscribe to both teamsTable and playersTable so roster mutations
     // also invalidate the stream. Skip the very first emission from each stream
     // to avoid double-building on startup (the initial snapshot is returned
@@ -545,7 +456,12 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
           firstPlayer = false;
           return;
         }
-        await rebuild();
+        try {
+          final rows = await dao.getForUser(userId);
+          state = AsyncValue.data(await _buildRecords(dao, rows));
+        } catch (e, st) {
+          state = AsyncValue.error(e, st);
+        }
       },
       onError: (Object e, StackTrace st) {
         state = AsyncValue.error(e, st);
@@ -728,49 +644,22 @@ class UpcomingMatch {
 }
 
 /// All upcoming matches across all non-hidden teams for the active user,
-/// ordered as stored in Drift. Backed by a Drift watch stream — no camera
-/// connection required (R2 fix, U5).
-///
-/// Uses bulk DAO queries (Fix 5) to avoid N+1 per-team fetches.
-final upcomingMatchesProvider = StreamProvider<List<UpcomingMatch>>((
-  ref,
-) async* {
+/// ordered ascending by date. Backed by a Drift JOIN watch stream — emits on
+/// every mutation to teamMatchesTable or teamsTable. No camera connection
+/// required (R2 fix, U2).
+final upcomingMatchesProvider = StreamProvider<List<UpcomingMatch>>((ref) {
   final userId = ref.watch(activeUserProvider);
-  if (userId == null) {
-    yield const [];
-    return;
-  }
+  if (userId == null) return Stream.value(const []);
   final dao = ref.watch(teamsDaoProvider);
-  // Watch the teams stream; on each emission re-query all upcoming matches.
-  await for (final teamRows in dao.watchForUser(userId)) {
-    final visibleRows = teamRows.where((r) => !r.hidden).toList();
-    if (visibleRows.isEmpty) {
-      yield const [];
-      continue;
-    }
-    final teamIds = visibleRows.map((r) => r.id).toList();
-
-    // Bulk queries — two round trips regardless of number of teams (Fix 5).
-    final allMatches = await dao.getTeamMatchesForTeams(teamIds);
-    final allPlayers = await dao.getPlayersForTeams(teamIds);
-
-    final playersByTeam = <String, List<PlayersTableData>>{};
-    for (final p in allPlayers) {
-      playersByTeam.putIfAbsent(p.teamId, () => []).add(p);
-    }
-
-    final out = <UpcomingMatch>[];
-    for (final row in visibleRows) {
-      final team = _rowToTeamRecord(row, playersByTeam[row.id] ?? const []);
-      for (final m in allMatches) {
-        if (m.teamId != row.id) continue;
-        if (m.kind != 'upcoming') continue;
-        out.add(UpcomingMatch(team: team, match: _rowToTeamMatch(m)));
-      }
-    }
-    yield out;
-  }
+  return dao
+      .watchUpcomingMatchesForUser(userId)
+      .map((rows) => rows.map(_rowToUpcomingMatch).toList());
 });
+
+UpcomingMatch _rowToUpcomingMatch(UpcomingMatchRow row) => UpcomingMatch(
+  team: _rowToTeamRecord(row.team, const []),
+  match: _rowToTeamMatch(row.match),
+);
 
 // ---------------------------------------------------------------------------
 // Sport setups (presets) — saved per-user time configs grouped by base
@@ -952,13 +841,65 @@ final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
 });
 
 // ---------------------------------------------------------------------------
-// Library (recordings) — still local; will move to BLE in Phase 7.
+// Library — backed by TeamMatchesTable joined with TeamsTable.
+// Emits the current list of past matches with events parsed from eventsJson.
 // ---------------------------------------------------------------------------
 
-final libraryProvider = Provider<List<LibraryMatch>>((ref) => _seedLibrary);
+final libraryProvider = StreamProvider<List<LibraryMatch>>((ref) {
+  final dao = ref.watch(teamsDaoProvider);
+  return dao.watchPastMatchesForLibrary().map((rows) => rows.map(_rowToLibraryMatch).toList());
+});
+
+LibraryMatch _rowToLibraryMatch(LibraryMatchRow row) {
+  final match = row.match;
+  final team = row.team;
+
+  // Derive download state from size: sizeMb > 0 means content is available.
+  final downloadState = match.sizeMb > 0 ? 'all-local' : 'remote';
+
+  // Format duration: numPeriods × periodLengthSeconds → HH:MM:SS.
+  final totalSec = match.numPeriods * match.periodLengthSeconds;
+  final h = (totalSec ~/ 3600).toString().padLeft(2, '0');
+  final m = ((totalSec % 3600) ~/ 60).toString().padLeft(2, '0');
+  final s = (totalSec % 60).toString().padLeft(2, '0');
+  final fullDuration = '$h:$m:$s';
+
+  // Parse events from JSON stored in eventsJson column.
+  final events = _parseEvents(match.eventsJson);
+
+  return LibraryMatch(
+    id: match.id,
+    teamId: team.id,
+    date: match.date,
+    opponent: match.opponent,
+    result: match.result,
+    fullDuration: fullDuration,
+    fullSizeMb: match.sizeMb,
+    events: events,
+    downloadState: downloadState,
+  );
+}
+
+List<LibraryEvent> _parseEvents(String eventsJson) {
+  try {
+    final raw = jsonDecode(eventsJson) as List<dynamic>;
+    return raw.map((e) {
+      final m = e as Map<String, dynamic>;
+      return LibraryEvent(
+        timeSeconds: m['timeSeconds'] as int,
+        label: m['label'] as String,
+        team: m['team'] as String,
+        kind: m['kind'] as String,
+      );
+    }).toList();
+  } catch (_) {
+    return const [];
+  }
+}
 
 final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
-  return ref.watch(libraryProvider).where((m) => m.id == id).firstOrNull;
+  final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+  return library.where((m) => m.id == id).firstOrNull;
 });
 
 // ---------------------------------------------------------------------------

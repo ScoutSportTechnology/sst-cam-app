@@ -50,7 +50,7 @@ class SportPresetsPage extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton(heroTag: null,
         onPressed: () => _onAdd(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,

@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../db/app_database.dart';
+import '../db/daos/clips_dao.dart';
 import '../db/daos/users_dao.dart';
 import '../db/daos/teams_dao.dart';
 import '../db/daos/sport_presets_dao.dart';
 import '../db/daos/streaming_destinations_dao.dart';
 import '../services/backup_service.dart';
+import '../services/clip_service.dart';
+import '../services/video_path_service.dart';
 import 'ble_providers.dart';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +46,10 @@ final streamingDestinationsDaoProvider = Provider<StreamingDestinationsDao>((
 });
 
 // ---------------------------------------------------------------------------
+final clipsDaoProvider = Provider<ClipsDao>((ref) {
+  return ref.watch(appDatabaseProvider).clipsDao;
+});
+
 // BackupService — wired to appDatabaseProvider and bleServiceProvider so the
 // widget just reads this provider. Tests override it to inject a stub.
 // ---------------------------------------------------------------------------
@@ -51,5 +58,16 @@ final backupServiceProvider = Provider<BackupService>((ref) {
   return BackupService(
     ref.watch(appDatabaseProvider),
     ble: ref.watch(bleServiceProvider),
+  );
+});
+
+final videoPathServiceProvider = Provider<VideoPathService>((ref) {
+  return VideoPathService();
+});
+
+final clipServiceProvider = Provider<ClipService>((ref) {
+  return ClipService(
+    clipsDao: ref.watch(clipsDaoProvider),
+    videoPathService: ref.watch(videoPathServiceProvider),
   );
 });

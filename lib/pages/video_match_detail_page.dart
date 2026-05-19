@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/wifi.dart';
+import '../services/clip_service.dart';
+import '../services/video_path_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
+import '../state/db_providers.dart' show clipServiceProvider;
 import '../state/wifi_providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/indicators.dart';
@@ -99,6 +102,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                   },
                   onJump: () {
                     final maxSecs = _parseDuration(match.fullDuration);
+                    if (maxSecs == 0) return;
                     setState(() => _playheadFraction = e.timeSeconds / maxSecs);
                   },
                 );
@@ -108,6 +112,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
           _Footer(
             selectedCount: selectedCount,
             onDownload: () => _showDownloadSheet(context, match),
+            onCreateClip: match.downloadState == 'all-local'
+                ? () => _createClip(context, match)
+                : null,
           ),
         ],
       ),
@@ -123,6 +130,41 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
       builder: (_) =>
           _DownloadSheet(match: match, selectedCount: _selected.length),
     );
+  }
+
+  Future<void> _createClip(BuildContext context, LibraryMatch match) async {
+    final clipSvc = ref.read(clipServiceProvider);
+    final maxSecs = _parseDuration(match.fullDuration);
+    if (maxSecs == 0) return;
+    final startSeconds = (_playheadFraction * maxSecs).round();
+    final durationSeconds = 30; // default 30-second clip
+
+    // Source path: the local recording file in the app-private videos/ dir.
+    // In mock mode this file may not exist — the error is surfaced below.
+    final sourcePath = await VideoPathService().recordingPath(match.id);
+    try {
+      final clipPath = await clipSvc.trim(
+        matchId: match.id,
+        sourcePath: sourcePath,
+        startSeconds: startSeconds,
+        durationSeconds: durationSeconds,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Clip saved: ${clipPath.split('/').last}'),
+          action: SnackBarAction(
+            label: 'Share',
+            onPressed: () {/* share action wired in follow-up */},
+          ),
+        ),
+      );
+    } on ClipTrimException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Clip failed: $e')),
+      );
+    }
   }
 }
 
@@ -264,6 +306,7 @@ class _Scrubber extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxSecs = _parseDuration(match.fullDuration);
+    if (maxSecs == 0) return const SizedBox.shrink();
     final ticks = match.events.map((e) => e.timeSeconds / maxSecs).toList();
     final currentSec = (value * maxSecs).round();
     final m = (currentSec ~/ 60).toString().padLeft(2, '0');
@@ -497,9 +540,14 @@ class _EventRow extends StatelessWidget {
 }
 
 class _Footer extends StatelessWidget {
-  const _Footer({required this.selectedCount, required this.onDownload});
+  const _Footer({
+    required this.selectedCount,
+    required this.onDownload,
+    this.onCreateClip,
+  });
   final int selectedCount;
   final VoidCallback onDownload;
+  final VoidCallback? onCreateClip;
 
   @override
   Widget build(BuildContext context) {
@@ -510,7 +558,12 @@ class _Footer extends StatelessWidget {
       ).toBoxDecoration(),
       child: Row(
         children: [
-          const Expanded(child: WfButton(label: 'Share')),
+          Expanded(
+            child: WfButton(
+              label: 'Clip',
+              onPressed: onCreateClip,
+            ),
+          ),
           const SizedBox(width: 8),
           Expanded(
             flex: 2,
@@ -612,7 +665,7 @@ class _DownloadSheetState extends ConsumerState<_DownloadSheet> {
     final running = _handle != null;
     if (running) return _buildProgress();
     final fullSize = '${widget.match.fullSizeMb} MB';
-    final hiSize = '${widget.match.highlightSizeMb} MB';
+    final hiSize = '0 MB';
     final opts = <_Opt>[
       _Opt(
         key: 'full',

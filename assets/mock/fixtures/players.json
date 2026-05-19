@@ -1,0 +1,32 @@
+// Schema: each object maps to a PlayersTable row.
+// teamId must match an id in teams.json (FK dependency).
+// Fields: teamId (String), number (int), name (String),
+//         position (String), captain (bool, optional — defaults false)
+// Valid positions: Keeper, Defender, Mid, Forward, Other
+[
+  {"teamId": "mock-team-nr-u14", "number": 1, "name": "D. Reyes", "position": "Keeper"},
+  {"teamId": "mock-team-nr-u14", "number": 4, "name": "C. Nguyen", "position": "Defender"},
+  {"teamId": "mock-team-nr-u14", "number": 5, "name": "G. Singh", "position": "Defender"},
+  {"teamId": "mock-team-nr-u14", "number": 6, "name": "T. Osei", "position": "Defender"},
+  {"teamId": "mock-team-nr-u14", "number": 3, "name": "P. Kowalski", "position": "Defender"},
+  {"teamId": "mock-team-nr-u14", "number": 8, "name": "F. Lopez", "position": "Mid"},
+  {"teamId": "mock-team-nr-u14", "number": 10, "name": "B. Okafor", "position": "Mid"},
+  {"teamId": "mock-team-nr-u14", "number": 14, "name": "M. Chen", "position": "Mid"},
+  {"teamId": "mock-team-nr-u14", "number": 7, "name": "A. Patel", "position": "Forward", "captain": true},
+  {"teamId": "mock-team-nr-u14", "number": 9, "name": "J. Santos", "position": "Forward"},
+  {"teamId": "mock-team-nr-u14", "number": 11, "name": "E. Mahmoud", "position": "Forward"},
+  {"teamId": "mock-team-nr-u14", "number": 2, "name": "R. Alvarez", "position": "Defender"},
+  {"teamId": "mock-team-nr-u14", "number": 16, "name": "K. Park", "position": "Keeper"},
+  {"teamId": "mock-team-efc-u14", "number": 1, "name": "H. Tanaka", "position": "Keeper"},
+  {"teamId": "mock-team-efc-u14", "number": 5, "name": "O. Müller", "position": "Defender"},
+  {"teamId": "mock-team-efc-u14", "number": 3, "name": "S. Novak", "position": "Defender"},
+  {"teamId": "mock-team-efc-u14", "number": 6, "name": "L. Ferreira", "position": "Defender"},
+  {"teamId": "mock-team-efc-u14", "number": 4, "name": "D. Petrov", "position": "Defender"},
+  {"teamId": "mock-team-efc-u14", "number": 8, "name": "Y. Ibrahim", "position": "Mid"},
+  {"teamId": "mock-team-efc-u14", "number": 10, "name": "N. Walsh", "position": "Mid", "captain": true},
+  {"teamId": "mock-team-efc-u14", "number": 14, "name": "P. Okonkwo", "position": "Mid"},
+  {"teamId": "mock-team-efc-u14", "number": 7, "name": "A. Kim", "position": "Forward"},
+  {"teamId": "mock-team-efc-u14", "number": 9, "name": "R. Costa", "position": "Forward"},
+  {"teamId": "mock-team-efc-u14", "number": 11, "name": "T. Lindqvist", "position": "Forward"},
+  {"teamId": "mock-team-efc-u14", "number": 2, "name": "C. Mbeki", "position": "Defender"}
+]

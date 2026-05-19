@@ -1,33 +1,49 @@
-// Global environment flag. Drives BLE backend selection and any other
-// behaviour that differs between mock data and a real camera.
+// Global environment flag. Drives BLE/WiFi backend selection and
+// environment-level behaviour (logging verbosity, diagnostics, etc.).
 //
 // Override at build/run time:
-//   flutter run --dart-define=APP_ENV=dev-mock
-//   flutter run --dart-define=APP_ENV=dev-device
+//   flutter run --dart-define=APP_ENV=dev
+//   flutter run --dart-define=APP_ENV=stage
 //   flutter run --dart-define=APP_ENV=prod
 //
-// dev-mock   — MockBleService, in-memory data; no real device required.
-// dev-device — BleServiceImpl over flutter_blue_plus; real device required.
-// prod       — BleServiceImpl; release build.
+// dev   — MockBleService + MockWifiService; no real device required.
+// stage — BleServiceImpl over flutter_blue_plus; real device required.
+// prod  — BleServiceImpl; release build.
+//
+// Mock fixture data is controlled separately:
+//   flutter run --dart-define=kUseMockData=true
+//
+// kUseMockData=true seeds the Drift DB with JSON fixtures from assets/mock/
+// on first launch (or after a reset). Independent of APP_ENV — you can run
+// stage+kUseMockData=true or dev+kUseMockData=false.
 
-enum AppEnv { devMock, devDevice, prod }
+enum AppEnv { dev, stage, prod }
 
 const String _envName = String.fromEnvironment(
   'APP_ENV',
-  defaultValue: 'dev-mock',
+  defaultValue: 'dev',
 );
 
 const AppEnv kAppEnv = _envName == 'prod'
     ? AppEnv.prod
-    : (_envName == 'dev-device' ? AppEnv.devDevice : AppEnv.devMock);
+    : (_envName == 'stage' ? AppEnv.stage : AppEnv.dev);
+
+/// Whether to load mock fixture data from assets/mock/fixtures/ into the DB.
+/// Defaults to true when APP_ENV=dev (the development default), false otherwise.
+/// Override at build/run time: --dart-define=kUseMockData=false (or =true).
+const bool kUseMockData = bool.fromEnvironment(
+  'kUseMockData',
+  defaultValue: _envName == 'dev',
+);
 
 extension AppEnvX on AppEnv {
-  /// Whether the BLE backend is the in-memory mock.
-  bool get isMock => this == AppEnv.devMock;
+  /// Whether the BLE/WiFi backend is the in-memory dev mock.
+  /// Controls service instantiation only — not data loading (see kUseMockData).
+  bool get isDevBackend => this == AppEnv.dev;
 
   String get label => switch (this) {
-    AppEnv.devMock => 'dev-mock',
-    AppEnv.devDevice => 'dev-device',
+    AppEnv.dev => 'dev',
+    AppEnv.stage => 'stage',
     AppEnv.prod => 'prod',
   };
 }

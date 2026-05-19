@@ -1,5 +1,5 @@
-name: scout_camera
-description: "Mobile companion app for ScoutCamera — AI-powered sports camera on NVIDIA Jetson."
+name: sst_cam_app
+description: "SST Cam — mobile companion app for the SST sports camera on NVIDIA Jetson."
 publish_to: none
 version: 0.1.0+1
 
@@ -26,6 +26,9 @@ dependencies:
   video_player: ^2.9.2
   # RTSP H.264 preview from the camera (libVLC). Used by LivePreviewView.
   flutter_vlc_player: ^7.4.2
+  # Cut-only MP4 trimming (no re-encode). LGPL, FFmpeg 7.1.1. Community-maintained
+  # fork of the archived arthenica/ffmpeg-kit (ffmpeg_kit_flutter_min had a broken Maven artifact).
+  ffmpeg_kit_flutter_new_full: ^2.0.0
 
   # Storage
   drift: ^2.20.2
@@ -53,9 +56,11 @@ flutter:
   uses-material-design: true
   assets:
     - assets/brand/
+    - assets/mock/
+    - assets/mock/fixtures/
 
 flutter_app_name:
-  name: "Scout Camera"
-  id: "com.scout.scoutcamera"
+  name: "SST Cam"
+  id: "com.sst.sstcam"
   android: true
   ios: true

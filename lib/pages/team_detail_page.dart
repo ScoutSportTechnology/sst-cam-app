@@ -238,6 +238,7 @@ class _AddFab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton(
+      heroTag: null,
       onPressed: onPressed,
       tooltip: tooltip,
       backgroundColor: T.accent,

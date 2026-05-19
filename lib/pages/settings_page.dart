@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../env.dart';
 import '../models/device.dart';
+import '../pages/debug_page.dart';
 import '../services/backup_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
@@ -51,49 +53,62 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          if (connected) ...[
-            _CameraCard(deviceId: activeId),
-            const SizedBox(height: 14),
-            const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
-            const _UserSection(),
-            const SizedBox(height: 14),
-            const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
-            WfCard(
-              padding: EdgeInsets.zero,
-              child: _NavRow(
-                leading: const Icon(Icons.sports_soccer_outlined),
-                label: 'Sport setups',
-                sub: 'Saved time configs per sport',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SportPresetsPage()),
-                  );
-                },
-              ),
+          // Camera card: only when connected. _ConnectCameraBanner replaces it
+          // when no camera is present so the user can reconnect.
+          if (connected)
+            _CameraCard(deviceId: activeId)
+          else
+            const _ConnectCameraBanner(),
+          const SizedBox(height: 14),
+          const WfSection('User', padding: EdgeInsets.only(bottom: 6)),
+          const _UserSection(),
+          const SizedBox(height: 14),
+          const WfSection('Match setup', padding: EdgeInsets.only(bottom: 6)),
+          WfCard(
+            padding: EdgeInsets.zero,
+            child: _NavRow(
+              leading: const Icon(Icons.sports_soccer_outlined),
+              label: 'Sport setups',
+              sub: 'Saved time configs per sport',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SportPresetsPage()),
+                );
+              },
             ),
-            const SizedBox(height: 14),
-            _StreamingSection(deviceId: activeId),
-            const SizedBox(height: 14),
-            const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
-            const _RowItem(
-              leading: Icon(Icons.palette_outlined),
-              label: 'Theme',
-              trailing: Text(
-                'Dark',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
+          ),
+          const SizedBox(height: 14),
+          const _StreamingSection(),
+          const SizedBox(height: 14),
+          const WfSection('App', padding: EdgeInsets.only(bottom: 6)),
+          const _RowItem(
+            leading: Icon(Icons.palette_outlined),
+            label: 'Theme',
+            trailing: Text(
+              'Dark',
+              style: TextStyle(color: T.ink2, fontSize: 12),
             ),
-            const Divider(height: 1, color: T.rule),
-            const _RowItem(
-              leading: Icon(Icons.lock_outline),
-              label: 'Permissions',
-              trailing: Text(
-                '3 granted',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
+          ),
+          const Divider(height: 1, color: T.rule),
+          const _RowItem(
+            leading: Icon(Icons.lock_outline),
+            label: 'Permissions',
+            trailing: Text(
+              '3 granted',
+              style: TextStyle(color: T.ink2, fontSize: 12),
             ),
-            const Divider(height: 1, color: T.rule),
-            const _RowItem(
+          ),
+          const Divider(height: 1, color: T.rule),
+          GestureDetector(
+            onLongPress: kAppEnv != AppEnv.prod
+                ? () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const DebugPage(),
+                      ),
+                    )
+                : null,
+            child: const _RowItem(
               leading: Icon(Icons.info_outline),
               label: 'About',
               trailing: Text(
@@ -101,11 +116,8 @@ class SettingsPage extends ConsumerWidget {
                 style: TextStyle(color: T.ink2, fontSize: 12),
               ),
             ),
-            const SizedBox(height: 14),
-          ] else ...[
-            const _ConnectCameraBanner(),
-            const SizedBox(height: 14),
-          ],
+          ),
+          const SizedBox(height: 14),
           const _DataSection(),
         ],
       ),
@@ -114,14 +126,11 @@ class SettingsPage extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming setup section — extracted to read streamingCount only when
-// connected so the provider isn't watched in the disconnected path.
+// Streaming setup section
 // ---------------------------------------------------------------------------
 
 class _StreamingSection extends ConsumerWidget {
-  const _StreamingSection({required this.deviceId});
-
-  final String deviceId;
+  const _StreamingSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -161,7 +170,7 @@ class _StreamingSection extends ConsumerWidget {
 // Camera card. Reboot and Update fw remain visual placeholders until
 // firmware lands; they render disabled with a tooltip explaining that.
 // fw / proto values are placeholder strings — pipe them from the
-// ScoutDevice / telemetry stream when that data is reachable here.
+// SstDevice / telemetry stream when that data is reachable here.
 // ---------------------------------------------------------------------------
 
 class _CameraCard extends ConsumerWidget {

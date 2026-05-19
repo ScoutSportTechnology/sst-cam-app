@@ -12,7 +12,7 @@ import '../wifi/wifi_service_impl.dart';
 // ---------------------------------------------------------------------------
 
 final wifiServiceProvider = Provider<WifiService>((ref) {
-  final WifiService svc = kAppEnv.isMock
+  final WifiService svc = kAppEnv.isDevBackend
       ? MockWifiService()
       : WifiServiceImpl();
   ref.onDispose(svc.dispose);

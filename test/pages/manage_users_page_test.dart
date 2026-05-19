@@ -9,11 +9,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/pages/manage_users_page.dart';
-import 'package:scout_camera/state/app_data.dart';
-import 'package:scout_camera/state/ble_providers.dart';
-import 'package:scout_camera/widgets/wf_chip.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/pages/manage_users_page.dart';
+import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/state/ble_providers.dart';
+import 'package:sst_cam_app/widgets/wf_chip.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';

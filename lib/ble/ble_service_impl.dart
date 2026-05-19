@@ -11,7 +11,7 @@ import 'ble_service.dart';
 
 // UUIDs defined in proto/README.md.
 //
-// When wiring proto encoding (Phase 7), regenerate Dart bindings from
+// When wiring proto encoding, regenerate Dart bindings from
 // `proto/bluetooth.proto` (the schema was consolidated from six smaller
 // files; see proto/README.md history note).
 final _serviceUuid = Guid('A1B2C3D401000000800000805F9B34FB');
@@ -22,7 +22,7 @@ final _cmdResponseUuid = Guid('A1B2C3D401200000800000805F9B34FB');
 const _kNamePrefix = 'sst-cam-';
 
 class BleServiceImpl implements BleService {
-  final _discoveryController = StreamController<List<ScoutDevice>>.broadcast();
+  final _discoveryController = StreamController<List<SstDevice>>.broadcast();
   final Map<String, _ConnectedDevice> _connected = {};
   bool _isScanning = false;
 
@@ -30,7 +30,7 @@ class BleServiceImpl implements BleService {
   bool get isScanning => _isScanning;
 
   @override
-  Stream<List<ScoutDevice>> get discoveredDevices =>
+  Stream<List<SstDevice>> get discoveredDevices =>
       _discoveryController.stream;
 
   // ---------------------------------------------------------------------------
@@ -44,14 +44,14 @@ class BleServiceImpl implements BleService {
     if (_isScanning) return;
     _isScanning = true;
 
-    final accumulated = <String, ScoutDevice>{};
+    final accumulated = <String, SstDevice>{};
     StreamSubscription<List<ScanResult>>? sub;
 
     sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
         final name = r.advertisementData.advName.toLowerCase();
         if (!name.startsWith(_kNamePrefix)) continue;
-        accumulated[r.device.remoteId.str] = ScoutDevice(
+        accumulated[r.device.remoteId.str] = SstDevice(
           id: r.device.remoteId.str,
           name: r.advertisementData.advName,
           firmwareVersion: '',
@@ -210,7 +210,7 @@ class BleServiceImpl implements BleService {
 
   // ---------------------------------------------------------------------------
   // Commands — write ChunkedPayload to cmdWrite; await response on cmdResponse
-  // TODO (Phase 7): implement proto encoding + chunking
+  // TODO: wire to firmware — proto encoding + BLE chunking not yet implemented
   // ---------------------------------------------------------------------------
 
   @override
@@ -219,7 +219,7 @@ class BleServiceImpl implements BleService {
     BleCommand command,
   ) async {
     throw UnimplementedError(
-      'Phase 7: proto encoding + BLE write not yet implemented',
+      'TODO: wire to firmware — proto encoding + BLE write not yet implemented',
     );
   }
 
@@ -232,7 +232,9 @@ class BleServiceImpl implements BleService {
     String deviceId,
     PushSessionConfig config,
   ) {
-    throw UnimplementedError('Phase 7: pushSessionConfig not yet wired');
+    throw UnimplementedError(
+      'TODO: wire to firmware — pushSessionConfig not yet implemented',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -301,7 +303,7 @@ class _ConnectedDevice {
 
   void _startResponseListener() {
     _responseSub = _cmdResponse?.onValueReceived.listen((_) {
-      // TODO (Phase 7): reassemble ChunkedPayload → proto CommandResponse → route
+      // TODO: wire to firmware — reassemble ChunkedPayload → proto CommandResponse → route
     });
   }
 

@@ -928,6 +928,15 @@ class $TeamMatchesTableTable extends TeamMatchesTable
     defaultValue: const Constant(0),
   );
   @override
+  late final GeneratedColumn<String> eventsJson = GeneratedColumn<String>(
+    'events_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  @override
   List<GeneratedColumn> get $columns => [
     id,
     teamId,
@@ -939,6 +948,7 @@ class $TeamMatchesTableTable extends TeamMatchesTable
     periodLengthSeconds,
     clips,
     sizeMb,
+    eventsJson,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -991,6 +1001,10 @@ class $TeamMatchesTableTable extends TeamMatchesTable
         DriftSqlType.int,
         data['${effectivePrefix}size_mb'],
       )!,
+      eventsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}events_json'],
+      )!,
     );
   }
 
@@ -1014,6 +1028,10 @@ class TeamMatchesTableData extends DataClass
   final int periodLengthSeconds;
   final int clips;
   final int sizeMb;
+
+  /// JSON-encoded list of match events: [{timeSeconds, label, team, kind}].
+  /// Empty array '[]' when no events recorded.
+  final String eventsJson;
   const TeamMatchesTableData({
     required this.id,
     required this.teamId,
@@ -1025,6 +1043,7 @@ class TeamMatchesTableData extends DataClass
     required this.periodLengthSeconds,
     required this.clips,
     required this.sizeMb,
+    required this.eventsJson,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1039,6 +1058,7 @@ class TeamMatchesTableData extends DataClass
     map['period_length_seconds'] = Variable<int>(periodLengthSeconds);
     map['clips'] = Variable<int>(clips);
     map['size_mb'] = Variable<int>(sizeMb);
+    map['events_json'] = Variable<String>(eventsJson);
     return map;
   }
 
@@ -1054,6 +1074,7 @@ class TeamMatchesTableData extends DataClass
       periodLengthSeconds: Value(periodLengthSeconds),
       clips: Value(clips),
       sizeMb: Value(sizeMb),
+      eventsJson: Value(eventsJson),
     );
   }
 
@@ -1075,6 +1096,7 @@ class TeamMatchesTableData extends DataClass
       ),
       clips: serializer.fromJson<int>(json['clips']),
       sizeMb: serializer.fromJson<int>(json['sizeMb']),
+      eventsJson: serializer.fromJson<String>(json['eventsJson']),
     );
   }
   @override
@@ -1091,6 +1113,7 @@ class TeamMatchesTableData extends DataClass
       'periodLengthSeconds': serializer.toJson<int>(periodLengthSeconds),
       'clips': serializer.toJson<int>(clips),
       'sizeMb': serializer.toJson<int>(sizeMb),
+      'eventsJson': serializer.toJson<String>(eventsJson),
     };
   }
 
@@ -1105,6 +1128,7 @@ class TeamMatchesTableData extends DataClass
     int? periodLengthSeconds,
     int? clips,
     int? sizeMb,
+    String? eventsJson,
   }) => TeamMatchesTableData(
     id: id ?? this.id,
     teamId: teamId ?? this.teamId,
@@ -1116,6 +1140,7 @@ class TeamMatchesTableData extends DataClass
     periodLengthSeconds: periodLengthSeconds ?? this.periodLengthSeconds,
     clips: clips ?? this.clips,
     sizeMb: sizeMb ?? this.sizeMb,
+    eventsJson: eventsJson ?? this.eventsJson,
   );
   TeamMatchesTableData copyWithCompanion(TeamMatchesTableCompanion data) {
     return TeamMatchesTableData(
@@ -1133,6 +1158,9 @@ class TeamMatchesTableData extends DataClass
           : this.periodLengthSeconds,
       clips: data.clips.present ? data.clips.value : this.clips,
       sizeMb: data.sizeMb.present ? data.sizeMb.value : this.sizeMb,
+      eventsJson: data.eventsJson.present
+          ? data.eventsJson.value
+          : this.eventsJson,
     );
   }
 
@@ -1148,7 +1176,8 @@ class TeamMatchesTableData extends DataClass
           ..write('numPeriods: $numPeriods, ')
           ..write('periodLengthSeconds: $periodLengthSeconds, ')
           ..write('clips: $clips, ')
-          ..write('sizeMb: $sizeMb')
+          ..write('sizeMb: $sizeMb, ')
+          ..write('eventsJson: $eventsJson')
           ..write(')'))
         .toString();
   }
@@ -1165,6 +1194,7 @@ class TeamMatchesTableData extends DataClass
     periodLengthSeconds,
     clips,
     sizeMb,
+    eventsJson,
   );
   @override
   bool operator ==(Object other) =>
@@ -1179,7 +1209,8 @@ class TeamMatchesTableData extends DataClass
           other.numPeriods == this.numPeriods &&
           other.periodLengthSeconds == this.periodLengthSeconds &&
           other.clips == this.clips &&
-          other.sizeMb == this.sizeMb);
+          other.sizeMb == this.sizeMb &&
+          other.eventsJson == this.eventsJson);
 }
 
 class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
@@ -1193,6 +1224,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
   final Value<int> periodLengthSeconds;
   final Value<int> clips;
   final Value<int> sizeMb;
+  final Value<String> eventsJson;
   final Value<int> rowid;
   const TeamMatchesTableCompanion({
     this.id = const Value.absent(),
@@ -1205,6 +1237,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     this.periodLengthSeconds = const Value.absent(),
     this.clips = const Value.absent(),
     this.sizeMb = const Value.absent(),
+    this.eventsJson = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TeamMatchesTableCompanion.insert({
@@ -1218,6 +1251,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     required int periodLengthSeconds,
     this.clips = const Value.absent(),
     this.sizeMb = const Value.absent(),
+    this.eventsJson = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        teamId = Value(teamId),
@@ -1238,6 +1272,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     Expression<int>? periodLengthSeconds,
     Expression<int>? clips,
     Expression<int>? sizeMb,
+    Expression<String>? eventsJson,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1252,6 +1287,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
         'period_length_seconds': periodLengthSeconds,
       if (clips != null) 'clips': clips,
       if (sizeMb != null) 'size_mb': sizeMb,
+      if (eventsJson != null) 'events_json': eventsJson,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1267,6 +1303,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     Value<int>? periodLengthSeconds,
     Value<int>? clips,
     Value<int>? sizeMb,
+    Value<String>? eventsJson,
     Value<int>? rowid,
   }) {
     return TeamMatchesTableCompanion(
@@ -1280,6 +1317,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
       periodLengthSeconds: periodLengthSeconds ?? this.periodLengthSeconds,
       clips: clips ?? this.clips,
       sizeMb: sizeMb ?? this.sizeMb,
+      eventsJson: eventsJson ?? this.eventsJson,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1317,6 +1355,9 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     if (sizeMb.present) {
       map['size_mb'] = Variable<int>(sizeMb.value);
     }
+    if (eventsJson.present) {
+      map['events_json'] = Variable<String>(eventsJson.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1336,6 +1377,7 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
           ..write('periodLengthSeconds: $periodLengthSeconds, ')
           ..write('clips: $clips, ')
           ..write('sizeMb: $sizeMb, ')
+          ..write('eventsJson: $eventsJson, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2297,6 +2339,15 @@ class $ClipsTableTable extends ClipsTable
     ),
   );
   @override
+  late final GeneratedColumn<int> startSeconds = GeneratedColumn<int>(
+    'start_seconds',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
   late final GeneratedColumn<int> durationSeconds = GeneratedColumn<int>(
     'duration_seconds',
     aliasedName,
@@ -2321,12 +2372,22 @@ class $ClipsTableTable extends ClipsTable
     requiredDuringInsert: true,
   );
   @override
+  late final GeneratedColumn<String> label = GeneratedColumn<String>(
+    'label',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
   List<GeneratedColumn> get $columns => [
     id,
     matchId,
+    startSeconds,
     durationSeconds,
     sizeBytes,
     startedAt,
+    label,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2347,6 +2408,10 @@ class $ClipsTableTable extends ClipsTable
         DriftSqlType.string,
         data['${effectivePrefix}match_id'],
       )!,
+      startSeconds: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}start_seconds'],
+      )!,
       durationSeconds: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}duration_seconds'],
@@ -2359,6 +2424,10 @@ class $ClipsTableTable extends ClipsTable
         DriftSqlType.string,
         data['${effectivePrefix}started_at'],
       )!,
+      label: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}label'],
+      ),
     );
   }
 
@@ -2371,24 +2440,34 @@ class $ClipsTableTable extends ClipsTable
 class ClipsTableData extends DataClass implements Insertable<ClipsTableData> {
   final String id;
   final String matchId;
+
+  /// Start offset in seconds from the beginning of the source video.
+  final int startSeconds;
   final int durationSeconds;
   final int sizeBytes;
   final String startedAt;
+  final String? label;
   const ClipsTableData({
     required this.id,
     required this.matchId,
+    required this.startSeconds,
     required this.durationSeconds,
     required this.sizeBytes,
     required this.startedAt,
+    this.label,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['match_id'] = Variable<String>(matchId);
+    map['start_seconds'] = Variable<int>(startSeconds);
     map['duration_seconds'] = Variable<int>(durationSeconds);
     map['size_bytes'] = Variable<int>(sizeBytes);
     map['started_at'] = Variable<String>(startedAt);
+    if (!nullToAbsent || label != null) {
+      map['label'] = Variable<String>(label);
+    }
     return map;
   }
 
@@ -2396,9 +2475,13 @@ class ClipsTableData extends DataClass implements Insertable<ClipsTableData> {
     return ClipsTableCompanion(
       id: Value(id),
       matchId: Value(matchId),
+      startSeconds: Value(startSeconds),
       durationSeconds: Value(durationSeconds),
       sizeBytes: Value(sizeBytes),
       startedAt: Value(startedAt),
+      label: label == null && nullToAbsent
+          ? const Value.absent()
+          : Value(label),
     );
   }
 
@@ -2410,9 +2493,11 @@ class ClipsTableData extends DataClass implements Insertable<ClipsTableData> {
     return ClipsTableData(
       id: serializer.fromJson<String>(json['id']),
       matchId: serializer.fromJson<String>(json['matchId']),
+      startSeconds: serializer.fromJson<int>(json['startSeconds']),
       durationSeconds: serializer.fromJson<int>(json['durationSeconds']),
       sizeBytes: serializer.fromJson<int>(json['sizeBytes']),
       startedAt: serializer.fromJson<String>(json['startedAt']),
+      label: serializer.fromJson<String?>(json['label']),
     );
   }
   @override
@@ -2421,34 +2506,44 @@ class ClipsTableData extends DataClass implements Insertable<ClipsTableData> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'matchId': serializer.toJson<String>(matchId),
+      'startSeconds': serializer.toJson<int>(startSeconds),
       'durationSeconds': serializer.toJson<int>(durationSeconds),
       'sizeBytes': serializer.toJson<int>(sizeBytes),
       'startedAt': serializer.toJson<String>(startedAt),
+      'label': serializer.toJson<String?>(label),
     };
   }
 
   ClipsTableData copyWith({
     String? id,
     String? matchId,
+    int? startSeconds,
     int? durationSeconds,
     int? sizeBytes,
     String? startedAt,
+    Value<String?> label = const Value.absent(),
   }) => ClipsTableData(
     id: id ?? this.id,
     matchId: matchId ?? this.matchId,
+    startSeconds: startSeconds ?? this.startSeconds,
     durationSeconds: durationSeconds ?? this.durationSeconds,
     sizeBytes: sizeBytes ?? this.sizeBytes,
     startedAt: startedAt ?? this.startedAt,
+    label: label.present ? label.value : this.label,
   );
   ClipsTableData copyWithCompanion(ClipsTableCompanion data) {
     return ClipsTableData(
       id: data.id.present ? data.id.value : this.id,
       matchId: data.matchId.present ? data.matchId.value : this.matchId,
+      startSeconds: data.startSeconds.present
+          ? data.startSeconds.value
+          : this.startSeconds,
       durationSeconds: data.durationSeconds.present
           ? data.durationSeconds.value
           : this.durationSeconds,
       sizeBytes: data.sizeBytes.present ? data.sizeBytes.value : this.sizeBytes,
       startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+      label: data.label.present ? data.label.value : this.label,
     );
   }
 
@@ -2457,48 +2552,65 @@ class ClipsTableData extends DataClass implements Insertable<ClipsTableData> {
     return (StringBuffer('ClipsTableData(')
           ..write('id: $id, ')
           ..write('matchId: $matchId, ')
+          ..write('startSeconds: $startSeconds, ')
           ..write('durationSeconds: $durationSeconds, ')
           ..write('sizeBytes: $sizeBytes, ')
-          ..write('startedAt: $startedAt')
+          ..write('startedAt: $startedAt, ')
+          ..write('label: $label')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, matchId, durationSeconds, sizeBytes, startedAt);
+  int get hashCode => Object.hash(
+    id,
+    matchId,
+    startSeconds,
+    durationSeconds,
+    sizeBytes,
+    startedAt,
+    label,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is ClipsTableData &&
           other.id == this.id &&
           other.matchId == this.matchId &&
+          other.startSeconds == this.startSeconds &&
           other.durationSeconds == this.durationSeconds &&
           other.sizeBytes == this.sizeBytes &&
-          other.startedAt == this.startedAt);
+          other.startedAt == this.startedAt &&
+          other.label == this.label);
 }
 
 class ClipsTableCompanion extends UpdateCompanion<ClipsTableData> {
   final Value<String> id;
   final Value<String> matchId;
+  final Value<int> startSeconds;
   final Value<int> durationSeconds;
   final Value<int> sizeBytes;
   final Value<String> startedAt;
+  final Value<String?> label;
   final Value<int> rowid;
   const ClipsTableCompanion({
     this.id = const Value.absent(),
     this.matchId = const Value.absent(),
+    this.startSeconds = const Value.absent(),
     this.durationSeconds = const Value.absent(),
     this.sizeBytes = const Value.absent(),
     this.startedAt = const Value.absent(),
+    this.label = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ClipsTableCompanion.insert({
     required String id,
     required String matchId,
+    this.startSeconds = const Value.absent(),
     required int durationSeconds,
     required int sizeBytes,
     required String startedAt,
+    this.label = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        matchId = Value(matchId),
@@ -2508,17 +2620,21 @@ class ClipsTableCompanion extends UpdateCompanion<ClipsTableData> {
   static Insertable<ClipsTableData> custom({
     Expression<String>? id,
     Expression<String>? matchId,
+    Expression<int>? startSeconds,
     Expression<int>? durationSeconds,
     Expression<int>? sizeBytes,
     Expression<String>? startedAt,
+    Expression<String>? label,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (matchId != null) 'match_id': matchId,
+      if (startSeconds != null) 'start_seconds': startSeconds,
       if (durationSeconds != null) 'duration_seconds': durationSeconds,
       if (sizeBytes != null) 'size_bytes': sizeBytes,
       if (startedAt != null) 'started_at': startedAt,
+      if (label != null) 'label': label,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2526,17 +2642,21 @@ class ClipsTableCompanion extends UpdateCompanion<ClipsTableData> {
   ClipsTableCompanion copyWith({
     Value<String>? id,
     Value<String>? matchId,
+    Value<int>? startSeconds,
     Value<int>? durationSeconds,
     Value<int>? sizeBytes,
     Value<String>? startedAt,
+    Value<String?>? label,
     Value<int>? rowid,
   }) {
     return ClipsTableCompanion(
       id: id ?? this.id,
       matchId: matchId ?? this.matchId,
+      startSeconds: startSeconds ?? this.startSeconds,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       sizeBytes: sizeBytes ?? this.sizeBytes,
       startedAt: startedAt ?? this.startedAt,
+      label: label ?? this.label,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2550,6 +2670,9 @@ class ClipsTableCompanion extends UpdateCompanion<ClipsTableData> {
     if (matchId.present) {
       map['match_id'] = Variable<String>(matchId.value);
     }
+    if (startSeconds.present) {
+      map['start_seconds'] = Variable<int>(startSeconds.value);
+    }
     if (durationSeconds.present) {
       map['duration_seconds'] = Variable<int>(durationSeconds.value);
     }
@@ -2558,6 +2681,9 @@ class ClipsTableCompanion extends UpdateCompanion<ClipsTableData> {
     }
     if (startedAt.present) {
       map['started_at'] = Variable<String>(startedAt.value);
+    }
+    if (label.present) {
+      map['label'] = Variable<String>(label.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -2570,9 +2696,11 @@ class ClipsTableCompanion extends UpdateCompanion<ClipsTableData> {
     return (StringBuffer('ClipsTableCompanion(')
           ..write('id: $id, ')
           ..write('matchId: $matchId, ')
+          ..write('startSeconds: $startSeconds, ')
           ..write('durationSeconds: $durationSeconds, ')
           ..write('sizeBytes: $sizeBytes, ')
           ..write('startedAt: $startedAt, ')
+          ..write('label: $label, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2793,6 +2921,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final StreamingDestinationsDao streamingDestinationsDao =
       StreamingDestinationsDao(this as AppDatabase);
+  late final ClipsDao clipsDao = ClipsDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4196,6 +4325,7 @@ typedef $$TeamMatchesTableTableCreateCompanionBuilder =
       required int periodLengthSeconds,
       Value<int> clips,
       Value<int> sizeMb,
+      Value<String> eventsJson,
       Value<int> rowid,
     });
 typedef $$TeamMatchesTableTableUpdateCompanionBuilder =
@@ -4210,6 +4340,7 @@ typedef $$TeamMatchesTableTableUpdateCompanionBuilder =
       Value<int> periodLengthSeconds,
       Value<int> clips,
       Value<int> sizeMb,
+      Value<String> eventsJson,
       Value<int> rowid,
     });
 
@@ -4321,6 +4452,11 @@ class $$TeamMatchesTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get eventsJson => $composableBuilder(
+    column: $table.eventsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$TeamsTableTableFilterComposer get teamId {
     final $$TeamsTableTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -4424,6 +4560,11 @@ class $$TeamMatchesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get eventsJson => $composableBuilder(
+    column: $table.eventsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$TeamsTableTableOrderingComposer get teamId {
     final $$TeamsTableTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -4487,6 +4628,11 @@ class $$TeamMatchesTableTableAnnotationComposer
 
   GeneratedColumn<int> get sizeMb =>
       $composableBuilder(column: $table.sizeMb, builder: (column) => column);
+
+  GeneratedColumn<String> get eventsJson => $composableBuilder(
+    column: $table.eventsJson,
+    builder: (column) => column,
+  );
 
   $$TeamsTableTableAnnotationComposer get teamId {
     final $$TeamsTableTableAnnotationComposer composer = $composerBuilder(
@@ -4577,6 +4723,7 @@ class $$TeamMatchesTableTableTableManager
                 Value<int> periodLengthSeconds = const Value.absent(),
                 Value<int> clips = const Value.absent(),
                 Value<int> sizeMb = const Value.absent(),
+                Value<String> eventsJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TeamMatchesTableCompanion(
                 id: id,
@@ -4589,6 +4736,7 @@ class $$TeamMatchesTableTableTableManager
                 periodLengthSeconds: periodLengthSeconds,
                 clips: clips,
                 sizeMb: sizeMb,
+                eventsJson: eventsJson,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4603,6 +4751,7 @@ class $$TeamMatchesTableTableTableManager
                 required int periodLengthSeconds,
                 Value<int> clips = const Value.absent(),
                 Value<int> sizeMb = const Value.absent(),
+                Value<String> eventsJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TeamMatchesTableCompanion.insert(
                 id: id,
@@ -4615,6 +4764,7 @@ class $$TeamMatchesTableTableTableManager
                 periodLengthSeconds: periodLengthSeconds,
                 clips: clips,
                 sizeMb: sizeMb,
+                eventsJson: eventsJson,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -5540,18 +5690,22 @@ typedef $$ClipsTableTableCreateCompanionBuilder =
     ClipsTableCompanion Function({
       required String id,
       required String matchId,
+      Value<int> startSeconds,
       required int durationSeconds,
       required int sizeBytes,
       required String startedAt,
+      Value<String?> label,
       Value<int> rowid,
     });
 typedef $$ClipsTableTableUpdateCompanionBuilder =
     ClipsTableCompanion Function({
       Value<String> id,
       Value<String> matchId,
+      Value<int> startSeconds,
       Value<int> durationSeconds,
       Value<int> sizeBytes,
       Value<String> startedAt,
+      Value<String?> label,
       Value<int> rowid,
     });
 
@@ -5616,6 +5770,11 @@ class $$ClipsTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get startSeconds => $composableBuilder(
+    column: $table.startSeconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<int> get durationSeconds => $composableBuilder(
     column: $table.durationSeconds,
     builder: (column) => ColumnFilters(column),
@@ -5628,6 +5787,11 @@ class $$ClipsTableTableFilterComposer
 
   ColumnFilters<String> get startedAt => $composableBuilder(
     column: $table.startedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get label => $composableBuilder(
+    column: $table.label,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5694,6 +5858,11 @@ class $$ClipsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get startSeconds => $composableBuilder(
+    column: $table.startSeconds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get durationSeconds => $composableBuilder(
     column: $table.durationSeconds,
     builder: (column) => ColumnOrderings(column),
@@ -5706,6 +5875,11 @@ class $$ClipsTableTableOrderingComposer
 
   ColumnOrderings<String> get startedAt => $composableBuilder(
     column: $table.startedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get label => $composableBuilder(
+    column: $table.label,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -5745,6 +5919,11 @@ class $$ClipsTableTableAnnotationComposer
   GeneratedColumn<String> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
+  GeneratedColumn<int> get startSeconds => $composableBuilder(
+    column: $table.startSeconds,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<int> get durationSeconds => $composableBuilder(
     column: $table.durationSeconds,
     builder: (column) => column,
@@ -5755,6 +5934,9 @@ class $$ClipsTableTableAnnotationComposer
 
   GeneratedColumn<String> get startedAt =>
       $composableBuilder(column: $table.startedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get label =>
+      $composableBuilder(column: $table.label, builder: (column) => column);
 
   $$TeamMatchesTableTableAnnotationComposer get matchId {
     final $$TeamMatchesTableTableAnnotationComposer composer = $composerBuilder(
@@ -5835,32 +6017,40 @@ class $$ClipsTableTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<String> matchId = const Value.absent(),
+                Value<int> startSeconds = const Value.absent(),
                 Value<int> durationSeconds = const Value.absent(),
                 Value<int> sizeBytes = const Value.absent(),
                 Value<String> startedAt = const Value.absent(),
+                Value<String?> label = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ClipsTableCompanion(
                 id: id,
                 matchId: matchId,
+                startSeconds: startSeconds,
                 durationSeconds: durationSeconds,
                 sizeBytes: sizeBytes,
                 startedAt: startedAt,
+                label: label,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
                 required String id,
                 required String matchId,
+                Value<int> startSeconds = const Value.absent(),
                 required int durationSeconds,
                 required int sizeBytes,
                 required String startedAt,
+                Value<String?> label = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ClipsTableCompanion.insert(
                 id: id,
                 matchId: matchId,
+                startSeconds: startSeconds,
                 durationSeconds: durationSeconds,
                 sizeBytes: sizeBytes,
                 startedAt: startedAt,
+                label: label,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

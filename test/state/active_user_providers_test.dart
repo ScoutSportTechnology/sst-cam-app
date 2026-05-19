@@ -15,9 +15,9 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/state/app_data.dart';
-import 'package:scout_camera/state/ble_providers.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/state/ble_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';
@@ -103,6 +103,31 @@ void main() {
         await container.read(usersControllerProvider.future);
 
         expect(container.read(activeUserProvider), 'user-2');
+      },
+    );
+
+    test(
+      'build() auto-selects the sole user when SharedPreferences is empty',
+      () async {
+        // SharedPreferences is empty (set in setUp), DB has two seed users.
+        // Delete user-2 so only one remains, then verify auto-selection fires.
+        final container = makeContainer(activeUserId: 'user-1');
+        await container.read(usersControllerProvider.future);
+        await container.read(usersControllerProvider.notifier).delete('user-2');
+        await Future<void>.delayed(Duration.zero);
+
+        // Now build a fresh container with no activeUserId override and empty prefs.
+        final fresh = ProviderContainer(
+          overrides: [...dbOverrides(db), bleServiceProvider.overrideWithValue(_newMock())],
+        );
+        addTearDown(fresh.dispose);
+
+        await fresh.read(usersControllerProvider.future);
+
+        // The sole remaining user should have been auto-activated.
+        expect(fresh.read(activeUserProvider), 'user-1');
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('active_user_id'), 'user-1');
       },
     );
   });
@@ -297,6 +322,79 @@ void main() {
       final upcoming = await container.read(upcomingMatchesProvider.future);
       // All upcoming matches belonged to nr-u14 — now hidden.
       expect(upcoming, isEmpty);
+    });
+
+    test('re-emits when a team match row is inserted', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+          activeUserProvider.overrideWith((_) => 'user-1'),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Collect emissions into a list.
+      final emissions = <List<UpcomingMatch>>[];
+      final sub = container.listen(
+        upcomingMatchesProvider,
+        (_, next) {
+          if (next.hasValue) emissions.add(next.value!);
+        },
+      );
+
+      // Consume the initial emission (2 upcoming matches in seed data).
+      final initial = await container.read(upcomingMatchesProvider.future);
+      expect(initial, hasLength(2));
+      emissions.clear();
+
+      // Insert a new upcoming match for nr-u14.
+      await db.value.teamsDao.insertTeamMatch(
+        TeamMatchesTableCompanion.insert(
+          id: 'nr-u14-up3',
+          teamId: 'nr-u14',
+          opponent: 'vs Hillside FC',
+          date: 'May 25',
+          result: '',
+          kind: 'upcoming',
+          numPeriods: 2,
+          periodLengthSeconds: 35 * 60,
+        ),
+      );
+
+      // Allow the Drift watch stream to propagate.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final updated = await container.read(upcomingMatchesProvider.future);
+      expect(updated, hasLength(3));
+      sub.close();
+    });
+
+    test('re-emits when a team match row is deleted', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(_newMock()),
+          activeUserProvider.overrideWith((_) => 'user-1'),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Confirm seed state: 2 upcoming matches.
+      final initial = await container.read(upcomingMatchesProvider.future);
+      expect(initial, hasLength(2));
+
+      // Delete one upcoming match directly via the DAO.
+      await db.value.teamsDao.deleteTeamMatch('nr-u14-up1');
+
+      // Allow the Drift watch stream to propagate.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final updated = await container.read(upcomingMatchesProvider.future);
+      expect(updated, hasLength(1));
+      expect(updated.first.match.id, 'nr-u14-up2');
     });
   });
 

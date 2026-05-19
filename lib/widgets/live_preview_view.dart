@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
+import 'package:video_player/video_player.dart';
 
+import '../env.dart';
 import '../models/wifi.dart';
 import '../state/wifi_providers.dart';
 import '../theme/tokens.dart';
@@ -41,10 +43,46 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   String? _vlcUrl;
   bool _vlcError = false;
 
+  // Dev-mode mock video player (used when no real RTSP stream is available).
+  VideoPlayerController? _mock;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kAppEnv.isDevBackend) {
+      _initMockPlayer();
+    }
+  }
+
+  void _initMockPlayer() {
+    final controller = VideoPlayerController.asset('assets/mock/mock-video.mp4');
+    _mock = controller;
+    controller
+      ..setLooping(true)
+      ..initialize().then((_) {
+        if (mounted && _mock == controller) {
+          _mock?.play();
+          setState(() {});
+        }
+      }).catchError((Object e, StackTrace st) {
+        // Platform not available in test environments — fall back to placeholder.
+        debugPrint('LivePreviewView: mock player init failed: $e\n$st');
+        if (mounted && _mock == controller) {
+          controller.dispose();
+          _mock = null;
+        }
+      });
+  }
+
   @override
   void dispose() {
     _vlc?.removeListener(_onVlcChange);
     _vlc?.dispose();
+    // Null before dispose so any in-flight initialize().then() callback
+    // fails the _mock == controller identity check and skips play().
+    final mock = _mock;
+    _mock = null;
+    mock?.dispose();
     super.dispose();
   }
 
@@ -109,16 +147,20 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
     // Spin up / replace the VLC controller whenever the descriptor URL changes.
-    final url = descriptor?.url;
-    if (url != null && url != _vlcUrl) {
-      _swapVlcController(url);
-    } else if (url == null && _vlc != null) {
-      _vlc?.removeListener(_onVlcChange);
-      // ignore: discarded_futures
-      _vlc?.dispose();
-      _vlc = null;
-      _vlcUrl = null;
-      _vlcError = false;
+    // Skipped in dev-backend mode: _vlc stays null so the mock-video branch
+    // in the Stack below renders instead of the VLC loading phase.
+    if (!kAppEnv.isDevBackend) {
+      final url = descriptor?.url;
+      if (url != null && url != _vlcUrl) {
+        _swapVlcController(url);
+      } else if (url == null && _vlc != null) {
+        _vlc?.removeListener(_onVlcChange);
+        // ignore: discarded_futures
+        _vlc?.dispose();
+        _vlc = null;
+        _vlcUrl = null;
+        _vlcError = false;
+      }
     }
 
     final wifiConnected = wifiState == WifiDirectState.connected;
@@ -142,6 +184,17 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             controller: _vlc!,
             aspectRatio: 16 / 9,
             placeholder: const ThumbPlaceholder(),
+          )
+        else if (kAppEnv.isDevBackend &&
+            (_mock?.value.isInitialized ?? false))
+          // In dev mode with no real RTSP stream, loop the mock video asset.
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _mock!.value.size.width,
+              height: _mock!.value.size.height,
+              child: VideoPlayer(_mock!),
+            ),
           )
         else
           ThumbPlaceholder(label: liveBadgeOn ? null : statusLabel),
@@ -173,8 +226,6 @@ class _LiveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fps = stats?.fps ?? 0;
-    final kbps = stats?.kbps ?? 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -194,7 +245,7 @@ class _LiveBadge extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            'LIVE · ${fps.toStringAsFixed(0)} FPS · ${kbps.toStringAsFixed(0)} KB/S',
+            'LIVE · ${(stats?.fps ?? 0).toStringAsFixed(0)} FPS · ${(stats?.kbps ?? 0).toStringAsFixed(0)} KB/S',
             style: const TextStyle(
               fontFamily: T.mono,
               fontSize: 9,

@@ -18,13 +18,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/ble/ble_service.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/models/command.dart';
-import 'package:scout_camera/models/device.dart';
-import 'package:scout_camera/pages/match_page.dart';
-import 'package:scout_camera/state/app_data.dart';
-import 'package:scout_camera/state/ble_providers.dart';
+import 'package:sst_cam_app/ble/ble_service.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/models/command.dart';
+import 'package:sst_cam_app/models/device.dart';
+import 'package:sst_cam_app/pages/match_page.dart';
+import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/state/ble_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';
@@ -84,16 +84,18 @@ MockBleService _newMock() => MockBleService(
 // Harness
 // ---------------------------------------------------------------------------
 
-Widget _buildHarness({required MockBleService service, required DbRef db}) {
+Widget _buildHarness({
+  required MockBleService service,
+  required DbRef db,
+  CameraConnectionState connectionState = CameraConnectionState.connected,
+}) {
   return ProviderScope(
     overrides: [
       ...dbOverrides(db),
       bleServiceProvider.overrideWithValue(service),
       activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
       connectionStateProvider(_kFakeDeviceId).overrideWith(
-        (_) => Stream<CameraConnectionState>.value(
-          CameraConnectionState.connected,
-        ),
+        (_) => Stream<CameraConnectionState>.value(connectionState),
       ),
       activeUserProvider.overrideWith((_) => 'user-1'),
     ],
@@ -294,6 +296,45 @@ void main() {
 
         expect(find.text('Match setup'), findsNothing);
         expect(mock.lastPushedConfig, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'Start match button is disabled when camera is disconnected',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 1400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final mock = _newMock();
+        await tester.pumpWidget(
+          _buildHarness(
+            service: mock,
+            db: db,
+            connectionState: CameraConnectionState.disconnected,
+          ),
+        );
+        await _navigateToSetup(tester);
+
+        // Scroll to the button so the finder can locate it.
+        final buttonFinder = find.text('Start match');
+        await tester.scrollUntilVisible(buttonFinder, 200);
+        await tester.pump();
+
+        // Button must be disabled (no onPressed) — tapping it must NOT
+        // call pushSessionConfig.
+        await tester.tap(buttonFinder, warnIfMissed: false);
+        await _pumpAfterTap(tester);
+
+        expect(mock.lastPushedConfig, isNull,
+            reason:
+                'pushSessionConfig must not be called when camera is disconnected');
+        expect(find.text('Match setup'), findsOneWidget,
+            reason: 'Setup screen must remain visible — session must not start');
+        expect(
+          find.text('Connect a camera to start the match.'),
+          findsOneWidget,
+          reason: 'Hint text must appear when disconnected',
+        );
       },
     );
 

@@ -139,6 +139,7 @@ class BackupService {
           'period_length_seconds': m.periodLengthSeconds,
           'clips': m.clips,
           'size_mb': m.sizeMb,
+          'events_json': m.eventsJson,
         },
       );
     }).toList();
@@ -400,6 +401,7 @@ class BackupService {
         periodLengthSeconds: (m['period_length_seconds'] as num).toInt(),
         clips: Value((m['clips'] as num?)?.toInt() ?? 0),
         sizeMb: Value((m['size_mb'] as num?)?.toInt() ?? 0),
+        eventsJson: Value(m['events_json'] as String? ?? '[]'),
       );
     }).toList();
   }

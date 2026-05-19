@@ -21,13 +21,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/models/device.dart';
-import 'package:scout_camera/pages/settings_page.dart';
-import 'package:scout_camera/services/backup_service.dart';
-import 'package:scout_camera/state/app_data.dart';
-import 'package:scout_camera/state/ble_providers.dart';
-import 'package:scout_camera/state/db_providers.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/models/device.dart';
+import 'package:sst_cam_app/pages/settings_page.dart';
+import 'package:sst_cam_app/services/backup_service.dart';
+import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/state/ble_providers.dart';
+import 'package:sst_cam_app/state/db_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';
@@ -147,11 +147,13 @@ void main() {
     // Banner is present.
     expect(find.text('No camera connected'), findsOneWidget);
 
-    // Data section is always present below the banner.
+    // Data section is below the DB-backed sections (User, Match setup, etc.),
+    // so we need to scroll to reach it.
+    await tester.scrollUntilVisible(find.text('Data'), 200);
     expect(find.text('Data'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Export backup'), 100);
+    await tester.scrollUntilVisible(find.text('Export backup'), 400);
     expect(find.text('Export backup'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
     expect(find.text('Restore backup'), findsOneWidget);
   });
 
@@ -204,7 +206,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Export backup'), 100);
+      await tester.scrollUntilVisible(find.text('Export backup'), 400);
       await tester.tap(find.text('Export backup'));
       await tester.pumpAndSettle();
 
@@ -236,7 +238,7 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock, db: db));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+      await tester.scrollUntilVisible(find.text('Restore backup'), 400);
       await tester.tap(find.text('Restore backup'));
       await tester.pumpAndSettle();
 
@@ -260,7 +262,7 @@ void main() {
     await tester.pumpWidget(_buildHarness(service: mock, db: db));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
     await tester.tap(find.text('Restore backup'));
     await tester.pumpAndSettle();
 
@@ -285,7 +287,7 @@ void main() {
     await tester.pumpWidget(_buildHarness(service: mock, db: db));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
     await tester.tap(find.text('Restore backup'));
     await tester.pumpAndSettle();
 
@@ -319,7 +321,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+      await tester.scrollUntilVisible(find.text('Restore backup'), 400);
       await tester.tap(find.text('Restore backup'));
       await tester.pumpAndSettle();
 
@@ -356,7 +358,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Restore backup'), 100);
+    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
     await tester.tap(find.text('Restore backup'));
     await tester.pumpAndSettle();
 
@@ -394,7 +396,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Export backup'), 100);
+    await tester.scrollUntilVisible(find.text('Export backup'), 400);
     await tester.tap(find.text('Export backup'));
     await tester.pumpAndSettle();
 

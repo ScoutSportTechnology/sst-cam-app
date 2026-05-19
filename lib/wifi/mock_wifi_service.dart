@@ -3,6 +3,7 @@ import 'dart:math';
 
 import '../models/recording.dart';
 import '../models/wifi.dart';
+import '../services/video_path_service.dart';
 import 'wifi_service.dart';
 
 class _GroupState {
@@ -83,9 +84,17 @@ class MockWifiService implements WifiService {
     }
     if (state.state == WifiDirectState.starting) {
       // Wait for the in-flight pairing to finish, then return its group.
-      await state.connController.stream.firstWhere(
-        (s) => s != WifiDirectState.starting,
-      );
+      final result = await state.connController.stream
+          .firstWhere(
+            (s) => s != WifiDirectState.starting,
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => WifiDirectState.failed,
+          );
+      if (result == WifiDirectState.failed) {
+        throw const WifiDirectException('Pairing timed out');
+      }
       if (state.group != null) return state.group!;
     }
     state.state = WifiDirectState.starting;
@@ -209,7 +218,8 @@ class MockWifiService implements WifiService {
 
     final downloadId =
         'dl-${DateTime.now().millisecondsSinceEpoch}-${_rng.nextInt(0xFFFF)}';
-    final savePath = saveAs ?? '/tmp/${token.recordingId}.mp4';
+    final savePath =
+        saveAs ?? await VideoPathService().recordingPath(token.recordingId);
     // Pretend the recording is around 60 MB; matches a few minutes of 1080p.
     final totalBytes = 60 * 1024 * 1024;
     final controller = StreamController<VideoDownloadProgress>.broadcast();

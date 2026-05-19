@@ -33,7 +33,7 @@ class MainPage extends ConsumerWidget {
         : ref.watch(connectionStateProvider(activeId)).valueOrNull;
     final discovered =
         ref.watch(discoveredDevicesProvider).valueOrNull ??
-        const <ScoutDevice>[];
+        const <SstDevice>[];
     final device = activeId == null
         ? null
         : discovered.where((d) => d.id == activeId).firstOrNull;
@@ -75,7 +75,7 @@ class _HeroCameraCard extends ConsumerWidget {
     required this.isLive,
   });
   final String? deviceId;
-  final ScoutDevice? device;
+  final SstDevice? device;
   final bool isLive;
 
   @override

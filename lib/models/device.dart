@@ -1,12 +1,14 @@
 import 'dart:typed_data';
 
-class ScoutDevice {
-  const ScoutDevice({
+class SstDevice {
+  const SstDevice({
     required this.id,
     required this.name,
     required this.firmwareVersion,
     required this.model,
     required this.protocolVersion,
+    this.batteryPercent,
+    this.rssi,
   });
 
   final String id;
@@ -14,9 +16,13 @@ class ScoutDevice {
   final String firmwareVersion;
   final String model;
   final int protocolVersion;
+  /// Battery level 0–100, or null when not yet reported.
+  final int? batteryPercent;
+  /// RSSI in dBm (negative), or null when not available.
+  final int? rssi;
 
   @override
-  bool operator ==(Object other) => other is ScoutDevice && other.id == id;
+  bool operator ==(Object other) => other is SstDevice && other.id == id;
 
   @override
   int get hashCode => id.hashCode;

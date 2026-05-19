@@ -5,6 +5,8 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../app_config.dart';
+import 'daos/clips_dao.dart';
 import 'daos/sport_presets_dao.dart';
 import 'daos/streaming_destinations_dao.dart';
 import 'daos/teams_dao.dart';
@@ -19,6 +21,8 @@ import 'tables/users_table.dart';
 
 part 'app_database.g.dart';
 
+const _kDefaultUserId = 'default-user';
+
 @DriftDatabase(
   tables: [
     UsersTable,
@@ -30,7 +34,7 @@ part 'app_database.g.dart';
     ClipsTable,
     ThumbnailsTable,
   ],
-  daos: [UsersDao, TeamsDao, SportPresetsDao, StreamingDestinationsDao],
+  daos: [UsersDao, TeamsDao, SportPresetsDao, StreamingDestinationsDao, ClipsDao],
 )
 class AppDatabase extends _$AppDatabase {
   /// Production constructor: opens or creates the SQLite file on disk.
@@ -45,32 +49,53 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
-      await m.createAll();
-      // Fix 16: Add indexes on FK columns used as primary query filters.
-      await customStatement('CREATE INDEX idx_teams_user_id ON teams(user_id)');
-      await customStatement(
-        'CREATE INDEX idx_sport_presets_user_id ON sport_presets(user_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_streaming_destinations_user_id '
-        'ON streaming_destinations(user_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_team_matches_team_id ON team_matches(team_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_players_team_id ON players(team_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_clips_match_id ON clips(match_id)',
-      );
-      // Built-in presets are seeded per-user at user creation time
-      // (SportPresetsDao.seedBuiltInsForUser), not globally here.
+      await transaction(() async {
+        await m.createAll();
+        // Add indexes on FK columns used as primary query filters.
+        await customStatement('CREATE INDEX idx_teams_user_id ON teams(user_id)');
+        await customStatement(
+          'CREATE INDEX idx_sport_presets_user_id ON sport_presets(user_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_streaming_destinations_user_id '
+          'ON streaming_destinations(user_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_team_matches_team_id ON team_matches(team_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_players_team_id ON players(team_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_clips_match_id ON clips(match_id)',
+        );
+        // Seed minimum viable state: one default user + all built-in sport
+        // presets. This runs unconditionally — the app must always have at
+        // least one user and the preset list populated for core flows to work.
+        await _seedBaseData();
+      });
+    },
+    onUpgrade: (m, from, to) async {
+      await transaction(() async {
+        if (from < 2) {
+          // v1→v2: add start_seconds + label to clips; events_json to team_matches.
+          await customStatement(
+            'ALTER TABLE clips ADD COLUMN start_seconds INTEGER NOT NULL DEFAULT 0',
+          );
+          await customStatement('ALTER TABLE clips ADD COLUMN label TEXT');
+          await customStatement(
+            "ALTER TABLE team_matches ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'",
+          );
+          await customStatement(
+            "UPDATE users SET name = 'Coach' WHERE id = 'default-user' AND name = 'default'",
+          );
+        }
+      });
     },
     beforeOpen: (details) async {
       // SQLite disables FK enforcement by default. Enable it for every
@@ -79,6 +104,20 @@ class AppDatabase extends _$AppDatabase {
       await customStatement('PRAGMA journal_mode = WAL;');
     },
   );
+
+  /// Seeds the default user and built-in sport presets.
+  ///
+  /// Safe to call multiple times — uses insertOnConflictUpdate internally.
+  Future<void> _seedBaseData() async {
+    await usersDao.insertUser(
+      UsersTableCompanion.insert(id: _kDefaultUserId, name: 'Coach'),
+    );
+    await sportPresetsDao.seedBuiltInsForUser(_kDefaultUserId);
+  }
+
+  /// Re-seeds base data after a manual reset (e.g., from the debug screen).
+  /// Public so the debug screen can call it after wiping the DB.
+  Future<void> seedBaseData() => _seedBaseData();
 }
 
 /// Opens (or creates) the application SQLite database file.
@@ -88,11 +127,17 @@ class AppDatabase extends _$AppDatabase {
 /// [AppDatabase] constructor to complete synchronously.
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    // Fix 10: Use getApplicationSupportDirectory so the SQLite file is stored
-    // in the app-private support directory (not in Documents, which is
-    // user-visible and backed up by iCloud/Google Drive).
+    // Use getApplicationSupportDirectory so the SQLite file is stored in the
+    // app-private support directory (not in Documents, which is user-visible
+    // and backed up by iCloud/Google Drive).
     final dir = await getApplicationSupportDirectory();
-    final file = File(p.join(dir.path, 'scout_camera.sqlite'));
+    // One-time migration: rename the old scout_camera.sqlite to kDbName so
+    // existing installs keep their data after the app rename.
+    final oldFile = File(p.join(dir.path, 'scout_camera.sqlite'));
+    final file = File(p.join(dir.path, kDbName));
+    if (oldFile.existsSync() && !file.existsSync()) {
+      await oldFile.rename(file.path);
+    }
     return NativeDatabase.createInBackground(file);
   });
 }

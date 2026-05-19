@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Flutter companion app for the ScoutCamera — open-source sports camera on NVIDIA Jetson.
+Flutter companion app for the SST Cam — open-source sports camera on NVIDIA Jetson.
 Controls firmware over BLE (command/control) and WiFi (video download).
 Greenfield project; built contract-first against a test double BLE layer.
 
@@ -58,11 +58,12 @@ docs/
 proto/               Proto3 schemas — wire format + firmware contract
   README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/
-  main.dart          Entry: ProviderScope → ScoutCameraApp
+  main.dart          Entry: UncontrolledProviderScope (pre-seeded ProviderContainer) → SSTCamApp
   app.dart           MaterialApp (dark theme) + 5-tab NavigationBar shell
   ble/
-    ble_service.dart       Abstract interface (all app code targets this)
-    ble_service_impl.dart  flutter_blue_plus implementation; Phase 7
+    ble_service.dart
+    ble_service_impl.dart  flutter_blue_plus implementation
+    mock_ble_service.dart  In-process mock; selected at runtime when kAppEnv.isDevBackend
   db/
     app_database.dart  Drift database class, migration, AppDatabase
     tables/            Table definitions (one file per entity group)
@@ -70,7 +71,7 @@ lib/
   services/
     backup_service.dart  BackupService — export/import full DB as JSON
   models/            Plain Dart view models (app compiles without generated protos)
-    device.dart      ScoutDevice, CameraConnectionState, ThumbnailResult
+    device.dart      SstDevice, CameraConnectionState, ThumbnailResult
     telemetry.dart   DeviceTelemetry, WifiState
     match.dart       MatchConfig, MatchState, Sport, BannerEvent …
     recording.dart   RecordingMetadata, DownloadToken
@@ -82,8 +83,7 @@ lib/
   widgets/           Shared widgets
 test/
   ble/
-    mock_ble_service.dart       Test double — implements BleService from lib/
-    mock_ble_service_test.dart  Unit tests for the test double
+    mock_ble_service_test.dart  Unit tests for MockBleService (in lib/ble/)
   integration/
     main_page_test.dart         End-to-end flow with MockBleService override
 ```
@@ -94,7 +94,7 @@ Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
 
 - `db_providers.dart` — `appDatabaseProvider` + per-DAO providers + `backupServiceProvider`
 - `bleServiceProvider` — `Provider<BleService>`; override in tests with `MockBleService`
-- `discoveredDevicesProvider` — `StreamProvider<List<ScoutDevice>>`
+- `discoveredDevicesProvider` — `StreamProvider<List<SstDevice>>`
 - `connectionStateProvider(deviceId)` — `StreamProvider.family`
 - `telemetryProvider(deviceId)` — `StreamProvider.family`; impl polls internally
 - `matchStateProvider(deviceId)` — `StreamProvider.family`; impl polls internally
@@ -103,8 +103,9 @@ Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
 ### BLE interface contract
 
 `BleService` (abstract) is the only BLE surface the UI touches.
-`BleServiceImpl` uses `flutter_blue_plus` and is implemented in Phase 7.
-Tests inject `MockBleService` from `test/ble/` via Riverpod overrides:
+`BleServiceImpl` uses `flutter_blue_plus` and is wired for real devices.
+`MockBleService` (in `lib/ble/`) is selected at runtime when `kAppEnv.isDevBackend`
+is true — no Riverpod override needed. Tests may still inject it via overrides:
 
 ```dart
 ProviderScope(
@@ -123,7 +124,7 @@ ProviderScope(
 - `lib/models/proto/` — gitignored generated bindings; only `BleServiceImpl` uses them
 
 The app compiles and runs from plain Dart models. `just gen-proto` regenerates
-`lib/models/proto/` for use when implementing `BleServiceImpl` in Phase 7.
+`lib/models/proto/` for use when implementing `BleServiceImpl`
 
 ### Theme
 

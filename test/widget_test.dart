@@ -2,11 +2,22 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scout_camera/app.dart';
-import 'package:scout_camera/ble/mock_ble_service.dart';
-import 'package:scout_camera/state/ble_providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sst_cam_app/app.dart';
+import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/state/ble_providers.dart';
+
+import 'test_helpers.dart';
 
 void main() {
+  // Use an in-memory DB to avoid NativeDatabase.createInBackground IPC traffic
+  // that prevents pumpAndSettle from settling.
+  final db = useInMemoryDb();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('app boots and shows the bottom-nav tabs', (
     WidgetTester tester,
   ) async {
@@ -19,8 +30,11 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [bleServiceProvider.overrideWithValue(mock)],
-        child: const ScoutCameraApp(),
+        overrides: [
+          bleServiceProvider.overrideWithValue(mock),
+          ...dbOverrides(db),
+        ],
+        child: const SstCamApp(),
       ),
     );
     await tester.pumpAndSettle(const Duration(milliseconds: 200));
