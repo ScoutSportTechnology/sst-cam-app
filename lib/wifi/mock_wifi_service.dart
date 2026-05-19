@@ -84,9 +84,17 @@ class MockWifiService implements WifiService {
     }
     if (state.state == WifiDirectState.starting) {
       // Wait for the in-flight pairing to finish, then return its group.
-      await state.connController.stream.firstWhere(
-        (s) => s != WifiDirectState.starting,
-      );
+      final result = await state.connController.stream
+          .firstWhere(
+            (s) => s != WifiDirectState.starting,
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => WifiDirectState.failed,
+          );
+      if (result == WifiDirectState.failed) {
+        throw const WifiDirectException('Pairing timed out');
+      }
       if (state.group != null) return state.group!;
     }
     state.state = WifiDirectState.starting;

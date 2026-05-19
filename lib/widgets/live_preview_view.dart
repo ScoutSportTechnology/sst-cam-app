@@ -64,8 +64,9 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
           _mock?.play();
           setState(() {});
         }
-      }).catchError((_) {
+      }).catchError((Object e, StackTrace st) {
         // Platform not available in test environments — fall back to placeholder.
+        debugPrint('LivePreviewView: mock player init failed: $e\n$st');
         if (mounted && _mock == controller) {
           controller.dispose();
           _mock = null;

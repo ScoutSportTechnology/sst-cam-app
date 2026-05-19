@@ -501,4 +501,103 @@ void main() {
       expect(rows[1].match.opponent, 'Later');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // watchPastMatchesForLibrary
+  // ---------------------------------------------------------------------------
+
+  group('watchPastMatchesForLibrary', () {
+    Future<String> makeTeam({String? name}) async {
+      final id = const Uuid().v4();
+      await db.teamsDao.insertTeam(
+        TeamsTableCompanion.insert(
+          id: id,
+          userId: userId,
+          name: name ?? 'Test FC',
+          shortName: 'TFC',
+          sport: 'Soccer',
+        ),
+      );
+      return id;
+    }
+
+    Future<String> makeMatch({
+      required String teamId,
+      required String opponent,
+      required String date,
+      String kind = 'past',
+    }) async {
+      final id = const Uuid().v4();
+      await db.teamsDao.insertTeamMatch(
+        TeamMatchesTableCompanion.insert(
+          id: id,
+          teamId: teamId,
+          opponent: opponent,
+          date: date,
+          result: 'W 2-0',
+          kind: kind,
+          numPeriods: 2,
+          periodLengthSeconds: 45 * 60,
+        ),
+      );
+      return id;
+    }
+
+    test('past match appears in result', () async {
+      final teamId = await makeTeam(name: 'Northside FC');
+      await makeMatch(
+        teamId: teamId,
+        opponent: 'Rival FC',
+        date: '2026-05-01',
+      );
+
+      final rows = await db.teamsDao.watchPastMatchesForLibrary().first;
+      expect(rows, hasLength(1));
+      expect(rows.first.match.opponent, 'Rival FC');
+      expect(rows.first.team.name, 'Northside FC');
+    });
+
+    test('upcoming match is excluded', () async {
+      final teamId = await makeTeam();
+      await makeMatch(
+        teamId: teamId,
+        opponent: 'Future FC',
+        date: '2026-07-01',
+        kind: 'upcoming',
+      );
+
+      final rows = await db.teamsDao.watchPastMatchesForLibrary().first;
+      expect(rows, isEmpty);
+    });
+
+    test('DESC ordering by date is correct (newer match first)', () async {
+      final teamId = await makeTeam();
+      await makeMatch(teamId: teamId, opponent: 'Older', date: '2026-04-01');
+      await makeMatch(teamId: teamId, opponent: 'Newer', date: '2026-05-01');
+
+      final rows = await db.teamsDao.watchPastMatchesForLibrary().first;
+      expect(rows, hasLength(2));
+      expect(rows[0].match.opponent, 'Newer');
+      expect(rows[1].match.opponent, 'Older');
+    });
+
+    test('mix of past and upcoming: only past returned', () async {
+      final teamId = await makeTeam();
+      await makeMatch(
+        teamId: teamId,
+        opponent: 'Past',
+        date: '2026-04-01',
+      );
+      await makeMatch(
+        teamId: teamId,
+        opponent: 'Upcoming',
+        date: '2026-07-01',
+        kind: 'upcoming',
+      );
+
+      final rows = await db.teamsDao.watchPastMatchesForLibrary().first;
+      expect(rows, hasLength(1));
+      expect(rows.first.match.opponent, 'Past');
+    });
+  });
 }

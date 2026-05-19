@@ -16,9 +16,10 @@ const _uuid = Uuid();
 /// Uses FFmpeg `-c copy` (cut-only, no re-encode) for fast, lossless output.
 /// The result is an MP4 file in the app-private videos/ directory.
 class ClipService {
-  const ClipService({required this.clipsDao});
+  const ClipService({required this.clipsDao, required this.videoPathService});
 
   final ClipsDao clipsDao;
+  final VideoPathService videoPathService;
 
   /// Trim [sourcePath] from [startSeconds] for [durationSeconds] seconds.
   ///
@@ -36,7 +37,7 @@ class ClipService {
     }
 
     final clipId = _uuid.v4();
-    final outputPath = await VideoPathService().clipPath(matchId, clipId);
+    final outputPath = await videoPathService.clipPath(matchId, clipId);
 
     // -ss before -i for fast seek; -c copy for no re-encode.
     final cmd = '-y -ss $startSeconds -t $durationSeconds '
@@ -55,7 +56,12 @@ class ClipService {
       throw ClipTrimException('FFmpeg failed (rc=$returnCode): $log');
     }
 
-    final sizeBytes = File(outputPath).lengthSync();
+    late final int sizeBytes;
+    try {
+      sizeBytes = File(outputPath).lengthSync();
+    } on FileSystemException catch (e) {
+      throw ClipTrimException('Output file unreadable after trim: $e');
+    }
     await clipsDao.insertClip(
       ClipsTableCompanion.insert(
         id: clipId,

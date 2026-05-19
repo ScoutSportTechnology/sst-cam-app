@@ -102,6 +102,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                   },
                   onJump: () {
                     final maxSecs = _parseDuration(match.fullDuration);
+                    if (maxSecs == 0) return;
                     setState(() => _playheadFraction = e.timeSeconds / maxSecs);
                   },
                 );
@@ -134,6 +135,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   Future<void> _createClip(BuildContext context, LibraryMatch match) async {
     final clipSvc = ref.read(clipServiceProvider);
     final maxSecs = _parseDuration(match.fullDuration);
+    if (maxSecs == 0) return;
     final startSeconds = (_playheadFraction * maxSecs).round();
     final durationSeconds = 30; // default 30-second clip
 
@@ -304,6 +306,7 @@ class _Scrubber extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxSecs = _parseDuration(match.fullDuration);
+    if (maxSecs == 0) return const SizedBox.shrink();
     final ticks = match.events.map((e) => e.timeSeconds / maxSecs).toList();
     final currentSec = (value * maxSecs).round();
     final m = (currentSec ~/ 60).toString().padLeft(2, '0');
@@ -662,7 +665,7 @@ class _DownloadSheetState extends ConsumerState<_DownloadSheet> {
     final running = _handle != null;
     if (running) return _buildProgress();
     final fullSize = '${widget.match.fullSizeMb} MB';
-    final hiSize = '${widget.match.highlightSizeMb} MB';
+    final hiSize = '0 MB';
     final opts = <_Opt>[
       _Opt(
         key: 'full',

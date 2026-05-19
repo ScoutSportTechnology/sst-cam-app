@@ -8,6 +8,7 @@ import '../db/daos/sport_presets_dao.dart';
 import '../db/daos/streaming_destinations_dao.dart';
 import '../services/backup_service.dart';
 import '../services/clip_service.dart';
+import '../services/video_path_service.dart';
 import 'ble_providers.dart';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,13 @@ final backupServiceProvider = Provider<BackupService>((ref) {
   );
 });
 
+final videoPathServiceProvider = Provider<VideoPathService>((ref) {
+  return VideoPathService();
+});
+
 final clipServiceProvider = Provider<ClipService>((ref) {
-  return ClipService(clipsDao: ref.watch(clipsDaoProvider));
+  return ClipService(
+    clipsDao: ref.watch(clipsDaoProvider),
+    videoPathService: ref.watch(videoPathServiceProvider),
+  );
 });

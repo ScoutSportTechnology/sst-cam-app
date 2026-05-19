@@ -29,7 +29,7 @@ class VideoPage extends ConsumerWidget {
       byTeam[m.teamId] = (
         matches: cur.matches + 1,
         clips: cur.clips + m.events.length + 1,
-        sizeMb: cur.sizeMb + m.fullSizeMb + m.highlightSizeMb,
+        sizeMb: cur.sizeMb + m.fullSizeMb,
         date: m.date,
       );
     }

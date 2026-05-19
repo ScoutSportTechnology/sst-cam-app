@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../db/app_database.dart';
 import '../db/mock_data_seeder.dart';
 import '../env.dart';
+import '../state/app_data.dart' show activeUserProvider;
 import '../state/db_providers.dart';
 import '../theme/tokens.dart';
 
@@ -58,6 +59,10 @@ class _DebugPageState extends ConsumerState<DebugPage>
       if (kUseMockData) {
         await MockDataSeeder(db).seed();
       }
+
+      // Reset the active user to the default so all provider scopes
+      // that watch activeUserProvider reload their data correctly.
+      ref.read(activeUserProvider.notifier).state = 'default-user';
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -128,19 +133,22 @@ class _UsersTab extends StatelessWidget {
       );
 }
 
-class _TeamsTab extends StatelessWidget {
+class _TeamsTab extends ConsumerWidget {
   const _TeamsTab({required this.db});
   final AppDatabase db;
 
   @override
-  Widget build(BuildContext context) => _StreamTab(
-        stream: db.teamsDao.watchForUser('default-user'),
-        empty: 'No teams',
-        rowBuilder: (t) => _Row(
-          primary: t.name,
-          secondary: '${t.sport} · ${t.id}',
-        ),
-      );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final userId = ref.watch(activeUserProvider) ?? 'default-user';
+    return _StreamTab(
+      stream: db.teamsDao.watchForUser(userId),
+      empty: 'No teams',
+      rowBuilder: (t) => _Row(
+        primary: t.name,
+        secondary: '${t.sport} · ${t.id}',
+      ),
+    );
+  }
 }
 
 class _MatchesTab extends StatelessWidget {
@@ -188,6 +196,7 @@ class _StreamTab<R> extends StatelessWidget {
     return StreamBuilder<List<R>>(
       stream: stream,
       builder: (_, snap) {
+        if (snap.hasError) return _Empty('Error: ${snap.error}');
         final rows = snap.data ?? [];
         if (rows.isEmpty) return _Empty(empty);
         return ListView(children: rows.map(rowBuilder).toList());

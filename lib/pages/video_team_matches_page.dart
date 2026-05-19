@@ -24,7 +24,7 @@ class VideoTeamMatchesPage extends ConsumerWidget {
     }
 
     final totalSizeGb =
-        matches.fold<int>(0, (a, m) => a + m.fullSizeMb + m.highlightSizeMb) /
+        matches.fold<int>(0, (a, m) => a + m.fullSizeMb) /
         1024;
 
     return Scaffold(
@@ -119,7 +119,7 @@ class _MatchGroup extends StatelessWidget {
                     kind: 'hi',
                     label: 'Highlights',
                     duration: '${match.events.length} events',
-                    sizeMb: match.highlightSizeMb,
+                    sizeMb: 0,
                   ),
                 ),
               ],

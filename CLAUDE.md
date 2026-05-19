@@ -58,11 +58,12 @@ docs/
 proto/               Proto3 schemas — wire format + firmware contract
   README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/
-  main.dart          Entry: ProviderScope → SSTCamApp
+  main.dart          Entry: UncontrolledProviderScope (pre-seeded ProviderContainer) → SSTCamApp
   app.dart           MaterialApp (dark theme) + 5-tab NavigationBar shell
   ble/
     ble_service.dart
     ble_service_impl.dart  flutter_blue_plus implementation
+    mock_ble_service.dart  In-process mock; selected at runtime when kAppEnv.isDevBackend
   db/
     app_database.dart  Drift database class, migration, AppDatabase
     tables/            Table definitions (one file per entity group)
@@ -82,8 +83,7 @@ lib/
   widgets/           Shared widgets
 test/
   ble/
-    mock_ble_service.dart       Test double — implements BleService from lib/
-    mock_ble_service_test.dart  Unit tests for the test double
+    mock_ble_service_test.dart  Unit tests for MockBleService (in lib/ble/)
   integration/
     main_page_test.dart         End-to-end flow with MockBleService override
 ```
@@ -103,8 +103,9 @@ Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
 ### BLE interface contract
 
 `BleService` (abstract) is the only BLE surface the UI touches.
-`BleServiceImpl` uses `flutter_blue_plus` and is implemented
-Tests inject `MockBleService` from `test/ble/` via Riverpod overrides:
+`BleServiceImpl` uses `flutter_blue_plus` and is wired for real devices.
+`MockBleService` (in `lib/ble/`) is selected at runtime when `kAppEnv.isDevBackend`
+is true — no Riverpod override needed. Tests may still inject it via overrides:
 
 ```dart
 ProviderScope(

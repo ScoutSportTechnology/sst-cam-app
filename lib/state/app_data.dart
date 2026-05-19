@@ -54,7 +54,6 @@ class LibraryMatch {
     required this.result,
     required this.fullDuration,
     required this.fullSizeMb,
-    required this.highlightSizeMb,
     required this.events,
     required this.downloadState,
   });
@@ -65,7 +64,6 @@ class LibraryMatch {
   final String result;
   final String fullDuration; // 01:23:42
   final int fullSizeMb;
-  final int highlightSizeMb;
   final List<LibraryEvent> events;
   final String downloadState; // 'all-local', 'partial', 'remote'
 }
@@ -429,16 +427,6 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
 
     final dao = ref.watch(teamsDaoProvider);
 
-    // Helper that rebuilds state from the latest team rows.
-    Future<void> rebuild() async {
-      try {
-        final rows = await dao.getForUser(userId);
-        state = AsyncValue.data(await _buildRecords(dao, rows));
-      } catch (e, st) {
-        state = AsyncValue.error(e, st);
-      }
-    }
-
     // Fix 7: Subscribe to both teamsTable and playersTable so roster mutations
     // also invalidate the stream. Skip the very first emission from each stream
     // to avoid double-building on startup (the initial snapshot is returned
@@ -468,7 +456,12 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
           firstPlayer = false;
           return;
         }
-        await rebuild();
+        try {
+          final rows = await dao.getForUser(userId);
+          state = AsyncValue.data(await _buildRecords(dao, rows));
+        } catch (e, st) {
+          state = AsyncValue.error(e, st);
+        }
       },
       onError: (Object e, StackTrace st) {
         state = AsyncValue.error(e, st);
@@ -882,7 +875,6 @@ LibraryMatch _rowToLibraryMatch(LibraryMatchRow row) {
     result: match.result,
     fullDuration: fullDuration,
     fullSizeMb: match.sizeMb,
-    highlightSizeMb: 0,
     events: events,
     downloadState: downloadState,
   );

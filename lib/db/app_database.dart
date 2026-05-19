@@ -54,41 +54,48 @@ class AppDatabase extends _$AppDatabase {
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
-      await m.createAll();
-      // Add indexes on FK columns used as primary query filters.
-      await customStatement('CREATE INDEX idx_teams_user_id ON teams(user_id)');
-      await customStatement(
-        'CREATE INDEX idx_sport_presets_user_id ON sport_presets(user_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_streaming_destinations_user_id '
-        'ON streaming_destinations(user_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_team_matches_team_id ON team_matches(team_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_players_team_id ON players(team_id)',
-      );
-      await customStatement(
-        'CREATE INDEX idx_clips_match_id ON clips(match_id)',
-      );
-      // Seed minimum viable state: one default user + all built-in sport
-      // presets. This runs unconditionally — the app must always have at
-      // least one user and the preset list populated for core flows to work.
-      await _seedBaseData();
+      await transaction(() async {
+        await m.createAll();
+        // Add indexes on FK columns used as primary query filters.
+        await customStatement('CREATE INDEX idx_teams_user_id ON teams(user_id)');
+        await customStatement(
+          'CREATE INDEX idx_sport_presets_user_id ON sport_presets(user_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_streaming_destinations_user_id '
+          'ON streaming_destinations(user_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_team_matches_team_id ON team_matches(team_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_players_team_id ON players(team_id)',
+        );
+        await customStatement(
+          'CREATE INDEX idx_clips_match_id ON clips(match_id)',
+        );
+        // Seed minimum viable state: one default user + all built-in sport
+        // presets. This runs unconditionally — the app must always have at
+        // least one user and the preset list populated for core flows to work.
+        await _seedBaseData();
+      });
     },
     onUpgrade: (m, from, to) async {
-      if (from < 2) {
-        // v1→v2: add start_seconds + label to clips; events_json to team_matches.
-        await customStatement(
-          'ALTER TABLE clips ADD COLUMN start_seconds INTEGER NOT NULL DEFAULT 0',
-        );
-        await customStatement('ALTER TABLE clips ADD COLUMN label TEXT');
-        await customStatement(
-          "ALTER TABLE team_matches ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'",
-        );
-      }
+      await transaction(() async {
+        if (from < 2) {
+          // v1→v2: add start_seconds + label to clips; events_json to team_matches.
+          await customStatement(
+            'ALTER TABLE clips ADD COLUMN start_seconds INTEGER NOT NULL DEFAULT 0',
+          );
+          await customStatement('ALTER TABLE clips ADD COLUMN label TEXT');
+          await customStatement(
+            "ALTER TABLE team_matches ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'",
+          );
+          await customStatement(
+            "UPDATE users SET name = 'Coach' WHERE id = 'default-user' AND name = 'default'",
+          );
+        }
+      });
     },
     beforeOpen: (details) async {
       // SQLite disables FK enforcement by default. Enable it for every

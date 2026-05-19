@@ -19,9 +19,21 @@ Future<void> main() async {
       final db = container.read(appDatabaseProvider);
       await MockDataSeeder(db).seed();
     } catch (e, st) {
-      // Log the failure but continue — the app starts with base seed only
-      // rather than crashing on a fixture error.
-      debugPrint('MockDataSeeder failed: $e\n$st');
+      if (kAppEnv.isDevBackend) {
+        // In dev mode, rethrow so the error is immediately visible rather than
+        // silently starting with missing fixture data.
+        rethrow;
+      }
+      // In stage/prod mode, log visibly but continue — the app starts with
+      // base seed only rather than crashing on a fixture error.
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: e,
+          stack: st,
+          library: 'MockDataSeeder',
+          context: ErrorDescription('seeding mock fixture data'),
+        ),
+      );
     }
   }
 
