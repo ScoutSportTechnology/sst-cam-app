@@ -55,9 +55,10 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/brand/
-    - assets/mock/
-    - assets/mock/fixtures/
+    - assets/ble/
+    - assets/ble/fixtures/
+    - assets/icon-dev.svg
+    - assets/icon-prod.svg
 
 flutter_app_name:
   name: "SST Cam"

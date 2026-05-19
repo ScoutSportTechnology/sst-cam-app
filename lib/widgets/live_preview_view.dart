@@ -55,7 +55,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   }
 
   void _initMockPlayer() {
-    final controller = VideoPlayerController.asset('assets/mock/mock-video.mp4');
+    final controller = VideoPlayerController.asset('assets/ble/mock-video.mp4');
     _mock = controller;
     controller
       ..setLooping(true)
