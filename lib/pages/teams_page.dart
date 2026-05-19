@@ -61,7 +61,15 @@ class TeamsPage extends ConsumerWidget {
                 );
               }
               return Expanded(
-                child: _TeamsList(teams: filtered, totalShown: filtered.length),
+                child: Column(
+                  children: [
+                    WfSection(
+                      'Your teams · ${filtered.length}',
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    ),
+                    Expanded(child: _TeamsList(teams: filtered)),
+                  ],
+                ),
               );
             },
           ),
@@ -290,30 +298,19 @@ class _TeamsErrorState extends StatelessWidget {
 }
 
 class _TeamsList extends ConsumerWidget {
-  const _TeamsList({required this.teams, required this.totalShown});
+  const _TeamsList({required this.teams});
   final List<TeamRecord> teams;
-  final int totalShown;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (teams.isEmpty) {
       return const Center(child: WfNote('No teams match your filters'));
     }
-    return Column(
-      children: [
-        WfSection(
-          'Your teams · $totalShown',
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: EdgeInsets.zero,
-            itemCount: teams.length,
-            separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
-            itemBuilder: (context, i) => _SwipeableTeamRow(team: teams[i]),
-          ),
-        ),
-      ],
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: teams.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
+      itemBuilder: (context, i) => _SwipeableTeamRow(team: teams[i]),
     );
   }
 }
