@@ -81,7 +81,24 @@
       "Bash(python3 -c \"import sys,json,base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d['content']\\).decode\\(\\)\\)\")",
       "Bash(flutter build *)",
       "Bash(python3 *)",
-      "Bash(dart --version)"
+      "Bash(dart --version)",
+      "Bash(pip3 install *)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"require\\('sharp'\\); console.log\\('sharp ok'\\)\")",
+      "Bash(dpkg -l)",
+      "Bash(apt-cache show *)",
+      "Bash(sudo apt-get install -y librsvg2-bin)",
+      "Bash(rsvg-convert -w 1024 -h 1024 /workspaces/sst-cam-app/assets/icon-dev.svg -o /workspaces/sst-cam-app/launcher/icon-dev-1024.png)",
+      "Bash(rsvg-convert -w 512 -h 512 /workspaces/sst-cam-app/assets/icon-dev.svg -o /workspaces/sst-cam-app/launcher/icon-dev-512.png)",
+      "Bash(rsvg-convert -w 192 -h 192 /workspaces/sst-cam-app/assets/icon-dev.svg -o /workspaces/sst-cam-app/launcher/icon-dev-192.png)",
+      "Bash(rsvg-convert -w 96 -h 96 /workspaces/sst-cam-app/assets/icon-dev.svg -o /workspaces/sst-cam-app/launcher/icon-dev-96.png)",
+      "Bash(rsvg-convert -w 64 -h 64 /workspaces/sst-cam-app/assets/icon-dev.svg -o /workspaces/sst-cam-app/launcher/icon-dev-64.png)",
+      "Read(//tmp/**)",
+      "Bash(npm install *)",
+      "Bash(node -e \"const Jimp = require\\('jimp'\\); console.log\\('jimp ok', Jimp.version || 'loaded'\\)\")",
+      "Bash(node -e \"const Jimp = require\\('jimp'\\); const j = Jimp.Jimp || Jimp.default || Jimp; console.log\\(typeof j, Object.keys\\(j\\).filter\\(k=>k.startsWith\\('FONT'\\)\\)\\)\")",
+      "Bash(node -e \"const Jimp = require\\('jimp'\\); console.log\\(Object.keys\\(Jimp\\).filter\\(k=>k.startsWith\\('FONT'\\)\\)\\)\")",
+      "WebFetch(domain:codehubjournal.com)"
     ]
   }
 }
