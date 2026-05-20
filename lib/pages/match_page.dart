@@ -139,6 +139,7 @@ class _LandingScreen extends ConsumerWidget {
             child: _MatchSearchField(),
           ),
           const SizedBox(height: 32, child: _MatchSportFilterChips()),
+          const SizedBox(height: 6),
           const SizedBox(height: 32, child: _MatchTeamFilterChips()),
           Expanded(
             child: async.when(
@@ -1429,6 +1430,7 @@ class _SessionScreen extends ConsumerWidget {
       isScrollControlled: true,
       barrierColor: Colors.black.withValues(alpha: 0.55),
       builder: (_) => _EventSheet(
+        homeTeamId: match.team.id,
         onSave: (type, team, jersey) {
           ref
               .read(liveMatchProvider.notifier)
@@ -2213,7 +2215,8 @@ class _PlayPainter extends CustomPainter {
 // ---------------------------------------------------------------------------
 
 class _EventSheet extends ConsumerStatefulWidget {
-  const _EventSheet({required this.onSave});
+  const _EventSheet({required this.homeTeamId, required this.onSave});
+  final String homeTeamId;
   final void Function(String type, String team, String? jersey) onSave;
 
   @override
@@ -2223,14 +2226,20 @@ class _EventSheet extends ConsumerStatefulWidget {
 class _EventSheetState extends ConsumerState<_EventSheet> {
   static const _types = ['Goal', 'Foul', 'Card', 'Sub', 'Save', 'Other'];
 
-  int _step = 1; // start directly on team/jersey — Goal is the default type
-  String _type = 'Goal';
+  int _step = 0;
+  String _type = '';
   String? _team;
   final _jersey = StringBuffer();
+  String? _jerseyDropdownValue;
+  bool _showNumberPad = false;
 
   @override
   Widget build(BuildContext context) {
     final live = ref.watch(liveMatchProvider);
+    final allTeams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+    final homeTeam = allTeams.where((t) => t.id == widget.homeTeamId).firstOrNull;
+    final homeRoster = homeTeam?.roster ?? const <Player>[];
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -2259,7 +2268,7 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
             const SizedBox(height: 14),
             _StepHeader(step: _step, selectedType: _step == 1 ? _type : null),
             const SizedBox(height: 14),
-            if (_step == 0) _typePicker() else _teamAndJersey(live),
+            if (_step == 0) _typePicker() else _teamAndJersey(live, homeRoster),
             const SizedBox(height: 14),
             Row(
               children: [
@@ -2278,15 +2287,18 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
                     label: _step == 0 ? 'Next' : 'Save event',
                     variant: WfButtonVariant.primary,
                     onPressed: _step == 0
-                        ? () => setState(() => _step = 1)
+                        ? (_type.isEmpty
+                              ? null
+                              : () => setState(() => _step = 1))
                         : (_team == null
                               ? null
                               : () {
-                                  widget.onSave(
-                                    _type,
-                                    _team!,
-                                    _jersey.toString(),
-                                  );
+                                  final jersey =
+                                      (_jerseyDropdownValue != null &&
+                                              _jerseyDropdownValue != 'other')
+                                          ? _jerseyDropdownValue!
+                                          : _jersey.toString();
+                                  widget.onSave(_type, _team!, jersey);
                                   Navigator.of(context).pop();
                                 }),
                   ),
@@ -2353,7 +2365,11 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
     );
   }
 
-  Widget _teamAndJersey(LiveMatchState live) {
+  Widget _teamAndJersey(LiveMatchState live, List<Player> homeRoster) {
+    final isHomeSelected = _team == live.homeName;
+    final activeRoster = isHomeSelected ? homeRoster : const <Player>[];
+    final hasRoster = activeRoster.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2369,70 +2385,197 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: _teamCard('HOME', live.homeName)),
+            Expanded(child: _teamCard('HOME', live.homeName, homeRoster)),
             const SizedBox(width: 8),
-            Expanded(child: _teamCard('AWAY', live.awayName)),
+            Expanded(child: _teamCard('AWAY', live.awayName, const [])),
           ],
         ),
-        const SizedBox(height: 18),
-        const Text(
-          'Jersey #',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: T.ink,
-            letterSpacing: -0.2,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            border: Border.all(color: T.hair),
-            color: T.surface,
-          ),
-          child: Row(
-            children: [
-              Text(
-                _jersey.isEmpty ? '—' : _jersey.toString(),
-                style: const TextStyle(
-                  fontFamily: T.mono,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: T.ink,
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: _team == null
+              ? const SizedBox.shrink()
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        const Text(
+                          'Jersey #',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: T.ink,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const WfNote('Optional'),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (hasRoster) ...[
+                      // Dropdown always visible when a roster exists.
+                      // Selecting "Other…" adds the number pad below; picking
+                      // a player back from the dropdown dismisses it.
+                      Container(
+                        height: 46,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: T.hair),
+                          color: T.surface,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _jerseyDropdownValue,
+                            isExpanded: true,
+                            dropdownColor: T.surface,
+                            hint: const Text(
+                              '—',
+                              style: TextStyle(
+                                fontFamily: T.mono,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: T.ink3,
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.expand_more,
+                              size: 18,
+                              color: T.ink2,
+                            ),
+                            style: const TextStyle(
+                              fontFamily: T.mono,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: T.ink,
+                            ),
+                            items: [
+                              for (final p in activeRoster)
+                                DropdownMenuItem(
+                                  value: p.number.toString(),
+                                  child: Text('#${p.number}  ${p.name}'),
+                                ),
+                              DropdownMenuItem(
+                                value: 'other',
+                                child: Text(
+                                  'Other…',
+                                  style: TextStyle(
+                                    fontFamily: T.mono,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w400,
+                                    color: T.ink2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) => setState(() {
+                              _jerseyDropdownValue = v;
+                              _showNumberPad = v == 'other';
+                              if (v != 'other') _jersey.clear();
+                            }),
+                          ),
+                        ),
+                      ),
+                      if (_showNumberPad) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 46,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: T.hair),
+                            color: T.surface,
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                _jersey.isEmpty ? '—' : _jersey.toString(),
+                                style: const TextStyle(
+                                  fontFamily: T.mono,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: T.ink,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _NumberPad(
+                          onTap: (k) {
+                            setState(() {
+                              if (k == '⌫') {
+                                if (_jersey.isNotEmpty) {
+                                  final s = _jersey.toString();
+                                  _jersey
+                                    ..clear()
+                                    ..write(s.substring(0, s.length - 1));
+                                }
+                              } else if (k != '—' && _jersey.length < 3) {
+                                _jersey.write(k);
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ] else ...[
+                      // No roster — number pad only.
+                      Container(
+                        height: 46,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: T.hair),
+                          color: T.surface,
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              _jersey.isEmpty ? '—' : _jersey.toString(),
+                              style: const TextStyle(
+                                fontFamily: T.mono,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: T.ink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _NumberPad(
+                        onTap: (k) {
+                          setState(() {
+                            if (k == '⌫') {
+                              if (_jersey.isNotEmpty) {
+                                final s = _jersey.toString();
+                                _jersey
+                                  ..clear()
+                                  ..write(s.substring(0, s.length - 1));
+                              }
+                            } else if (k != '—' && _jersey.length < 3) {
+                              _jersey.write(k);
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ],
                 ),
-              ),
-              const Spacer(),
-              const WfNote('Optional'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _NumberPad(
-          onTap: (k) {
-            setState(() {
-              if (k == '⌫') {
-                if (_jersey.isNotEmpty) {
-                  final s = _jersey.toString();
-                  _jersey
-                    ..clear()
-                    ..write(s.substring(0, s.length - 1));
-                }
-              } else if (k != '—' && _jersey.length < 3) {
-                _jersey.write(k);
-              }
-            });
-          },
         ),
       ],
     );
   }
 
-  Widget _teamCard(String header, String name) {
+  Widget _teamCard(String header, String name, List<Player> roster) {
     final on = _team == name;
     return GestureDetector(
-      onTap: () => setState(() => _team = name),
+      onTap: () => setState(() {
+        _team = name;
+        _jersey.clear();
+        _jerseyDropdownValue = null;
+        _showNumberPad = false;
+      }),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
