@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../pages/main_page.dart';
+import '../../features/camera/main_page.dart';
 import '../../pages/match_page.dart';
 import '../../pages/settings_page.dart';
 import '../../pages/teams_page.dart';

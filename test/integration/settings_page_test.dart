@@ -33,7 +33,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:sst_cam_app/core/ble/ble_service.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/device.dart';
-import 'package:sst_cam_app/pages/discovery_page.dart';
+import 'package:sst_cam_app/features/discovery/discovery_page.dart';
 import 'package:sst_cam_app/pages/settings_page.dart';
 import 'package:sst_cam_app/pages/users_settings_page.dart';
 import 'package:sst_cam_app/pages/streaming_destinations_page.dart';

@@ -3,14 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/models/device.dart';
-import '../features/camera/camera_state.dart' show activeCameraIdProvider;
-import '../core/ble/ble_providers.dart';
-import '../core/state/last_camera.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/indicators.dart';
-import '../core/widgets/wf_button.dart';
-import '../core/widgets/wf_card.dart';
+import '../../core/models/device.dart';
+import '../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../core/ble/ble_providers.dart';
+import '../../core/state/last_camera.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/indicators.dart';
+import '../../core/widgets/wf_button.dart';
+import '../../core/widgets/wf_card.dart';
 
 /// Scan & connect flow. Reachable from Settings → "Connect a different camera".
 class DiscoveryPage extends ConsumerStatefulWidget {

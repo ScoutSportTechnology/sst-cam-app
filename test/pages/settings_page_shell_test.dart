@@ -14,7 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/device.dart';
-import 'package:sst_cam_app/pages/discovery_page.dart';
+import 'package:sst_cam_app/features/discovery/discovery_page.dart';
 import 'package:sst_cam_app/pages/settings_page.dart';
 import 'package:sst_cam_app/features/camera/camera_state.dart'
     show activeCameraIdProvider;

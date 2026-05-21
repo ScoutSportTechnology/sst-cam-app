@@ -5,16 +5,16 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/models/device.dart';
-import '../core/models/telemetry.dart';
-import '../features/camera/camera_state.dart' show activeCameraIdProvider;
-import '../core/ble/ble_providers.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/indicators.dart';
-import '../core/widgets/live_preview_view.dart';
-import '../core/widgets/wf_button.dart';
-import '../core/widgets/wf_card.dart';
-import 'discovery_page.dart';
+import '../../core/models/device.dart';
+import '../../core/models/telemetry.dart';
+import 'camera_state.dart' show activeCameraIdProvider;
+import '../../core/ble/ble_providers.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/indicators.dart';
+import '../../core/widgets/live_preview_view.dart';
+import '../../core/widgets/wf_button.dart';
+import '../../core/widgets/wf_card.dart';
+import '../discovery/discovery_page.dart';
 
 /// Main tab — hero camera card + telemetry grid.
 /// Layout is identical whether or not a camera is connected; the hero card

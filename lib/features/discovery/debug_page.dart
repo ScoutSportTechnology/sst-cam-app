@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/db/app_database.dart';
-import '../mock/mock_data_seeder.dart';
-import '../core/config/env.dart';
-import '../features/settings/users/users_state.dart' show activeUserProvider;
-import '../core/state/db_providers.dart';
-import '../core/theme/tokens.dart';
+import '../../core/db/app_database.dart';
+import '../../mock/mock_data_seeder.dart';
+import '../../core/config/env.dart';
+import '../../features/settings/users/users_state.dart' show activeUserProvider;
+import '../../core/state/db_providers.dart';
+import '../../core/theme/tokens.dart';
 
 /// Developer-only screen for inspecting the local Drift database.
 ///
