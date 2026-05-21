@@ -17,7 +17,7 @@ import 'package:sst_cam_app/features/teams/teams_state.dart' show kSports;
 import 'package:sst_cam_app/core/widgets/wf_card.dart';
 import 'package:sst_cam_app/core/widgets/wf_chip.dart';
 
-import '../test_helpers.dart';
+import '../../../test_helpers.dart';
 
 void main() {
   SharedPreferences.setMockInitialValues({'active_user_id': 'user-1'});

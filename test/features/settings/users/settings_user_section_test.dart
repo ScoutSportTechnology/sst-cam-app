@@ -22,7 +22,7 @@ import 'package:sst_cam_app/core/ble/ble_providers.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../test_helpers.dart';
+import '../../../test_helpers.dart';
 
 const String _kFakeDeviceId = 'SST-CAM-001';
 

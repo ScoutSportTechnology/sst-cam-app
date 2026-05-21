@@ -18,7 +18,7 @@ import 'package:sst_cam_app/features/settings/users/users_state.dart'
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../test_helpers.dart';
+import '../../../test_helpers.dart';
 
 MockBleService _newMock() => MockBleService(
   scanDeviceAppearDelays: const [Duration.zero, Duration.zero],

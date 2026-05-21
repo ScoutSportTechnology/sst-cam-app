@@ -32,7 +32,7 @@ import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../test_helpers.dart';
+import '../../../test_helpers.dart';
 
 // ---------------------------------------------------------------------------
 // Fake PathProviderPlatform so the path containment check (Fix 2) in
