@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/camera/main_page.dart';
 import '../../pages/match_page.dart';
-import '../../pages/settings_page.dart';
+import '../../features/settings/settings_page.dart';
 import '../../pages/teams_page.dart';
 import '../../pages/video_page.dart';
 import '../../features/camera/camera_state.dart' show activeTabProvider;

@@ -8,7 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/models/user.dart';
-import 'package:sst_cam_app/pages/user_form_sheet.dart';
+import 'package:sst_cam_app/features/settings/users/user_form_sheet.dart';
 
 void main() {
   group('showUserFormSheet — happy paths', () {

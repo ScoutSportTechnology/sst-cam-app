@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../features/settings/streaming/streaming_state.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_card.dart';
-import '../core/widgets/wf_chip.dart';
+import 'streaming_state.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/wf_card.dart';
+import '../../../core/widgets/wf_chip.dart';
 import 'streaming_destination_form_sheet.dart';
 
 /// Lists the active user's streaming destinations with add / edit / delete.

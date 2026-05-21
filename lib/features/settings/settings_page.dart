@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/config/env.dart';
-import '../core/models/device.dart';
-import '../features/camera/camera_state.dart' show activeCameraIdProvider;
-import '../features/settings/streaming/streaming_state.dart'
+import '../../core/config/env.dart';
+import '../../core/models/device.dart';
+import '../camera/camera_state.dart' show activeCameraIdProvider;
+import 'streaming/streaming_state.dart'
     show streamingDestinationsControllerProvider;
-import '../features/settings/users/users_state.dart'
+import 'users/users_state.dart'
     show activeUserProvider, usersControllerProvider;
-import '../core/ble/ble_providers.dart';
-import '../core/state/last_camera.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_button.dart';
-import '../core/widgets/wf_card.dart';
-import 'data_settings_page.dart';
-import '../features/discovery/debug_page.dart';
-import '../features/discovery/diagnostics_page.dart';
-import '../features/discovery/discovery_page.dart';
-import 'sport_presets_page.dart';
-import 'streaming_destinations_page.dart';
-import 'users_settings_page.dart';
+import '../../core/ble/ble_providers.dart';
+import '../../core/state/last_camera.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/wf_button.dart';
+import '../../core/widgets/wf_card.dart';
+import 'data/data_settings_page.dart';
+import '../discovery/debug_page.dart';
+import '../discovery/diagnostics_page.dart';
+import '../discovery/discovery_page.dart';
+import 'sport_presets/sport_presets_page.dart';
+import 'streaming/streaming_destinations_page.dart';
+import 'users/users_settings_page.dart';
 
 /// Settings page. Always shows a single Scaffold.
 ///

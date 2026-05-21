@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../features/settings/users/users_state.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_chip.dart';
+import 'users_state.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/wf_chip.dart';
 import 'user_form_sheet.dart';
 
 

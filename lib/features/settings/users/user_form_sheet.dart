@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../core/models/user.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_button.dart';
-import '../core/widgets/wf_card.dart';
+import '../../../core/models/user.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/wf_button.dart';
+import '../../../core/widgets/wf_card.dart';
 
 /// Show the create / edit user form sheet. Returns the entered draft, or
 /// null if the user cancelled. Pass `existing` to prefill for edit; the

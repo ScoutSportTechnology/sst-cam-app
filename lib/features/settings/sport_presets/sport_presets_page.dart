@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../features/settings/sport_presets/sport_presets_state.dart';
-import '../features/teams/teams_state.dart'
+import 'sport_presets_state.dart';
+import '../../teams/teams_state.dart'
     show sportPresetsFilterProvider, kSports;
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_card.dart';
-import '../core/widgets/wf_chip.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/wf_card.dart';
+import '../../../core/widgets/wf_chip.dart';
 import 'sport_preset_form_sheet.dart';
 
 /// Lists sport setups grouped by base sport. Built-in presets are read-only;
