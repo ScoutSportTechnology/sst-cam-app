@@ -88,8 +88,17 @@ void main() {
       await tester.pumpWidget(buildHarness(service: mock));
       await tester.pumpAndSettle();
 
-      // Maria is non-active → has delete icon.
-      expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+      // Maria is non-active → has delete icon. Active user (Diego) must not have one.
+      final mariaRow = find.ancestor(
+        of: find.text('Coach Maria'),
+        matching: find.byType(InkWell),
+      );
+      expect(find.descendant(of: mariaRow, matching: find.byIcon(Icons.delete_outline)), findsOneWidget);
+      final diegoRow = find.ancestor(
+        of: find.text('Diego'),
+        matching: find.byType(InkWell),
+      );
+      expect(find.descendant(of: diegoRow, matching: find.byIcon(Icons.delete_outline)), findsNothing);
     });
 
     testWidgets('active user row is not tappable (no switch for self)', (
@@ -192,6 +201,42 @@ void main() {
       expect(find.byIcon(Icons.check), findsOneWidget);
       // No "Switch user?" dialog.
       expect(find.text('Switch user?'), findsNothing);
+    });
+  });
+
+  group('Last-user delete guard', () {
+    testWidgets('delete icon is absent when only one user exists', (
+      tester,
+    ) async {
+      // Delete user-2 from the DB so only user-1 remains.
+      // useInMemoryDb re-seeds per test, so db.value is fresh each time.
+      await db.value.usersDao.deleteById('user-2');
+
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(mock),
+            activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
+            connectionStateProvider(_kFakeDeviceId).overrideWith(
+              (_) => Stream<CameraConnectionState>.value(
+                CameraConnectionState.connected,
+              ),
+            ),
+            activeUserProvider.overrideWith((_) => 'user-1'),
+          ],
+          child: const MaterialApp(home: UsersSettingsPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Only one user — canDelete is false for all rows → no delete icon.
+      expect(find.byIcon(Icons.delete_outline), findsNothing);
+      // User is present.
+      expect(find.text('Coach Diego'), findsOneWidget);
     });
   });
 

@@ -392,6 +392,85 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // 10. (#5) Path outside docs dir shows "Invalid path" SnackBar; import not called
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'Path outside Documents dir shows Invalid path SnackBar; import not called',
+    (tester) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+      final fake = FakeBackupService(db: db.value, importResult: null);
+
+      await tester.pumpWidget(
+        _buildHarness(service: mock, db: db, backupService: fake),
+      );
+      await tester.pumpAndSettle();
+
+      await _openDataSettingsPage(tester);
+      await tester.tap(find.text('Restore backup'));
+      await tester.pumpAndSettle();
+
+      // Confirm.
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+
+      // Enter a path outside the test docs dir (/tmp/sst-test-docs).
+      await tester.enterText(find.byType(TextField), '/etc/passwd');
+      await tester.tap(find.textContaining('Restore').last);
+      await tester.pumpAndSettle();
+
+      // Should show the invalid path SnackBar.
+      expect(
+        find.text('Invalid path. Select a file from the Documents folder.'),
+        findsOneWidget,
+      );
+      // import() must not have been called.
+      expect(fake.importCalled, isFalse);
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // 11. (#17) Generic Exception from import shows "Restore failed" SnackBar
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'Generic Exception from import() shows "Restore failed" SnackBar',
+    (tester) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+      final fake = FakeBackupService(
+        db: db.value,
+        importError: Exception('disk I/O failure'),
+      );
+
+      await tester.pumpWidget(
+        _buildHarness(service: mock, db: db, backupService: fake),
+      );
+      await tester.pumpAndSettle();
+
+      await _openDataSettingsPage(tester);
+      await tester.tap(find.text('Restore backup'));
+      await tester.pumpAndSettle();
+
+      // Confirm.
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+
+      // Enter a valid path inside the test docs dir.
+      await tester.enterText(
+        find.byType(TextField),
+        '$_kTestDocsDir/any-backup.json',
+      );
+      await tester.tap(find.textContaining('Restore').last);
+      await tester.pumpAndSettle();
+
+      // Generic catch → "Restore failed" SnackBar.
+      expect(find.text('Restore failed'), findsOneWidget);
+      // import() was called (it threw).
+      expect(fake.importCalled, isTrue);
+    },
+  );
+
+  // ---------------------------------------------------------------------------
   // 9. Export error shows error SnackBar
   // ---------------------------------------------------------------------------
   testWidgets('Export error shows error SnackBar', (tester) async {
