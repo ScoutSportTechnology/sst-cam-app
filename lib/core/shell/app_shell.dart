@@ -6,7 +6,7 @@ import '../../features/camera/main_page.dart';
 import '../../pages/match_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/teams/teams_page.dart';
-import '../../pages/video_page.dart';
+import '../../features/video/video_page.dart';
 import '../../features/camera/camera_state.dart' show activeTabProvider;
 import '../wifi/wifi_handoff.dart';
 

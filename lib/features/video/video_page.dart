@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../features/video/video_state.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_button.dart';
-import '../core/widgets/wf_card.dart';
-import '../core/widgets/wf_chip.dart';
-import '../features/discovery/discovery_page.dart';
+import 'video_state.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/wf_button.dart';
+import '../../core/widgets/wf_card.dart';
+import '../../core/widgets/wf_chip.dart';
+import '../discovery/discovery_page.dart';
 import 'video_team_matches_page.dart';
 
 class VideoPage extends ConsumerWidget {

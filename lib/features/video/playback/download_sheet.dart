@@ -1,0 +1,396 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/models/wifi.dart';
+import '../../../core/ble/ble_providers.dart';
+import '../../../core/wifi/wifi_providers.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/wf_button.dart';
+import '../../../core/widgets/wf_chip.dart';
+import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../video_state.dart' show LibraryMatch;
+
+class DownloadSheet extends ConsumerStatefulWidget {
+  const DownloadSheet({super.key, required this.match, required this.selectedCount});
+  final LibraryMatch match;
+  final int selectedCount;
+
+  @override
+  ConsumerState<DownloadSheet> createState() => _DownloadSheetState();
+}
+
+class _DownloadSheetState extends ConsumerState<DownloadSheet> {
+  String _selected = 'hisel';
+  VideoDownloadHandle? _handle;
+  VideoDownloadProgress? _progress;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.selectedCount == 0) _selected = 'full';
+  }
+
+  @override
+  void dispose() {
+    // Sheet is closing — if a download is mid-flight, leave it running. The
+    // service holds the handle and global progress is observable via
+    // `allDownloadsProgressProvider`.
+    super.dispose();
+  }
+
+  Future<void> _start() async {
+    final activeId = ref.read(activeCameraIdProvider);
+    if (activeId == null) {
+      setState(() => _error = 'Connect a camera first');
+      return;
+    }
+    setState(() => _error = null);
+    try {
+      // BLE — get short-lived URL + auth token for the recording.
+      final token = await ref
+          .read(bleServiceProvider)
+          .requestDownload(activeId, widget.match.id);
+
+      // WiFi — group lifecycle is owned by `wifiHandoffProvider`, but in
+      // case the user opens this sheet before the orchestrator's first tick
+      // has landed, defensively bring the group up here. Idempotent.
+      final wifi = ref.read(wifiServiceProvider);
+      if (wifi.currentGroup(activeId) == null) {
+        await wifi.connectGroup(activeId);
+      }
+      final handle = await wifi.startDownload(activeId, token);
+
+      setState(() => _handle = handle);
+      handle.progress.listen(
+        (p) {
+          if (!mounted) return;
+          setState(() => _progress = p);
+        },
+        onError: (Object e) {
+          if (!mounted) return;
+          setState(() => _error = e.toString());
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final running = _handle != null;
+    if (running) return _buildProgress();
+    final fullSize = '${widget.match.fullSizeMb} MB';
+    final hiSize = '0 MB';
+    final opts = <_Opt>[
+      _Opt(
+        key: 'full',
+        label: 'Full game',
+        sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi',
+      ),
+      _Opt(
+        key: 'h1',
+        label: '1st half',
+        sub: '35:00 · ${(widget.match.fullSizeMb / 2).round()} MB · ~6 min',
+      ),
+      _Opt(
+        key: 'h2',
+        label: '2nd half',
+        sub: '38:12 · ${(widget.match.fullSizeMb / 2).round()} MB · ~7 min',
+      ),
+      _Opt(
+        key: 'hi',
+        label: 'All highlights',
+        sub: '${widget.match.events.length} events · ±10s · $hiSize',
+      ),
+      _Opt(
+        key: 'hisel',
+        label: 'Selected highlights',
+        sub: '${widget.selectedCount} events selected',
+        badge: widget.selectedCount > 0 ? '${widget.selectedCount}' : null,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: T.fillMid,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Download',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: T.ink,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${widget.match.date} · ${widget.match.opponent}',
+            style: const TextStyle(fontSize: 12, color: T.ink2),
+          ),
+          const SizedBox(height: 14),
+          ...opts.map(
+            (o) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GestureDetector(
+                onTap: () => setState(() => _selected = o.key),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _selected == o.key ? T.accentSoft : T.surface,
+                    border: Border.all(
+                      color: _selected == o.key ? T.accent : T.hair,
+                      width: 1.4,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      _Radio(on: _selected == o.key),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              o.label,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: T.ink,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              o.sub,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: T.ink2,
+                                fontFamily: T.mono,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (o.badge != null)
+                        WfChip(label: o.badge!, active: true),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: WfButton(
+                  label: 'Cancel',
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: WfButton(
+                  label: 'Start download',
+                  variant: WfButtonVariant.primary,
+                  onPressed: _start,
+                ),
+              ),
+            ],
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgress() {
+    final p = _progress;
+    final fraction = p?.fraction ?? 0;
+    final received = ((p?.bytesReceived ?? 0) / 1024 / 1024).toStringAsFixed(1);
+    final total = ((p?.bytesTotal ?? 0) / 1024 / 1024).toStringAsFixed(1);
+    final kbps = (p?.kbps ?? 0).toStringAsFixed(0);
+    final status = switch (p?.status) {
+      DownloadStatus.queued => 'Queued',
+      DownloadStatus.running => 'Downloading',
+      DownloadStatus.paused => 'Paused',
+      DownloadStatus.completed => 'Completed',
+      DownloadStatus.failed => 'Failed',
+      DownloadStatus.cancelled => 'Cancelled',
+      null => 'Starting',
+    };
+    final terminal = p?.isTerminal ?? false;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: T.fillMid,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            status,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: T.ink,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${widget.match.date} · ${widget.match.opponent}',
+            style: const TextStyle(fontSize: 12, color: T.ink2),
+          ),
+          const SizedBox(height: 18),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: fraction,
+              minHeight: 6,
+              backgroundColor: T.fillMid,
+              valueColor: const AlwaysStoppedAnimation<Color>(T.accent),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '$received / $total MB',
+                style: const TextStyle(
+                  fontFamily: T.mono,
+                  fontSize: 11,
+                  color: T.ink2,
+                ),
+              ),
+              Text(
+                '$kbps KB/s',
+                style: const TextStyle(
+                  fontFamily: T.mono,
+                  fontSize: 11,
+                  color: T.ink2,
+                ),
+              ),
+              Text(
+                '${(fraction * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(
+                  fontFamily: T.mono,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: T.ink,
+                ),
+              ),
+            ],
+          ),
+          if (p?.errorMessage != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              p!.errorMessage!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
+          ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: WfButton(
+                  label: terminal ? 'Close' : 'Cancel',
+                  onPressed: () async {
+                    if (!terminal) await _handle?.cancel();
+                    if (mounted) Navigator.of(context).pop();
+                  },
+                ),
+              ),
+              if (terminal && p?.status == DownloadStatus.completed) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: WfButton(
+                    label: 'Done',
+                    variant: WfButtonVariant.primary,
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Opt {
+  const _Opt({
+    required this.key,
+    required this.label,
+    required this.sub,
+    this.badge,
+  });
+  final String key;
+  final String label;
+  final String sub;
+  final String? badge;
+}
+
+class _Radio extends StatelessWidget {
+  const _Radio({required this.on});
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: on ? T.accent : Colors.transparent,
+        border: Border.all(color: on ? T.accent : T.hair, width: 2),
+      ),
+      alignment: Alignment.center,
+      child: on
+          ? Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: T.accentInk,
+                shape: BoxShape.circle,
+              ),
+            )
+          : null,
+    );
+  }
+}

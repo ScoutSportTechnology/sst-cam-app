@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../features/teams/teams_state.dart' show teamsControllerProvider;
-import '../features/video/video_state.dart'
+import '../teams/teams_state.dart' show teamsControllerProvider;
+import 'video_state.dart'
     show libraryProvider, LibraryMatch;
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_card.dart';
-import '../core/widgets/wf_chip.dart';
-import 'video_match_detail_page.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/wf_card.dart';
+import '../../core/widgets/wf_chip.dart';
+import 'playback/video_match_detail_page.dart';
 
 class VideoTeamMatchesPage extends ConsumerWidget {
   const VideoTeamMatchesPage({super.key, required this.teamId});
