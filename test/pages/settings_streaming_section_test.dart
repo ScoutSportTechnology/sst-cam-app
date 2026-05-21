@@ -13,7 +13,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/pages/streaming_destinations_page.dart';
-import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/features/settings/users/users_state.dart'
+    show activeUserProvider;
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

@@ -3,7 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config/env.dart';
 import '../core/models/device.dart';
-import '../state/app_data.dart';
+import '../features/camera/camera_state.dart' show activeCameraIdProvider;
+import '../features/settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
+import '../features/settings/users/users_state.dart'
+    show activeUserProvider, usersControllerProvider;
 import '../core/ble/ble_providers.dart';
 import '../core/state/last_camera.dart';
 import '../core/theme/tokens.dart';

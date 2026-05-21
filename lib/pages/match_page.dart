@@ -6,7 +6,14 @@ import 'package:uuid/uuid.dart';
 
 import '../core/models/command.dart';
 import '../core/models/device.dart';
-import '../state/app_data.dart';
+import '../features/camera/camera_state.dart'
+    show activeCameraIdProvider;
+import '../features/match/match_state.dart';
+import '../features/match/session/session_state.dart';
+import '../features/settings/sport_presets/sport_presets_state.dart'
+    show sportPresetsForSportProvider, SportPreset;
+import '../features/settings/users/users_state.dart' show activeUserProvider;
+import '../features/teams/teams_state.dart' show teamsControllerProvider;
 import '../core/ble/ble_providers.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/indicators.dart';
@@ -55,7 +62,13 @@ class _MatchPageState extends ConsumerState<MatchPage> {
   }
 
   void _select(UpcomingMatch up) {
-    ref.read(liveMatchProvider.notifier).loadFromUpcoming(up);
+    ref.read(liveMatchProvider.notifier).loadFromUpcoming(
+      teamShortName: up.team.shortName,
+      teamName: up.team.name,
+      opponent: up.match.opponent,
+      numPeriods: up.match.numPeriods,
+      periodLengthSeconds: up.match.periodLengthSeconds,
+    );
     setState(() {
       _selected = up;
       _setupConfirmed = false;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../state/app_data.dart';
+import '../features/settings/streaming/streaming_state.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/wf_card.dart';
 import '../core/widgets/wf_chip.dart';

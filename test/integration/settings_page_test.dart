@@ -37,7 +37,14 @@ import 'package:sst_cam_app/pages/discovery_page.dart';
 import 'package:sst_cam_app/pages/settings_page.dart';
 import 'package:sst_cam_app/pages/users_settings_page.dart';
 import 'package:sst_cam_app/pages/streaming_destinations_page.dart';
-import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/features/camera/camera_state.dart'
+    show activeCameraIdProvider;
+import 'package:sst_cam_app/features/settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
+import 'package:sst_cam_app/features/settings/users/users_state.dart'
+    show activeUserProvider;
+import 'package:sst_cam_app/features/teams/teams_state.dart'
+    show teamsControllerProvider;
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/state/last_camera.dart';
 import 'package:shared_preferences/shared_preferences.dart';

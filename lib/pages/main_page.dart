@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/models/device.dart';
 import '../core/models/telemetry.dart';
-import '../state/app_data.dart';
+import '../features/camera/camera_state.dart' show activeCameraIdProvider;
 import '../core/ble/ble_providers.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/indicators.dart';

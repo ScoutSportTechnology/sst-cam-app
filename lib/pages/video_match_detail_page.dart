@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/models/wifi.dart';
 import '../core/services/clip_service.dart';
 import '../core/services/video_path_service.dart';
-import '../state/app_data.dart';
+import '../features/camera/camera_state.dart' show activeCameraIdProvider;
+import '../features/video/video_state.dart'
+    show libraryMatchProvider, LibraryMatch, LibraryEvent;
 import '../core/ble/ble_providers.dart';
 import '../core/state/db_providers.dart' show clipServiceProvider;
 import '../core/wifi/wifi_providers.dart';

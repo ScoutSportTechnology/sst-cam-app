@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../state/app_data.dart';
+import '../features/teams/teams_state.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/wf_button.dart';
 import '../core/widgets/wf_card.dart';

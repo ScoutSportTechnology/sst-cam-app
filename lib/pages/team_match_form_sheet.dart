@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../state/app_data.dart';
+import '../features/settings/sport_presets/sport_presets_state.dart'
+    show sportPresetsForSportProvider, SportPreset;
+import '../features/teams/teams_state.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/wf_button.dart';
 import '../core/widgets/wf_card.dart';

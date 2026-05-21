@@ -14,7 +14,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
-import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/features/match/match_state.dart'
+    show
+        upcomingMatchesProvider,
+        filteredUpcomingMatchesProvider,
+        upcomingMatchSportFilterProvider,
+        upcomingMatchTeamFilterProvider,
+        upcomingSearchQueryProvider;
+import 'package:sst_cam_app/features/settings/users/users_state.dart'
+    show activeUserProvider;
+import 'package:sst_cam_app/features/teams/teams_state.dart'
+    show teamsControllerProvider;
+import 'package:sst_cam_app/features/video/video_state.dart'
+    show
+        availableLibrarySportsProvider,
+        filteredLibraryTeamsProvider,
+        libraryProvider,
+        librarySportFilterProvider,
+        librarySearchQueryProvider,
+        LibraryMatch;
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 
 import '../test_helpers.dart';

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/device.dart';
-import '../../state/app_data.dart';
+import '../../features/camera/camera_state.dart' show activeCameraIdProvider;
 import '../ble/ble_providers.dart';
 import 'wifi_providers.dart';
 

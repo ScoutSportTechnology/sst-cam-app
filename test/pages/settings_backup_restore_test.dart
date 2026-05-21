@@ -26,7 +26,8 @@ import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/pages/data_settings_page.dart';
 import 'package:sst_cam_app/pages/settings_page.dart';
 import 'package:sst_cam_app/core/services/backup_service.dart';
-import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/features/camera/camera_state.dart'
+    show activeCameraIdProvider;
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';

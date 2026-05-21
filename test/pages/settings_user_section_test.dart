@@ -14,7 +14,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/pages/users_settings_page.dart';
-import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/features/camera/camera_state.dart'
+    show activeCameraIdProvider;
+import 'package:sst_cam_app/features/settings/users/users_state.dart'
+    show activeUserProvider;
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';

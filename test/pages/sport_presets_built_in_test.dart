@@ -9,7 +9,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/pages/sport_presets_page.dart';
-import 'package:sst_cam_app/state/app_data.dart';
+import 'package:sst_cam_app/features/settings/sport_presets/sport_presets_state.dart'
+    show sportPresetsControllerProvider, SportPresetsControllerException;
+import 'package:sst_cam_app/features/settings/users/users_state.dart'
+    show activeUserProvider;
+import 'package:sst_cam_app/features/teams/teams_state.dart' show kSports;
 import 'package:sst_cam_app/core/widgets/wf_card.dart';
 import 'package:sst_cam_app/core/widgets/wf_chip.dart';
 

@@ -7,7 +7,7 @@ import '../../pages/match_page.dart';
 import '../../pages/settings_page.dart';
 import '../../pages/teams_page.dart';
 import '../../pages/video_page.dart';
-import '../../state/app_data.dart';
+import '../../features/camera/camera_state.dart' show activeTabProvider;
 import '../wifi/wifi_handoff.dart';
 
 class AppShell extends ConsumerStatefulWidget {

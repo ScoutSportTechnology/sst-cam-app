@@ -6,7 +6,15 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../core/services/backup_service.dart';
-import '../state/app_data.dart';
+import '../features/camera/camera_state.dart' show activeCameraIdProvider;
+import '../features/match/match_state.dart' show upcomingMatchesProvider;
+import '../features/settings/sport_presets/sport_presets_state.dart'
+    show sportPresetsControllerProvider;
+import '../features/settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
+import '../features/settings/users/users_state.dart'
+    show usersControllerProvider;
+import '../features/teams/teams_state.dart' show teamsControllerProvider;
 import '../core/state/db_providers.dart' show backupServiceProvider;
 import '../core/theme/tokens.dart';
 import '../core/widgets/wf_card.dart';

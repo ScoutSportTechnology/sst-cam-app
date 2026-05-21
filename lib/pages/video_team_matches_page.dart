@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../state/app_data.dart';
+import '../features/teams/teams_state.dart' show teamsControllerProvider;
+import '../features/video/video_state.dart'
+    show libraryProvider, LibraryMatch;
 import '../core/theme/tokens.dart';
 import '../core/widgets/wf_card.dart';
 import '../core/widgets/wf_chip.dart';
