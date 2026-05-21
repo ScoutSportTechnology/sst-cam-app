@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/device.dart';
+import '../core/models/device.dart';
 import 'app_data.dart';
 import 'ble_providers.dart';
 import 'wifi_providers.dart';

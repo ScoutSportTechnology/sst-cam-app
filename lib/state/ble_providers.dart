@@ -4,10 +4,10 @@ import '../ble/ble_service.dart';
 import '../ble/ble_service_impl.dart';
 import '../ble/mock_ble_service.dart';
 import '../env.dart';
-import '../models/device.dart';
-import '../models/telemetry.dart';
-import '../models/match.dart';
-import '../models/recording.dart';
+import '../core/models/device.dart';
+import '../core/models/telemetry.dart';
+import '../core/models/match.dart';
+import '../core/models/recording.dart';
 
 // ---------------------------------------------------------------------------
 // Service — backend chosen by `kAppEnv` (see lib/env.dart). Tests still

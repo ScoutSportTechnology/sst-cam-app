@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/ble/ble_service.dart';
 import 'package:sst_cam_app/ble/mock_ble_service.dart';
-import 'package:sst_cam_app/models/command.dart';
-import 'package:sst_cam_app/models/device.dart';
-import 'package:sst_cam_app/models/recording.dart';
+import 'package:sst_cam_app/core/models/command.dart';
+import 'package:sst_cam_app/core/models/device.dart';
+import 'package:sst_cam_app/core/models/recording.dart';
 
 void main() {
   // Required so rootBundle can load fixture assets in unit tests.

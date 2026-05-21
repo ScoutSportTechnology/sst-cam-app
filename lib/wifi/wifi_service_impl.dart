@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import '../models/recording.dart';
-import '../models/wifi.dart';
+import '../core/models/recording.dart';
+import '../core/models/wifi.dart';
 import 'wifi_service.dart';
 
 /// Real WiFi Direct implementation.

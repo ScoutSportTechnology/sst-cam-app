@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/sport_preset.dart';
-import '../models/team.dart';
-import '../theme/tokens.dart';
-import '../widgets/wf_button.dart';
-import '../widgets/wf_card.dart';
+import '../core/models/sport_preset.dart';
+import '../core/models/team.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/wf_button.dart';
+import '../core/widgets/wf_card.dart';
 
 /// Show the sport-preset form. Returns the entered draft, or null on cancel.
 /// Pass `existing` to prefill for edit.

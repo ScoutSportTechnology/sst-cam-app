@@ -17,10 +17,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
-import 'package:sst_cam_app/models/wifi.dart';
+import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/state/wifi_providers.dart';
-import 'package:sst_cam_app/widgets/live_preview_view.dart';
-import 'package:sst_cam_app/widgets/wf_card.dart';
+import 'package:sst_cam_app/core/widgets/live_preview_view.dart';
+import 'package:sst_cam_app/core/widgets/wf_card.dart';
 import 'package:sst_cam_app/wifi/mock_wifi_service.dart';
 
 const _kDeviceId = 'SST-CAM-001';

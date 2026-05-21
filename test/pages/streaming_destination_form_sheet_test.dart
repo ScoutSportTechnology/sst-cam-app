@@ -15,7 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/models/streaming.dart';
+import 'package:sst_cam_app/core/models/streaming.dart';
 import 'package:sst_cam_app/pages/streaming_destination_form_sheet.dart';
 
 const _kNameKey = Key('streaming-name-field');

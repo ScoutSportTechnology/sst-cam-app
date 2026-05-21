@@ -16,16 +16,16 @@ import 'package:uuid/uuid.dart';
 import '../db/app_database.dart';
 import '../db/daos/streaming_destinations_dao.dart';
 import '../db/daos/teams_dao.dart';
-import '../models/sport_preset.dart';
-import '../models/streaming.dart';
-import '../models/team.dart';
-import '../models/user.dart';
+import '../core/models/sport_preset.dart';
+import '../core/models/streaming.dart';
+import '../core/models/team.dart';
+import '../core/models/user.dart';
 import 'db_providers.dart';
 
-export '../models/sport_preset.dart';
-export '../models/streaming.dart';
-export '../models/team.dart';
-export '../models/user.dart';
+export '../core/models/sport_preset.dart';
+export '../core/models/streaming.dart';
+export '../core/models/team.dart';
+export '../core/models/user.dart';
 
 class LibraryEvent {
   const LibraryEvent({

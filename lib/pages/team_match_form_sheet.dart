@@ -3,10 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/app_data.dart';
-import '../theme/tokens.dart';
-import '../widgets/wf_button.dart';
-import '../widgets/wf_card.dart';
-import '../widgets/wf_chip.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/wf_button.dart';
+import '../core/widgets/wf_card.dart';
+import '../core/widgets/wf_chip.dart';
 
 /// Show the add-match form. Returns the entered draft, or null on cancel.
 /// User picks `Past match` (only counts toward stats) or `Upcoming match`

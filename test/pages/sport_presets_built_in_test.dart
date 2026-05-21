@@ -10,8 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/pages/sport_presets_page.dart';
 import 'package:sst_cam_app/state/app_data.dart';
-import 'package:sst_cam_app/widgets/wf_card.dart';
-import 'package:sst_cam_app/widgets/wf_chip.dart';
+import 'package:sst_cam_app/core/widgets/wf_card.dart';
+import 'package:sst_cam_app/core/widgets/wf_chip.dart';
 
 import '../test_helpers.dart';
 

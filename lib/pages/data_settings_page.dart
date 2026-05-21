@@ -8,8 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import '../services/backup_service.dart';
 import '../state/app_data.dart';
 import '../state/db_providers.dart' show backupServiceProvider;
-import '../theme/tokens.dart';
-import '../widgets/wf_card.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/wf_card.dart';
 
 class DataSettingsPage extends ConsumerWidget {
   const DataSettingsPage({super.key});

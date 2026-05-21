@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/tokens.dart';
-import '../widgets/wf_button.dart';
-import '../widgets/wf_card.dart';
-import '../widgets/wf_chip.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/wf_button.dart';
+import '../core/widgets/wf_card.dart';
+import '../core/widgets/wf_chip.dart';
 
 /// BLE link + proto state. Targeted at firmware integrators.
 class DiagnosticsPage extends StatelessWidget {

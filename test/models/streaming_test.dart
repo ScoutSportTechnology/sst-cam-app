@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/models/streaming.dart';
+import 'package:sst_cam_app/core/models/streaming.dart';
 
 /// Helper used by the exhaustive-switch edge case below. Returns a stable
 /// tag for each [StreamingConfig] subtype so the test can assert that

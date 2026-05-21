@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../env.dart';
-import '../models/device.dart';
+import '../core/models/device.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
 import '../state/last_camera.dart';
-import '../theme/tokens.dart';
-import '../widgets/wf_button.dart';
-import '../widgets/wf_card.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/wf_button.dart';
+import '../core/widgets/wf_card.dart';
 import 'data_settings_page.dart';
 import 'debug_page.dart';
 import 'diagnostics_page.dart';

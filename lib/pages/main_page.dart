@@ -5,15 +5,15 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/device.dart';
-import '../models/telemetry.dart';
+import '../core/models/device.dart';
+import '../core/models/telemetry.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
-import '../theme/tokens.dart';
-import '../widgets/indicators.dart';
-import '../widgets/live_preview_view.dart';
-import '../widgets/wf_button.dart';
-import '../widgets/wf_card.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/indicators.dart';
+import '../core/widgets/live_preview_view.dart';
+import '../core/widgets/wf_button.dart';
+import '../core/widgets/wf_card.dart';
 import 'discovery_page.dart';
 
 /// Main tab — hero camera card + telemetry grid.

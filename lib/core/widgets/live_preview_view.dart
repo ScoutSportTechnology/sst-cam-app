@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 import 'package:video_player/video_player.dart';
 
-import '../env.dart';
+import '../../env.dart';
 import '../models/wifi.dart';
-import '../state/wifi_providers.dart';
+import '../../state/wifi_providers.dart';
 import '../theme/tokens.dart';
 import 'wf_card.dart';
 

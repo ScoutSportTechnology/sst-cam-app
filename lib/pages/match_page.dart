@@ -4,16 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import '../models/command.dart';
-import '../models/device.dart';
+import '../core/models/command.dart';
+import '../core/models/device.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
-import '../theme/tokens.dart';
-import '../widgets/indicators.dart';
-import '../widgets/live_preview_view.dart';
-import '../widgets/wf_button.dart';
-import '../widgets/wf_card.dart';
-import '../widgets/wf_chip.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/indicators.dart';
+import '../core/widgets/live_preview_view.dart';
+import '../core/widgets/wf_button.dart';
+import '../core/widgets/wf_card.dart';
+import '../core/widgets/wf_chip.dart';
 import 'team_match_form_sheet.dart';
 
 /// The Match tab routes between Landing → Setup → Session based on user

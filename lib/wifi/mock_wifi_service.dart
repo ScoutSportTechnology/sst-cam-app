@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:math';
 
-import '../models/recording.dart';
-import '../models/wifi.dart';
+import '../core/models/recording.dart';
+import '../core/models/wifi.dart';
 import '../services/video_path_service.dart';
 import 'wifi_service.dart';
 

@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/wifi.dart';
+import '../core/models/wifi.dart';
 import '../services/clip_service.dart';
 import '../services/video_path_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
 import '../state/db_providers.dart' show clipServiceProvider;
 import '../state/wifi_providers.dart';
-import '../theme/tokens.dart';
-import '../widgets/indicators.dart';
-import '../widgets/wf_button.dart';
-import '../widgets/wf_card.dart';
-import '../widgets/wf_chip.dart';
+import '../core/theme/tokens.dart';
+import '../core/widgets/indicators.dart';
+import '../core/widgets/wf_button.dart';
+import '../core/widgets/wf_card.dart';
+import '../core/widgets/wf_chip.dart';
 
 class VideoMatchDetailPage extends ConsumerStatefulWidget {
   const VideoMatchDetailPage({super.key, required this.matchId});

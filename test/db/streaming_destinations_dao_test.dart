@@ -3,7 +3,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/db/app_database.dart';
 import 'package:sst_cam_app/db/daos/streaming_destinations_dao.dart';
-import 'package:sst_cam_app/models/streaming.dart';
+import 'package:sst_cam_app/core/models/streaming.dart';
 import 'package:uuid/uuid.dart';
 
 void main() {

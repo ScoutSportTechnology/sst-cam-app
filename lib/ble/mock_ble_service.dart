@@ -5,11 +5,11 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../models/command.dart';
-import '../models/device.dart';
-import '../models/match.dart';
-import '../models/recording.dart';
-import '../models/telemetry.dart';
+import '../core/models/command.dart';
+import '../core/models/device.dart';
+import '../core/models/match.dart';
+import '../core/models/recording.dart';
+import '../core/models/telemetry.dart';
 import 'ble_service.dart';
 
 // Minimal 1×1 white JPEG

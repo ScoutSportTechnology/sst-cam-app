@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-import '../models/command.dart';
-import '../models/device.dart';
-import '../models/match.dart';
-import '../models/recording.dart';
-import '../models/telemetry.dart';
+import '../core/models/command.dart';
+import '../core/models/device.dart';
+import '../core/models/match.dart';
+import '../core/models/recording.dart';
+import '../core/models/telemetry.dart';
 import 'ble_service.dart';
 
 // UUIDs defined in proto/README.md.

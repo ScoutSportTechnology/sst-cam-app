@@ -1,6 +1,6 @@
 import 'package:drift/drift.dart';
 
-import '../../models/streaming.dart';
+import '../../core/models/streaming.dart';
 import '../app_database.dart';
 import '../tables/streaming_destinations_table.dart';
 

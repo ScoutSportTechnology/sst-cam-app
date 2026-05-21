@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/models/user.dart';
+import 'package:sst_cam_app/core/models/user.dart';
 
 void main() {
   group('UserRecord', () {
