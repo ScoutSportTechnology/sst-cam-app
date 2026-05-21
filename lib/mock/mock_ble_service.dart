@@ -10,7 +10,7 @@ import '../core/models/device.dart';
 import '../core/models/match.dart';
 import '../core/models/recording.dart';
 import '../core/models/telemetry.dart';
-import 'ble_service.dart';
+import '../core/ble/ble_service.dart';
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [

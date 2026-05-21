@@ -3,8 +3,8 @@ import 'dart:math';
 
 import '../core/models/recording.dart';
 import '../core/models/wifi.dart';
-import '../services/video_path_service.dart';
-import 'wifi_service.dart';
+import '../core/services/video_path_service.dart';
+import '../core/wifi/wifi_service.dart';
 
 class _GroupState {
   _GroupState()

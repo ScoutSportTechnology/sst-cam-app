@@ -3,7 +3,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
-import 'db/mock_data_seeder.dart';
+import 'mock/mock_data_seeder.dart';
 import 'env.dart';
 import 'state/db_providers.dart';
 

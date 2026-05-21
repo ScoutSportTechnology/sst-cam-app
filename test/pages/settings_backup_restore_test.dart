@@ -21,7 +21,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:sst_cam_app/ble/mock_ble_service.dart';
+import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/pages/data_settings_page.dart';
 import 'package:sst_cam_app/pages/settings_page.dart';

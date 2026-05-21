@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/services.dart';
 
-import 'app_database.dart';
+import '../core/db/app_database.dart';
 
 /// Seeds the Drift database with mock fixture data from assets/mock/fixtures/.
 ///
