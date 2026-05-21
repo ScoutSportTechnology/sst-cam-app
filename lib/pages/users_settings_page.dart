@@ -85,6 +85,7 @@ class UsersSettingsPage extends ConsumerWidget {
   Future<void> _addUser(BuildContext context, WidgetRef ref) async {
     final draft = await showUserFormSheet(context);
     if (draft == null) return;
+    if (!context.mounted) return;
     try {
       await ref.read(usersControllerProvider.notifier).create(draft.name);
     } catch (e) {
@@ -125,6 +126,7 @@ class UsersSettingsPage extends ConsumerWidget {
       ),
     );
     if (ok != true) return;
+    if (!context.mounted) return;
     try {
       await ref.read(usersControllerProvider.notifier).delete(target.id);
     } on UsersControllerException catch (e) {

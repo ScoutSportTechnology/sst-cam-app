@@ -81,6 +81,15 @@ final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 /// Tab indices: 0=Main, 1=Teams, 2=Match, 3=Video, 4=Settings.
 final activeTabProvider = StateProvider<int>((_) => 0);
 
+/// Named tab indices — use these instead of bare integers when writing to [activeTabProvider].
+abstract final class AppTab {
+  static const int main = 0;
+  static const int teams = 1;
+  static const int match = 2;
+  static const int video = 3;
+  static const int settings = 4;
+}
+
 // ---------------------------------------------------------------------------
 // Active user — single source of truth on the app side. Hydrated from
 // SharedPreferences in `UsersController.build()`. Per-user-scoped controllers
@@ -969,6 +978,31 @@ final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
   final library = ref.watch(libraryProvider).valueOrNull ?? const [];
   return library.where((m) => m.id == id).firstOrNull;
 });
+
+/// Per-team aggregated stats derived from the library, excluding remote-only
+/// entries. Computed once here so [VideoPage] and any other consumer read from
+/// a single reactive snapshot — avoiding the dual-read divergence where the
+/// page recomputed inline from `libraryProvider` while
+/// `filteredLibraryTeamsProvider` read it separately.
+final libraryStatsByTeamProvider =
+    Provider<Map<String, ({int matches, int clips, int sizeMb, String date})>>(
+  (ref) {
+    final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+    final byTeam =
+        <String, ({int matches, int clips, int sizeMb, String date})>{};
+    for (final m in library.where((m) => m.downloadState != 'remote')) {
+      final cur =
+          byTeam[m.teamId] ?? (matches: 0, clips: 0, sizeMb: 0, date: m.date);
+      byTeam[m.teamId] = (
+        matches: cur.matches + 1,
+        clips: cur.clips + m.events.length + 1,
+        sizeMb: cur.sizeMb + m.fullSizeMb,
+        date: m.date,
+      );
+    }
+    return byTeam;
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Live match state — local mirror of what the firmware would push back over

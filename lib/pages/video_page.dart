@@ -14,26 +14,10 @@ class VideoPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Phone-side only: the app cannot enumerate camera storage when the
-    // device isn't connected, so the library shows only matches with at
-    // least one clip already on the phone (`all-local` or `partial`).
-    final library = (ref.watch(libraryProvider).valueOrNull ?? const [])
-        .where((m) => m.downloadState != 'remote')
-        .toList();
-
-    // Build stats map — same as before, used for row rendering.
-    final byTeam =
-        <String, ({int matches, int clips, int sizeMb, String date})>{};
-    for (final m in library) {
-      final cur =
-          byTeam[m.teamId] ?? (matches: 0, clips: 0, sizeMb: 0, date: m.date);
-      byTeam[m.teamId] = (
-        matches: cur.matches + 1,
-        clips: cur.clips + m.events.length + 1,
-        sizeMb: cur.sizeMb + m.fullSizeMb,
-        date: m.date,
-      );
-    }
+    // Aggregated per-team stats — reactive, excludes remote-only entries.
+    // Sourced from libraryStatsByTeamProvider so this widget and
+    // filteredLibraryTeamsProvider both read the same snapshot of libraryProvider.
+    final byTeam = ref.watch(libraryStatsByTeamProvider);
 
     // Use filtered provider instead of computing tiles manually.
     final filteredTiles = ref.watch(filteredLibraryTeamsProvider);

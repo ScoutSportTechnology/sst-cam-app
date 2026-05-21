@@ -130,6 +130,7 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
       case _DetailMenuAction.delete:
         final ok = await _confirmDelete(context, team);
         if (!ok) return;
+        if (!context.mounted) return;
         try {
           await notifier.delete(team.id);
           if (!context.mounted) return;
@@ -479,7 +480,7 @@ class _MatchesTab extends ConsumerWidget {
         onTap: matches[i].kind == MatchKind.upcoming
             ? () {
                 Navigator.of(context).pop();
-                ref.read(activeTabProvider.notifier).state = 2;
+                ref.read(activeTabProvider.notifier).state = AppTab.match;
               }
             : null,
       ),

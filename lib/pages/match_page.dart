@@ -325,8 +325,10 @@ class _MatchSportFilterChips extends ConsumerWidget {
         final s = entries[i];
         final active = s == selected;
         return GestureDetector(
-          onTap: () =>
-              ref.read(upcomingMatchSportFilterProvider.notifier).state = s,
+          onTap: () {
+            ref.read(upcomingMatchSportFilterProvider.notifier).state = s;
+            ref.read(upcomingMatchTeamFilterProvider.notifier).state = null;
+          },
           child: WfChip(label: s ?? 'All', active: active),
         );
       },
@@ -340,7 +342,11 @@ class _MatchTeamFilterChips extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
-    final teams = matches.map((m) => m.team.name).toSet().toList()..sort();
+    final sport = ref.watch(upcomingMatchSportFilterProvider);
+    final filtered = sport == null
+        ? matches
+        : matches.where((m) => m.team.sport == sport).toList();
+    final teams = filtered.map((m) => m.team.name).toSet().toList()..sort();
     final selected = ref.watch(upcomingMatchTeamFilterProvider);
     final entries = <String?>[null, ...teams];
 
@@ -1428,7 +1434,7 @@ class _SessionScreen extends ConsumerWidget {
       context: context,
       backgroundColor: T.bg,
       isScrollControlled: true,
-      barrierColor: Colors.black.withValues(alpha: 0.55),
+      barrierColor: T.barrierColor,
       builder: (_) => _EventSheet(
         homeTeamId: match.team.id,
         onSave: (type, team, jersey) {
@@ -2290,17 +2296,19 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
                         ? (_type.isEmpty
                               ? null
                               : () => setState(() => _step = 1))
-                        : (_team == null
-                              ? null
-                              : () {
-                                  final jersey =
-                                      (_jerseyDropdownValue != null &&
-                                              _jerseyDropdownValue != 'other')
-                                          ? _jerseyDropdownValue!
-                                          : _jersey.toString();
-                                  widget.onSave(_type, _team!, jersey);
-                                  Navigator.of(context).pop();
-                                }),
+                        : (_team == null ||
+                              (_jerseyDropdownValue == 'other' &&
+                                  _jersey.isEmpty)
+                          ? null
+                          : () {
+                              final jersey =
+                                  (_jerseyDropdownValue != null &&
+                                          _jerseyDropdownValue != 'other')
+                                      ? _jerseyDropdownValue!
+                                      : _jersey.toString();
+                              widget.onSave(_type, _team!, jersey);
+                              Navigator.of(context).pop();
+                            }),
                   ),
                 ),
               ],

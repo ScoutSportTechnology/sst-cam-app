@@ -127,20 +127,20 @@ class _DataSection extends ConsumerWidget {
     if (confirmed != true) return;
     if (!context.mounted) return;
 
-    final pathController = TextEditingController();
+    var pathText = '';
     final path = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: T.surface,
         title: const Text('Enter backup file path'),
         content: TextField(
-          controller: pathController,
           autofocus: true,
           style: const TextStyle(color: T.ink, fontSize: 13),
           decoration: const InputDecoration(
             hintText: '/path/to/sst-backup-YYYY-MM-DD.json',
             hintStyle: TextStyle(color: T.ink3, fontSize: 12),
           ),
+          onChanged: (v) => pathText = v,
           onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
         ),
         actions: [
@@ -149,7 +149,7 @@ class _DataSection extends ConsumerWidget {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(pathController.text.trim()),
+            onPressed: () => Navigator.of(ctx).pop(pathText.trim()),
             child: const Text('Restore'),
           ),
         ],
@@ -159,13 +159,20 @@ class _DataSection extends ConsumerWidget {
     if (!context.mounted) return;
 
     final canonical = p.canonicalize(path);
-    String? docsDir;
+    String docsDir;
     try {
       docsDir = (await getApplicationDocumentsDirectory()).path;
     } catch (_) {
-      // path_provider unavailable; skip directory containment check.
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not determine safe storage path. Restore cancelled.'),
+          backgroundColor: T.danger,
+        ),
+      );
+      return;
     }
-    if (docsDir != null && !canonical.startsWith(docsDir)) {
+    if (!canonical.startsWith('$docsDir/')) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -186,15 +193,19 @@ class _DataSection extends ConsumerWidget {
         currentCameraDeviceId: activeCameraId,
       );
 
+      // Fix 13: restoreActive() reads SharedPreferences internally. Invalidating
+      // providers before it runs can cause UsersController.build() to race against
+      // the prefs write. Restore the active user first, then invalidate so the
+      // rebuilt controllers see the correct active-user state.
+      await ref
+          .read(usersControllerProvider.notifier)
+          .restoreActive(firstUserId);
+
       ref.invalidate(usersControllerProvider);
       ref.invalidate(teamsControllerProvider);
       ref.invalidate(sportPresetsControllerProvider);
       ref.invalidate(streamingDestinationsControllerProvider);
       ref.invalidate(upcomingMatchesProvider);
-
-      await ref
-          .read(usersControllerProvider.notifier)
-          .restoreActive(firstUserId);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

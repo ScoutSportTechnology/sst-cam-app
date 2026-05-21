@@ -72,7 +72,10 @@ class _AppShellState extends ConsumerState<AppShell> {
       body: IndexedStack(index: _index, children: _pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) {
+          setState(() => _index = i);
+          ref.read(activeTabProvider.notifier).state = i;
+        },
         destinations: _destinations,
       ),
     );

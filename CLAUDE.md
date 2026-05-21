@@ -59,7 +59,8 @@ proto/               Proto3 schemas — wire format + firmware contract
   README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/
   main.dart          Entry: UncontrolledProviderScope (pre-seeded ProviderContainer) → SSTCamApp
-  app.dart           MaterialApp (dark theme) + 5-tab NavigationBar shell
+  app.dart           MaterialApp (dark theme) + _buildTheme; delegates shell to app_shell.dart
+  app_shell.dart     5-tab NavigationBar shell (AppShell); drives tab via activeTabProvider
   ble/
     ble_service.dart
     ble_service_impl.dart  flutter_blue_plus implementation
