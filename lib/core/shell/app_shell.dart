@@ -3,7 +3,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/camera/main_page.dart';
-import '../../pages/match_page.dart';
+import '../../features/match/match_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/teams/teams_page.dart';
 import '../../features/video/video_page.dart';
