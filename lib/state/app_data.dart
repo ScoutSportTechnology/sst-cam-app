@@ -13,9 +13,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
-import '../db/app_database.dart';
-import '../db/daos/streaming_destinations_dao.dart';
-import '../db/daos/teams_dao.dart';
+import '../core/db/app_database.dart';
+import '../core/db/daos/streaming_destinations_dao.dart';
+import '../core/db/daos/teams_dao.dart';
 import '../core/models/sport_preset.dart';
 import '../core/models/streaming.dart';
 import '../core/models/team.dart';

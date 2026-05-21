@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/models/wifi.dart';
-import '../services/clip_service.dart';
-import '../services/video_path_service.dart';
+import '../core/services/clip_service.dart';
+import '../core/services/video_path_service.dart';
 import '../state/app_data.dart';
 import '../state/ble_providers.dart';
 import '../state/db_providers.dart' show clipServiceProvider;

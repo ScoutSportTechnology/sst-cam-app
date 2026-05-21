@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../ble/ble_service.dart';
-import '../ble/ble_service_impl.dart';
+import '../core/ble/ble_service.dart';
+import '../core/ble/ble_service_impl.dart';
 import '../ble/mock_ble_service.dart';
 import '../env.dart';
 import '../core/models/device.dart';

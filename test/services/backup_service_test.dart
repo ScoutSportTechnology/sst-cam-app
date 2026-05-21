@@ -4,14 +4,14 @@ import 'dart:io';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/ble/ble_service.dart';
-import 'package:sst_cam_app/db/app_database.dart';
+import 'package:sst_cam_app/core/ble/ble_service.dart';
+import 'package:sst_cam_app/core/db/app_database.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/match.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
-import 'package:sst_cam_app/services/backup_service.dart';
+import 'package:sst_cam_app/core/services/backup_service.dart';
 import 'package:uuid/uuid.dart';
 
 // ---------------------------------------------------------------------------

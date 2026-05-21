@@ -6,7 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../ble/ble_service.dart';
 import '../db/app_database.dart';
-import '../core/models/command.dart';
+import '../models/command.dart';
 
 /// Thrown by [BackupService.import] on validation failures.
 ///

@@ -1,5 +1,5 @@
-import '../core/models/recording.dart';
-import '../core/models/wifi.dart';
+import '../models/recording.dart';
+import '../models/wifi.dart';
 
 /// Abstract WiFi Direct interface — the only WiFi surface the UI touches.
 /// The real and mock implementations are fully swappable via Riverpod, in

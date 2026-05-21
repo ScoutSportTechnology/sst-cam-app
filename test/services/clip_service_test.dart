@@ -1,9 +1,9 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/db/app_database.dart';
-import 'package:sst_cam_app/services/clip_service.dart';
-import 'package:sst_cam_app/services/video_path_service.dart';
+import 'package:sst_cam_app/core/db/app_database.dart';
+import 'package:sst_cam_app/core/services/clip_service.dart';
+import 'package:sst_cam_app/core/services/video_path_service.dart';
 
 void main() {
   late AppDatabase db;

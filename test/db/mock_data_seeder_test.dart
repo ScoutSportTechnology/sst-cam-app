@@ -1,7 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/db/app_database.dart';
+import 'package:sst_cam_app/core/db/app_database.dart';
 import 'package:sst_cam_app/db/mock_data_seeder.dart';
 
 void main() {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../db/app_database.dart';
+import '../core/db/app_database.dart';
 import '../db/mock_data_seeder.dart';
 import '../env.dart';
 import '../state/app_data.dart' show activeUserProvider;

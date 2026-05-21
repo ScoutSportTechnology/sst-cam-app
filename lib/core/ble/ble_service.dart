@@ -1,8 +1,8 @@
-import '../core/models/command.dart';
-import '../core/models/device.dart';
-import '../core/models/match.dart';
-import '../core/models/recording.dart';
-import '../core/models/telemetry.dart';
+import '../models/command.dart';
+import '../models/device.dart';
+import '../models/match.dart';
+import '../models/recording.dart';
+import '../models/telemetry.dart';
 
 /// Abstract BLE interface. Injected via Riverpod so the real and mock
 /// implementations are fully swappable without touching UI code.

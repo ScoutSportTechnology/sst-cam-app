@@ -1,8 +1,8 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/db/app_database.dart';
-import 'package:sst_cam_app/db/daos/teams_dao.dart';
+import 'package:sst_cam_app/core/db/app_database.dart';
+import 'package:sst_cam_app/core/db/daos/teams_dao.dart';
 import 'package:uuid/uuid.dart';
 
 void main() {
