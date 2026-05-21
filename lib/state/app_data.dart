@@ -20,7 +20,7 @@ import '../core/models/sport_preset.dart';
 import '../core/models/streaming.dart';
 import '../core/models/team.dart';
 import '../core/models/user.dart';
-import 'db_providers.dart';
+import '../core/state/db_providers.dart';
 
 export '../core/models/sport_preset.dart';
 export '../core/models/streaming.dart';

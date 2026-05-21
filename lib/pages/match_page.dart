@@ -7,7 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../core/models/command.dart';
 import '../core/models/device.dart';
 import '../state/app_data.dart';
-import '../state/ble_providers.dart';
+import '../core/ble/ble_providers.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/indicators.dart';
 import '../core/widgets/live_preview_view.dart';

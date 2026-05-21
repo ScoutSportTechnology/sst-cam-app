@@ -5,7 +5,7 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../../app_config.dart';
+import '../config/app_config.dart';
 import 'daos/clips_dao.dart';
 import 'daos/sport_presets_dao.dart';
 import 'daos/streaming_destinations_dao.dart';

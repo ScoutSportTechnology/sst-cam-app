@@ -1,17 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/ble/ble_service.dart';
-import '../core/ble/ble_service_impl.dart';
-import '../mock/mock_ble_service.dart';
-import '../env.dart';
-import '../core/models/device.dart';
-import '../core/models/telemetry.dart';
-import '../core/models/match.dart';
-import '../core/models/recording.dart';
+import 'ble_service.dart';
+import 'ble_service_impl.dart';
+import '../../mock/mock_ble_service.dart';
+import '../config/env.dart';
+import '../models/device.dart';
+import '../models/telemetry.dart';
+import '../models/match.dart';
+import '../models/recording.dart';
 
 // ---------------------------------------------------------------------------
-// Service — backend chosen by `kAppEnv` (see lib/env.dart). Tests still
-// override via `bleServiceProvider.overrideWithValue(MockBleService())`.
+// Service — backend chosen by `kAppEnv` (see lib/core/config/env.dart). Tests
+// still override via `bleServiceProvider.overrideWithValue(MockBleService())`.
 // ---------------------------------------------------------------------------
 
 final bleServiceProvider = Provider<BleService>((ref) {

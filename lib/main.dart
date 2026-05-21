@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'mock/mock_data_seeder.dart';
-import 'env.dart';
-import 'state/db_providers.dart';
+import 'core/config/env.dart';
+import 'core/state/db_providers.dart';
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();

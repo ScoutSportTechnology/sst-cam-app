@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../env.dart';
+import '../core/config/env.dart';
 import '../core/models/device.dart';
 import '../state/app_data.dart';
-import '../state/ble_providers.dart';
-import '../state/last_camera.dart';
+import '../core/ble/ble_providers.dart';
+import '../core/state/last_camera.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/wf_button.dart';
 import '../core/widgets/wf_card.dart';

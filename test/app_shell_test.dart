@@ -16,10 +16,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sst_cam_app/app_shell.dart';
+import 'package:sst_cam_app/core/shell/app_shell.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/state/app_data.dart';
-import 'package:sst_cam_app/state/ble_providers.dart';
+import 'package:sst_cam_app/core/ble/ble_providers.dart';
 
 import 'test_helpers.dart';
 

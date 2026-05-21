@@ -5,8 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/models/device.dart';
 import '../state/app_data.dart';
-import '../state/ble_providers.dart';
-import '../state/last_camera.dart';
+import '../core/ble/ble_providers.dart';
+import '../core/state/last_camera.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/indicators.dart';
 import '../core/widgets/wf_button.dart';

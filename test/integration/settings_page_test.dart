@@ -38,8 +38,8 @@ import 'package:sst_cam_app/pages/settings_page.dart';
 import 'package:sst_cam_app/pages/users_settings_page.dart';
 import 'package:sst_cam_app/pages/streaming_destinations_page.dart';
 import 'package:sst_cam_app/state/app_data.dart';
-import 'package:sst_cam_app/state/ble_providers.dart';
-import 'package:sst_cam_app/state/last_camera.dart';
+import 'package:sst_cam_app/core/ble/ble_providers.dart';
+import 'package:sst_cam_app/core/state/last_camera.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';

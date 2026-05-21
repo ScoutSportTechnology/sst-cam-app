@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/models/device.dart';
-import 'app_data.dart';
-import 'ble_providers.dart';
+import '../models/device.dart';
+import '../../state/app_data.dart';
+import '../ble/ble_providers.dart';
 import 'wifi_providers.dart';
 
 /// Single owner of the WiFi Direct group lifecycle. Watches the active BLE

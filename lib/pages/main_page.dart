@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/models/device.dart';
 import '../core/models/telemetry.dart';
 import '../state/app_data.dart';
-import '../state/ble_providers.dart';
+import '../core/ble/ble_providers.dart';
 import '../core/theme/tokens.dart';
 import '../core/widgets/indicators.dart';
 import '../core/widgets/live_preview_view.dart';

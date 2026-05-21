@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/services/backup_service.dart';
 import '../state/app_data.dart';
-import '../state/db_providers.dart' show backupServiceProvider;
+import '../core/state/db_providers.dart' show backupServiceProvider;
 import '../core/theme/tokens.dart';
 import '../core/widgets/wf_card.dart';
 

@@ -1,15 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/db/app_database.dart';
-import '../core/db/daos/clips_dao.dart';
-import '../core/db/daos/users_dao.dart';
-import '../core/db/daos/teams_dao.dart';
-import '../core/db/daos/sport_presets_dao.dart';
-import '../core/db/daos/streaming_destinations_dao.dart';
-import '../core/services/backup_service.dart';
-import '../core/services/clip_service.dart';
-import '../core/services/video_path_service.dart';
-import 'ble_providers.dart';
+import '../db/app_database.dart';
+import '../db/daos/clips_dao.dart';
+import '../db/daos/users_dao.dart';
+import '../db/daos/teams_dao.dart';
+import '../db/daos/sport_presets_dao.dart';
+import '../db/daos/streaming_destinations_dao.dart';
+import '../services/backup_service.dart';
+import '../services/clip_service.dart';
+import '../services/video_path_service.dart';
+import '../ble/ble_providers.dart';
 
 // ---------------------------------------------------------------------------
 // Database — single instance, lazy-opened via LazyDatabase.

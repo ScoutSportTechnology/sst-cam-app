@@ -6,7 +6,7 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/state/last_camera.dart';
+import 'package:sst_cam_app/core/state/last_camera.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'pages/main_page.dart';
-import 'pages/match_page.dart';
-import 'pages/settings_page.dart';
-import 'pages/teams_page.dart';
-import 'pages/video_page.dart';
-import 'state/app_data.dart';
-import 'state/wifi_handoff.dart';
+import '../../pages/main_page.dart';
+import '../../pages/match_page.dart';
+import '../../pages/settings_page.dart';
+import '../../pages/teams_page.dart';
+import '../../pages/video_page.dart';
+import '../../state/app_data.dart';
+import '../wifi/wifi_handoff.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
