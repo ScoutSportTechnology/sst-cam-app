@@ -34,8 +34,8 @@ import 'package:sst_cam_app/ble/ble_service.dart';
 import 'package:sst_cam_app/ble/mock_ble_service.dart';
 import 'package:sst_cam_app/models/device.dart';
 import 'package:sst_cam_app/pages/discovery_page.dart';
-import 'package:sst_cam_app/pages/manage_users_page.dart';
 import 'package:sst_cam_app/pages/settings_page.dart';
+import 'package:sst_cam_app/pages/users_settings_page.dart';
 import 'package:sst_cam_app/pages/streaming_destinations_page.dart';
 import 'package:sst_cam_app/state/app_data.dart';
 import 'package:sst_cam_app/state/ble_providers.dart';
@@ -125,7 +125,7 @@ void main() {
       expect(find.text('Connect camera'), findsOneWidget);
       // Camera card absent; DB-backed sections always present.
       expect(find.text('Connected camera'), findsNothing);
-      expect(find.text('User'), findsOneWidget);
+      expect(find.text('Users'), findsAtLeastNWidgets(1));
 
       // Tap CTA — navigates to DiscoveryPage. Use bounded pumps because
       // DiscoveryPage's initState starts a scan timer that would block
@@ -287,9 +287,11 @@ void main() {
     final teamsUser1 = await container.read(teamsControllerProvider.future);
     expect(teamsUser1, isNotEmpty);
 
-    // Open the popup and select Coach Maria → confirm dialog, then Switch.
-    await tester.tap(find.byIcon(Icons.expand_more));
+    // Open the Users sub-page to access the user picker.
+    await tester.tap(find.text('Users').last);
     await tester.pumpAndSettle();
+
+    // Tap Coach Maria directly in the list to switch.
     await tester.tap(find.text('Coach Maria'));
     await tester.pumpAndSettle();
     expect(find.text('Switch user?'), findsOneWidget);
@@ -299,9 +301,13 @@ void main() {
     // activeUserProvider switched to user-2.
     expect(container.read(activeUserProvider), 'user-2');
 
-    // The compact row now shows Coach Maria (the new active user).
+    // Pop back to Settings to verify the nav row badge updated.
+    Navigator.of(tester.element(find.byType(Scaffold).last)).pop();
+    await tester.pumpAndSettle();
+
+    // The compact row now shows Coach Maria (the new active user) as badge.
     expect(find.text('Coach Maria'), findsOneWidget);
-    // Coach Diego is not visible on the main Settings page (only in popup).
+    // Coach Diego is not visible on the main Settings page (only in sub-page).
     expect(find.text('Coach Diego'), findsNothing);
 
     // Teams controller reflects user-2 (empty seed).
@@ -513,19 +519,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Settings shows Maria in the compact row.
+      // Settings shows Maria in the compact row badge.
       expect(find.text('Coach Maria'), findsOneWidget);
-      // Diego is not visible on the Settings page (only in popup/ManageUsers).
+      // Diego is not visible on the Settings page (only in the Users sub-page).
       expect(find.text('Coach Diego'), findsNothing);
 
-      // Navigate to ManageUsersPage to delete Diego.
-      expect(find.text('Manage users'), findsOneWidget);
-      await tester.tap(find.text('Manage users'));
+      // Navigate to UsersSettingsPage — directly shows all users.
+      await tester.tap(find.text('Users').last);
       await tester.pumpAndSettle();
-      expect(find.byType(ManageUsersPage), findsOneWidget);
+      expect(find.byType(UsersSettingsPage), findsOneWidget);
       expect(find.text('Coach Diego'), findsOneWidget);
 
-      // Tap Diego's delete icon on ManageUsersPage.
+      // Tap Diego's delete icon on UsersSettingsPage.
       final diegoRow = find.ancestor(
         of: find.text('Coach Diego'),
         matching: find.byType(InkWell),
@@ -610,9 +615,8 @@ void main() {
     // no activeUserProvider override was set.
     expect(container.read(activeUserProvider), isNull);
 
-    // The "Pick a user" copy is present in the compact row.
-    expect(find.textContaining('Pick a user to get started'), findsOneWidget);
-    // No "Active" chip visible on the main Settings page.
+    // No active-user badge shown on the Settings page (null user state).
+    // The "Pick a user" copy is inside UsersSettingsPage (not the main page).
     expect(find.text('Active'), findsNothing);
 
     // StreamingDestinations controller returns empty without crashing

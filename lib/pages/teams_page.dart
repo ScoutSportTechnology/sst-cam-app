@@ -61,7 +61,15 @@ class TeamsPage extends ConsumerWidget {
                 );
               }
               return Expanded(
-                child: _TeamsList(teams: filtered, totalShown: filtered.length),
+                child: Column(
+                  children: [
+                    WfSection(
+                      'Your teams · ${filtered.length}',
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    ),
+                    Expanded(child: _TeamsList(teams: filtered)),
+                  ],
+                ),
               );
             },
           ),
@@ -235,8 +243,7 @@ class _NoTeamsYet extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Teams live on the camera. Add your first one to start '
-              'recording matches.',
+              'Add your first team to start organising matches.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
             ),
@@ -290,30 +297,19 @@ class _TeamsErrorState extends StatelessWidget {
 }
 
 class _TeamsList extends ConsumerWidget {
-  const _TeamsList({required this.teams, required this.totalShown});
+  const _TeamsList({required this.teams});
   final List<TeamRecord> teams;
-  final int totalShown;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (teams.isEmpty) {
       return const Center(child: WfNote('No teams match your filters'));
     }
-    return Column(
-      children: [
-        WfSection(
-          'Your teams · $totalShown',
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: EdgeInsets.zero,
-            itemCount: teams.length,
-            separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
-            itemBuilder: (context, i) => _SwipeableTeamRow(team: teams[i]),
-          ),
-        ),
-      ],
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: teams.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
+      itemBuilder: (context, i) => _SwipeableTeamRow(team: teams[i]),
     );
   }
 }
@@ -406,8 +402,7 @@ Future<bool> _confirmDelete(BuildContext context, TeamRecord team) async {
       backgroundColor: T.surface,
       title: const Text('Delete team?'),
       content: Text(
-        '${team.name} and its match history will be removed from the camera. '
-        'Recordings on the camera storage are not affected.',
+        '${team.name} and its match history will be permanently deleted.',
       ),
       actions: [
         TextButton(

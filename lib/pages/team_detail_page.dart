@@ -130,6 +130,7 @@ class _TeamDetailPageState extends ConsumerState<TeamDetailPage>
       case _DetailMenuAction.delete:
         final ok = await _confirmDelete(context, team);
         if (!ok) return;
+        if (!context.mounted) return;
         try {
           await notifier.delete(team.id);
           if (!context.mounted) return;
@@ -476,15 +477,22 @@ class _MatchesTab extends ConsumerWidget {
         onDelete: () => ref
             .read(teamsControllerProvider.notifier)
             .removeMatch(teamId, matches[i].id),
+        onTap: matches[i].kind == MatchKind.upcoming
+            ? () {
+                Navigator.of(context).pop();
+                ref.read(activeTabProvider.notifier).state = AppTab.match;
+              }
+            : null,
       ),
     );
   }
 }
 
 class _MatchRow extends StatelessWidget {
-  const _MatchRow({required this.match, required this.onDelete});
+  const _MatchRow({required this.match, required this.onDelete, this.onTap});
   final TeamMatch match;
   final Future<void> Function() onDelete;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -514,7 +522,11 @@ class _MatchRow extends StatelessWidget {
           ).showSnackBar(SnackBar(content: Text('Could not delete match: $e')));
         }
       },
-      child: Padding(
+      child: Material(
+        color: T.bg,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
@@ -591,8 +603,11 @@ class _MatchRow extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+            if (onTap != null)
+              const Icon(Icons.chevron_right, color: T.ink3, size: 18),
           ],
+        ),
+      ),
         ),
       ),
     );

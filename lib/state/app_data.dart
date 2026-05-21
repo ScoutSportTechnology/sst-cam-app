@@ -77,6 +77,19 @@ class LibraryMatch {
 
 final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 
+/// App-level selected tab index. Write to this to switch tabs from anywhere.
+/// Tab indices: 0=Main, 1=Teams, 2=Match, 3=Video, 4=Settings.
+final activeTabProvider = StateProvider<int>((_) => 0);
+
+/// Named tab indices — use these instead of bare integers when writing to [activeTabProvider].
+abstract final class AppTab {
+  static const int main = 0;
+  static const int teams = 1;
+  static const int match = 2;
+  static const int video = 3;
+  static const int settings = 4;
+}
+
 // ---------------------------------------------------------------------------
 // Active user — single source of truth on the app side. Hydrated from
 // SharedPreferences in `UsersController.build()`. Per-user-scoped controllers
@@ -841,6 +854,70 @@ final filteredTeamsProvider = Provider<List<TeamRecord>>((ref) {
 });
 
 // ---------------------------------------------------------------------------
+// Filter / search state for the Match landing page.
+// ---------------------------------------------------------------------------
+
+final upcomingSearchQueryProvider = StateProvider<String>((_) => '');
+final upcomingMatchSportFilterProvider = StateProvider<String?>((_) => null); // null = All
+final upcomingMatchTeamFilterProvider = StateProvider<String?>((_) => null); // null = All teams
+
+final filteredUpcomingMatchesProvider = Provider<List<UpcomingMatch>>((ref) {
+  final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
+  final query = ref.watch(upcomingSearchQueryProvider).trim().toLowerCase();
+  final sport = ref.watch(upcomingMatchSportFilterProvider);
+  final team = ref.watch(upcomingMatchTeamFilterProvider);
+  return matches.where((m) {
+    if (sport != null && m.team.sport != sport) return false;
+    if (team != null && m.team.name != team) return false;
+    if (query.isEmpty) return true;
+    return m.team.name.toLowerCase().contains(query) ||
+        m.match.opponent.toLowerCase().contains(query);
+  }).toList();
+});
+
+// ---------------------------------------------------------------------------
+// Filter / search state for the Library (Video) page.
+// ---------------------------------------------------------------------------
+
+final librarySearchQueryProvider = StateProvider<String>((_) => '');
+final librarySportFilterProvider = StateProvider<String?>((_) => null); // null = All
+
+/// Sports actually present in the current library set, in `kSports` order.
+final availableLibrarySportsProvider = Provider<List<String>>((ref) {
+  final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final teamMap = {for (final t in teams) t.id: t};
+  final present = library
+      .map((m) => teamMap[m.teamId]?.sport)
+      .whereType<String>()
+      .toSet();
+  return kSports.where(present.contains).toList();
+});
+
+/// Teams that have at least one local library entry, after applying search +
+/// sport filter.
+final filteredLibraryTeamsProvider = Provider<List<TeamRecord>>((ref) {
+  final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+  final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+  final query = ref.watch(librarySearchQueryProvider).trim().toLowerCase();
+  final sport = ref.watch(librarySportFilterProvider);
+
+  // Build set of team IDs that have local library entries.
+  final presentIds = library
+      .where((m) => m.downloadState != 'remote')
+      .map((m) => m.teamId)
+      .toSet();
+
+  return teams.where((t) {
+    if (!presentIds.contains(t.id)) return false;
+    if (sport != null && t.sport != sport) return false;
+    if (query.isEmpty) return true;
+    return t.name.toLowerCase().contains(query) ||
+        t.shortName.toLowerCase().contains(query);
+  }).toList();
+});
+
+// ---------------------------------------------------------------------------
 // Library — backed by TeamMatchesTable joined with TeamsTable.
 // Emits the current list of past matches with events parsed from eventsJson.
 // ---------------------------------------------------------------------------
@@ -901,6 +978,31 @@ final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
   final library = ref.watch(libraryProvider).valueOrNull ?? const [];
   return library.where((m) => m.id == id).firstOrNull;
 });
+
+/// Per-team aggregated stats derived from the library, excluding remote-only
+/// entries. Computed once here so [VideoPage] and any other consumer read from
+/// a single reactive snapshot — avoiding the dual-read divergence where the
+/// page recomputed inline from `libraryProvider` while
+/// `filteredLibraryTeamsProvider` read it separately.
+final libraryStatsByTeamProvider =
+    Provider<Map<String, ({int matches, int clips, int sizeMb, String date})>>(
+  (ref) {
+    final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+    final byTeam =
+        <String, ({int matches, int clips, int sizeMb, String date})>{};
+    for (final m in library.where((m) => m.downloadState != 'remote')) {
+      final cur =
+          byTeam[m.teamId] ?? (matches: 0, clips: 0, sizeMb: 0, date: m.date);
+      byTeam[m.teamId] = (
+        matches: cur.matches + 1,
+        clips: cur.clips + m.events.length + 1,
+        sizeMb: cur.sizeMb + m.fullSizeMb,
+        date: m.date,
+      );
+    }
+    return byTeam;
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Live match state — local mirror of what the firmware would push back over

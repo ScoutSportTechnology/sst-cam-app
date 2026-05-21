@@ -80,7 +80,7 @@ class _MatchGroup extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        match.date,
+                        'vs ${match.opponent}',
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -89,7 +89,7 @@ class _MatchGroup extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${match.opponent} · ${match.result}',
+                        '${match.date} · ${match.result}',
                         style: const TextStyle(fontSize: 11, color: T.ink2),
                       ),
                     ],

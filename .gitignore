@@ -48,4 +48,4 @@ app.*.map.json
 lib/models/proto/
 
 # Lock files
-pubspec.lock
+pubspec.lock.claude/worktrees/

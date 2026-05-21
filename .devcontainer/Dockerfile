@@ -8,7 +8,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 ENV ANDROID_SDK_ROOT=/android-sdk
 ENV ANDROID_NDK_VERSION=28.2.13676358
-ENV ANDROID_PLATFORM_VERSION=android-36
+ENV ANDROID_PLATFORM_VERSION=android-35
+ENV ANDROID_BUILD_TOOLS_VERSION=34.0.0
 ENV FLUTTER_SDK_ROOT=/flutter
 ENV FLUTTER_SDK_VERSION=3.41.9-stable
 
@@ -31,7 +32,7 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
 
 # Accept Android SDK licenses and install necessary components
 RUN yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses && \
-    ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "ndk;${ANDROID_NDK_VERSION}" "platform-tools" "platforms;${ANDROID_PLATFORM_VERSION}"
+    ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" "ndk;${ANDROID_NDK_VERSION}" "platform-tools" "platforms;${ANDROID_PLATFORM_VERSION}"
 
 # Download and install Flutter
 RUN mkdir -p ${FLUTTER_SDK_ROOT} \

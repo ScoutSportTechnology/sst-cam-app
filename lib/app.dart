@@ -1,14 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_config.dart';
-import 'pages/main_page.dart';
-import 'pages/match_page.dart';
-import 'pages/settings_page.dart';
-import 'pages/teams_page.dart';
-import 'pages/video_page.dart';
-import 'state/wifi_handoff.dart';
+import 'app_shell.dart';
 import 'theme/tokens.dart';
 
 class SstCamApp extends StatelessWidget {
@@ -21,7 +15,7 @@ class SstCamApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: _buildTheme(),
-      home: const _AppShell(),
+      home: const AppShell(),
     );
   }
 
@@ -178,65 +172,3 @@ class SstCamApp extends StatelessWidget {
   }
 }
 
-class _AppShell extends ConsumerStatefulWidget {
-  const _AppShell();
-
-  @override
-  ConsumerState<_AppShell> createState() => _AppShellState();
-}
-
-class _AppShellState extends ConsumerState<_AppShell> {
-  int _index = 0;
-
-  static const _destinations = [
-    NavigationDestination(
-      icon: Icon(Icons.home_outlined),
-      selectedIcon: Icon(Icons.home),
-      label: 'Main',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.groups_outlined),
-      selectedIcon: Icon(Icons.groups),
-      label: 'Teams',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.scoreboard_outlined),
-      selectedIcon: Icon(Icons.scoreboard),
-      label: 'Match',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.video_library_outlined),
-      selectedIcon: Icon(Icons.video_library),
-      label: 'Video',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.settings_outlined),
-      selectedIcon: Icon(Icons.settings),
-      label: 'Settings',
-    ),
-  ];
-
-  static const _pages = [
-    MainPage(),
-    TeamsPage(),
-    MatchPage(),
-    VideoPage(),
-    SettingsPage(),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    // Keep the WiFi-Direct lifecycle controller alive for the app's lifetime.
-    // It listens to BLE connection state and auto-connects / disconnects the
-    // WiFi group; lazy NotifierProviders need a reader to run.
-    ref.watch(wifiHandoffProvider);
-    return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: _destinations,
-      ),
-    );
-  }
-}

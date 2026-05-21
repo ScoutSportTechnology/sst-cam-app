@@ -13,7 +13,7 @@
 // Mock fixture data is controlled separately:
 //   flutter run --dart-define=kUseMockData=true
 //
-// kUseMockData=true seeds the Drift DB with JSON fixtures from assets/mock/
+// kUseMockData=true seeds the Drift DB with JSON fixtures from assets/ble/
 // on first launch (or after a reset). Independent of APP_ENV — you can run
 // stage+kUseMockData=true or dev+kUseMockData=false.
 
@@ -28,7 +28,7 @@ const AppEnv kAppEnv = _envName == 'prod'
     ? AppEnv.prod
     : (_envName == 'stage' ? AppEnv.stage : AppEnv.dev);
 
-/// Whether to load mock fixture data from assets/mock/fixtures/ into the DB.
+/// Whether to load mock fixture data from assets/ble/fixtures/ into the DB.
 /// Defaults to true when APP_ENV=dev (the development default), false otherwise.
 /// Override at build/run time: --dart-define=kUseMockData=false (or =true).
 const bool kUseMockData = bool.fromEnvironment(

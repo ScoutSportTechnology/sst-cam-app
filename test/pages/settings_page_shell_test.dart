@@ -88,14 +88,14 @@ void main() {
         expect(find.text('Connected camera'), findsNothing);
         expect(find.text('Disconnect'), findsNothing);
 
-        // DB-backed sections always render — no camera connection needed.
-        expect(find.text('User'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Match setup'), 200);
-        expect(find.text('Match setup'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
-        expect(find.text('Streaming setup'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('App'), 200);
-        expect(find.text('App'), findsOneWidget);
+        // DB-backed nav rows always render — no camera connection needed.
+        expect(find.text('Users'), findsAtLeastNWidgets(1));
+        await tester.scrollUntilVisible(find.text('Sport setups'), 200);
+        expect(find.text('Sport setups'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
+        expect(find.text('Streaming destinations'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Theme'), 200);
+        expect(find.text('Theme'), findsOneWidget);
       },
     );
   });
@@ -131,31 +131,20 @@ void main() {
         expect(find.text('Update fw'), findsOneWidget);
         expect(find.text('Disconnect'), findsOneWidget);
         expect(find.text('Diagnostics'), findsOneWidget);
-        expect(find.text('User'), findsOneWidget);
-        // User section shows compact active-user row with popup selector.
+        // Users section collapses to a single nav row; badge shows active user.
+        expect(find.text('Users'), findsAtLeastNWidgets(1));
         expect(find.text('Coach Diego'), findsOneWidget);
-        expect(find.text('Manage users'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Match setup'), 200);
-        expect(find.text('Match setup'), findsOneWidget);
+        // Manage users nav row is gone — management is directly in UsersSettingsPage.
+        expect(find.text('Manage users'), findsNothing);
+        // Nav rows are grouped in a single card; no separate WfSection headers.
+        await tester.scrollUntilVisible(find.text('Sport setups'), 200);
         expect(find.text('Sport setups'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Streaming setup'), 200);
-        expect(find.text('Streaming setup'), findsOneWidget);
-        // Streaming section is now a nav row — no inline destinations.
-        await tester.scrollUntilVisible(
-          find.text('Streaming destinations'),
-          200,
-        );
+        await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
         expect(find.text('Streaming destinations'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('App'), 200);
-        expect(find.text('App'), findsOneWidget);
+        // App section rows are inline at the bottom.
         await tester.scrollUntilVisible(find.text('Theme'), 200);
         expect(find.text('Theme'), findsOneWidget);
-        // Permissions / About are below the fold now that the camera
-        // card has grown to a 2x2 button grid; scroll the ListView to
-        // surface them.
-        await tester.scrollUntilVisible(find.text('Permissions'), 200);
         expect(find.text('Permissions'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('About'), 200);
         expect(find.text('About'), findsOneWidget);
 
         // Removed cards from prior shell are gone.
@@ -170,7 +159,7 @@ void main() {
         // taken just before each `scrollUntilVisible` advanced past it.
         // Since scrolling above already moved each element into view in
         // order Match → Streaming → App, the order is structurally
-        // enforced. We additionally assert the User section header is
+        // enforced. We additionally assert the Users section nav row is
         // above Match setup by scrolling back to the top.
         await tester.dragUntilVisible(
           find.text('Connected camera'),
@@ -178,7 +167,10 @@ void main() {
           const Offset(0, 200),
         );
         final cameraPos = tester.getTopLeft(find.text('Connected camera')).dy;
-        final userHeaderPos = tester.getTopLeft(find.text('User')).dy;
+        // 'Users' appears twice (WfSection + nav row label); use the first.
+        final userHeaderPos = tester
+            .getTopLeft(find.text('Users').first)
+            .dy;
         expect(cameraPos < userHeaderPos, isTrue);
       },
     );
@@ -219,8 +211,8 @@ void main() {
         expect(find.text('No camera connected'), findsOneWidget);
         expect(find.text('Connect camera'), findsOneWidget);
         expect(find.text('Connected camera'), findsNothing);
-        // User section still present (DB-backed, no connection needed).
-        expect(find.text('User'), findsOneWidget);
+        // Users section still present (DB-backed, no connection needed).
+        expect(find.text('Users'), findsAtLeastNWidgets(1));
       },
     );
   });

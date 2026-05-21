@@ -132,43 +132,64 @@ class _LandingScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(title: const Text('Match')),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              'Could not load matches: $e',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: T.ink2, fontSize: 12),
-            ),
+      body: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
+            child: _MatchSearchField(),
           ),
-        ),
-        data: (matches) {
-          if (matches.isEmpty) {
-            return _NoUpcomingState(onSchedule: () => _schedule(context, ref));
-          }
-          return Column(
-            children: [
-              WfSection(
-                'Upcoming · ${matches.length}',
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-              ),
-              Expanded(
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: matches.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(height: 1, color: T.rule),
-                  itemBuilder: (_, i) => _UpcomingRow(
-                    match: matches[i],
-                    onTap: () => onSelect(matches[i]),
+          const SizedBox(height: 32, child: _MatchSportFilterChips()),
+          const SizedBox(height: 6),
+          const SizedBox(height: 32, child: _MatchTeamFilterChips()),
+          Expanded(
+            child: async.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'Could not load matches: $e',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: T.ink2, fontSize: 12),
                   ),
                 ),
               ),
-            ],
-          );
-        },
+              data: (matches) {
+                final filtered = ref.watch(filteredUpcomingMatchesProvider);
+                if (matches.isEmpty) {
+                  return _NoUpcomingState(
+                    onSchedule: () => _schedule(context, ref),
+                  );
+                }
+                if (filtered.isEmpty) {
+                  return const Center(
+                    child: WfNote('No matches match your filters'),
+                  );
+                }
+                return Column(
+                  children: [
+                    WfSection(
+                      'Upcoming · ${filtered.length}',
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: EdgeInsets.zero,
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, _) =>
+                            const Divider(height: 1, color: T.rule),
+                        itemBuilder: (_, i) => _UpcomingRow(
+                          match: filtered[i],
+                          onTap: () => onSelect(filtered[i]),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(heroTag: null,
         onPressed: () => _schedule(context, ref),
@@ -207,6 +228,143 @@ class _LandingScreen extends ConsumerWidget {
         context,
       ).showSnackBar(SnackBar(content: Text('Could not add match: $e')));
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SEARCH FIELD — mirrors _SearchField from teams_page.dart
+// ---------------------------------------------------------------------------
+
+class _MatchSearchField extends ConsumerStatefulWidget {
+  const _MatchSearchField();
+
+  @override
+  ConsumerState<_MatchSearchField> createState() => _MatchSearchFieldState();
+}
+
+class _MatchSearchFieldState extends ConsumerState<_MatchSearchField> {
+  late final TextEditingController _ctl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctl = TextEditingController(
+      text: ref.read(upcomingSearchQueryProvider),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: T.fillSoft,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, size: 16, color: T.ink3),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _ctl,
+              onChanged: (v) =>
+                  ref.read(upcomingSearchQueryProvider.notifier).state = v,
+              decoration: const InputDecoration(
+                hintText: 'Search matches',
+                hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                border: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              style: const TextStyle(color: T.ink, fontSize: 13),
+            ),
+          ),
+          if (_ctl.text.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _ctl.clear();
+                ref.read(upcomingSearchQueryProvider.notifier).state = '';
+              },
+              child: const Icon(Icons.close, size: 16, color: T.ink3),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SPORT FILTER CHIPS — mirrors _SportFilterChips from teams_page.dart
+// ---------------------------------------------------------------------------
+
+class _MatchSportFilterChips extends ConsumerWidget {
+  const _MatchSportFilterChips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final matches =
+        ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
+    final sports = matches.map((m) => m.team.sport).toSet().toList()..sort();
+    final selected = ref.watch(upcomingMatchSportFilterProvider);
+    final entries = <String?>[null, ...sports];
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      itemCount: entries.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 6),
+      itemBuilder: (_, i) {
+        final s = entries[i];
+        final active = s == selected;
+        return GestureDetector(
+          onTap: () {
+            ref.read(upcomingMatchSportFilterProvider.notifier).state = s;
+            ref.read(upcomingMatchTeamFilterProvider.notifier).state = null;
+          },
+          child: WfChip(label: s ?? 'All', active: active),
+        );
+      },
+    );
+  }
+}
+
+class _MatchTeamFilterChips extends ConsumerWidget {
+  const _MatchTeamFilterChips();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
+    final sport = ref.watch(upcomingMatchSportFilterProvider);
+    final filtered = sport == null
+        ? matches
+        : matches.where((m) => m.team.sport == sport).toList();
+    final teams = filtered.map((m) => m.team.name).toSet().toList()..sort();
+    final selected = ref.watch(upcomingMatchTeamFilterProvider);
+    final entries = <String?>[null, ...teams];
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      itemCount: entries.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 6),
+      itemBuilder: (_, i) {
+        final t = entries[i];
+        final active = t == selected;
+        return GestureDetector(
+          onTap: () =>
+              ref.read(upcomingMatchTeamFilterProvider.notifier).state = t,
+          child: WfChip(label: t ?? 'All teams', active: active),
+        );
+      },
+    );
   }
 }
 
@@ -415,7 +573,7 @@ class _NoUpcomingState extends StatelessWidget {
             const SizedBox(height: 6),
             const Text(
               'Schedule a match to set it up and run it from this tab. '
-              'Past matches live in the Video and Teams tabs.',
+              'Past matches are in the Video and Teams tabs.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
             ),
@@ -1165,9 +1323,7 @@ class _SessionScreen extends ConsumerWidget {
               indicator: indicator,
               indicatorColor: indicatorColor,
               clock: state.clockText,
-              // Back arrow only after the match has ended — avoids
-              // accidental exits during the live session.
-              onBack: isEnded ? onLeave : null,
+              onBack: (isEnded || state.phase == MatchPhase.idle) ? onLeave : null,
             ),
             _LiveThumb(
               homeLabel: state.homeName,
@@ -1278,8 +1434,9 @@ class _SessionScreen extends ConsumerWidget {
       context: context,
       backgroundColor: T.bg,
       isScrollControlled: true,
-      barrierColor: Colors.black.withValues(alpha: 0.55),
+      barrierColor: T.barrierColor,
       builder: (_) => _EventSheet(
+        homeTeamId: match.team.id,
         onSave: (type, team, jersey) {
           ref
               .read(liveMatchProvider.notifier)
@@ -2064,7 +2221,8 @@ class _PlayPainter extends CustomPainter {
 // ---------------------------------------------------------------------------
 
 class _EventSheet extends ConsumerStatefulWidget {
-  const _EventSheet({required this.onSave});
+  const _EventSheet({required this.homeTeamId, required this.onSave});
+  final String homeTeamId;
   final void Function(String type, String team, String? jersey) onSave;
 
   @override
@@ -2075,13 +2233,19 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
   static const _types = ['Goal', 'Foul', 'Card', 'Sub', 'Save', 'Other'];
 
   int _step = 0;
-  String _type = 'Goal';
+  String _type = '';
   String? _team;
   final _jersey = StringBuffer();
+  String? _jerseyDropdownValue;
+  bool _showNumberPad = false;
 
   @override
   Widget build(BuildContext context) {
     final live = ref.watch(liveMatchProvider);
+    final allTeams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+    final homeTeam = allTeams.where((t) => t.id == widget.homeTeamId).firstOrNull;
+    final homeRoster = homeTeam?.roster ?? const <Player>[];
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -2110,7 +2274,7 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
             const SizedBox(height: 14),
             _StepHeader(step: _step, selectedType: _step == 1 ? _type : null),
             const SizedBox(height: 14),
-            if (_step == 0) _typePicker() else _teamAndJersey(live),
+            if (_step == 0) _typePicker() else _teamAndJersey(live, homeRoster),
             const SizedBox(height: 14),
             Row(
               children: [
@@ -2129,17 +2293,22 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
                     label: _step == 0 ? 'Next' : 'Save event',
                     variant: WfButtonVariant.primary,
                     onPressed: _step == 0
-                        ? () => setState(() => _step = 1)
-                        : (_team == null
+                        ? (_type.isEmpty
                               ? null
-                              : () {
-                                  widget.onSave(
-                                    _type,
-                                    _team!,
-                                    _jersey.toString(),
-                                  );
-                                  Navigator.of(context).pop();
-                                }),
+                              : () => setState(() => _step = 1))
+                        : (_team == null ||
+                              (_jerseyDropdownValue == 'other' &&
+                                  _jersey.isEmpty)
+                          ? null
+                          : () {
+                              final jersey =
+                                  (_jerseyDropdownValue != null &&
+                                          _jerseyDropdownValue != 'other')
+                                      ? _jerseyDropdownValue!
+                                      : _jersey.toString();
+                              widget.onSave(_type, _team!, jersey);
+                              Navigator.of(context).pop();
+                            }),
                   ),
                 ),
               ],
@@ -2204,7 +2373,11 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
     );
   }
 
-  Widget _teamAndJersey(LiveMatchState live) {
+  Widget _teamAndJersey(LiveMatchState live, List<Player> homeRoster) {
+    final isHomeSelected = _team == live.homeName;
+    final activeRoster = isHomeSelected ? homeRoster : const <Player>[];
+    final hasRoster = activeRoster.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2220,70 +2393,197 @@ class _EventSheetState extends ConsumerState<_EventSheet> {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: _teamCard('HOME', live.homeName)),
+            Expanded(child: _teamCard('HOME', live.homeName, homeRoster)),
             const SizedBox(width: 8),
-            Expanded(child: _teamCard('AWAY', live.awayName)),
+            Expanded(child: _teamCard('AWAY', live.awayName, const [])),
           ],
         ),
-        const SizedBox(height: 18),
-        const Text(
-          'Jersey #',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: T.ink,
-            letterSpacing: -0.2,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            border: Border.all(color: T.hair),
-            color: T.surface,
-          ),
-          child: Row(
-            children: [
-              Text(
-                _jersey.isEmpty ? '—' : _jersey.toString(),
-                style: const TextStyle(
-                  fontFamily: T.mono,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: T.ink,
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: _team == null
+              ? const SizedBox.shrink()
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        const Text(
+                          'Jersey #',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: T.ink,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const WfNote('Optional'),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (hasRoster) ...[
+                      // Dropdown always visible when a roster exists.
+                      // Selecting "Other…" adds the number pad below; picking
+                      // a player back from the dropdown dismisses it.
+                      Container(
+                        height: 46,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: T.hair),
+                          color: T.surface,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _jerseyDropdownValue,
+                            isExpanded: true,
+                            dropdownColor: T.surface,
+                            hint: const Text(
+                              '—',
+                              style: TextStyle(
+                                fontFamily: T.mono,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: T.ink3,
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.expand_more,
+                              size: 18,
+                              color: T.ink2,
+                            ),
+                            style: const TextStyle(
+                              fontFamily: T.mono,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: T.ink,
+                            ),
+                            items: [
+                              for (final p in activeRoster)
+                                DropdownMenuItem(
+                                  value: p.number.toString(),
+                                  child: Text('#${p.number}  ${p.name}'),
+                                ),
+                              DropdownMenuItem(
+                                value: 'other',
+                                child: Text(
+                                  'Other…',
+                                  style: TextStyle(
+                                    fontFamily: T.mono,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w400,
+                                    color: T.ink2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) => setState(() {
+                              _jerseyDropdownValue = v;
+                              _showNumberPad = v == 'other';
+                              if (v != 'other') _jersey.clear();
+                            }),
+                          ),
+                        ),
+                      ),
+                      if (_showNumberPad) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 46,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: T.hair),
+                            color: T.surface,
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                _jersey.isEmpty ? '—' : _jersey.toString(),
+                                style: const TextStyle(
+                                  fontFamily: T.mono,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: T.ink,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _NumberPad(
+                          onTap: (k) {
+                            setState(() {
+                              if (k == '⌫') {
+                                if (_jersey.isNotEmpty) {
+                                  final s = _jersey.toString();
+                                  _jersey
+                                    ..clear()
+                                    ..write(s.substring(0, s.length - 1));
+                                }
+                              } else if (k != '—' && _jersey.length < 3) {
+                                _jersey.write(k);
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ] else ...[
+                      // No roster — number pad only.
+                      Container(
+                        height: 46,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: T.hair),
+                          color: T.surface,
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              _jersey.isEmpty ? '—' : _jersey.toString(),
+                              style: const TextStyle(
+                                fontFamily: T.mono,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: T.ink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _NumberPad(
+                        onTap: (k) {
+                          setState(() {
+                            if (k == '⌫') {
+                              if (_jersey.isNotEmpty) {
+                                final s = _jersey.toString();
+                                _jersey
+                                  ..clear()
+                                  ..write(s.substring(0, s.length - 1));
+                              }
+                            } else if (k != '—' && _jersey.length < 3) {
+                              _jersey.write(k);
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ],
                 ),
-              ),
-              const Spacer(),
-              const WfNote('Optional'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _NumberPad(
-          onTap: (k) {
-            setState(() {
-              if (k == '⌫') {
-                if (_jersey.isNotEmpty) {
-                  final s = _jersey.toString();
-                  _jersey
-                    ..clear()
-                    ..write(s.substring(0, s.length - 1));
-                }
-              } else if (k != '—' && _jersey.length < 3) {
-                _jersey.write(k);
-              }
-            });
-          },
         ),
       ],
     );
   }
 
-  Widget _teamCard(String header, String name) {
+  Widget _teamCard(String header, String name, List<Player> roster) {
     final on = _team == name;
     return GestureDetector(
-      onTap: () => setState(() => _team = name),
+      onTap: () => setState(() {
+        _team = name;
+        _jersey.clear();
+        _jerseyDropdownValue = null;
+        _showNumberPad = false;
+      }),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(

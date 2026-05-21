@@ -120,7 +120,7 @@ class MockDataSeeder {
   /// Loads and parses a fixture JSON file, stripping `//` comment lines.
   Future<List<Map<String, dynamic>>> _loadFixture(String name) async {
     final raw =
-        await rootBundle.loadString('assets/mock/fixtures/$name.json');
+        await rootBundle.loadString('assets/ble/fixtures/$name.json');
     // Strip lines that are purely // comments (JSON doesn't support comments).
     final stripped = raw
         .split('\n')

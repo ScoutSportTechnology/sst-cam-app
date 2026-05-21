@@ -45,6 +45,9 @@ class T {
       'Inter, -apple-system, BlinkMacSystemFont, Roboto, sans-serif';
   static const mono = 'JetBrains Mono, SF Mono, ui-monospace, Menlo, monospace';
 
+  // Overlays
+  static const barrierColor = Color(0x8C0A0A0A); // modal backdrop — 55% bg
+
   // Motion
   static const ease = Cubic(0.32, 0.72, 0, 1);
   static const fast = Duration(milliseconds: 160);

@@ -39,6 +39,7 @@ dependencies:
 
   # Utilities
   uuid: ^4.5.1
+  flutter_native_splash: ^2.4.3
 
 dev_dependencies:
   flutter_test:
@@ -51,16 +52,39 @@ dev_dependencies:
   # For mocking PathProviderPlatform in widget tests (Fix 2)
   path_provider_platform_interface: ^2.1.2
   plugin_platform_interface: ^2.1.8
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
   assets:
-    - assets/brand/
-    - assets/mock/
-    - assets/mock/fixtures/
+    - assets/ble/
+    - assets/ble/fixtures/
 
 flutter_app_name:
   name: "SST Cam"
   id: "com.sst.sstcam"
   android: true
   ios: true
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "launcher/icon-dev-1024.png"
+  adaptive_icon_foreground: "launcher/icon-dev-foreground.png"
+  adaptive_icon_background: "#E8FF3C"
+  min_sdk_android: 21
+  remove_alpha_ios: false
+
+flutter_native_splash:
+  color: "#0A0A0A"
+  image: "launcher/splash-dev.png"
+  android_gravity: center
+  ios_content_mode: center
+  branding: "launcher/branding.png"
+  branding_bottom_padding: 100
+  android_12:
+    color: "#0A0A0A"
+    image: "launcher/splash-dev-android12.png"
+    icon_background_color: "#0A0A0A"
+    branding: "launcher/branding.png"
+

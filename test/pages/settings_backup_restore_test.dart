@@ -23,6 +23,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:sst_cam_app/ble/mock_ble_service.dart';
 import 'package:sst_cam_app/models/device.dart';
+import 'package:sst_cam_app/pages/data_settings_page.dart';
 import 'package:sst_cam_app/pages/settings_page.dart';
 import 'package:sst_cam_app/services/backup_service.dart';
 import 'package:sst_cam_app/state/app_data.dart';
@@ -119,6 +120,21 @@ Widget _buildHarness({
   );
 }
 
+/// Scrolls to the "Backup & restore" nav row on the main Settings page and
+/// taps it to open [DataSettingsPage], making Export/Restore rows visible.
+Future<void> _openDataSettingsPage(WidgetTester tester) async {
+  // Use a large scroll delta (500px) so the element ends up well inside the
+  // viewport rather than just barely entering at the bottom edge.
+  await tester.scrollUntilVisible(
+    find.text('Backup & restore'),
+    500,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Backup & restore'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   final db = useInMemoryDb();
 
@@ -147,13 +163,10 @@ void main() {
     // Banner is present.
     expect(find.text('No camera connected'), findsOneWidget);
 
-    // Data section is below the DB-backed sections (User, Match setup, etc.),
-    // so we need to scroll to reach it.
-    await tester.scrollUntilVisible(find.text('Data'), 200);
-    expect(find.text('Data'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Export backup'), 400);
+    // Data section nav row is below the DB-backed sections — scroll and navigate.
+    await _openDataSettingsPage(tester);
+    expect(find.byType(DataSettingsPage), findsOneWidget);
     expect(find.text('Export backup'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
     expect(find.text('Restore backup'), findsOneWidget);
   });
 
@@ -179,12 +192,10 @@ void main() {
     // Populated layout is up.
     expect(find.text('Connected camera'), findsOneWidget);
 
-    // Data section is present below the camera-gated sections.
-    await tester.scrollUntilVisible(find.text('Data'), 200);
-    expect(find.text('Data'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Export backup'), 200);
+    // Data section nav row is present below the camera-gated sections.
+    await _openDataSettingsPage(tester);
+    expect(find.byType(DataSettingsPage), findsOneWidget);
     expect(find.text('Export backup'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Restore backup'), 200);
     expect(find.text('Restore backup'), findsOneWidget);
   });
 
@@ -206,7 +217,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Export backup'), 400);
+      await _openDataSettingsPage(tester);
       await tester.tap(find.text('Export backup'));
       await tester.pumpAndSettle();
 
@@ -238,7 +249,7 @@ void main() {
       await tester.pumpWidget(_buildHarness(service: mock, db: db));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Restore backup'), 400);
+      await _openDataSettingsPage(tester);
       await tester.tap(find.text('Restore backup'));
       await tester.pumpAndSettle();
 
@@ -262,7 +273,7 @@ void main() {
     await tester.pumpWidget(_buildHarness(service: mock, db: db));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
+    await _openDataSettingsPage(tester);
     await tester.tap(find.text('Restore backup'));
     await tester.pumpAndSettle();
 
@@ -287,7 +298,7 @@ void main() {
     await tester.pumpWidget(_buildHarness(service: mock, db: db));
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
+    await _openDataSettingsPage(tester);
     await tester.tap(find.text('Restore backup'));
     await tester.pumpAndSettle();
 
@@ -321,7 +332,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(find.text('Restore backup'), 400);
+      await _openDataSettingsPage(tester);
       await tester.tap(find.text('Restore backup'));
       await tester.pumpAndSettle();
 
@@ -358,7 +369,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Restore backup'), 400);
+    await _openDataSettingsPage(tester);
     await tester.tap(find.text('Restore backup'));
     await tester.pumpAndSettle();
 
@@ -381,6 +392,85 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // 10. (#5) Path outside docs dir shows "Invalid path" SnackBar; import not called
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'Path outside Documents dir shows Invalid path SnackBar; import not called',
+    (tester) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+      final fake = FakeBackupService(db: db.value, importResult: null);
+
+      await tester.pumpWidget(
+        _buildHarness(service: mock, db: db, backupService: fake),
+      );
+      await tester.pumpAndSettle();
+
+      await _openDataSettingsPage(tester);
+      await tester.tap(find.text('Restore backup'));
+      await tester.pumpAndSettle();
+
+      // Confirm.
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+
+      // Enter a path outside the test docs dir (/tmp/sst-test-docs).
+      await tester.enterText(find.byType(TextField), '/etc/passwd');
+      await tester.tap(find.textContaining('Restore').last);
+      await tester.pumpAndSettle();
+
+      // Should show the invalid path SnackBar.
+      expect(
+        find.text('Invalid path. Select a file from the Documents folder.'),
+        findsOneWidget,
+      );
+      // import() must not have been called.
+      expect(fake.importCalled, isFalse);
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // 11. (#17) Generic Exception from import shows "Restore failed" SnackBar
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'Generic Exception from import() shows "Restore failed" SnackBar',
+    (tester) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+      final fake = FakeBackupService(
+        db: db.value,
+        importError: Exception('disk I/O failure'),
+      );
+
+      await tester.pumpWidget(
+        _buildHarness(service: mock, db: db, backupService: fake),
+      );
+      await tester.pumpAndSettle();
+
+      await _openDataSettingsPage(tester);
+      await tester.tap(find.text('Restore backup'));
+      await tester.pumpAndSettle();
+
+      // Confirm.
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+
+      // Enter a valid path inside the test docs dir.
+      await tester.enterText(
+        find.byType(TextField),
+        '$_kTestDocsDir/any-backup.json',
+      );
+      await tester.tap(find.textContaining('Restore').last);
+      await tester.pumpAndSettle();
+
+      // Generic catch → "Restore failed" SnackBar.
+      expect(find.text('Restore failed'), findsOneWidget);
+      // import() was called (it threw).
+      expect(fake.importCalled, isTrue);
+    },
+  );
+
+  // ---------------------------------------------------------------------------
   // 9. Export error shows error SnackBar
   // ---------------------------------------------------------------------------
   testWidgets('Export error shows error SnackBar', (tester) async {
@@ -396,7 +486,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Export backup'), 400);
+    await _openDataSettingsPage(tester);
     await tester.tap(find.text('Export backup'));
     await tester.pumpAndSettle();
 
