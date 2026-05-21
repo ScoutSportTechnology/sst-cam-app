@@ -21,7 +21,7 @@ import '../core/widgets/live_preview_view.dart';
 import '../core/widgets/wf_button.dart';
 import '../core/widgets/wf_card.dart';
 import '../core/widgets/wf_chip.dart';
-import 'team_match_form_sheet.dart';
+import '../features/teams/matches/team_match_form_sheet.dart';
 
 /// The Match tab routes between Landing → Setup → Session based on user
 /// selection. The Session screen unifies the old pre-match and live views

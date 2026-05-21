@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../core/models/team.dart';
-import '../core/theme/tokens.dart';
-import '../core/widgets/wf_button.dart';
-import '../core/widgets/wf_card.dart';
+import '../../../core/models/team.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/wf_button.dart';
+import '../../../core/widgets/wf_card.dart';
 
-/// Show the create / edit team form. Returns the entered draft, or null if
-/// the user cancelled. Pass `existing` to prefill for edit; the sheet keeps
-/// `existing.id` on the returned draft so the controller routes to update.
-Future<TeamDraft?> showTeamFormSheet(
+/// Shows the player form. Returns the entered draft, or null on cancel.
+/// Pass `existing` to prefill for edit; the caller decides whether to add
+/// or update based on whether `existing` was provided.
+Future<PlayerDraft?> showPlayerFormSheet(
   BuildContext context, {
-  TeamRecord? existing,
+  Player? existing,
+  Set<int> takenNumbers = const {},
 }) {
-  return showModalBottomSheet<TeamDraft>(
+  return showModalBottomSheet<PlayerDraft>(
     context: context,
     backgroundColor: T.bg,
     isScrollControlled: true,
@@ -21,55 +22,67 @@ Future<TeamDraft?> showTeamFormSheet(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: _TeamForm(existing: existing),
+      child: _PlayerForm(existing: existing, takenNumbers: takenNumbers),
     ),
   );
 }
 
-class _TeamForm extends StatefulWidget {
-  const _TeamForm({this.existing});
-  final TeamRecord? existing;
+class _PlayerForm extends StatefulWidget {
+  const _PlayerForm({this.existing, this.takenNumbers = const {}});
+  final Player? existing;
+  final Set<int> takenNumbers;
 
   @override
-  State<_TeamForm> createState() => _TeamFormState();
+  State<_PlayerForm> createState() => _PlayerFormState();
 }
 
-class _TeamFormState extends State<_TeamForm> {
+class _PlayerFormState extends State<_PlayerForm> {
   late final TextEditingController _name;
-  late final TextEditingController _shortName;
-  late String _sport;
+  late final TextEditingController _number;
+  late String _position;
+  late bool _captain;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    final e = widget.existing;
-    _name = TextEditingController(text: e?.name ?? '');
-    _shortName = TextEditingController(text: e?.shortName ?? '');
-    _sport = e?.sport ?? kSports.first;
+    final p = widget.existing;
+    _name = TextEditingController(text: p?.name ?? '');
+    _number = TextEditingController(text: p == null ? '' : '${p.number}');
+    _position = p?.position ?? kPlayerPositions.first;
+    _captain = p?.captain ?? false;
   }
 
   @override
   void dispose() {
     _name.dispose();
-    _shortName.dispose();
+    _number.dispose();
     super.dispose();
   }
 
   void _submit() {
     final name = _name.text.trim();
-    final shortName = _shortName.text.trim().toUpperCase();
+    final numberStr = _number.text.trim();
+    final number = int.tryParse(numberStr);
     if (name.isEmpty) {
-      setState(() => _error = 'Team name is required');
+      setState(() => _error = 'Player name is required');
       return;
     }
-    final resolvedShort = shortName.isEmpty ? _autoShort(name) : shortName;
+    if (number == null || number < 0 || number > 99) {
+      setState(() => _error = 'Jersey number must be 0–99');
+      return;
+    }
+    final isOwn = widget.existing?.number == number;
+    if (!isOwn && widget.takenNumbers.contains(number)) {
+      setState(() => _error = 'Jersey #$number is already on this team');
+      return;
+    }
     Navigator.of(context).pop(
-      TeamDraft(
-        id: widget.existing?.id ?? '',
+      PlayerDraft(
+        number: number,
         name: name,
-        shortName: resolvedShort,
-        sport: _sport,
+        position: _position,
+        captain: _captain,
       ),
     );
   }
@@ -96,7 +109,7 @@ class _TeamFormState extends State<_TeamForm> {
             ),
             const SizedBox(height: 16),
             Text(
-              isEdit ? 'Edit team' : 'Add team',
+              isEdit ? 'Edit player' : 'Add player',
               style: const TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w600,
@@ -104,33 +117,43 @@ class _TeamFormState extends State<_TeamForm> {
               ),
             ),
             const SizedBox(height: 14),
-            _LabeledField(
-              label: 'Team name',
-              controller: _name,
-              hint: 'Northside Rovers U14',
-              autofocus: true,
-            ),
-            const SizedBox(height: 10),
-            _LabeledField(
-              label: 'Short name (max 3)',
-              controller: _shortName,
-              hint: 'NRA',
-              maxLength: kShortNameMaxLength,
-              inputFormatters: [
-                LengthLimitingTextInputFormatter(kShortNameMaxLength),
-                _UpperCaseFormatter(),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 88,
+                  child: _LabeledField(
+                    label: 'Number',
+                    controller: _number,
+                    hint: '07',
+                    autofocus: !isEdit,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(2),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _LabeledField(
+                    label: 'Name',
+                    controller: _name,
+                    hint: 'A. Patel',
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 14),
-            const WfNote('SPORT'),
+            const WfNote('POSITION'),
             const SizedBox(height: 6),
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: kSports
+              children: kPlayerPositions
                   .map(
-                    (s) => GestureDetector(
-                      onTap: () => setState(() => _sport = s),
+                    (p) => GestureDetector(
+                      onTap: () => setState(() => _position = p),
                       child: AnimatedContainer(
                         duration: T.fast,
                         padding: const EdgeInsets.symmetric(
@@ -138,17 +161,17 @@ class _TeamFormState extends State<_TeamForm> {
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: _sport == s ? T.accent : T.fillSoft,
+                          color: _position == p ? T.accent : T.fillSoft,
                           border: Border.all(
-                            color: _sport == s ? T.accent : T.hair,
+                            color: _position == p ? T.accent : T.hair,
                           ),
                         ),
                         child: Text(
-                          s,
+                          p,
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: _sport == s ? T.accentInk : T.ink2,
+                            color: _position == p ? T.accentInk : T.ink2,
                           ),
                         ),
                       ),
@@ -156,8 +179,26 @@ class _TeamFormState extends State<_TeamForm> {
                   )
                   .toList(),
             ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Switch.adaptive(
+                  value: _captain,
+                  onChanged: (v) => setState(() => _captain = v),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Captain',
+                  style: TextStyle(
+                    color: T.ink,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
             if (_error != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 4),
               Text(
                 _error!,
                 style: const TextStyle(color: T.danger, fontSize: 12),
@@ -175,7 +216,7 @@ class _TeamFormState extends State<_TeamForm> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: WfButton(
-                    label: isEdit ? 'Save' : 'Create',
+                    label: isEdit ? 'Save' : 'Add',
                     variant: WfButtonVariant.primary,
                     onPressed: _submit,
                   ),
@@ -195,7 +236,7 @@ class _LabeledField extends StatelessWidget {
     required this.controller,
     this.hint,
     this.autofocus = false,
-    this.maxLength,
+    this.keyboardType,
     this.inputFormatters,
   });
 
@@ -203,7 +244,7 @@ class _LabeledField extends StatelessWidget {
   final TextEditingController controller;
   final String? hint;
   final bool autofocus;
-  final int? maxLength;
+  final TextInputType? keyboardType;
   final List<TextInputFormatter>? inputFormatters;
 
   @override
@@ -222,13 +263,12 @@ class _LabeledField extends StatelessWidget {
           child: TextField(
             controller: controller,
             autofocus: autofocus,
-            maxLength: maxLength,
+            keyboardType: keyboardType,
             inputFormatters: inputFormatters,
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: const TextStyle(color: T.ink3, fontSize: 13),
               border: InputBorder.none,
-              counterText: '',
               isCollapsed: true,
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
             ),
@@ -237,23 +277,5 @@ class _LabeledField extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-String _autoShort(String name) {
-  final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
-  final letters = words.map((w) => w[0].toUpperCase()).join();
-  return letters.length > kShortNameMaxLength
-      ? letters.substring(0, kShortNameMaxLength)
-      : letters;
-}
-
-class _UpperCaseFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    return newValue.copyWith(text: newValue.text.toUpperCase());
   }
 }
