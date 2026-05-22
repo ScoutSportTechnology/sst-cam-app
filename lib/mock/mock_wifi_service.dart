@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/services.dart' show rootBundle;
+
 import '../core/models/overlay.dart';
 import '../core/models/recording.dart';
 import '../core/models/wifi.dart';
@@ -383,10 +385,9 @@ class MockWifiService implements WifiService {
       );
       _publish(entry, next);
       if (isDone) {
-        // Write a 1-byte placeholder file to signal completion.
-        File(savePath).writeAsBytesSync([0x00], flush: true);
+        // Copy the mock video asset so the recording is a real playable file.
         timer.cancel();
-        controller.close();
+        _copyMockAsset(savePath).then((_) => controller.close());
       }
     });
 
@@ -410,6 +411,18 @@ class MockWifiService implements WifiService {
         await controller.close();
       },
     );
+  }
+
+  /// Copies `assets/ble/mock-video.mp4` to [path], creating parent dirs.
+  Future<void> _copyMockAsset(String path) async {
+    final byteData = await rootBundle.load('assets/ble/mock-video.mp4');
+    final bytes = byteData.buffer.asUint8List(
+      byteData.offsetInBytes,
+      byteData.lengthInBytes,
+    );
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
   }
 
   @override

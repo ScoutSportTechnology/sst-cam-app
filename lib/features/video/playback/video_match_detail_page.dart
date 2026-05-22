@@ -1,20 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/models/overlay.dart' as app_overlay;
-import '../../../core/services/clip_service.dart';
-import '../../../core/wifi/wifi_providers.dart';
+import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
 import '../video_state.dart'
     show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
-import '../../../core/state/db_providers.dart'
-    show clipServiceProvider, videoPathServiceProvider;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/widgets/wf_chip.dart';
-import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import 'download_sheet.dart';
 
 class VideoMatchDetailPage extends ConsumerStatefulWidget {
@@ -37,8 +35,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   // Video player state
   VideoPlayerController? _playerController;
   bool _playerInitialized = false;
-  bool _connecting = false; // WiFi connect in progress
-  String? _connectError; // Non-null = connection failed
+  bool _isOnDevice = false; // true once isOnDeviceProvider resolves true
   List<app_overlay.OverlayState> _overlayStates = [];
   app_overlay.OverlayState _currentOverlay = const app_overlay.OverlayState(
     timeSeconds: 0,
@@ -47,9 +44,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     period: 1,
     recentEventLabel: null,
   );
-
-  // Per-event clip in-progress state.
-  final Set<int> _clippingEventIndices = {};
 
   // Guards against starting _initPlayer more than once.
   bool _initStarted = false;
@@ -86,47 +80,21 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     final match = passedMatch ?? ref.read(libraryMatchProvider(widget.matchId));
     if (match == null) return;
 
-    // Reset error state before a new attempt.
-    if (mounted) setState(() => _connectError = null);
-
-    // Check whether the recording is already on-device.
+    // Only play if the recording is already on-device.
+    // If not on device, the player area shows a "Download to watch" prompt
+    // and the footer Download button handles the download flow.
     final onDevice = await ref.read(isOnDeviceProvider(match.id).future);
-
     if (!mounted) return;
+    if (!onDevice) return;
+    setState(() => _isOnDevice = true);
 
-    if (!onDevice) {
-      // Need to connect over WiFi to stream the recording.
-      final activeDeviceId = ref.read(activeCameraIdProvider);
-      if (activeDeviceId == null) {
-        setState(
-          () => _connectError = 'Could not connect to camera. Tap to retry.',
-        );
-        return;
-      }
-      setState(() => _connecting = true);
-      try {
-        await ref
-            .read(wifiServiceProvider)
-            .connectGroup(activeDeviceId)
-            .timeout(
-              const Duration(seconds: 10),
-              onTimeout: () => throw TimeoutException('WiFi connect timed out'),
-            );
-      } catch (_) {
-        if (!mounted) return;
-        setState(() {
-          _connecting = false;
-          _connectError = 'Could not connect to camera. Tap to retry.';
-        });
-        return;
-      }
-      if (!mounted) return;
-      setState(() => _connecting = false);
-    }
-
-    // Initialize the video player (asset for both on-device mock and
-    // camera-stream mock — both use the bundled mock video in this milestone).
-    final controller = VideoPlayerController.asset('assets/ble/mock-video.mp4');
+    // Initialize the video player from the local recording file.
+    final videoPathSvc = ref.read(videoPathServiceProvider);
+    final recordingPath = await videoPathSvc.recordingPath(match.id);
+    if (!mounted) return;
+    final controller = File(recordingPath).existsSync()
+        ? VideoPlayerController.file(File(recordingPath))
+        : VideoPlayerController.asset('assets/ble/mock-video.mp4');
     _playerController = controller;
     await controller
         .initialize()
@@ -177,9 +145,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(match.date),
+            Text('${match.teamName} vs ${match.opponent}'),
             Text(
-              '${match.opponent} · ${match.result}',
+              '${match.date}${match.result.isNotEmpty ? ' · ${match.result}' : ''}',
               style: const TextStyle(fontSize: 11, color: T.ink2),
             ),
           ],
@@ -193,10 +161,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             eventsOverlayOn: _eventsOverlayOn,
             playheadFraction: _playheadFraction,
             playerController: _playerInitialized ? _playerController : null,
-            connecting: _connecting,
-            connectError: _connectError,
+            notOnDevice: !_isOnDevice,
             currentOverlay: _currentOverlay,
-            onRetry: () => _initPlayer(),
+            onDownload: () => _showDownloadSheet(context, match),
           ),
           _Scrubber(
             match: match,
@@ -251,7 +218,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                   event: e,
                   index: i,
                   selected: selected,
-                  isClipping: _clippingEventIndices.contains(i),
                   onTap: () {
                     setState(() {
                       if (selected) {
@@ -271,7 +237,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                           app_overlay.OverlayState.atTime(_overlayStates, e.timeSeconds);
                     });
                   },
-                  onClip: () => _clipEvent(e, i),
                 );
               },
             ),
@@ -286,67 +251,23 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   }
 
   void _showDownloadSheet(BuildContext context, LibraryMatch match) {
+    final selectedEvents = [
+      for (int i = 0; i < match.events.length; i++)
+        if (_selected.contains(i)) match.events[i],
+    ];
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: T.bg,
       isScrollControlled: true,
       barrierColor: Colors.black.withValues(alpha: 0.55),
-      builder: (_) =>
-          DownloadSheet(match: match, selectedCount: _selected.length),
+      builder: (_) => DownloadSheet(
+        match: match,
+        selectedEvents: selectedEvents,
+        allEvents: match.events,
+      ),
     );
   }
 
-  Future<void> _clipEvent(LibraryEvent event, int index) async {
-    // Guard: must be on device
-    final onDevice = await ref.read(isOnDeviceProvider(match.id).future);
-    if (!onDevice) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Download the full match first to create clips',
-            ),
-          ),
-        );
-      }
-      return;
-    }
-
-    if (!mounted) return;
-    setState(() => _clippingEventIndices.add(index));
-
-    try {
-      final clipSvc = ref.read(clipServiceProvider);
-      final videoPathSvc = ref.read(videoPathServiceProvider);
-      final sourcePath = await videoPathSvc.recordingPath(match.id);
-      final startSeconds =
-          (event.timeSeconds - 15).clamp(0, double.infinity).toInt();
-      await clipSvc.trim(
-        matchId: match.id,
-        sourcePath: sourcePath,
-        startSeconds: startSeconds,
-        durationSeconds: 30,
-        label: event.label,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Clip saved')),
-        );
-      }
-    } on ClipTrimException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Clip failed: ${e.message}')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _clippingEventIndices.remove(index));
-    }
-  }
-
-  // Getter for the current match (used by _clipEvent).
-  LibraryMatch get match =>
-      ref.read(libraryMatchProvider(widget.matchId))!;
 }
 
 int _parseDuration(String hms) {
@@ -362,10 +283,9 @@ class _Player extends StatelessWidget {
     required this.eventsOverlayOn,
     required this.playheadFraction,
     required this.playerController,
-    required this.connecting,
-    required this.connectError,
+    required this.notOnDevice,
     required this.currentOverlay,
-    required this.onRetry,
+    required this.onDownload,
   });
 
   final LibraryMatch match;
@@ -373,10 +293,10 @@ class _Player extends StatelessWidget {
   final bool eventsOverlayOn;
   final double playheadFraction;
   final VideoPlayerController? playerController;
-  final bool connecting;
-  final String? connectError;
+  /// True when the recording is not yet on this device.
+  final bool notOnDevice;
   final app_overlay.OverlayState currentOverlay;
-  final VoidCallback onRetry;
+  final VoidCallback onDownload;
 
   @override
   Widget build(BuildContext context) {
@@ -440,6 +360,20 @@ class _Player extends StatelessWidget {
                       color: T.ink3,
                     ),
                   ),
+                  const SizedBox(width: 4),
+                  Text(
+                    () {
+                      final t = currentOverlay.timeSeconds;
+                      final mm = (t ~/ 60).toString().padLeft(2, '0');
+                      final ss = (t % 60).toString().padLeft(2, '0');
+                      return '$mm:$ss';
+                    }(),
+                    style: const TextStyle(
+                      fontFamily: T.mono,
+                      fontSize: 9,
+                      color: T.ink3,
+                    ),
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     '${currentOverlay.awayScore}',
@@ -489,29 +423,8 @@ class _Player extends StatelessWidget {
   }
 
   Widget _buildPlayerBody() {
-    if (connecting) {
-      return const AspectRatio(
-        aspectRatio: 16 / 9,
-        child: ColoredBox(
-          color: Colors.black,
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 12),
-                Text(
-                  'Connecting…',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (connectError != null) {
+    if (notOnDevice) {
+      // Not on device: prompt to download first.
       return AspectRatio(
         aspectRatio: 16 / 9,
         child: ColoredBox(
@@ -520,27 +433,16 @@ class _Player extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
-                  Icons.wifi_off,
-                  color: Colors.white54,
-                  size: 36,
-                ),
+                const Icon(Icons.download, color: Colors.white54, size: 36),
                 const SizedBox(height: 10),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    connectError!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                    ),
-                  ),
+                const Text(
+                  'Download to watch',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
                 const SizedBox(height: 12),
                 TextButton(
-                  onPressed: onRetry,
-                  child: const Text('Retry'),
+                  onPressed: onDownload,
+                  child: const Text('Download full match'),
                 ),
               ],
             ),
@@ -555,7 +457,7 @@ class _Player extends StatelessWidget {
         child: VideoPlayer(playerController!),
       );
     }
-
+    // On device but player not yet initialized (or failed in test env).
     return const ThumbPlaceholder(label: 'PLAYER');
   }
 }
@@ -765,18 +667,14 @@ class _EventRow extends StatelessWidget {
     required this.event,
     required this.index,
     required this.selected,
-    required this.isClipping,
     required this.onTap,
     required this.onJump,
-    required this.onClip,
   });
   final LibraryEvent event;
   final int index;
   final bool selected;
-  final bool isClipping;
   final VoidCallback onTap;
   final VoidCallback onJump;
-  final VoidCallback onClip;
 
   @override
   Widget build(BuildContext context) {
@@ -826,20 +724,6 @@ class _EventRow extends StatelessWidget {
                 style: const TextStyle(fontSize: 13, color: T.ink),
               ),
             ),
-            const SizedBox(width: 8),
-            if (isClipping)
-              const SizedBox(
-                width: 32,
-                height: 32,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              WfButton(
-                label: 'Clip',
-                size: WfButtonSize.sm,
-                variant: WfButtonVariant.outline,
-                onPressed: onClip,
-              ),
           ],
         ),
       ),
@@ -878,18 +762,6 @@ class _Footer extends StatelessWidget {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Dart doesn't expose TimeoutException at a high level so we define a local
-// one — only used as a marker in connectGroup.timeout's onTimeout callback.
-// ---------------------------------------------------------------------------
-
-class TimeoutException implements Exception {
-  const TimeoutException(this.message);
-  final String message;
-  @override
-  String toString() => 'TimeoutException: $message';
 }
 
 extension on Border {

@@ -109,7 +109,19 @@ class OverlayState {
     }
 
     if (result == -1) return baseline;
-    return states[result];
+
+    final state = states[result];
+    // Event labels expire after 30 seconds so they don't stick permanently.
+    if (timeSeconds - state.timeSeconds > 30) {
+      return OverlayState(
+        timeSeconds: state.timeSeconds,
+        homeScore: state.homeScore,
+        awayScore: state.awayScore,
+        period: state.period,
+        recentEventLabel: null,
+      );
+    }
+    return state;
   }
 }
 

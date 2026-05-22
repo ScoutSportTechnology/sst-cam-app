@@ -79,7 +79,7 @@ void main() {
       await MockDataSeeder(db).seed();
 
       final teams = await db.select(db.teamsTable).get();
-      expect(teams, hasLength(2), reason: 'fixtures/teams.json has 2 teams');
+      expect(teams, hasLength(8), reason: 'fixtures/teams.json has 8 teams');
 
       final matches = await db.select(db.teamMatchesTable).get();
       expect(matches, hasLength(8),
@@ -208,7 +208,7 @@ void main() {
       await MockDataSeeder(db, videoPathService: videoPathService).seed();
 
       final teams = await db.select(db.teamsTable).get();
-      expect(teams, hasLength(2));
+      expect(teams, hasLength(8));
 
       final matches = await db.select(db.teamMatchesTable).get();
       expect(matches, hasLength(8));

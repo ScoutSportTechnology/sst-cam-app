@@ -163,7 +163,7 @@ Widget _buildSheet({
     ],
     child: MaterialApp(
       home: Scaffold(
-        body: DownloadSheet(match: match, selectedCount: 0),
+        body: DownloadSheet(match: match, allEvents: const [], selectedEvents: const []),
       ),
     ),
   );
@@ -377,7 +377,7 @@ void main() {
                         context: ctx,
                         builder: (_) => DownloadSheet(
                           match: _makeMatch(),
-                          selectedCount: 0,
+                          allEvents: const [], selectedEvents: const [],
                         ),
                       );
                       sheetDismissed = true;

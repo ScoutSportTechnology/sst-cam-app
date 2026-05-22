@@ -100,7 +100,13 @@
       "Bash(node -e \"const Jimp = require\\('jimp'\\); console.log\\(Object.keys\\(Jimp\\).filter\\(k=>k.startsWith\\('FONT'\\)\\)\\)\")",
       "WebFetch(domain:codehubjournal.com)",
       "Bash(xargs sed -i 's|package:sst_cam_app/models/command\\\\.dart|package:sst_cam_app/core/models/command.dart|g;    s|package:sst_cam_app/models/device\\\\.dart|package:sst_cam_app/core/models/device.dart|g;    s|package:sst_cam_app/models/match\\\\.dart|package:sst_cam_app/core/models/match.dart|g;    s|package:sst_cam_app/models/recording\\\\.dart|package:sst_cam_app/core/models/recording.dart|g;    s|package:sst_cam_app/models/sport_preset\\\\.dart|package:sst_cam_app/core/models/sport_preset.dart|g;    s|package:sst_cam_app/models/streaming\\\\.dart|package:sst_cam_app/core/models/streaming.dart|g;    s|package:sst_cam_app/models/team\\\\.dart|package:sst_cam_app/core/models/team.dart|g;    s|package:sst_cam_app/models/telemetry\\\\.dart|package:sst_cam_app/core/models/telemetry.dart|g;    s|package:sst_cam_app/models/user\\\\.dart|package:sst_cam_app/core/models/user.dart|g;    s|package:sst_cam_app/models/wifi\\\\.dart|package:sst_cam_app/core/models/wifi.dart|g;    s|package:sst_cam_app/widgets/indicators\\\\.dart|package:sst_cam_app/core/widgets/indicators.dart|g;    s|package:sst_cam_app/widgets/live_preview_view\\\\.dart|package:sst_cam_app/core/widgets/live_preview_view.dart|g;    s|package:sst_cam_app/widgets/wf_button\\\\.dart|package:sst_cam_app/core/widgets/wf_button.dart|g;    s|package:sst_cam_app/widgets/wf_card\\\\.dart|package:sst_cam_app/core/widgets/wf_card.dart|g;    s|package:sst_cam_app/widgets/wf_chip\\\\.dart|package:sst_cam_app/core/widgets/wf_chip.dart|g')",
-      "Bash(just gen-db *)"
+      "Bash(just gen-db *)",
+      "Bash(~/.local/bin/just test *)",
+      "Bash(echo \"EXIT_STATUS: $?\")",
+      "Bash(tee /tmp/test-out.txt)",
+      "Bash(echo \"DONE exit $?\")",
+      "Bash(xargs kill)",
+      "mcp__dart__run_tests"
     ]
   }
 }

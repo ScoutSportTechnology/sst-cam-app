@@ -19,7 +19,8 @@
       "Bash(git update-index *)",
       "mcp__dart__launch_app",
       "mcp__dart__connect_dart_tooling_daemon",
-      "mcp__dart__get_widget_tree"
+      "mcp__dart__get_widget_tree",
+      "Read(//home/vscode/.claude/plugins/cache/compound-engineering-plugin/compound-engineering/3.7.0/skills/ce-brainstorm/references/**)"
     ],
     "additionalDirectories": [
       "/home/vscode/.vscode-server/data/Machine",

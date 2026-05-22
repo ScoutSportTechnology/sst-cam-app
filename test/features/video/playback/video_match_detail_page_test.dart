@@ -1,41 +1,12 @@
-// Tests for VideoMatchDetailPage — U7: on-device detection, video player init,
-// WiFi connect flow, overlay derivation from events, overlay update on scrub.
-// U10: Per-event highlight clip creation (AE7, AE8, clamp, spinner, errors).
-//
-// Platform-channel note: VideoPlayerController.asset calls a native platform
-// channel that is unavailable in the test environment. The page's
-// _initPlayer() uses a catchError handler (same pattern as LivePreviewView)
-// so the failure is silent and _playerInitialized stays false. In the test
-// environment VideoPlayer is therefore NEVER rendered; ThumbPlaceholder fills
-// the player body instead.
-//
-// Pending-timer note: MockWifiService starts periodic preview timers after
-// connectGroup completes. To avoid the "pending timer" assertion at test end,
-// the WiFi-connect test uses a MockWifiService with pairingDelay=zero AND
-// observes state immediately after pump, then calls dispose inside the test
-// body (not via tearDown, since tearDown runs after the assertion check).
-//
-// What we DO test:
-//   1. On-device match: no WiFi connect, ThumbPlaceholder shown (player
-//      platform channel unavailable → _playerInitialized = false).
-//   2. Camera-only match (no active camera): error message shown immediately.
-//   3. Connection error: error text + Retry button when WiFi fails.
-//   4. Overlay toggle row and event list render correctly.
-//   5. Overlay updates when onJump is called from an event row.
-
-import 'dart:async';
-import 'dart:io';
+// Tests for VideoMatchDetailPage — on-device detection, video player init,
+// overlay derivation from events, download-to-watch flow, event rows.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
-import 'package:video_player_platform_interface/video_player_platform_interface.dart'
-    as vp_interface;
-import 'package:sst_cam_app/core/db/daos/clips_dao.dart';
 import 'package:sst_cam_app/core/models/wifi.dart' show WifiDirectGroup;
-import 'package:sst_cam_app/core/services/clip_service.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:sst_cam_app/core/wifi/wifi_providers.dart';
@@ -49,189 +20,10 @@ import 'package:sst_cam_app/features/video/playback/video_match_detail_page.dart
 import 'package:sst_cam_app/features/video/video_state.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/mock/mock_wifi_service.dart';
-import 'package:video_player/video_player.dart';
-import 'package:drift/drift.dart' show Value, DatabaseConnection;
-import 'package:drift/native.dart' show NativeDatabase;
+import 'package:video_player/video_player.dart' show VideoPlayer;
+import 'package:drift/drift.dart' show Value;
 
 import '../../../test_helpers.dart';
-
-// ---------------------------------------------------------------------------
-// Stub ClipService variants
-// ---------------------------------------------------------------------------
-
-/// Records calls to trim() and returns successfully.
-class _RecordingClipService extends ClipService {
-  _RecordingClipService()
-      : super(
-          clipsDao: _NoOpClipsDao(),
-          videoPathService: VideoPathService(),
-        );
-
-  final List<({
-    String matchId,
-    String sourcePath,
-    int startSeconds,
-    int durationSeconds,
-    String? label,
-  })> calls = [];
-
-  @override
-  Future<String> trim({
-    required String matchId,
-    required String sourcePath,
-    required int startSeconds,
-    required int durationSeconds,
-    String? label,
-  }) async {
-    calls.add((
-      matchId: matchId,
-      sourcePath: sourcePath,
-      startSeconds: startSeconds,
-      durationSeconds: durationSeconds,
-      label: label,
-    ));
-    return '/clips/$matchId/$startSeconds.mp4';
-  }
-}
-
-/// Hangs trim() until complete() is called — used to observe in-progress state.
-class _HangingClipService extends ClipService {
-  _HangingClipService()
-      : super(
-          clipsDao: _NoOpClipsDao(),
-          videoPathService: VideoPathService(),
-        );
-
-  final _completer = Completer<String>();
-
-  void complete([String result = '/clips/mock.mp4']) {
-    if (!_completer.isCompleted) _completer.complete(result);
-  }
-
-  @override
-  Future<String> trim({
-    required String matchId,
-    required String sourcePath,
-    required int startSeconds,
-    required int durationSeconds,
-    String? label,
-  }) {
-    return _completer.future;
-  }
-}
-
-/// Always throws ClipTrimException.
-class _FailingClipService extends ClipService {
-  _FailingClipService()
-      : super(
-          clipsDao: _NoOpClipsDao(),
-          videoPathService: VideoPathService(),
-        );
-
-  @override
-  Future<String> trim({
-    required String matchId,
-    required String sourcePath,
-    required int startSeconds,
-    required int durationSeconds,
-    String? label,
-  }) async {
-    throw const ClipTrimException('FFmpeg unavailable in test');
-  }
-}
-
-/// A no-op ClipsDao stub — avoids needing a real database in ClipService stubs.
-class _NoOpClipsDao extends ClipsDao {
-  _NoOpClipsDao() : super(_NullDb());
-
-  @override
-  Future<void> insertClip(ClipsTableCompanion companion) async {}
-}
-
-// _NullDb is just a placeholder — _NoOpClipsDao never actually calls the DB.
-// We use a real AppDatabase.forTesting so the mixin initialises without crashing.
-class _NullDb extends AppDatabase {
-  _NullDb()
-      : super.forTesting(
-          DatabaseConnection(NativeDatabase.memory()),
-        );
-}
-
-// ---------------------------------------------------------------------------
-// Minimal FakeVideoPlayerPlatform — replaces VideoPlayerPlatform.instance so
-// VideoPlayerController.initialize() completes cleanly in tests. Without this,
-// the default platform throws UnimplementedError, leaving an uncompleted
-// Completer in VideoPlayerController that causes subsequent pump() calls to hang.
-// ---------------------------------------------------------------------------
-
-class _FakeVideoPlayerPlatform extends vp_interface.VideoPlayerPlatform {
-  int _nextPlayerId = 0;
-  final Map<int, StreamController<vp_interface.VideoEvent>> _streams = {};
-
-  @override
-  Future<void> init() async {}
-
-  @override
-  Future<int?> create(vp_interface.DataSource dataSource) async {
-    return _createPlayer();
-  }
-
-  @override
-  Future<int?> createWithOptions(
-    vp_interface.VideoCreationOptions options,
-  ) async {
-    return _createPlayer();
-  }
-
-  int _createPlayer() {
-    final id = _nextPlayerId++;
-    final controller = StreamController<vp_interface.VideoEvent>();
-    _streams[id] = controller;
-    // Send initialized event so VideoPlayerController.initialize() completes.
-    controller.add(
-      vp_interface.VideoEvent(
-        eventType: vp_interface.VideoEventType.initialized,
-        size: const Size(640, 360),
-        duration: const Duration(seconds: 60),
-      ),
-    );
-    return id;
-  }
-
-  @override
-  Future<void> dispose(int playerId) async {
-    await _streams.remove(playerId)?.close();
-  }
-
-  @override
-  Stream<vp_interface.VideoEvent> videoEventsFor(int playerId) {
-    return _streams[playerId]!.stream;
-  }
-
-  @override
-  Future<void> setLooping(int playerId, bool looping) async {}
-
-  @override
-  Future<void> play(int playerId) async {}
-
-  @override
-  Future<void> pause(int playerId) async {}
-
-  @override
-  Future<void> setVolume(int playerId, double volume) async {}
-
-  @override
-  Future<void> setPlaybackSpeed(int playerId, double speed) async {}
-
-  @override
-  Future<Duration> getPosition(int playerId) async => Duration.zero;
-
-  @override
-  Future<void> seekTo(int playerId, Duration position) async {}
-
-  @override
-  Future<void> setMixWithOthers(bool mixWithOthers) async {}
-}
 
 // ---------------------------------------------------------------------------
 // Stub VideoPathService variants
@@ -242,15 +34,6 @@ class _AbsentVideoPathService extends VideoPathService {
   @override
   Future<String> recordingPath(String recordingId) async =>
       '/nonexistent/$recordingId.mp4';
-}
-
-/// Returns a path to an existing temp file → isOnDeviceProvider = true.
-class _PresentVideoPathService extends VideoPathService {
-  _PresentVideoPathService(this._path);
-  final String _path;
-
-  @override
-  Future<String> recordingPath(String recordingId) async => _path;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,24 +53,6 @@ class _FailingWifiService extends MockWifiService {
 // pending timers cause assertion failures.
 // ---------------------------------------------------------------------------
 
-class _DelayedNoTimerWifiService extends MockWifiService {
-  _DelayedNoTimerWifiService({required this.delay});
-  final Duration delay;
-
-  @override
-  Future<WifiDirectGroup> connectGroup(String deviceId) async {
-    await Future<void>.delayed(delay);
-    return const WifiDirectGroup(
-      ssid: 'DIRECT-test',
-      psk: 'mock-psk',
-      groupOwnerIp: '192.168.49.1',
-      previewPort: 8554,
-      downloadPort: 8080,
-      role: 'GROUP_OWNER',
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -304,9 +69,6 @@ List<Override> _baseOverrides(
   VideoPathService? videoPathService,
   MockWifiService? wifiService,
   String? activeCameraId,
-  ClipService? clipService,
-  // When non-null, overrides isOnDeviceProvider so _initPlayer never reaches
-  // VideoPlayerController (avoids fake-clock conflicts from MethodChannel calls).
   bool? forceIsOnDevice,
 }) {
   return [
@@ -321,7 +83,6 @@ List<Override> _baseOverrides(
     ),
     if (activeCameraId != null)
       activeCameraIdProvider.overrideWith((_) => activeCameraId),
-    if (clipService != null) clipServiceProvider.overrideWithValue(clipService),
     if (forceIsOnDevice != null)
       isOnDeviceProvider.overrideWith(
         (ref, matchId) async => forceIsOnDevice,
@@ -335,7 +96,6 @@ Widget _buildPage({
   VideoPathService? videoPathService,
   MockWifiService? wifiService,
   String? activeCameraId,
-  ClipService? clipService,
   bool? forceIsOnDevice,
 }) {
   return ProviderScope(
@@ -344,7 +104,6 @@ Widget _buildPage({
       videoPathService: videoPathService,
       wifiService: wifiService,
       activeCameraId: activeCameraId,
-      clipService: clipService,
       forceIsOnDevice: forceIsOnDevice,
     ),
     child: MaterialApp(
@@ -417,17 +176,6 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('on-device match', () {
-    late File tmpFile;
-
-    setUp(() async {
-      tmpFile = await File('/tmp/sst-ondev-test.mp4').create(recursive: true);
-      await tmpFile.writeAsBytes([0x00]);
-    });
-
-    tearDown(() async {
-      if (tmpFile.existsSync()) await tmpFile.delete();
-    });
-
     testWidgets(
       'ThumbPlaceholder shown; no "Connecting…"; VideoPlayer absent in test env',
       (tester) async {
@@ -438,15 +186,22 @@ void main() {
           _buildPage(
             db: db.value,
             matchId: 'od-1',
-            videoPathService: _PresentVideoPathService(tmpFile.path),
+            videoPathService: _AbsentVideoPathService(),
+            // forceIsOnDevice ensures _isOnDevice = true is set immediately
+            // without waiting for the file-existence async chain.
+            forceIsOnDevice: true,
           ),
         );
         final container = _container(tester);
         await _awaitMatch(tester, container, 'od-1');
-        // Allow isOnDeviceProvider + _initPlayer to run.
-        await tester.pump(const Duration(milliseconds: 100));
+        // Allow _initPlayer to run and fail (platform channel absent in tests).
+        for (var i = 0; i < 6; i++) {
+          await tester.pump();
+        }
 
-        // No WiFi connect expected.
+        // No "Download to watch" prompt for an on-device match.
+        expect(find.text('Download to watch'), findsNothing);
+        // No WiFi connect attempted.
         expect(find.text('Connecting…'), findsNothing);
         // VideoPlayer: platform channel absent, so ThumbPlaceholder renders.
         expect(find.byType(VideoPlayer), findsNothing);
@@ -458,12 +213,12 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // 2. Camera-only match, no active camera — error shown immediately.
+  // 2. Camera-only match — "Download to watch" prompt shown.
   // ---------------------------------------------------------------------------
 
-  group('camera-only match, no active camera', () {
+  group('camera-only match', () {
     testWidgets(
-      'error message shown immediately when activeCameraId is null',
+      '"Download to watch" prompt shown when match not on device',
       (tester) async {
         await largeScreen(tester);
         await _insertMatch(db.value, id: 'co-no-cam', teamId: 'nr-u14');
@@ -473,82 +228,35 @@ void main() {
             db: db.value,
             matchId: 'co-no-cam',
             videoPathService: _AbsentVideoPathService(),
-            // activeCameraId not provided → null
           ),
         );
         final container = _container(tester);
         await _awaitMatch(tester, container, 'co-no-cam');
         await tester.pump(const Duration(milliseconds: 100));
 
-        expect(find.textContaining('Could not connect'), findsOneWidget);
-        expect(find.text('Retry'), findsOneWidget);
+        // New behavior: show download prompt, not WiFi error.
+        expect(find.textContaining('Download to watch'), findsOneWidget);
+        expect(find.text('Download full match'), findsOneWidget);
         expect(find.text('Connecting…'), findsNothing);
+        expect(find.text('Retry'), findsNothing);
         expect(find.byType(VideoPlayer), findsNothing);
       },
     );
   });
 
   // ---------------------------------------------------------------------------
-  // 3. Camera-only match with active camera — "Connecting…" → ThumbPlaceholder.
+  // 5. Camera-only match shows download prompt regardless of WiFi state.
   // ---------------------------------------------------------------------------
 
-  group('camera-only match with active camera (WiFi connect flow)', () {
+  group('camera-only always shows download prompt', () {
     testWidgets(
-      '"Connecting…" shown while WiFi pairs; ThumbPlaceholder after connect',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(db.value, id: 'co-cam', teamId: 'nr-u14');
-
-        // Use a no-timer WiFi service with a 60ms pairing delay so we can
-        // observe the Connecting state before it resolves.
-        final wifi = _DelayedNoTimerWifiService(
-          delay: const Duration(milliseconds: 60),
-        );
-
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'co-cam',
-            videoPathService: _AbsentVideoPathService(),
-            wifiService: wifi,
-            activeCameraId: 'cam-001',
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'co-cam');
-
-        // Pump 10ms — _initPlayer has fired and isOnDeviceProvider is
-        // resolving (absent file = false), but WiFi connect hasn't finished.
-        await tester.pump(const Duration(milliseconds: 10));
-
-        // "Connecting…" should be visible.
-        expect(find.text('Connecting…'), findsOneWidget);
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
-
-        // Advance past the 60ms pairing delay.
-        await tester.pump(const Duration(milliseconds: 100));
-
-        // WiFi connected; _connecting = false.
-        expect(find.text('Connecting…'), findsNothing);
-
-        // VideoPlayer never renders (platform channel absent).
-        expect(find.byType(VideoPlayer), findsNothing);
-        expect(find.byType(ThumbPlaceholder), findsOneWidget);
-      },
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // 5. Connection error — WiFi service throws.
-  // ---------------------------------------------------------------------------
-
-  group('connection error', () {
-    testWidgets(
-      'error message + Retry button when WiFi connectGroup fails',
+      'no WiFi connect attempted; "Download to watch" always shown',
       (tester) async {
         await largeScreen(tester);
         await _insertMatch(db.value, id: 'ce-1', teamId: 'nr-u14');
 
+        // Even with a connected camera, the page shows "Download to watch"
+        // rather than auto-streaming.
         await tester.pumpWidget(
           _buildPage(
             db: db.value,
@@ -562,46 +270,10 @@ void main() {
         await _awaitMatch(tester, container, 'ce-1');
         await tester.pump(const Duration(milliseconds: 100));
 
-        expect(
-          find.textContaining('Could not connect to camera'),
-          findsOneWidget,
-        );
-        expect(find.text('Retry'), findsOneWidget);
+        expect(find.textContaining('Download to watch'), findsOneWidget);
+        expect(find.textContaining('Could not connect'), findsNothing);
         expect(find.text('Connecting…'), findsNothing);
         expect(find.byType(VideoPlayer), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'tapping Retry resets error and re-attempts connection',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(db.value, id: 'ce-2', teamId: 'nr-u14');
-
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'ce-2',
-            videoPathService: _AbsentVideoPathService(),
-            wifiService: _FailingWifiService(),
-            activeCameraId: 'cam-001',
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'ce-2');
-        await tester.pump(const Duration(milliseconds: 100));
-
-        // Initial error is shown.
-        expect(find.textContaining('Could not connect'), findsOneWidget);
-
-        // Tap Retry.
-        await tester.tap(find.text('Retry'));
-        await tester.pump(const Duration(milliseconds: 100));
-
-        // After retry, the failure re-triggers (same failing service).
-        // Page is still alive and error is shown again.
-        expect(find.byType(VideoMatchDetailPage), findsOneWidget);
-        expect(find.textContaining('Could not connect'), findsOneWidget);
       },
     );
   });
@@ -1000,288 +672,49 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // U10: Per-event highlight clip creation (AE7, AE8, clamp, spinner, errors).
+  // Download-to-watch and event row (post-U10 refactor).
   // ---------------------------------------------------------------------------
 
-  group('per-event clip creation (U10)', () {
-    // Install a fake VideoPlayerPlatform so VideoPlayerController.initialize()
-    // completes cleanly in tests. Without this, the default platform throws
-    // UnimplementedError and leaves an uncompleted Completer in
-    // VideoPlayerController that causes subsequent pump() calls to hang.
-    late vp_interface.VideoPlayerPlatform _savedPlatform;
-    setUp(() {
-      _savedPlatform = vp_interface.VideoPlayerPlatform.instance;
-      vp_interface.VideoPlayerPlatform.instance = _FakeVideoPlayerPlatform();
-    });
-
-    tearDown(() {
-      vp_interface.VideoPlayerPlatform.instance = _savedPlatform;
-    });
-
-    // A single goal event at 37:22 = 2242 s.
+  group('download-to-watch and event rows', () {
     const eventsJson =
         '[{"timeSeconds":2242,"label":"GOAL · #7","team":"NRA","kind":"goal"}]';
 
-    // ---------------------------------------------------------------------------
-    // AE7: match not on device → snackbar asking to download first.
-    // ---------------------------------------------------------------------------
-
     testWidgets(
-      'AE7: match not on device → tap Clip → snackbar "Download the full match first"',
+      'match not on device shows "Download to watch" prompt, no Clip button in rows',
       (tester) async {
         await largeScreen(tester);
         await _insertMatch(
           db.value,
-          id: 'u10-ae7',
+          id: 'dtw-1',
           teamId: 'nr-u14',
           eventsJson: eventsJson,
         );
 
-        final clipSvc = _RecordingClipService();
-
         await tester.pumpWidget(
           _buildPage(
             db: db.value,
-            matchId: 'u10-ae7',
+            matchId: 'dtw-1',
             videoPathService: _AbsentVideoPathService(),
-            clipService: clipSvc,
-            // no activeCameraId → isOnDevice = false (absent file)
           ),
         );
         final container = _container(tester);
-        await _awaitMatch(tester, container, 'u10-ae7');
+        await _awaitMatch(tester, container, 'dtw-1');
         await tester.pump(const Duration(milliseconds: 100));
 
-        // Tap the Clip button on the first (only) event row.
-        // Drain the async chain via pump() (no duration = no timers fired).
-        await tester.tap(find.text('Clip').first);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-
-        // Snackbar shown.
-        expect(
-          find.textContaining('Download the full match first'),
-          findsOneWidget,
-        );
-        // trim() was NOT called.
-        expect(clipSvc.calls, isEmpty);
+        // Player area shows "Download to watch" prompt.
+        expect(find.textContaining('Download to watch'), findsOneWidget);
+        // No per-event Clip button in the event list.
+        expect(find.text('Clip'), findsNothing);
       },
     );
 
-    // ---------------------------------------------------------------------------
-    // AE8: match on device, event at 37:22 (2242s) → startSeconds=2227.
-    // ---------------------------------------------------------------------------
-
     testWidgets(
-      'AE8: on-device match → tap Clip on goal → trim called with correct args',
+      'match title shows "TeamName vs Opponent", not just date',
       (tester) async {
         await largeScreen(tester);
         await _insertMatch(
           db.value,
-          id: 'u10-ae8',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
-
-        final tmpFile = await File('/tmp/sst-u10-ae8.mp4').create();
-        addTearDown(() async {
-          if (tmpFile.existsSync()) await tmpFile.delete();
-        });
-
-        final clipSvc = _RecordingClipService();
-
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'u10-ae8',
-            videoPathService: _PresentVideoPathService(tmpFile.path),
-            clipService: clipSvc,
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'u10-ae8');
-        await tester.pump(const Duration(milliseconds: 100));
-
-        // Tap Clip.
-        await tester.tap(find.text('Clip').first);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-
-        // trim() called once with correct args.
-        expect(clipSvc.calls.length, 1);
-        final call = clipSvc.calls.first;
-        expect(call.matchId, 'u10-ae8');
-        expect(call.sourcePath, tmpFile.path);
-        expect(call.startSeconds, 2227); // 2242 - 15
-        expect(call.durationSeconds, 30);
-
-        // "Clip saved" snackbar.
-        expect(find.text('Clip saved'), findsOneWidget);
-      },
-    );
-
-    // ---------------------------------------------------------------------------
-    // Clamp: event at timeSeconds=10 → startSeconds clamped to 0.
-    // ---------------------------------------------------------------------------
-
-    testWidgets(
-      'event at timeSeconds=10 → startSeconds clamped to 0 (not negative)',
-      (tester) async {
-        await largeScreen(tester);
-        const earlyEvent =
-            '[{"timeSeconds":10,"label":"FOUL · #4","team":"NRA","kind":"foul"}]';
-        await _insertMatch(
-          db.value,
-          id: 'u10-clamp',
-          teamId: 'nr-u14',
-          eventsJson: earlyEvent,
-        );
-
-        final tmpFile = await File('/tmp/sst-u10-clamp.mp4').create();
-        addTearDown(() async {
-          if (tmpFile.existsSync()) await tmpFile.delete();
-        });
-
-        final clipSvc = _RecordingClipService();
-
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'u10-clamp',
-            videoPathService: _PresentVideoPathService(tmpFile.path),
-            clipService: clipSvc,
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'u10-clamp');
-        await tester.pump(const Duration(milliseconds: 100));
-
-        await tester.tap(find.text('Clip').first);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-
-        expect(clipSvc.calls.length, 1);
-        // 10 - 15 = -5, clamped to 0.
-        expect(clipSvc.calls.first.startSeconds, 0);
-      },
-    );
-
-    // ---------------------------------------------------------------------------
-    // Clip in progress → spinner on that event, other events still show Clip.
-    // ---------------------------------------------------------------------------
-
-    testWidgets(
-      'clip in progress → spinner shown for that event; others show Clip button',
-      (tester) async {
-        await largeScreen(tester);
-        // Two events.
-        const twoEvents =
-            '[{"timeSeconds":600,"label":"GOAL · #7","team":"NRA","kind":"goal"},'
-            '{"timeSeconds":900,"label":"FOUL · #4","team":"NRA","kind":"foul"}]';
-        await _insertMatch(
-          db.value,
-          id: 'u10-spinner',
-          teamId: 'nr-u14',
-          eventsJson: twoEvents,
-        );
-
-        final tmpFile = await File('/tmp/sst-u10-spinner.mp4').create();
-        addTearDown(() async {
-          if (tmpFile.existsSync()) await tmpFile.delete();
-        });
-
-        // A completer-controlled ClipService that hangs until we signal it.
-        final completer = _HangingClipService();
-
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'u10-spinner',
-            videoPathService: _PresentVideoPathService(tmpFile.path),
-            clipService: completer,
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'u10-spinner');
-        await tester.pump(const Duration(milliseconds: 100));
-
-        // Tap Clip on the FIRST event (GOAL · #7).
-        final clipButtons = find.text('Clip');
-        expect(clipButtons, findsNWidgets(2));
-        await tester.tap(clipButtons.first);
-        // Drain via pump() (no duration = no fake timers fired).
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-
-        // First event row shows a spinner; second still shows Clip button.
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
-        expect(find.text('Clip'), findsOneWidget);
-
-        // Complete the hanging call so the widget cleans up.
-        completer.complete();
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-      },
-    );
-
-    // ---------------------------------------------------------------------------
-    // ClipTrimException → error snackbar.
-    // ---------------------------------------------------------------------------
-
-    testWidgets(
-      'ClipTrimException from ClipService → error snackbar shown',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'u10-fail',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
-
-        final tmpFile = await File('/tmp/sst-u10-fail.mp4').create();
-        addTearDown(() async {
-          if (tmpFile.existsSync()) await tmpFile.delete();
-        });
-
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'u10-fail',
-            videoPathService: _PresentVideoPathService(tmpFile.path),
-            clipService: _FailingClipService(),
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'u10-fail');
-        await tester.pump(const Duration(milliseconds: 100));
-
-        await tester.tap(find.text('Clip').first);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
-
-        expect(find.textContaining('Clip failed:'), findsOneWidget);
-        expect(find.textContaining('FFmpeg unavailable'), findsOneWidget);
-      },
-    );
-
-    // ---------------------------------------------------------------------------
-    // Successful clip → "Clip saved" snackbar.
-    // ---------------------------------------------------------------------------
-
-    testWidgets(
-      'successful clip → "Clip saved" snackbar shown',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'u10-ok',
+          id: 'title-1',
           teamId: 'nr-u14',
           eventsJson: eventsJson,
         );
@@ -1289,22 +722,47 @@ void main() {
         await tester.pumpWidget(
           _buildPage(
             db: db.value,
-            matchId: 'u10-ok',
+            matchId: 'title-1',
             videoPathService: _AbsentVideoPathService(),
-            clipService: _RecordingClipService(),
-            forceIsOnDevice: true,
           ),
         );
         final container = _container(tester);
-        await _awaitMatch(tester, container, 'u10-ok');
+        await _awaitMatch(tester, container, 'title-1');
         await tester.pump(const Duration(milliseconds: 100));
 
-        await tester.tap(find.text('Clip').first);
-        await tester.pump();
-        await tester.pump();
-        await tester.pump();
+        // Title uses full team name and opponent.
+        expect(find.textContaining('vs'), findsWidgets);
+        // Date is not the primary/only title element.
+        expect(find.text('2026-03-12'), findsNothing);
+      },
+    );
 
-        expect(find.text('Clip saved'), findsOneWidget);
+    testWidgets(
+      'event row has checkbox and shows event label',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(
+          db.value,
+          id: 'row-1',
+          teamId: 'nr-u14',
+          eventsJson: eventsJson,
+        );
+
+        await tester.pumpWidget(
+          _buildPage(
+            db: db.value,
+            matchId: 'row-1',
+            videoPathService: _AbsentVideoPathService(),
+          ),
+        );
+        final container = _container(tester);
+        await _awaitMatch(tester, container, 'row-1');
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // Event label is shown.
+        expect(find.text('GOAL · #7'), findsOneWidget);
+        // No Clip button.
+        expect(find.text('Clip'), findsNothing);
       },
     );
   });

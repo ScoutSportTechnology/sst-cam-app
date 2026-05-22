@@ -302,9 +302,8 @@ void main() {
       await tester.tap(cardFinder);
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
 
-      // After navigation, VideoMatchDetailPage shows the match date in the
-      // AppBar title.
-      expect(find.text('Jun 01'), findsOneWidget);
+      // After navigation, VideoMatchDetailPage shows team vs opponent in AppBar.
+      expect(find.textContaining('vs Navigation FC'), findsOneWidget);
     });
   });
 }

@@ -46,12 +46,41 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   // Dev-mode mock video player (used when no real RTSP stream is available).
   VideoPlayerController? _mock;
 
+  // Preview is off by default — the user must tap to start it.
+  bool _previewEnabled = false;
+
   @override
   void initState() {
     super.initState();
+    // Do NOT auto-start. The user taps the preview surface to enable it.
+  }
+
+  void _enablePreview() {
+    setState(() => _previewEnabled = true);
     if (kAppEnv.isDevBackend) {
       _initMockPlayer();
     }
+  }
+
+  void _disablePreview() {
+    setState(() => _previewEnabled = false);
+    _tearDownMock();
+    _tearDownVlc();
+  }
+
+  void _tearDownMock() {
+    final mock = _mock;
+    _mock = null;
+    mock?.dispose();
+  }
+
+  void _tearDownVlc() {
+    _vlc?.removeListener(_onVlcChange);
+    // ignore: discarded_futures
+    _vlc?.dispose();
+    _vlc = null;
+    _vlcUrl = null;
+    _vlcError = false;
   }
 
   void _initMockPlayer() {
@@ -77,6 +106,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   @override
   void dispose() {
     _vlc?.removeListener(_onVlcChange);
+    // ignore: discarded_futures
     _vlc?.dispose();
     // Null before dispose so any in-flight initialize().then() callback
     // fails the _mock == controller identity check and skips play().
@@ -139,6 +169,45 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
       );
     }
 
+    // Preview is off — show a tap-to-enable placeholder.
+    if (!_previewEnabled) {
+      final offBody = Stack(
+        fit: StackFit.expand,
+        children: [
+          ThumbPlaceholder(label: widget.label ?? 'PREVIEW OFF'),
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _enablePreview,
+              child: Container(
+                color: Colors.transparent,
+                alignment: Alignment.center,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+                  ),
+                  child: const Text(
+                    '▶  Start preview',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+      if (widget.height != null) {
+        return SizedBox(height: widget.height, width: double.infinity, child: offBody);
+      }
+      return AspectRatio(aspectRatio: widget.aspect ?? 16 / 9, child: offBody);
+    }
+
     final wifiState = ref
         .watch(wifiConnectionStateProvider(deviceId))
         .valueOrNull;
@@ -149,17 +218,12 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // Spin up / replace the VLC controller whenever the descriptor URL changes.
     // Skipped in dev-backend mode: _vlc stays null so the mock-video branch
     // in the Stack below renders instead of the VLC loading phase.
-    if (!kAppEnv.isDevBackend) {
+    if (!kAppEnv.isDevBackend && _previewEnabled) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
         _swapVlcController(url);
       } else if (url == null && _vlc != null) {
-        _vlc?.removeListener(_onVlcChange);
-        // ignore: discarded_futures
-        _vlc?.dispose();
-        _vlc = null;
-        _vlcUrl = null;
-        _vlcError = false;
+        _tearDownVlc();
       }
     }
 
@@ -206,6 +270,29 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             top: 8,
             child: _FrameCounter(sequence: frame.sequence),
           ),
+        // Stop button — always visible when preview is enabled.
+        Positioned(
+          right: 8,
+          bottom: 8,
+          child: GestureDetector(
+            onTap: _disablePreview,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+              ),
+              child: const Text(
+                '■  Stop',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
 
