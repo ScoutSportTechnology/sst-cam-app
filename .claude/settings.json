@@ -16,7 +16,10 @@
       "Read(//root/.local/bin/**)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(chmod +x /home/rs/Documents/sst/sst-cam-app/.devcontainer/script/on-create.sh /home/rs/Documents/sst/sst-cam-app/.devcontainer/script/post-attach.sh)",
-      "Bash(git update-index *)"
+      "Bash(git update-index *)",
+      "mcp__dart__launch_app",
+      "mcp__dart__connect_dart_tooling_daemon",
+      "mcp__dart__get_widget_tree"
     ],
     "additionalDirectories": [
       "/home/vscode/.vscode-server/data/Machine",

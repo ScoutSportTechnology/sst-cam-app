@@ -7,10 +7,10 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sst_cam_app/db/app_database.dart';
-import 'package:sst_cam_app/state/db_providers.dart';
+import 'package:sst_cam_app/core/db/app_database.dart';
+import 'package:sst_cam_app/core/state/db_providers.dart';
 
-export 'package:sst_cam_app/db/app_database.dart';
+export 'package:sst_cam_app/core/db/app_database.dart';
 
 /// Registers setUp/tearDown that create and close a fresh Drift in-memory
 /// [AppDatabase] for every test, seeded with the canonical dev data that

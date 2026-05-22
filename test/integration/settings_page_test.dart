@@ -30,16 +30,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:sst_cam_app/ble/ble_service.dart';
-import 'package:sst_cam_app/ble/mock_ble_service.dart';
-import 'package:sst_cam_app/models/device.dart';
-import 'package:sst_cam_app/pages/discovery_page.dart';
-import 'package:sst_cam_app/pages/settings_page.dart';
-import 'package:sst_cam_app/pages/users_settings_page.dart';
-import 'package:sst_cam_app/pages/streaming_destinations_page.dart';
-import 'package:sst_cam_app/state/app_data.dart';
-import 'package:sst_cam_app/state/ble_providers.dart';
-import 'package:sst_cam_app/state/last_camera.dart';
+import 'package:sst_cam_app/core/ble/ble_service.dart';
+import 'package:sst_cam_app/mock/mock_ble_service.dart';
+import 'package:sst_cam_app/core/models/device.dart';
+import 'package:sst_cam_app/features/discovery/discovery_page.dart';
+import 'package:sst_cam_app/features/settings/settings_page.dart';
+import 'package:sst_cam_app/features/settings/users/users_settings_page.dart';
+import 'package:sst_cam_app/features/settings/streaming/streaming_destinations_page.dart';
+import 'package:sst_cam_app/features/camera/camera_state.dart'
+    show activeCameraIdProvider;
+import 'package:sst_cam_app/features/settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
+import 'package:sst_cam_app/features/settings/users/users_state.dart'
+    show activeUserProvider;
+import 'package:sst_cam_app/features/teams/teams_state.dart'
+    show teamsControllerProvider;
+import 'package:sst_cam_app/core/ble/ble_providers.dart';
+import 'package:sst_cam_app/core/state/last_camera.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test_helpers.dart';

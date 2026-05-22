@@ -3,10 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/app.dart';
-import 'package:sst_cam_app/ble/mock_ble_service.dart';
-import 'package:sst_cam_app/pages/discovery_page.dart';
-import 'package:sst_cam_app/state/ble_providers.dart';
-import 'package:sst_cam_app/widgets/wf_button.dart';
+import 'package:sst_cam_app/mock/mock_ble_service.dart';
+import 'package:sst_cam_app/features/discovery/discovery_page.dart';
+import 'package:sst_cam_app/core/ble/ble_providers.dart';
+import 'package:sst_cam_app/core/widgets/wf_button.dart';
 
 import '../test_helpers.dart';
 

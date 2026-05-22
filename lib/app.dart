@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'app_config.dart';
-import 'app_shell.dart';
-import 'theme/tokens.dart';
+import 'core/config/app_config.dart';
+import 'core/shell/app_shell.dart';
+import 'core/theme/tokens.dart';
 
 class SstCamApp extends StatelessWidget {
   const SstCamApp({super.key});
