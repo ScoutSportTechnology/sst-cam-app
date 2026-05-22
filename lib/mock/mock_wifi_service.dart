@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../core/models/overlay.dart';
 import '../core/models/recording.dart';
@@ -385,9 +385,15 @@ class MockWifiService implements WifiService {
       );
       _publish(entry, next);
       if (isDone) {
-        // Copy the mock video asset so the recording is a real playable file.
         timer.cancel();
-        _copyMockAsset(savePath).then((_) => controller.close());
+        // Write a placeholder file so isOnDeviceProvider returns true.
+        // Playback uses the bundled asset regardless in dev mode.
+        _writePlaceholder(savePath)
+            .then((_) => controller.close())
+            .catchError((Object e, StackTrace _) {
+          debugPrint('MockWifiService: placeholder write failed: $e');
+          controller.close();
+        });
       }
     });
 
@@ -413,16 +419,13 @@ class MockWifiService implements WifiService {
     );
   }
 
-  /// Copies `assets/ble/mock-video.mp4` to [path], creating parent dirs.
-  Future<void> _copyMockAsset(String path) async {
-    final byteData = await rootBundle.load('assets/ble/mock-video.mp4');
-    final bytes = byteData.buffer.asUint8List(
-      byteData.offsetInBytes,
-      byteData.lengthInBytes,
-    );
+  /// Writes a 1-byte placeholder at [path] so `File.existsSync()` returns
+  /// true. Playback in dev mode uses the bundled asset, so file content
+  /// does not matter — only existence is checked by isOnDeviceProvider.
+  Future<void> _writePlaceholder(String path) async {
     final file = File(path);
     await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes, flush: true);
+    await file.writeAsBytes([0x00], flush: true);
   }
 
   @override

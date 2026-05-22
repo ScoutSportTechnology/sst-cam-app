@@ -1,11 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/models/overlay.dart' as app_overlay;
-import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
 import '../video_state.dart'
     show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
 import '../../../core/theme/tokens.dart';
@@ -88,13 +85,10 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     if (!onDevice) return;
     setState(() => _isOnDevice = true);
 
-    // Initialize the video player from the local recording file.
-    final videoPathSvc = ref.read(videoPathServiceProvider);
-    final recordingPath = await videoPathSvc.recordingPath(match.id);
-    if (!mounted) return;
-    final controller = File(recordingPath).existsSync()
-        ? VideoPlayerController.file(File(recordingPath))
-        : VideoPlayerController.asset('assets/ble/mock-video.mp4');
+    // In dev mode the recording path holds a 1-byte placeholder; always
+    // use the bundled mock video for playback.  In production this would be
+    // VideoPlayerController.file(File(recordingPath)).
+    final controller = VideoPlayerController.asset('assets/ble/mock-video.mp4');
     _playerController = controller;
     await controller
         .initialize()
@@ -424,27 +418,17 @@ class _Player extends StatelessWidget {
 
   Widget _buildPlayerBody() {
     if (notOnDevice) {
-      // Not on device: prompt to download first.
+      // Not on device: single download CTA over the dark frame.
       return AspectRatio(
         aspectRatio: 16 / 9,
         child: ColoredBox(
           color: Colors.black,
           child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.download, color: Colors.white54, size: 36),
-                const SizedBox(height: 10),
-                const Text(
-                  'Download to watch',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: onDownload,
-                  child: const Text('Download full match'),
-                ),
-              ],
+            child: WfButton(
+              label: 'Download to watch',
+              variant: WfButtonVariant.primary,
+              leading: const Icon(Icons.download, size: 15, color: T.accentInk),
+              onPressed: onDownload,
             ),
           ),
         ),

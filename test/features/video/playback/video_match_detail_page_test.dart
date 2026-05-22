@@ -234,9 +234,8 @@ void main() {
         await _awaitMatch(tester, container, 'co-no-cam');
         await tester.pump(const Duration(milliseconds: 100));
 
-        // New behavior: show download prompt, not WiFi error.
+        // New behavior: single WfButton CTA, not WiFi error.
         expect(find.textContaining('Download to watch'), findsOneWidget);
-        expect(find.text('Download full match'), findsOneWidget);
         expect(find.text('Connecting…'), findsNothing);
         expect(find.text('Retry'), findsNothing);
         expect(find.byType(VideoPlayer), findsNothing);

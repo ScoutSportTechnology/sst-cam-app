@@ -7,6 +7,7 @@ import '../config/env.dart';
 import '../models/wifi.dart';
 import '../wifi/wifi_providers.dart';
 import '../theme/tokens.dart';
+import 'wf_button.dart';
 import 'wf_card.dart';
 
 /// 16:9 live preview surface. Plays the camera's RTSP H.264 stream via VLC
@@ -169,35 +170,23 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
       );
     }
 
-    // Preview is off — show a tap-to-enable placeholder.
+    // Preview is off — ThumbPlaceholder with a centered WfButton tap target.
     if (!_previewEnabled) {
       final offBody = Stack(
         fit: StackFit.expand,
         children: [
-          ThumbPlaceholder(label: widget.label ?? 'PREVIEW OFF'),
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _enablePreview,
-              child: Container(
-                color: Colors.transparent,
-                alignment: Alignment.center,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
-                  ),
-                  child: const Text(
-                    '▶  Start preview',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                ),
+          ThumbPlaceholder(label: widget.label ?? 'PREVIEW'),
+          Center(
+            child: WfButton(
+              label: 'Preview',
+              variant: WfButtonVariant.outline,
+              size: WfButtonSize.sm,
+              leading: const Icon(
+                Icons.play_arrow_rounded,
+                size: 13,
+                color: T.ink,
               ),
+              onPressed: _enablePreview,
             ),
           ),
         ],
@@ -270,27 +259,15 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             top: 8,
             child: _FrameCounter(sequence: frame.sequence),
           ),
-        // Stop button — always visible when preview is enabled.
+        // Stop button — bottom-right corner, consistent with WfButton vocabulary.
         Positioned(
           right: 8,
           bottom: 8,
-          child: GestureDetector(
-            onTap: _disablePreview,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-              ),
-              child: const Text(
-                '■  Stop',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+          child: WfButton(
+            label: 'Stop',
+            variant: WfButtonVariant.outline,
+            size: WfButtonSize.sm,
+            onPressed: _disablePreview,
           ),
         ),
       ],
