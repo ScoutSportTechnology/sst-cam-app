@@ -1,16 +1,63 @@
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:sst_cam_app/core/db/app_database.dart';
+import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/mock/mock_data_seeder.dart';
+
+// ---------------------------------------------------------------------------
+// Fake path_provider that uses a temp directory for tests.
+// ---------------------------------------------------------------------------
+class _FakePathProvider
+    with MockPlatformInterfaceMixin
+    implements PathProviderPlatform {
+  final String tempPath;
+  _FakePathProvider(this.tempPath);
+
+  @override
+  Future<String?> getApplicationSupportPath() async => tempPath;
+
+  @override
+  Future<String?> getTemporaryPath() async => tempPath;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => tempPath;
+
+  @override
+  Future<String?> getApplicationCachePath() async => tempPath;
+
+  @override
+  Future<String?> getExternalStoragePath() async => null;
+
+  @override
+  Future<List<String>?> getExternalCachePaths() async => null;
+
+  @override
+  Future<List<String>?> getExternalStoragePaths({
+    StorageDirectory? type,
+  }) async => null;
+
+  @override
+  Future<String?> getDownloadsPath() async => null;
+
+  @override
+  Future<String?> getLibraryPath() async => tempPath;
+}
 
 void main() {
   // rootBundle requires the Flutter binding to be initialised.
   setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
 
   late AppDatabase db;
+  late Directory tempDir;
 
-  setUp(() {
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('mock_seeder_test_');
+    PathProviderPlatform.instance = _FakePathProvider(tempDir.path);
     db = AppDatabase.forTesting(
       DatabaseConnection(
         NativeDatabase.memory(),
@@ -19,19 +66,24 @@ void main() {
     );
   });
 
-  tearDown(() => db.close());
+  tearDown(() async {
+    await db.close();
+    if (tempDir.existsSync()) {
+      await tempDir.delete(recursive: true);
+    }
+  });
 
   group('MockDataSeeder', () {
     test('seed() inserts expected teams, matches, players, and destinations',
         () async {
-      // AppDatabase.forTesting runs onCreate which seeds the default user.
       await MockDataSeeder(db).seed();
 
       final teams = await db.select(db.teamsTable).get();
       expect(teams, hasLength(2), reason: 'fixtures/teams.json has 2 teams');
 
       final matches = await db.select(db.teamMatchesTable).get();
-      expect(matches, hasLength(4), reason: 'fixtures/matches.json has 4 matches');
+      expect(matches, hasLength(8),
+          reason: 'fixtures/matches.json has 8 matches total');
 
       final players = await db.select(db.playersTable).get();
       expect(players, hasLength(25), reason: 'fixtures/players.json has 25 players');
@@ -42,20 +94,150 @@ void main() {
           reason: 'fixtures/streaming_destinations.json has 1 destination');
     });
 
-    test('calling seed() twice is idempotent (no exception, no duplicates)',
+    test('NR team has 4 past matches and 1 upcoming', () async {
+      await MockDataSeeder(db).seed();
+
+      final nrMatches = await (db.select(db.teamMatchesTable)
+            ..where((t) => t.teamId.equals('mock-team-nr-u14')))
+          .get();
+      expect(nrMatches, hasLength(5));
+
+      final nrPast = nrMatches.where((m) => m.kind == 'past').toList();
+      expect(nrPast, hasLength(4), reason: 'NR has 4 past matches');
+
+      final nrUpcoming = nrMatches.where((m) => m.kind == 'upcoming').toList();
+      expect(nrUpcoming, hasLength(1), reason: 'NR has 1 upcoming match');
+    });
+
+    test('EFC team has 3 past matches', () async {
+      await MockDataSeeder(db).seed();
+
+      final efcMatches = await (db.select(db.teamMatchesTable)
+            ..where((t) => t.teamId.equals('mock-team-efc-u14')))
+          .get();
+      expect(efcMatches, hasLength(3), reason: 'EFC has 3 matches');
+
+      final efcPast = efcMatches.where((m) => m.kind == 'past').toList();
+      expect(efcPast, hasLength(3), reason: 'All EFC matches are past');
+    });
+
+    test('EFC has at least one match against Northridge U14 (cross-team search AE4)',
         () async {
       await MockDataSeeder(db).seed();
-      // Second call should use insertOnConflictUpdate — no exception expected.
+
+      final efcVsNR = await (db.select(db.teamMatchesTable)
+            ..where(
+              (t) =>
+                  t.teamId.equals('mock-team-efc-u14') &
+                  t.opponent.equals('Northridge U14'),
+            ))
+          .get();
+      expect(efcVsNR, isNotEmpty,
+          reason: 'EFC must have at least one match vs Northridge U14');
+    });
+
+    test('opponent fields have no "vs " prefix', () async {
       await MockDataSeeder(db).seed();
+
+      final matches = await db.select(db.teamMatchesTable).get();
+      for (final match in matches) {
+        expect(
+          match.opponent.startsWith('vs '),
+          isFalse,
+          reason: 'opponent "${match.opponent}" must not start with "vs "',
+        );
+      }
+    });
+
+    test('placeholder file exists for every on-device past match (sizeMb > 0)',
+        () async {
+      final videoPathService = VideoPathService();
+      await MockDataSeeder(db, videoPathService: videoPathService).seed();
+
+      final onDeviceMatches = await (db.select(db.teamMatchesTable)
+            ..where(
+              (t) => t.kind.equals('past') & t.sizeMb.isBiggerThanValue(0),
+            ))
+          .get();
+
+      expect(onDeviceMatches, isNotEmpty,
+          reason: 'at least one on-device match must exist');
+
+      for (final match in onDeviceMatches) {
+        final path = await videoPathService.recordingPath(match.id);
+        expect(
+          File(path).existsSync(),
+          isTrue,
+          reason: 'placeholder file missing for on-device match ${match.id}',
+        );
+      }
+    });
+
+    test('no placeholder file for camera-only past matches (sizeMb == 0)',
+        () async {
+      final videoPathService = VideoPathService();
+      await MockDataSeeder(db, videoPathService: videoPathService).seed();
+
+      final cameraOnlyMatches = await (db.select(db.teamMatchesTable)
+            ..where(
+              (t) =>
+                  t.kind.equals('past') &
+                  t.sizeMb.equals(0),
+            ))
+          .get();
+
+      expect(cameraOnlyMatches, isNotEmpty,
+          reason: 'at least one camera-only past match must exist');
+
+      for (final match in cameraOnlyMatches) {
+        final path = await videoPathService.recordingPath(match.id);
+        expect(
+          File(path).existsSync(),
+          isFalse,
+          reason:
+              'unexpected placeholder file found for camera-only match ${match.id}',
+        );
+      }
+    });
+
+    test('calling seed() twice is idempotent (no exception, no duplicates)',
+        () async {
+      final videoPathService = VideoPathService();
+      await MockDataSeeder(db, videoPathService: videoPathService).seed();
+      // Second call should use insertOnConflictUpdate — no exception expected.
+      await MockDataSeeder(db, videoPathService: videoPathService).seed();
 
       final teams = await db.select(db.teamsTable).get();
       expect(teams, hasLength(2));
 
       final matches = await db.select(db.teamMatchesTable).get();
-      expect(matches, hasLength(4));
+      expect(matches, hasLength(8));
 
       final players = await db.select(db.playersTable).get();
       expect(players, hasLength(25));
+
+      // Placeholder files should still exist, not be duplicated or corrupted.
+      final onDeviceMatches = await (db.select(db.teamMatchesTable)
+            ..where(
+              (t) => t.kind.equals('past') & t.sizeMb.isBiggerThanValue(0),
+            ))
+          .get();
+      for (final match in onDeviceMatches) {
+        final path = await videoPathService.recordingPath(match.id);
+        expect(
+          File(path).existsSync(),
+          isTrue,
+          reason:
+              'placeholder file missing after double seed for match ${match.id}',
+        );
+        // Must still be exactly 1 byte (not grown from double writes).
+        expect(
+          File(path).lengthSync(),
+          equals(1),
+          reason:
+              'placeholder file for ${match.id} should be 1 byte but is not',
+        );
+      }
     });
   });
 }

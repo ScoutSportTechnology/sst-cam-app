@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/services.dart';
 
 import '../core/db/app_database.dart';
+import '../core/services/video_path_service.dart';
 
 /// Seeds the Drift database with mock fixture data from assets/mock/fixtures/.
 ///
@@ -11,14 +13,24 @@ import '../core/db/app_database.dart';
 /// so every screen has realistic data in development without a real device.
 /// Uses insertOnConflictUpdate — calling seed() twice overwrites existing rows
 /// with fixture values. Safe to call on a fresh or pre-seeded DB.
+///
+/// After the DB transaction, also writes a 1-byte placeholder file at
+/// [VideoPathService.recordingPath] for every past match that has sizeMb > 0
+/// (i.e. "on device"). This lets the Video Library detect a local file without
+/// requiring an actual download.
 class MockDataSeeder {
-  const MockDataSeeder(this._db);
+  MockDataSeeder(this._db, {VideoPathService? videoPathService})
+      : _videoPathService = videoPathService ?? VideoPathService();
 
   final AppDatabase _db;
+  final VideoPathService _videoPathService;
 
   /// Seeds teams, players, matches, and streaming destinations from fixture
   /// JSON files. The default user ('default-user') is assumed to already exist
   /// (created by AppDatabase._seedBaseData via onCreate).
+  ///
+  /// After all DB rows are written, placeholder video files are created for
+  /// every past match with sizeMb > 0 so the Video Library can detect them.
   Future<void> seed() async {
     // Load all fixture files in parallel, then insert in dependency order
     // (teams must exist before matches/players reference them via FK).
@@ -36,6 +48,25 @@ class MockDataSeeder {
       await _insertMatches(matches);
       await _insertStreamingDestinations(destinations);
     });
+
+    // Write placeholder files for "on device" past matches AFTER the
+    // transaction completes so any failure here does not roll back DB rows.
+    final onDeviceMatches = matches.where(
+      (row) =>
+          row['kind'] == 'past' && (row['sizeMb'] as int? ?? 0) > 0,
+    );
+    await Future.wait(
+      onDeviceMatches.map((row) => _writePlaceholderFile(row['id'] as String)),
+    );
+  }
+
+  Future<void> _writePlaceholderFile(String matchId) async {
+    final path = await _videoPathService.recordingPath(matchId);
+    final file = File(path);
+    if (!file.existsSync()) {
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes([0]);
+    }
   }
 
   Future<void> _insertTeams(List<Map<String, dynamic>> rows) async {

@@ -10,7 +10,7 @@
   {
     "id": "mock-match-001",
     "teamId": "mock-team-nr-u14",
-    "opponent": "vs Eastfield FC",
+    "opponent": "Eastfield FC",
     "date": "2026-03-12",
     "result": "W 3–1",
     "kind": "past",
@@ -23,7 +23,7 @@
   {
     "id": "mock-match-002",
     "teamId": "mock-team-nr-u14",
-    "opponent": "vs Riverdale Utd",
+    "opponent": "Riverdale Utd",
     "date": "2026-03-05",
     "result": "L 0–2",
     "kind": "past",
@@ -36,20 +36,33 @@
   {
     "id": "mock-match-003",
     "teamId": "mock-team-nr-u14",
-    "opponent": "vs Lakeside FC",
+    "opponent": "Lakeside FC",
     "date": "2026-02-26",
     "result": "D 1–1",
     "kind": "past",
     "numPeriods": 2,
     "periodLengthSeconds": 2700,
     "clips": 1,
-    "sizeMb": 3200,
+    "sizeMb": 0,
     "eventsJson": "[{\"timeSeconds\":720,\"label\":\"Goal · NR · #07\",\"team\":\"NR\",\"kind\":\"goal\"},{\"timeSeconds\":4260,\"label\":\"Goal · LK · #06\",\"team\":\"LK\",\"kind\":\"goal\"}]"
   },
   {
     "id": "mock-match-004",
     "teamId": "mock-team-nr-u14",
-    "opponent": "vs Westview SC",
+    "opponent": "Bayshore Athletic",
+    "date": "2026-02-18",
+    "result": "W 2–0",
+    "kind": "past",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 2,
+    "sizeMb": 0,
+    "eventsJson": "[{\"timeSeconds\":540,\"label\":\"Goal · NR · #11\",\"team\":\"NR\",\"kind\":\"goal\"},{\"timeSeconds\":1890,\"label\":\"Card · BA · #05\",\"team\":\"BA\",\"kind\":\"card\"},{\"timeSeconds\":4320,\"label\":\"Goal · NR · #09\",\"team\":\"NR\",\"kind\":\"goal\"}]"
+  },
+  {
+    "id": "mock-match-005",
+    "teamId": "mock-team-nr-u14",
+    "opponent": "Westview SC",
     "date": "2026-05-18",
     "result": "",
     "kind": "upcoming",
@@ -58,5 +71,44 @@
     "clips": 0,
     "sizeMb": 0,
     "eventsJson": "[]"
+  },
+  {
+    "id": "mock-match-efc-001",
+    "teamId": "mock-team-efc-u14",
+    "opponent": "Northridge U14",
+    "date": "2026-03-12",
+    "result": "L 1–3",
+    "kind": "past",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 1,
+    "sizeMb": 2800,
+    "eventsJson": "[{\"timeSeconds\":378,\"label\":\"Goal · NR · #07\",\"team\":\"NR\",\"kind\":\"goal\"},{\"timeSeconds\":882,\"label\":\"Foul · EFC\",\"team\":\"EFC\",\"kind\":\"foul\"},{\"timeSeconds\":1368,\"label\":\"Goal · NR · #11\",\"team\":\"NR\",\"kind\":\"goal\"},{\"timeSeconds\":1638,\"label\":\"Goal · EFC · #14\",\"team\":\"EFC\",\"kind\":\"goal\"},{\"timeSeconds\":3960,\"label\":\"Goal · NR · #09\",\"team\":\"NR\",\"kind\":\"goal\"}]"
+  },
+  {
+    "id": "mock-match-efc-002",
+    "teamId": "mock-team-efc-u14",
+    "opponent": "Pinecrest United",
+    "date": "2026-03-08",
+    "result": "W 2–1",
+    "kind": "past",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 0,
+    "sizeMb": 0,
+    "eventsJson": "[{\"timeSeconds\":660,\"label\":\"Goal · EFC · #10\",\"team\":\"EFC\",\"kind\":\"goal\"},{\"timeSeconds\":1980,\"label\":\"Goal · PU · #07\",\"team\":\"PU\",\"kind\":\"goal\"},{\"timeSeconds\":4140,\"label\":\"Goal · EFC · #08\",\"team\":\"EFC\",\"kind\":\"goal\"},{\"timeSeconds\":4500,\"label\":\"Save · EFC · #01\",\"team\":\"EFC\",\"kind\":\"save\"}]"
+  },
+  {
+    "id": "mock-match-efc-003",
+    "teamId": "mock-team-efc-u14",
+    "opponent": "Ridgemont FC",
+    "date": "2026-02-20",
+    "result": "D 0–0",
+    "kind": "past",
+    "numPeriods": 2,
+    "periodLengthSeconds": 2700,
+    "clips": 0,
+    "sizeMb": 0,
+    "eventsJson": "[{\"timeSeconds\":1200,\"label\":\"Foul · RM · #09\",\"team\":\"RM\",\"kind\":\"foul\"},{\"timeSeconds\":2700,\"label\":\"Save · EFC · #01\",\"team\":\"EFC\",\"kind\":\"save\"},{\"timeSeconds\":3900,\"label\":\"Card · RM · #04\",\"team\":\"RM\",\"kind\":\"card\"},{\"timeSeconds\":5100,\"label\":\"Sub · EFC · #11\",\"team\":\"EFC\",\"kind\":\"sub\"}]"
   }
 ]
