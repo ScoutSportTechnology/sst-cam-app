@@ -4,34 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'video_state.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
-import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
 import '../discovery/discovery_page.dart';
-import 'video_team_matches_page.dart';
+import '../teams/teams_state.dart' show teamsControllerProvider;
+import 'playback/video_match_detail_page.dart';
 
 class VideoPage extends ConsumerWidget {
   const VideoPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Aggregated per-team stats derived inline from libraryProvider.
-    // Excludes remote-only entries. Both this widget and filteredLibraryTeamsProvider
-    // read the same libraryProvider snapshot so results stay consistent.
-    final library = ref.watch(libraryProvider).valueOrNull ?? const [];
-    final byTeam = <String, ({int matches, int clips, int sizeMb, String date})>{};
-    for (final m in library.where((m) => m.downloadState != 'remote')) {
-      final cur =
-          byTeam[m.teamId] ?? (matches: 0, clips: 0, sizeMb: 0, date: m.date);
-      byTeam[m.teamId] = (
-        matches: cur.matches + 1,
-        clips: cur.clips + m.events.length + 1,
-        sizeMb: cur.sizeMb + m.fullSizeMb,
-        date: m.date,
-      );
-    }
-
-    // Use filtered provider instead of computing tiles manually.
-    final filteredTiles = ref.watch(filteredLibraryTeamsProvider);
+    final libraryAsync = ref.watch(libraryProvider);
+    final filteredMatches = ref.watch(filteredLibraryMatchesProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -47,39 +31,57 @@ class VideoPage extends ConsumerWidget {
       body: Column(
         children: [
           const Padding(
-            padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
             child: _LibrarySearchField(),
           ),
           const SizedBox(height: 32, child: _LibrarySportFilterChips()),
-          if (filteredTiles.isNotEmpty)
-            WfSection(
-              'Library · ${filteredTiles.length}',
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-            ),
+          const SizedBox(height: 8),
+          const SizedBox(height: 32, child: _LibraryTeamFilterChips()),
+          const SizedBox(height: 4),
           Expanded(
-            child: filteredTiles.isEmpty
-                ? const _NoVideosEmptyState()
-                : ListView.builder(
-                    itemCount: filteredTiles.length,
-                    itemBuilder: (context, i) {
-                      final t = filteredTiles[i];
-                      final stats = byTeam[t.id];
-                      if (stats == null) return const SizedBox.shrink();
-                      return _TeamLibraryRow(
-                        team: t,
-                        matches: stats.matches,
-                        clips: stats.clips,
-                        sizeGb: stats.sizeMb / 1024,
-                        recent: stats.date,
-                      );
+            child: libraryAsync.when(
+              loading: () =>
+                  const Center(child: CircularProgressIndicator()),
+              // ignore: avoid_types_on_closure_parameters
+              error: (Object err, StackTrace st) => const Center(
+                child: Text(
+                  'Could not load library',
+                  style: TextStyle(color: T.ink2, fontSize: 13),
+                ),
+              ),
+              data: (allMatches) {
+                if (allMatches.isEmpty) {
+                  return const _NoVideosEmptyState();
+                }
+                if (filteredMatches.isEmpty) {
+                  return _EmptyFilterState(
+                    onClear: () {
+                      ref.read(librarySportFilterProvider.notifier).state =
+                          null;
+                      ref.read(libraryTeamFilterProvider.notifier).state =
+                          null;
                     },
-                  ),
+                  );
+                }
+                return ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: filteredMatches.length,
+                  itemBuilder: (context, i) {
+                    return _MatchCard(match: filteredMatches[i]);
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Search field
+// ---------------------------------------------------------------------------
 
 class _LibrarySearchField extends ConsumerStatefulWidget {
   const _LibrarySearchField();
@@ -146,6 +148,10 @@ class _LibrarySearchFieldState extends ConsumerState<_LibrarySearchField> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Sport filter chips
+// ---------------------------------------------------------------------------
+
 class _LibrarySportFilterChips extends ConsumerWidget {
   const _LibrarySportFilterChips();
 
@@ -164,7 +170,8 @@ class _LibrarySportFilterChips extends ConsumerWidget {
         final s = entries[i];
         final active = s == selected;
         return GestureDetector(
-          onTap: () => ref.read(librarySportFilterProvider.notifier).state = s,
+          onTap: () =>
+              ref.read(librarySportFilterProvider.notifier).state = s,
           child: WfChip(label: s ?? 'All', active: active),
         );
       },
@@ -172,27 +179,55 @@ class _LibrarySportFilterChips extends ConsumerWidget {
   }
 }
 
-class _TeamLibraryRow extends StatelessWidget {
-  const _TeamLibraryRow({
-    required this.team,
-    required this.matches,
-    required this.clips,
-    required this.sizeGb,
-    required this.recent,
-  });
-  final TeamRecord team;
-  final int matches;
-  final int clips;
-  final double sizeGb;
-  final String recent;
+// ---------------------------------------------------------------------------
+// Team filter chips
+// ---------------------------------------------------------------------------
+
+class _LibraryTeamFilterChips extends ConsumerWidget {
+  const _LibraryTeamFilterChips();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final teams =
+        ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+    final selected = ref.watch(libraryTeamFilterProvider);
+    final entries = <String?>[null, ...teams.map((t) => t.shortName)];
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      itemCount: entries.length,
+      separatorBuilder: (context, index) => const SizedBox(width: 6),
+      itemBuilder: (_, i) {
+        final s = entries[i];
+        final active = s == selected;
+        return GestureDetector(
+          onTap: () =>
+              ref.read(libraryTeamFilterProvider.notifier).state = s,
+          child: WfChip(label: s ?? 'All', active: active),
+        );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Match card
+// ---------------------------------------------------------------------------
+
+class _MatchCard extends ConsumerWidget {
+  const _MatchCard({required this.match});
+  final LibraryMatch match;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final onDeviceAsync = ref.watch(isOnDeviceProvider(match.id));
+
     return InkWell(
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => VideoTeamMatchesPage(teamId: team.id),
+            builder: (_) => VideoMatchDetailPage(matchId: match.id),
           ),
         );
       },
@@ -203,6 +238,7 @@ class _TeamLibraryRow extends StatelessWidget {
         ).toBoxDecoration(),
         child: Row(
           children: [
+            // Left: circular avatar badge with team shortName
             Container(
               width: 40,
               height: 40,
@@ -212,7 +248,7 @@ class _TeamLibraryRow extends StatelessWidget {
               ),
               alignment: Alignment.center,
               child: Text(
-                team.shortName,
+                match.teamShortName,
                 style: const TextStyle(
                   fontFamily: T.mono,
                   fontWeight: FontWeight.w700,
@@ -222,12 +258,13 @@ class _TeamLibraryRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
+            // Title and subtitle
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    team.shortName,
+                    '${match.teamName} vs ${_stripVsPrefix(match.opponent)}',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -236,32 +273,58 @@ class _TeamLibraryRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '$matches matches · $clips clips',
+                    match.result.isEmpty
+                        ? '${match.date} · Upcoming'
+                        : '${match.date} · ${match.result}',
                     style: const TextStyle(fontSize: 11, color: T.ink2),
                   ),
                 ],
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '${sizeGb.toStringAsFixed(1)} GB',
-                  style: const TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 11,
-                    color: T.ink2,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  recent,
-                  style: const TextStyle(fontSize: 10, color: T.ink3),
-                ),
-              ],
+            // Right: on-device indicator
+            onDeviceAsync.when(
+              loading: () => const SizedBox(width: 48, height: 16),
+              // ignore: avoid_types_on_closure_parameters
+              error: (Object err, StackTrace st) =>
+                  const SizedBox(width: 48, height: 16),
+              data: (onDevice) => onDevice
+                  ? const WfChip(label: 'On device', active: true)
+                  : const SizedBox.shrink(),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             const Icon(Icons.chevron_right, color: T.ink3, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Empty states
+// ---------------------------------------------------------------------------
+
+class _EmptyFilterState extends StatelessWidget {
+  const _EmptyFilterState({required this.onClear});
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'No matches for this filter',
+              style: TextStyle(fontSize: 15, color: T.ink2),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: onClear,
+              child: const Text('Clear filters'),
+            ),
           ],
         ),
       ),
@@ -332,4 +395,13 @@ class _NoVideosEmptyState extends StatelessWidget {
 
 extension on Border {
   BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
+}
+
+/// Strip a leading "vs " prefix from an opponent string so the card title
+/// "${teamName} vs ${opponent}" never produces a double "vs vs".
+/// Legacy DB rows may have the opponent stored as "vs Eastfield FC".
+String _stripVsPrefix(String opponent) {
+  if (opponent.startsWith('vs ')) return opponent.substring(3);
+  if (opponent.startsWith('VS ')) return opponent.substring(3);
+  return opponent;
 }
