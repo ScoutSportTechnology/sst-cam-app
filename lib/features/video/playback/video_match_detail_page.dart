@@ -27,7 +27,10 @@ class VideoMatchDetailPage extends ConsumerStatefulWidget {
 }
 
 class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
-  bool _overlaysOn = true;
+  bool _scoreOverlayOn = true;
+  bool _eventsOverlayOn = true;
+  bool _lastScoreOn = true; // restored when master toggle goes ON
+  bool _lastEventsOn = true; // restored when master toggle goes ON
   late Set<int> _selected;
   double _playheadFraction = 0.38;
 
@@ -183,7 +186,8 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         children: [
           _Player(
             match: match,
-            overlaysOn: _overlaysOn,
+            scoreOverlayOn: _scoreOverlayOn,
+            eventsOverlayOn: _eventsOverlayOn,
             playheadFraction: _playheadFraction,
             playerController: _playerInitialized ? _playerController : null,
             connecting: _connecting,
@@ -206,8 +210,29 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             },
           ),
           _OverlayToggleRow(
-            on: _overlaysOn,
-            onChanged: (v) => setState(() => _overlaysOn = v),
+            scoreOn: _scoreOverlayOn,
+            eventsOn: _eventsOverlayOn,
+            lastScoreOn: _lastScoreOn,
+            lastEventsOn: _lastEventsOn,
+            onScoreChanged: (v) => setState(() {
+              _scoreOverlayOn = v;
+              _lastScoreOn = v;
+            }),
+            onEventsChanged: (v) => setState(() {
+              _eventsOverlayOn = v;
+              _lastEventsOn = v;
+            }),
+            onMasterChanged: (value) {
+              setState(() {
+                if (value) {
+                  _scoreOverlayOn = _lastScoreOn;
+                  _eventsOverlayOn = _lastEventsOn;
+                } else {
+                  _scoreOverlayOn = false;
+                  _eventsOverlayOn = false;
+                }
+              });
+            },
           ),
           _EventsHeader(total: match.events.length, selected: selectedCount),
           Expanded(
@@ -313,7 +338,8 @@ int _parseDuration(String hms) {
 class _Player extends StatelessWidget {
   const _Player({
     required this.match,
-    required this.overlaysOn,
+    required this.scoreOverlayOn,
+    required this.eventsOverlayOn,
     required this.playheadFraction,
     required this.playerController,
     required this.connecting,
@@ -323,7 +349,8 @@ class _Player extends StatelessWidget {
   });
 
   final LibraryMatch match;
-  final bool overlaysOn;
+  final bool scoreOverlayOn;
+  final bool eventsOverlayOn;
   final double playheadFraction;
   final VideoPlayerController? playerController;
   final bool connecting;
@@ -353,7 +380,7 @@ class _Player extends StatelessWidget {
             ),
           ),
         ),
-        if (overlaysOn) ...[
+        if (scoreOverlayOn)
           Positioned(
             top: 8,
             left: 8,
@@ -416,27 +443,27 @@ class _Player extends StatelessWidget {
               ),
             ),
           ),
-          if (currentOverlay.recentEventLabel != null &&
-              currentOverlay.recentEventLabel!.isNotEmpty)
-            Positioned(
-              top: 8,
-              right: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                color: T.accent,
-                child: Text(
-                  currentOverlay.recentEventLabel!,
-                  style: const TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: T.accentInk,
-                    letterSpacing: 0.4,
-                  ),
+        if (eventsOverlayOn &&
+            currentOverlay.recentEventLabel != null &&
+            currentOverlay.recentEventLabel!.isNotEmpty)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              color: T.accent,
+              child: Text(
+                currentOverlay.recentEventLabel!,
+                style: const TextStyle(
+                  fontFamily: T.mono,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: T.accentInk,
+                  letterSpacing: 0.4,
                 ),
               ),
             ),
-        ],
+          ),
       ],
     );
   }
@@ -632,12 +659,27 @@ class _Scrubber extends StatelessWidget {
 }
 
 class _OverlayToggleRow extends StatelessWidget {
-  const _OverlayToggleRow({required this.on, required this.onChanged});
-  final bool on;
-  final ValueChanged<bool> onChanged;
+  const _OverlayToggleRow({
+    required this.scoreOn,
+    required this.eventsOn,
+    required this.lastScoreOn,
+    required this.lastEventsOn,
+    required this.onScoreChanged,
+    required this.onEventsChanged,
+    required this.onMasterChanged,
+  });
+
+  final bool scoreOn;
+  final bool eventsOn;
+  final bool lastScoreOn;
+  final bool lastEventsOn;
+  final ValueChanged<bool> onScoreChanged;
+  final ValueChanged<bool> onEventsChanged;
+  final ValueChanged<bool> onMasterChanged;
 
   @override
   Widget build(BuildContext context) {
+    final masterOn = scoreOn || eventsOn;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
       decoration: const Border(
@@ -651,11 +693,17 @@ class _OverlayToggleRow extends StatelessWidget {
               style: TextStyle(fontSize: 11, color: T.ink2),
             ),
           ),
-          WfChip(label: 'Score', active: on),
+          GestureDetector(
+            onTap: () => onScoreChanged(!scoreOn),
+            child: WfChip(label: 'Score', active: scoreOn),
+          ),
           const SizedBox(width: 6),
-          WfChip(label: 'Events', active: on),
+          GestureDetector(
+            onTap: () => onEventsChanged(!eventsOn),
+            child: WfChip(label: 'Events', active: eventsOn),
+          ),
           const SizedBox(width: 8),
-          WfSwitch(value: on, onChanged: onChanged),
+          WfSwitch(value: masterOn, onChanged: onMasterChanged),
         ],
       ),
     );
