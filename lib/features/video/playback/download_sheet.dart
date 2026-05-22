@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/wifi.dart';
-import '../../../core/ble/ble_providers.dart';
 import '../../../core/wifi/wifi_providers.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
-import '../../../core/widgets/wf_chip.dart';
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
-import '../video_state.dart' show LibraryMatch;
+import '../video_state.dart' show isOnDeviceProvider, LibraryMatch;
 
 class DownloadSheet extends ConsumerStatefulWidget {
   const DownloadSheet({super.key, required this.match, required this.selectedCount});
@@ -20,16 +18,9 @@ class DownloadSheet extends ConsumerStatefulWidget {
 }
 
 class _DownloadSheetState extends ConsumerState<DownloadSheet> {
-  String _selected = 'hisel';
   VideoDownloadHandle? _handle;
   VideoDownloadProgress? _progress;
   String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.selectedCount == 0) _selected = 'full';
-  }
 
   @override
   void dispose() {
@@ -47,30 +38,24 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     }
     setState(() => _error = null);
     try {
-      // BLE — get short-lived URL + auth token for the recording.
-      final token = await ref
-          .read(bleServiceProvider)
-          .requestDownload(activeId, widget.match.id);
-
-      // WiFi — group lifecycle is owned by `wifiHandoffProvider`, but in
-      // case the user opens this sheet before the orchestrator's first tick
-      // has landed, defensively bring the group up here. Idempotent.
-      final wifi = ref.read(wifiServiceProvider);
-      if (wifi.currentGroup(activeId) == null) {
-        await wifi.connectGroup(activeId);
-      }
-      final handle = await wifi.startDownload(activeId, token);
-
-      setState(() => _handle = handle);
+      final handle = await ref.read(wifiServiceProvider).downloadRecording(
+        ref.read(activeCameraIdProvider) ?? '',
+        widget.match.id,
+      );
+      _handle = handle;
       handle.progress.listen(
         (p) {
-          if (!mounted) return;
-          setState(() => _progress = p);
+          if (mounted) setState(() => _progress = p);
         },
-        onError: (Object e) {
-          if (!mounted) return;
-          setState(() => _error = e.toString());
+        onDone: () {
+          if (mounted) {
+            ref.invalidate(isOnDeviceProvider(widget.match.id));
+          }
         },
+        onError: (e) {
+          if (mounted) setState(() => _error = e.toString());
+        },
+        cancelOnError: true,
       );
     } catch (e) {
       if (!mounted) return;
@@ -83,33 +68,10 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     final running = _handle != null;
     if (running) return _buildProgress();
     final fullSize = '${widget.match.fullSizeMb} MB';
-    final hiSize = '0 MB';
     final opts = <_Opt>[
       _Opt(
-        key: 'full',
         label: 'Full game',
         sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi',
-      ),
-      _Opt(
-        key: 'h1',
-        label: '1st half',
-        sub: '35:00 · ${(widget.match.fullSizeMb / 2).round()} MB · ~6 min',
-      ),
-      _Opt(
-        key: 'h2',
-        label: '2nd half',
-        sub: '38:12 · ${(widget.match.fullSizeMb / 2).round()} MB · ~7 min',
-      ),
-      _Opt(
-        key: 'hi',
-        label: 'All highlights',
-        sub: '${widget.match.events.length} events · ±10s · $hiSize',
-      ),
-      _Opt(
-        key: 'hisel',
-        label: 'Selected highlights',
-        sub: '${widget.selectedCount} events selected',
-        badge: widget.selectedCount > 0 ? '${widget.selectedCount}' : null,
       ),
     ];
 
@@ -148,49 +110,44 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           ...opts.map(
             (o) => Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: GestureDetector(
-                onTap: () => setState(() => _selected = o.key),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _selected == o.key ? T.accentSoft : T.surface,
-                    border: Border.all(
-                      color: _selected == o.key ? T.accent : T.hair,
-                      width: 1.4,
-                    ),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: T.accentSoft,
+                  border: Border.all(
+                    color: T.accent,
+                    width: 1.4,
                   ),
-                  child: Row(
-                    children: [
-                      _Radio(on: _selected == o.key),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              o.label,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: T.ink,
-                              ),
+                ),
+                child: Row(
+                  children: [
+                    const _Radio(on: true),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            o.label,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: T.ink,
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              o.sub,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: T.ink2,
-                                fontFamily: T.mono,
-                              ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            o.sub,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: T.ink2,
+                              fontFamily: T.mono,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      if (o.badge != null)
-                        WfChip(label: o.badge!, active: true),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -321,6 +278,12 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
               p!.errorMessage!,
               style: const TextStyle(fontSize: 12, color: T.danger),
             ),
+          ] else if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
           ],
           const SizedBox(height: 18),
           Row(
@@ -355,15 +318,11 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
 
 class _Opt {
   const _Opt({
-    required this.key,
     required this.label,
     required this.sub,
-    this.badge,
   });
-  final String key;
   final String label;
   final String sub;
-  final String? badge;
 }
 
 class _Radio extends StatelessWidget {
