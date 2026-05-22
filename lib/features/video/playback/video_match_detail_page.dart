@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 
+import '../../../core/models/overlay.dart' as app_overlay;
 import '../../../core/services/clip_service.dart';
 import '../../../core/services/video_path_service.dart';
+import '../../../core/wifi/wifi_providers.dart';
 import '../video_state.dart'
-    show libraryMatchProvider, LibraryMatch, LibraryEvent;
+    show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
 import '../../../core/state/db_providers.dart' show clipServiceProvider;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/widgets/wf_chip.dart';
+import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import 'download_sheet.dart';
 
 class VideoMatchDetailPage extends ConsumerStatefulWidget {
@@ -27,6 +31,23 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   late Set<int> _selected;
   double _playheadFraction = 0.38;
 
+  // Video player state
+  VideoPlayerController? _playerController;
+  bool _playerInitialized = false;
+  bool _connecting = false; // WiFi connect in progress
+  String? _connectError; // Non-null = connection failed
+  List<app_overlay.OverlayState> _overlayStates = [];
+  app_overlay.OverlayState _currentOverlay = const app_overlay.OverlayState(
+    timeSeconds: 0,
+    homeScore: 0,
+    awayScore: 0,
+    period: 1,
+    recentEventLabel: null,
+  );
+
+  // Guards against starting _initPlayer more than once.
+  bool _initStarted = false;
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +58,99 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     };
   }
 
+  /// Called from [build] on the first frame where [match] is non-null.
+  void _maybeStartInit(LibraryMatch match) {
+    if (_initStarted) return;
+    _initStarted = true;
+    _buildOverlayStates(match);
+    // Kick off async init without awaiting in build.
+    // ignore: discarded_futures
+    _initPlayer(match);
+  }
+
+  void _buildOverlayStates(LibraryMatch match) {
+    _overlayStates = app_overlay.OverlayState.fromEvents(
+      match.events,
+      periodLengthSeconds: match.periodLengthSeconds,
+      homeShortName: match.teamShortName,
+    );
+  }
+
+  Future<void> _initPlayer([LibraryMatch? passedMatch]) async {
+    final match = passedMatch ?? ref.read(libraryMatchProvider(widget.matchId));
+    if (match == null) return;
+
+    // Reset error state before a new attempt.
+    if (mounted) setState(() => _connectError = null);
+
+    // Check whether the recording is already on-device.
+    final onDevice = await ref.read(isOnDeviceProvider(match.id).future);
+
+    if (!mounted) return;
+
+    if (!onDevice) {
+      // Need to connect over WiFi to stream the recording.
+      final activeDeviceId = ref.read(activeCameraIdProvider);
+      if (activeDeviceId == null) {
+        setState(
+          () => _connectError = 'Could not connect to camera. Tap to retry.',
+        );
+        return;
+      }
+      setState(() => _connecting = true);
+      try {
+        await ref
+            .read(wifiServiceProvider)
+            .connectGroup(activeDeviceId)
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => throw TimeoutException('WiFi connect timed out'),
+            );
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _connecting = false;
+          _connectError = 'Could not connect to camera. Tap to retry.';
+        });
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _connecting = false);
+    }
+
+    // Initialize the video player (asset for both on-device mock and
+    // camera-stream mock — both use the bundled mock video in this milestone).
+    final controller = VideoPlayerController.asset('assets/ble/mock-video.mp4');
+    _playerController = controller;
+    await controller
+        .initialize()
+        .then((_) {
+          if (mounted && _playerController == controller) {
+            controller.setLooping(true);
+            setState(() => _playerInitialized = true);
+          }
+        })
+        .catchError((Object e, StackTrace st) {
+          // Platform channels are unavailable in test environments.
+          // Fall back to ThumbPlaceholder — same pattern as LivePreviewView.
+          debugPrint(
+            'VideoMatchDetailPage: player init failed: $e\n$st',
+          );
+          if (mounted && _playerController == controller) {
+            controller.dispose();
+            _playerController = null;
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    final ctrl = _playerController;
+    _playerController = null;
+    ctrl?.dispose();
+    super.dispose();
+  }
+
   LibraryMatch? _match() => ref.read(libraryMatchProvider(widget.matchId));
 
   @override
@@ -45,6 +159,10 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     if (match == null) {
       return const Scaffold(body: Center(child: Text('Match not found')));
     }
+
+    // Trigger player init once the match is available.
+    _maybeStartInit(match);
+
     final selectedCount = _selected.length;
 
     return Scaffold(
@@ -67,11 +185,25 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             match: match,
             overlaysOn: _overlaysOn,
             playheadFraction: _playheadFraction,
+            playerController: _playerInitialized ? _playerController : null,
+            connecting: _connecting,
+            connectError: _connectError,
+            currentOverlay: _currentOverlay,
+            onRetry: () => _initPlayer(),
           ),
           _Scrubber(
             match: match,
             value: _playheadFraction,
-            onChanged: (v) => setState(() => _playheadFraction = v),
+            onChanged: (v) {
+              setState(() {
+                _playheadFraction = v;
+                final maxSecs = _parseDuration(match.fullDuration);
+                if (maxSecs > 0) {
+                  final secs = (v * maxSecs).round();
+                  _currentOverlay = app_overlay.OverlayState.atTime(_overlayStates, secs);
+                }
+              });
+            },
           ),
           _OverlayToggleRow(
             on: _overlaysOn,
@@ -102,7 +234,12 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                   onJump: () {
                     final maxSecs = _parseDuration(match.fullDuration);
                     if (maxSecs == 0) return;
-                    setState(() => _playheadFraction = e.timeSeconds / maxSecs);
+                    final fraction = e.timeSeconds / maxSecs;
+                    setState(() {
+                      _playheadFraction = fraction;
+                      _currentOverlay =
+                          app_overlay.OverlayState.atTime(_overlayStates, e.timeSeconds);
+                    });
                   },
                 );
               },
@@ -178,16 +315,27 @@ class _Player extends StatelessWidget {
     required this.match,
     required this.overlaysOn,
     required this.playheadFraction,
+    required this.playerController,
+    required this.connecting,
+    required this.connectError,
+    required this.currentOverlay,
+    required this.onRetry,
   });
+
   final LibraryMatch match;
   final bool overlaysOn;
   final double playheadFraction;
+  final VideoPlayerController? playerController;
+  final bool connecting;
+  final String? connectError;
+  final app_overlay.OverlayState currentOverlay;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        const ThumbPlaceholder(label: 'PLAYER'),
+        _buildPlayerBody(),
         Positioned.fill(
           child: Center(
             child: Container(
@@ -217,48 +365,48 @@ class _Player extends StatelessWidget {
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-                children: const [
+                children: [
                   Text(
-                    'NR',
-                    style: TextStyle(
+                    match.teamShortName,
+                    style: const TextStyle(
                       fontSize: 9,
                       color: T.ink2,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
-                    '2',
-                    style: TextStyle(
+                    '${currentOverlay.homeScore}',
+                    style: const TextStyle(
                       fontFamily: T.mono,
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: T.ink,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
-                    '1H',
-                    style: TextStyle(
+                    '${currentOverlay.period}H',
+                    style: const TextStyle(
                       fontFamily: T.mono,
                       fontSize: 9,
                       color: T.ink3,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
-                    '1',
-                    style: TextStyle(
+                    '${currentOverlay.awayScore}',
+                    style: const TextStyle(
                       fontFamily: T.mono,
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: T.ink,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
-                    'EFC',
-                    style: TextStyle(
+                    match.opponent.split(' ').first,
+                    style: const TextStyle(
                       fontSize: 9,
                       color: T.ink2,
                       fontWeight: FontWeight.w600,
@@ -268,27 +416,100 @@ class _Player extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              color: T.accent,
-              child: const Text(
-                'GOAL · #07',
-                style: TextStyle(
-                  fontFamily: T.mono,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: T.accentInk,
-                  letterSpacing: 0.4,
+          if (currentOverlay.recentEventLabel != null &&
+              currentOverlay.recentEventLabel!.isNotEmpty)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                color: T.accent,
+                child: Text(
+                  currentOverlay.recentEventLabel!,
+                  style: const TextStyle(
+                    fontFamily: T.mono,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: T.accentInk,
+                    letterSpacing: 0.4,
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ],
     );
+  }
+
+  Widget _buildPlayerBody() {
+    if (connecting) {
+      return const AspectRatio(
+        aspectRatio: 16 / 9,
+        child: ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text(
+                  'Connecting…',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (connectError != null) {
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.wifi_off,
+                  color: Colors.white54,
+                  size: 36,
+                ),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    connectError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: onRetry,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (playerController != null) {
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: VideoPlayer(playerController!),
+      );
+    }
+
+    return const ThumbPlaceholder(label: 'PLAYER');
   }
 }
 
@@ -585,6 +806,18 @@ class _Footer extends StatelessWidget {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Dart doesn't expose TimeoutException at a high level so we define a local
+// one — only used as a marker in connectGroup.timeout's onTimeout callback.
+// ---------------------------------------------------------------------------
+
+class TimeoutException implements Exception {
+  const TimeoutException(this.message);
+  final String message;
+  @override
+  String toString() => 'TimeoutException: $message';
 }
 
 extension on Border {
