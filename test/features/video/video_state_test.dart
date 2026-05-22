@@ -70,7 +70,7 @@ void main() {
   group('LibraryMatch field population', () {
     test('teamName equals team.name', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       await db.value.teamsDao.insertTeamMatch(
         TeamMatchesTableCompanion.insert(
@@ -95,7 +95,7 @@ void main() {
 
     test('teamShortName equals team.shortName', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       await db.value.teamsDao.insertTeamMatch(
         TeamMatchesTableCompanion.insert(
@@ -120,7 +120,7 @@ void main() {
 
     test('periodLengthSeconds equals match.periodLengthSeconds', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       await db.value.teamsDao.insertTeamMatch(
         TeamMatchesTableCompanion.insert(
@@ -145,7 +145,7 @@ void main() {
 
     test('sport equals team.sport', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       await db.value.teamsDao.insertTeamMatch(
         TeamMatchesTableCompanion.insert(
@@ -170,7 +170,7 @@ void main() {
 
     test('downloadState is unchanged — all-local when sizeMb > 0', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       await db.value.teamsDao.insertTeamMatch(
         TeamMatchesTableCompanion.insert(
@@ -195,7 +195,7 @@ void main() {
 
     test('downloadState is remote when sizeMb == 0', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       await db.value.teamsDao.insertTeamMatch(
         TeamMatchesTableCompanion.insert(
@@ -244,7 +244,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('filteredLibraryMatchesProvider', () {
-    Future<void> _insertLocalMatch(
+    Future<void> insertLocalMatch(
       AppDatabase db, {
       required String id,
       required String teamId,
@@ -276,16 +276,16 @@ void main() {
 
     test('returns all matches when no filters set', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-1',
         teamId: 'nr-u14',
         opponent: 'vs Alpha',
         date: 'May 01',
       );
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-2',
         teamId: 'nr-u12',
@@ -301,9 +301,9 @@ void main() {
 
     test('sport filter removes non-matching matches', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-sport-1',
         teamId: 'nr-u14',
@@ -326,17 +326,17 @@ void main() {
 
     test('team filter: matches where teamShortName == filter', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       // nr-u14 shortName is 'NRA'; nr-u12 shortName is 'NRB'.
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-tf-nra',
         teamId: 'nr-u14',
         opponent: 'vs Opponent',
         date: 'May 04',
       );
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-tf-nrb',
         teamId: 'nr-u12',
@@ -355,10 +355,10 @@ void main() {
 
     test('team filter: matches where opponent contains filter (NR in opponent)', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
       // efc-r shortName is 'EFC'; match has opponent 'vs NR United' (contains 'NR').
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-tf-opp',
         teamId: 'efc-r',
@@ -375,9 +375,9 @@ void main() {
 
     test('text search: NR matches teamShortName NRA', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-search-nra',
         teamId: 'nr-u14',
@@ -394,9 +394,9 @@ void main() {
 
     test('text search: Northridge in opponent returns match', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-search-opp',
         teamId: 'nr-u12',
@@ -413,9 +413,9 @@ void main() {
 
     test('text search: teamName match — Northside returns nr-u14 matches', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-search-tname',
         teamId: 'nr-u14',
@@ -432,9 +432,9 @@ void main() {
 
     test('text search: no match on unrelated query', () async {
       final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, __) {});
+      c.listen(libraryProvider, (_, _) {});
 
-      await _insertLocalMatch(
+      await insertLocalMatch(
         db.value,
         id: 'fmf-search-none',
         teamId: 'nr-u14',
