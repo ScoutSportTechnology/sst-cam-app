@@ -1,5 +1,6 @@
 // Tests for VideoMatchDetailPage — U7: on-device detection, video player init,
 // WiFi connect flow, overlay derivation from events, overlay update on scrub.
+// U10: Per-event highlight clip creation (AE7, AE8, clamp, spinner, errors).
 //
 // Platform-channel note: VideoPlayerController.asset calls a native platform
 // channel that is unavailable in the test environment. The page's
@@ -22,6 +23,7 @@
 //   4. Overlay toggle row and event list render correctly.
 //   5. Overlay updates when onJump is called from an event row.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -29,7 +31,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart'
+    as vp_interface;
+import 'package:sst_cam_app/core/db/daos/clips_dao.dart';
 import 'package:sst_cam_app/core/models/wifi.dart' show WifiDirectGroup;
+import 'package:sst_cam_app/core/services/clip_service.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:sst_cam_app/core/wifi/wifi_providers.dart';
@@ -44,9 +50,188 @@ import 'package:sst_cam_app/features/video/video_state.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
 import 'package:sst_cam_app/mock/mock_wifi_service.dart';
 import 'package:video_player/video_player.dart';
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show Value, DatabaseConnection;
+import 'package:drift/native.dart' show NativeDatabase;
 
 import '../../../test_helpers.dart';
+
+// ---------------------------------------------------------------------------
+// Stub ClipService variants
+// ---------------------------------------------------------------------------
+
+/// Records calls to trim() and returns successfully.
+class _RecordingClipService extends ClipService {
+  _RecordingClipService()
+      : super(
+          clipsDao: _NoOpClipsDao(),
+          videoPathService: VideoPathService(),
+        );
+
+  final List<({
+    String matchId,
+    String sourcePath,
+    int startSeconds,
+    int durationSeconds,
+    String? label,
+  })> calls = [];
+
+  @override
+  Future<String> trim({
+    required String matchId,
+    required String sourcePath,
+    required int startSeconds,
+    required int durationSeconds,
+    String? label,
+  }) async {
+    calls.add((
+      matchId: matchId,
+      sourcePath: sourcePath,
+      startSeconds: startSeconds,
+      durationSeconds: durationSeconds,
+      label: label,
+    ));
+    return '/clips/$matchId/$startSeconds.mp4';
+  }
+}
+
+/// Hangs trim() until complete() is called — used to observe in-progress state.
+class _HangingClipService extends ClipService {
+  _HangingClipService()
+      : super(
+          clipsDao: _NoOpClipsDao(),
+          videoPathService: VideoPathService(),
+        );
+
+  final _completer = Completer<String>();
+
+  void complete([String result = '/clips/mock.mp4']) {
+    if (!_completer.isCompleted) _completer.complete(result);
+  }
+
+  @override
+  Future<String> trim({
+    required String matchId,
+    required String sourcePath,
+    required int startSeconds,
+    required int durationSeconds,
+    String? label,
+  }) {
+    return _completer.future;
+  }
+}
+
+/// Always throws ClipTrimException.
+class _FailingClipService extends ClipService {
+  _FailingClipService()
+      : super(
+          clipsDao: _NoOpClipsDao(),
+          videoPathService: VideoPathService(),
+        );
+
+  @override
+  Future<String> trim({
+    required String matchId,
+    required String sourcePath,
+    required int startSeconds,
+    required int durationSeconds,
+    String? label,
+  }) async {
+    throw const ClipTrimException('FFmpeg unavailable in test');
+  }
+}
+
+/// A no-op ClipsDao stub — avoids needing a real database in ClipService stubs.
+class _NoOpClipsDao extends ClipsDao {
+  _NoOpClipsDao() : super(_NullDb());
+
+  @override
+  Future<void> insertClip(ClipsTableCompanion companion) async {}
+}
+
+// _NullDb is just a placeholder — _NoOpClipsDao never actually calls the DB.
+// We use a real AppDatabase.forTesting so the mixin initialises without crashing.
+class _NullDb extends AppDatabase {
+  _NullDb()
+      : super.forTesting(
+          DatabaseConnection(NativeDatabase.memory()),
+        );
+}
+
+// ---------------------------------------------------------------------------
+// Minimal FakeVideoPlayerPlatform — replaces VideoPlayerPlatform.instance so
+// VideoPlayerController.initialize() completes cleanly in tests. Without this,
+// the default platform throws UnimplementedError, leaving an uncompleted
+// Completer in VideoPlayerController that causes subsequent pump() calls to hang.
+// ---------------------------------------------------------------------------
+
+class _FakeVideoPlayerPlatform extends vp_interface.VideoPlayerPlatform {
+  int _nextPlayerId = 0;
+  final Map<int, StreamController<vp_interface.VideoEvent>> _streams = {};
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<int?> create(vp_interface.DataSource dataSource) async {
+    return _createPlayer();
+  }
+
+  @override
+  Future<int?> createWithOptions(
+    vp_interface.VideoCreationOptions options,
+  ) async {
+    return _createPlayer();
+  }
+
+  int _createPlayer() {
+    final id = _nextPlayerId++;
+    final controller = StreamController<vp_interface.VideoEvent>();
+    _streams[id] = controller;
+    // Send initialized event so VideoPlayerController.initialize() completes.
+    controller.add(
+      vp_interface.VideoEvent(
+        eventType: vp_interface.VideoEventType.initialized,
+        size: const Size(640, 360),
+        duration: const Duration(seconds: 60),
+      ),
+    );
+    return id;
+  }
+
+  @override
+  Future<void> dispose(int playerId) async {
+    await _streams.remove(playerId)?.close();
+  }
+
+  @override
+  Stream<vp_interface.VideoEvent> videoEventsFor(int playerId) {
+    return _streams[playerId]!.stream;
+  }
+
+  @override
+  Future<void> setLooping(int playerId, bool looping) async {}
+
+  @override
+  Future<void> play(int playerId) async {}
+
+  @override
+  Future<void> pause(int playerId) async {}
+
+  @override
+  Future<void> setVolume(int playerId, double volume) async {}
+
+  @override
+  Future<void> setPlaybackSpeed(int playerId, double speed) async {}
+
+  @override
+  Future<Duration> getPosition(int playerId) async => Duration.zero;
+
+  @override
+  Future<void> seekTo(int playerId, Duration position) async {}
+
+  @override
+  Future<void> setMixWithOthers(bool mixWithOthers) async {}
+}
 
 // ---------------------------------------------------------------------------
 // Stub VideoPathService variants
@@ -119,6 +304,10 @@ List<Override> _baseOverrides(
   VideoPathService? videoPathService,
   MockWifiService? wifiService,
   String? activeCameraId,
+  ClipService? clipService,
+  // When non-null, overrides isOnDeviceProvider so _initPlayer never reaches
+  // VideoPlayerController (avoids fake-clock conflicts from MethodChannel calls).
+  bool? forceIsOnDevice,
 }) {
   return [
     ...dbOverrides(db),
@@ -132,6 +321,11 @@ List<Override> _baseOverrides(
     ),
     if (activeCameraId != null)
       activeCameraIdProvider.overrideWith((_) => activeCameraId),
+    if (clipService != null) clipServiceProvider.overrideWithValue(clipService),
+    if (forceIsOnDevice != null)
+      isOnDeviceProvider.overrideWith(
+        (ref, matchId) async => forceIsOnDevice,
+      ),
   ];
 }
 
@@ -141,6 +335,8 @@ Widget _buildPage({
   VideoPathService? videoPathService,
   MockWifiService? wifiService,
   String? activeCameraId,
+  ClipService? clipService,
+  bool? forceIsOnDevice,
 }) {
   return ProviderScope(
     overrides: _baseOverrides(
@@ -148,6 +344,8 @@ Widget _buildPage({
       videoPathService: videoPathService,
       wifiService: wifiService,
       activeCameraId: activeCameraId,
+      clipService: clipService,
+      forceIsOnDevice: forceIsOnDevice,
     ),
     child: MaterialApp(
       home: VideoMatchDetailPage(matchId: matchId),
@@ -797,6 +995,316 @@ void main() {
         expect(find.text('Opponent'), findsOneWidget);
         // Period indicator shows current period.
         expect(find.text('1H'), findsOneWidget);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // U10: Per-event highlight clip creation (AE7, AE8, clamp, spinner, errors).
+  // ---------------------------------------------------------------------------
+
+  group('per-event clip creation (U10)', () {
+    // Install a fake VideoPlayerPlatform so VideoPlayerController.initialize()
+    // completes cleanly in tests. Without this, the default platform throws
+    // UnimplementedError and leaves an uncompleted Completer in
+    // VideoPlayerController that causes subsequent pump() calls to hang.
+    late vp_interface.VideoPlayerPlatform _savedPlatform;
+    setUp(() {
+      _savedPlatform = vp_interface.VideoPlayerPlatform.instance;
+      vp_interface.VideoPlayerPlatform.instance = _FakeVideoPlayerPlatform();
+    });
+
+    tearDown(() {
+      vp_interface.VideoPlayerPlatform.instance = _savedPlatform;
+    });
+
+    // A single goal event at 37:22 = 2242 s.
+    const eventsJson =
+        '[{"timeSeconds":2242,"label":"GOAL · #7","team":"NRA","kind":"goal"}]';
+
+    // ---------------------------------------------------------------------------
+    // AE7: match not on device → snackbar asking to download first.
+    // ---------------------------------------------------------------------------
+
+    testWidgets(
+      'AE7: match not on device → tap Clip → snackbar "Download the full match first"',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(
+          db.value,
+          id: 'u10-ae7',
+          teamId: 'nr-u14',
+          eventsJson: eventsJson,
+        );
+
+        final clipSvc = _RecordingClipService();
+
+        await tester.pumpWidget(
+          _buildPage(
+            db: db.value,
+            matchId: 'u10-ae7',
+            videoPathService: _AbsentVideoPathService(),
+            clipService: clipSvc,
+            // no activeCameraId → isOnDevice = false (absent file)
+          ),
+        );
+        final container = _container(tester);
+        await _awaitMatch(tester, container, 'u10-ae7');
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // Tap the Clip button on the first (only) event row.
+        // Drain the async chain via pump() (no duration = no timers fired).
+        await tester.tap(find.text('Clip').first);
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+
+        // Snackbar shown.
+        expect(
+          find.textContaining('Download the full match first'),
+          findsOneWidget,
+        );
+        // trim() was NOT called.
+        expect(clipSvc.calls, isEmpty);
+      },
+    );
+
+    // ---------------------------------------------------------------------------
+    // AE8: match on device, event at 37:22 (2242s) → startSeconds=2227.
+    // ---------------------------------------------------------------------------
+
+    testWidgets(
+      'AE8: on-device match → tap Clip on goal → trim called with correct args',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(
+          db.value,
+          id: 'u10-ae8',
+          teamId: 'nr-u14',
+          eventsJson: eventsJson,
+        );
+
+        final tmpFile = await File('/tmp/sst-u10-ae8.mp4').create();
+        addTearDown(() async {
+          if (tmpFile.existsSync()) await tmpFile.delete();
+        });
+
+        final clipSvc = _RecordingClipService();
+
+        await tester.pumpWidget(
+          _buildPage(
+            db: db.value,
+            matchId: 'u10-ae8',
+            videoPathService: _PresentVideoPathService(tmpFile.path),
+            clipService: clipSvc,
+          ),
+        );
+        final container = _container(tester);
+        await _awaitMatch(tester, container, 'u10-ae8');
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // Tap Clip.
+        await tester.tap(find.text('Clip').first);
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+
+        // trim() called once with correct args.
+        expect(clipSvc.calls.length, 1);
+        final call = clipSvc.calls.first;
+        expect(call.matchId, 'u10-ae8');
+        expect(call.sourcePath, tmpFile.path);
+        expect(call.startSeconds, 2227); // 2242 - 15
+        expect(call.durationSeconds, 30);
+
+        // "Clip saved" snackbar.
+        expect(find.text('Clip saved'), findsOneWidget);
+      },
+    );
+
+    // ---------------------------------------------------------------------------
+    // Clamp: event at timeSeconds=10 → startSeconds clamped to 0.
+    // ---------------------------------------------------------------------------
+
+    testWidgets(
+      'event at timeSeconds=10 → startSeconds clamped to 0 (not negative)',
+      (tester) async {
+        await largeScreen(tester);
+        const earlyEvent =
+            '[{"timeSeconds":10,"label":"FOUL · #4","team":"NRA","kind":"foul"}]';
+        await _insertMatch(
+          db.value,
+          id: 'u10-clamp',
+          teamId: 'nr-u14',
+          eventsJson: earlyEvent,
+        );
+
+        final tmpFile = await File('/tmp/sst-u10-clamp.mp4').create();
+        addTearDown(() async {
+          if (tmpFile.existsSync()) await tmpFile.delete();
+        });
+
+        final clipSvc = _RecordingClipService();
+
+        await tester.pumpWidget(
+          _buildPage(
+            db: db.value,
+            matchId: 'u10-clamp',
+            videoPathService: _PresentVideoPathService(tmpFile.path),
+            clipService: clipSvc,
+          ),
+        );
+        final container = _container(tester);
+        await _awaitMatch(tester, container, 'u10-clamp');
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.tap(find.text('Clip').first);
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+
+        expect(clipSvc.calls.length, 1);
+        // 10 - 15 = -5, clamped to 0.
+        expect(clipSvc.calls.first.startSeconds, 0);
+      },
+    );
+
+    // ---------------------------------------------------------------------------
+    // Clip in progress → spinner on that event, other events still show Clip.
+    // ---------------------------------------------------------------------------
+
+    testWidgets(
+      'clip in progress → spinner shown for that event; others show Clip button',
+      (tester) async {
+        await largeScreen(tester);
+        // Two events.
+        const twoEvents =
+            '[{"timeSeconds":600,"label":"GOAL · #7","team":"NRA","kind":"goal"},'
+            '{"timeSeconds":900,"label":"FOUL · #4","team":"NRA","kind":"foul"}]';
+        await _insertMatch(
+          db.value,
+          id: 'u10-spinner',
+          teamId: 'nr-u14',
+          eventsJson: twoEvents,
+        );
+
+        final tmpFile = await File('/tmp/sst-u10-spinner.mp4').create();
+        addTearDown(() async {
+          if (tmpFile.existsSync()) await tmpFile.delete();
+        });
+
+        // A completer-controlled ClipService that hangs until we signal it.
+        final completer = _HangingClipService();
+
+        await tester.pumpWidget(
+          _buildPage(
+            db: db.value,
+            matchId: 'u10-spinner',
+            videoPathService: _PresentVideoPathService(tmpFile.path),
+            clipService: completer,
+          ),
+        );
+        final container = _container(tester);
+        await _awaitMatch(tester, container, 'u10-spinner');
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // Tap Clip on the FIRST event (GOAL · #7).
+        final clipButtons = find.text('Clip');
+        expect(clipButtons, findsNWidgets(2));
+        await tester.tap(clipButtons.first);
+        // Drain via pump() (no duration = no fake timers fired).
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+
+        // First event row shows a spinner; second still shows Clip button.
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.text('Clip'), findsOneWidget);
+
+        // Complete the hanging call so the widget cleans up.
+        completer.complete();
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+      },
+    );
+
+    // ---------------------------------------------------------------------------
+    // ClipTrimException → error snackbar.
+    // ---------------------------------------------------------------------------
+
+    testWidgets(
+      'ClipTrimException from ClipService → error snackbar shown',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(
+          db.value,
+          id: 'u10-fail',
+          teamId: 'nr-u14',
+          eventsJson: eventsJson,
+        );
+
+        final tmpFile = await File('/tmp/sst-u10-fail.mp4').create();
+        addTearDown(() async {
+          if (tmpFile.existsSync()) await tmpFile.delete();
+        });
+
+        await tester.pumpWidget(
+          _buildPage(
+            db: db.value,
+            matchId: 'u10-fail',
+            videoPathService: _PresentVideoPathService(tmpFile.path),
+            clipService: _FailingClipService(),
+          ),
+        );
+        final container = _container(tester);
+        await _awaitMatch(tester, container, 'u10-fail');
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.tap(find.text('Clip').first);
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.textContaining('Clip failed:'), findsOneWidget);
+        expect(find.textContaining('FFmpeg unavailable'), findsOneWidget);
+      },
+    );
+
+    // ---------------------------------------------------------------------------
+    // Successful clip → "Clip saved" snackbar.
+    // ---------------------------------------------------------------------------
+
+    testWidgets(
+      'successful clip → "Clip saved" snackbar shown',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(
+          db.value,
+          id: 'u10-ok',
+          teamId: 'nr-u14',
+          eventsJson: eventsJson,
+        );
+
+        await tester.pumpWidget(
+          _buildPage(
+            db: db.value,
+            matchId: 'u10-ok',
+            videoPathService: _AbsentVideoPathService(),
+            clipService: _RecordingClipService(),
+            forceIsOnDevice: true,
+          ),
+        );
+        final container = _container(tester);
+        await _awaitMatch(tester, container, 'u10-ok');
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.tap(find.text('Clip').first);
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.text('Clip saved'), findsOneWidget);
       },
     );
   });

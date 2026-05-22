@@ -4,11 +4,11 @@ import 'package:video_player/video_player.dart';
 
 import '../../../core/models/overlay.dart' as app_overlay;
 import '../../../core/services/clip_service.dart';
-import '../../../core/services/video_path_service.dart';
 import '../../../core/wifi/wifi_providers.dart';
 import '../video_state.dart'
     show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
-import '../../../core/state/db_providers.dart' show clipServiceProvider;
+import '../../../core/state/db_providers.dart'
+    show clipServiceProvider, videoPathServiceProvider;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/wf_button.dart';
@@ -47,6 +47,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     period: 1,
     recentEventLabel: null,
   );
+
+  // Per-event clip in-progress state.
+  final Set<int> _clippingEventIndices = {};
 
   // Guards against starting _initPlayer more than once.
   bool _initStarted = false;
@@ -246,7 +249,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                 final selected = _selected.contains(i);
                 return _EventRow(
                   event: e,
+                  index: i,
                   selected: selected,
+                  isClipping: _clippingEventIndices.contains(i),
                   onTap: () {
                     setState(() {
                       if (selected) {
@@ -266,6 +271,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                           app_overlay.OverlayState.atTime(_overlayStates, e.timeSeconds);
                     });
                   },
+                  onClip: () => _clipEvent(e, i),
                 );
               },
             ),
@@ -273,9 +279,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
           _Footer(
             selectedCount: selectedCount,
             onDownload: () => _showDownloadSheet(context, match),
-            onCreateClip: match.downloadState == 'all-local'
-                ? () => _createClip(context, match)
-                : null,
           ),
         ],
       ),
@@ -293,40 +296,57 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     );
   }
 
-  Future<void> _createClip(BuildContext context, LibraryMatch match) async {
-    final clipSvc = ref.read(clipServiceProvider);
-    final maxSecs = _parseDuration(match.fullDuration);
-    if (maxSecs == 0) return;
-    final startSeconds = (_playheadFraction * maxSecs).round();
-    final durationSeconds = 30; // default 30-second clip
+  Future<void> _clipEvent(LibraryEvent event, int index) async {
+    // Guard: must be on device
+    final onDevice = await ref.read(isOnDeviceProvider(match.id).future);
+    if (!onDevice) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Download the full match first to create clips',
+            ),
+          ),
+        );
+      }
+      return;
+    }
 
-    // Source path: the local recording file in the app-private videos/ dir.
-    // In mock mode this file may not exist — the error is surfaced below.
-    final sourcePath = await VideoPathService().recordingPath(match.id);
+    if (!mounted) return;
+    setState(() => _clippingEventIndices.add(index));
+
     try {
-      final clipPath = await clipSvc.trim(
+      final clipSvc = ref.read(clipServiceProvider);
+      final videoPathSvc = ref.read(videoPathServiceProvider);
+      final sourcePath = await videoPathSvc.recordingPath(match.id);
+      final startSeconds =
+          (event.timeSeconds - 15).clamp(0, double.infinity).toInt();
+      await clipSvc.trim(
         matchId: match.id,
         sourcePath: sourcePath,
         startSeconds: startSeconds,
-        durationSeconds: durationSeconds,
+        durationSeconds: 30,
+        label: event.label,
       );
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Clip saved: ${clipPath.split('/').last}'),
-          action: SnackBarAction(
-            label: 'Share',
-            onPressed: () {/* share action wired in follow-up */},
-          ),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Clip saved')),
+        );
+      }
     } on ClipTrimException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Clip failed: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Clip failed: ${e.message}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _clippingEventIndices.remove(index));
     }
   }
+
+  // Getter for the current match (used by _clipEvent).
+  LibraryMatch get match =>
+      ref.read(libraryMatchProvider(widget.matchId))!;
 }
 
 int _parseDuration(String hms) {
@@ -743,14 +763,20 @@ class _EventsHeader extends StatelessWidget {
 class _EventRow extends StatelessWidget {
   const _EventRow({
     required this.event,
+    required this.index,
     required this.selected,
+    required this.isClipping,
     required this.onTap,
     required this.onJump,
+    required this.onClip,
   });
   final LibraryEvent event;
+  final int index;
   final bool selected;
+  final bool isClipping;
   final VoidCallback onTap;
   final VoidCallback onJump;
+  final VoidCallback onClip;
 
   @override
   Widget build(BuildContext context) {
@@ -800,6 +826,20 @@ class _EventRow extends StatelessWidget {
                 style: const TextStyle(fontSize: 13, color: T.ink),
               ),
             ),
+            const SizedBox(width: 8),
+            if (isClipping)
+              const SizedBox(
+                width: 32,
+                height: 32,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              WfButton(
+                label: 'Clip',
+                size: WfButtonSize.sm,
+                variant: WfButtonVariant.outline,
+                onPressed: onClip,
+              ),
           ],
         ),
       ),
@@ -811,11 +851,9 @@ class _Footer extends StatelessWidget {
   const _Footer({
     required this.selectedCount,
     required this.onDownload,
-    this.onCreateClip,
   });
   final int selectedCount;
   final VoidCallback onDownload;
-  final VoidCallback? onCreateClip;
 
   @override
   Widget build(BuildContext context) {
@@ -824,33 +862,19 @@ class _Footer extends StatelessWidget {
       decoration: const Border(
         top: BorderSide(color: T.rule),
       ).toBoxDecoration(),
-      child: Row(
-        children: [
-          Expanded(
-            child: WfButton(
-              label: 'Clip',
-              onPressed: onCreateClip,
-            ),
+      child: WfButton(
+        label: selectedCount > 0
+            ? 'Download · $selectedCount clips'
+            : 'Download · options',
+        variant: WfButtonVariant.primary,
+        leading: const Text(
+          '↓',
+          style: TextStyle(
+            color: T.accentInk,
+            fontWeight: FontWeight.w700,
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: WfButton(
-              label: selectedCount > 0
-                  ? 'Download · $selectedCount clips'
-                  : 'Download · options',
-              variant: WfButtonVariant.primary,
-              leading: const Text(
-                '↓',
-                style: TextStyle(
-                  color: T.accentInk,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              onPressed: onDownload,
-            ),
-          ),
-        ],
+        ),
+        onPressed: onDownload,
       ),
     );
   }
