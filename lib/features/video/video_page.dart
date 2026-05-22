@@ -14,10 +14,21 @@ class VideoPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Aggregated per-team stats — reactive, excludes remote-only entries.
-    // Sourced from libraryStatsByTeamProvider so this widget and
-    // filteredLibraryTeamsProvider both read the same snapshot of libraryProvider.
-    final byTeam = ref.watch(libraryStatsByTeamProvider);
+    // Aggregated per-team stats derived inline from libraryProvider.
+    // Excludes remote-only entries. Both this widget and filteredLibraryTeamsProvider
+    // read the same libraryProvider snapshot so results stay consistent.
+    final library = ref.watch(libraryProvider).valueOrNull ?? const [];
+    final byTeam = <String, ({int matches, int clips, int sizeMb, String date})>{};
+    for (final m in library.where((m) => m.downloadState != 'remote')) {
+      final cur =
+          byTeam[m.teamId] ?? (matches: 0, clips: 0, sizeMb: 0, date: m.date);
+      byTeam[m.teamId] = (
+        matches: cur.matches + 1,
+        clips: cur.clips + m.events.length + 1,
+        sizeMb: cur.sizeMb + m.fullSizeMb,
+        date: m.date,
+      );
+    }
 
     // Use filtered provider instead of computing tiles manually.
     final filteredTiles = ref.watch(filteredLibraryTeamsProvider);
