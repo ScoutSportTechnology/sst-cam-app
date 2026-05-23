@@ -63,9 +63,16 @@ class MockDataSeeder {
   Future<void> _writePlaceholderFile(String matchId) async {
     final path = await _videoPathService.recordingPath(matchId);
     final file = File(path);
-    if (!file.existsSync()) {
-      await file.parent.create(recursive: true);
-      await file.writeAsBytes([0]);
+    if (file.existsSync()) return;
+    await file.parent.create(recursive: true);
+    // Copy the bundled mock video so the file is a real, playable MP4.
+    // Falls back to a 1-byte sentinel only when rootBundle is unavailable
+    // (unit-test environments that haven't loaded the asset bundle).
+    try {
+      final data = await rootBundle.load('assets/ble/mock-video.mp4');
+      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
+    } catch (_) {
+      await file.writeAsBytes([0x00], flush: true);
     }
   }
 

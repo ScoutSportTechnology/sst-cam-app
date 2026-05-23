@@ -4,7 +4,6 @@ import 'package:video_player/video_player.dart';
 
 import 'dart:io';
 
-import '../../../core/config/env.dart';
 import '../../../core/models/overlay.dart' as app_overlay;
 import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
 import '../video_state.dart'
@@ -81,24 +80,12 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   /// is invalidated + re-evaluated).
   Future<void> _startPlayer() async {
     if (!mounted) return;
-    // Use the actual file when it contains a real video (size > 1 KB).
-    // The seeder writes a 1-byte sentinel; the mock download copies the full
-    // mock video. In production, VideoPlayerController.file is always used.
-    final VideoPlayerController controller;
-    if (kAppEnv.isDevBackend) {
-      final path = await ref
-          .read(videoPathServiceProvider)
-          .recordingPath(widget.matchId);
-      final fileLen = File(path).existsSync() ? await File(path).length() : 0;
-      controller = fileLen > 1024
-          ? VideoPlayerController.file(File(path))
-          : VideoPlayerController.asset('assets/ble/mock-video.mp4');
-    } else {
-      final path = await ref
-          .read(videoPathServiceProvider)
-          .recordingPath(widget.matchId);
-      controller = VideoPlayerController.file(File(path));
-    }
+    // The seeder and MockWifiService both write the actual mock video to the
+    // device path, so VideoPlayerController.file() works in dev and prod alike.
+    final path = await ref
+        .read(videoPathServiceProvider)
+        .recordingPath(widget.matchId);
+    final controller = VideoPlayerController.file(File(path));
     _playerController = controller;
     await controller
         .initialize()
