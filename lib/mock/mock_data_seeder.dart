@@ -63,7 +63,10 @@ class MockDataSeeder {
   Future<void> _writePlaceholderFile(String matchId) async {
     final path = await _videoPathService.recordingPath(matchId);
     final file = File(path);
-    if (file.existsSync()) return;
+    // Skip only if the file already contains a real video (> 1 KB).
+    // A 1-byte sentinel left by an older version of the seeder must be
+    // overwritten so the player receives a playable file.
+    if (file.existsSync() && file.lengthSync() > 1024) return;
     await file.parent.create(recursive: true);
     // Copy the bundled mock video so the file is a real, playable MP4.
     // Falls back to a 1-byte sentinel only when rootBundle is unavailable
