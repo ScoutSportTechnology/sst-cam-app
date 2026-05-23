@@ -376,23 +376,62 @@ class MockWifiService implements WifiService {
       final fraction = (tick / ticks).clamp(0.0, 1.0);
       final bytes = (totalBytes * fraction).toInt();
       final isDone = fraction >= 1.0;
-      final next = VideoDownloadProgress(
-        downloadId: downloadId,
-        recordingId: uuid,
-        status: isDone ? DownloadStatus.completed : DownloadStatus.running,
-        bytesReceived: bytes,
-        bytesTotal: totalBytes,
-        kbps: 8000 + sin(tick * 0.3) * 1500,
-      );
-      _publish(entry, next);
-      if (isDone) {
+
+      if (!isDone) {
+        _publish(
+          entry,
+          VideoDownloadProgress(
+            downloadId: downloadId,
+            recordingId: uuid,
+            status: DownloadStatus.running,
+            bytesReceived: bytes,
+            bytesTotal: totalBytes,
+            kbps: 8000 + sin(tick * 0.3) * 1500,
+          ),
+        );
+      } else {
+        // Transfer bytes are done. Keep status=running while the file is
+        // written to disk so the "Done" button only appears once the file
+        // is actually on the device.
         timer.cancel();
-        // Write a placeholder file so isOnDeviceProvider returns true.
-        // Playback uses the bundled asset regardless in dev mode.
-        _writePlaceholder(savePath)
-            .then((_) => controller.close())
-            .catchError((Object e, StackTrace _) {
+        _publish(
+          entry,
+          VideoDownloadProgress(
+            downloadId: downloadId,
+            recordingId: uuid,
+            status: DownloadStatus.running,
+            bytesReceived: totalBytes,
+            bytesTotal: totalBytes,
+            kbps: 0,
+          ),
+        );
+        _writePlaceholder(savePath).then((_) {
+          _publish(
+            entry,
+            VideoDownloadProgress(
+              downloadId: downloadId,
+              recordingId: uuid,
+              status: DownloadStatus.completed,
+              bytesReceived: totalBytes,
+              bytesTotal: totalBytes,
+              kbps: 0,
+            ),
+          );
+          controller.close();
+        }).catchError((Object e, StackTrace _) {
           debugPrint('MockWifiService: placeholder write failed: $e');
+          _publish(
+            entry,
+            VideoDownloadProgress(
+              downloadId: downloadId,
+              recordingId: uuid,
+              status: DownloadStatus.failed,
+              bytesReceived: totalBytes,
+              bytesTotal: totalBytes,
+              kbps: 0,
+              errorMessage: e.toString(),
+            ),
+          );
           controller.close();
         });
       }

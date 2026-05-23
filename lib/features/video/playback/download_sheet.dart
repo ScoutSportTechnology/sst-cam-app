@@ -65,10 +65,17 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       setState(() => _error = 'Connect a camera first');
       return;
     }
+
+    // Capture references before the async call so the onDone callback can
+    // run correctly even if the sheet has already been dismissed (mounted=false).
+    final matchId = widget.match.id;
+    final pathSvc = ref.read(videoPathServiceProvider);
+    final container = ProviderScope.containerOf(context);
+
     try {
       final handle = await ref.read(wifiServiceProvider).downloadRecording(
         deviceId,
-        widget.match.id,
+        matchId,
       );
       _handle = handle;
       handle.progress.listen(
@@ -76,16 +83,14 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           if (mounted) setState(() => _progress = p);
         },
         onDone: () async {
-          if (!mounted) return;
-          ref.invalidate(isOnDeviceProvider(widget.match.id));
-          // Also push the downloaded video to the device gallery so it appears
-          // in Photos and can be shared without leaving the app.
-          final path = await ref
-              .read(videoPathServiceProvider)
-              .recordingPath(widget.match.id);
+          // The file is now on device (MockWifiService publishes completed
+          // only after _writePlaceholder finishes). Invalidate the provider
+          // and save to gallery regardless of whether the sheet is still open.
+          container.invalidate(isOnDeviceProvider(matchId));
+          final path = await pathSvc.recordingPath(matchId);
           await GalleryService.saveVideo(
             sourcePath: path,
-            displayName: '${widget.match.id}.mp4',
+            displayName: '$matchId.mp4',
           );
         },
         onError: (e) {
