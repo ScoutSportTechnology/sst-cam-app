@@ -12,6 +12,7 @@ import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
+import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
@@ -49,6 +50,8 @@ class SessionScreen extends ConsumerWidget {
         ? T.accent
         : (isEnded ? T.ink2 : T.ink2);
 
+    final previewOn = ref.watch(livePreviewEnabledProvider(activeId));
+
     return Scaffold(
       backgroundColor: T.bg,
       body: SafeArea(
@@ -70,6 +73,30 @@ class SessionScreen extends ConsumerWidget {
               clock: state.clockText,
               isLive: isPeriodActive,
             ),
+            // Preview toggle — sits below the feed surface, not overlaid on it.
+            // Only shown when a camera is connected.
+            if (activeId != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                child: WfButton(
+                  label: previewOn ? 'Stop preview' : 'Preview',
+                  variant: WfButtonVariant.outline,
+                  size: WfButtonSize.sm,
+                  full: true,
+                  leading: previewOn
+                      ? null
+                      : const Icon(
+                          Icons.play_arrow_rounded,
+                          size: 13,
+                          color: T.ink,
+                        ),
+                  onPressed: () {
+                    ref
+                        .read(livePreviewEnabledProvider(activeId).notifier)
+                        .state = !previewOn;
+                  },
+                ),
+              ),
             _PrimaryActionRow(
               state: state,
               onMarkEvent: isPeriodActive
@@ -740,9 +767,11 @@ class _LiveThumb extends ConsumerWidget {
     final activeId = ref.watch(activeCameraIdProvider);
     return Stack(
       children: [
+        // No buttons inside the surface — Preview/Stop is in the parent layout.
         LivePreviewView(
           deviceId: activeId,
           label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
+          showButtons: false,
         ),
         Positioned(
           left: 8,

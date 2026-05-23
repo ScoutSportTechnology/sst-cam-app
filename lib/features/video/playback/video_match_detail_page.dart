@@ -2,16 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import 'dart:io';
+
+import '../../../core/config/env.dart';
 import '../../../core/models/overlay.dart' as app_overlay;
+import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
 import '../video_state.dart'
     show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
-import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/widgets/wf_chip.dart';
-import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import 'download_sheet.dart';
 
 class VideoMatchDetailPage extends ConsumerStatefulWidget {
@@ -35,7 +37,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   VideoPlayerController? _playerController;
   bool _playerInitialized = false;
   bool _isPlaying = false;
-  bool _isOnDevice = false; // true once isOnDeviceProvider resolves true
   List<app_overlay.OverlayState> _overlayStates = [];
   app_overlay.OverlayState _currentOverlay = const app_overlay.OverlayState(
     timeSeconds: 0,
@@ -45,8 +46,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     recentEventLabel: null,
   );
 
-  // Guards against starting _initPlayer more than once.
+  // Guards: overlays built once; player started once when on-device is confirmed.
   bool _initStarted = false;
+  bool _playerInitStarted = false;
 
   @override
   void initState() {
@@ -58,14 +60,12 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     };
   }
 
-  /// Called from [build] on the first frame where [match] is non-null.
+  /// Builds overlay states once on first non-null match. Player init is
+  /// triggered reactively from [build] when [isOnDeviceProvider] resolves true.
   void _maybeStartInit(LibraryMatch match) {
     if (_initStarted) return;
     _initStarted = true;
     _buildOverlayStates(match);
-    // Kick off async init without awaiting in build.
-    // ignore: discarded_futures
-    _initPlayer(match);
   }
 
   void _buildOverlayStates(LibraryMatch match) {
@@ -76,22 +76,29 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     );
   }
 
-  Future<void> _initPlayer([LibraryMatch? passedMatch]) async {
-    final match = passedMatch ?? ref.read(libraryMatchProvider(widget.matchId));
-    if (match == null) return;
-
-    // Only play if the recording is already on-device.
-    // If not on device, the player area shows a "Download to watch" prompt
-    // and the footer Download button handles the download flow.
-    final onDevice = await ref.read(isOnDeviceProvider(match.id).future);
+  /// Starts the video player. Called from [build] once [isOnDeviceProvider]
+  /// resolves to true (includes after a download completes and the provider
+  /// is invalidated + re-evaluated).
+  Future<void> _startPlayer() async {
     if (!mounted) return;
-    if (!onDevice) return;
-    setState(() => _isOnDevice = true);
-
-    // In dev mode the recording path holds a 1-byte placeholder; always
-    // use the bundled mock video for playback.  In production this would be
-    // VideoPlayerController.file(File(recordingPath)).
-    final controller = VideoPlayerController.asset('assets/ble/mock-video.mp4');
+    // Use the actual file when it contains a real video (size > 1 KB).
+    // The seeder writes a 1-byte sentinel; the mock download copies the full
+    // mock video. In production, VideoPlayerController.file is always used.
+    final VideoPlayerController controller;
+    if (kAppEnv.isDevBackend) {
+      final path = await ref
+          .read(videoPathServiceProvider)
+          .recordingPath(widget.matchId);
+      final fileLen = File(path).existsSync() ? await File(path).length() : 0;
+      controller = fileLen > 1024
+          ? VideoPlayerController.file(File(path))
+          : VideoPlayerController.asset('assets/ble/mock-video.mp4');
+    } else {
+      final path = await ref
+          .read(videoPathServiceProvider)
+          .recordingPath(widget.matchId);
+      controller = VideoPlayerController.file(File(path));
+    }
     _playerController = controller;
     await controller
         .initialize()
@@ -108,10 +115,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         })
         .catchError((Object e, StackTrace st) {
           // Platform channels are unavailable in test environments.
-          // Fall back to ThumbPlaceholder — same pattern as LivePreviewView.
-          debugPrint(
-            'VideoMatchDetailPage: player init failed: $e\n$st',
-          );
+          debugPrint('VideoMatchDetailPage: player init failed: $e\n$st');
           if (mounted && _playerController == controller) {
             controller.dispose();
             _playerController = null;
@@ -155,11 +159,23 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
       return const Scaffold(body: Center(child: Text('Match not found')));
     }
 
-    // Trigger player init once the match is available.
-    _maybeStartInit(match);
+    // Watch on-device status reactively. When a download completes and
+    // isOnDeviceProvider is invalidated, this triggers a rebuild that starts
+    // the player — fixing the stale _isOnDevice local-state bug.
+    final isOnDevice =
+        ref.watch(isOnDeviceProvider(widget.matchId)).valueOrNull ?? false;
 
     final selectedCount = _selected.length;
-    final cameraId = ref.watch(activeCameraIdProvider);
+
+    // Trigger overlay-state build once (idempotent guard inside).
+    _maybeStartInit(match);
+
+    // Trigger player init the first time the file is confirmed on device.
+    if (isOnDevice && !_playerInitStarted) {
+      _playerInitStarted = true;
+      // ignore: discarded_futures
+      _startPlayer();
+    }
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -183,7 +199,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             eventsOverlayOn: _eventsOverlayOn,
             playheadFraction: _playheadFraction,
             playerController: _playerInitialized ? _playerController : null,
-            notOnDevice: !_isOnDevice,
+            notOnDevice: !isOnDevice,
             currentOverlay: _currentOverlay,
             onDownload: () => _showDownloadSheet(context, match),
             isPlaying: _isPlaying,
@@ -198,16 +214,14 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                 final maxSecs = _parseDuration(match.fullDuration);
                 if (maxSecs > 0) {
                   final secs = (v * maxSecs).round();
-                  _currentOverlay = app_overlay.OverlayState.atTime(_overlayStates, secs);
+                  _currentOverlay =
+                      app_overlay.OverlayState.atTime(_overlayStates, secs);
+                  // Seek the video to match the scrubber position.
+                  _playerController?.seekTo(Duration(seconds: secs));
                 }
               });
             },
           ),
-          // Live camera preview — only visible when a camera is connected.
-          // Sits between the recorded-video area and the events section so
-          // the user can monitor the live feed while reviewing past events.
-          if (cameraId != null)
-            LivePreviewView(deviceId: cameraId),
           _OverlayToggleRow(
             scoreOn: _scoreOverlayOn,
             eventsOn: _eventsOverlayOn,

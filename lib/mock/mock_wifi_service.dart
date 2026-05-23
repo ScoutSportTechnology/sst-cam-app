@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/services.dart' show rootBundle;
 
 import '../core/models/overlay.dart';
 import '../core/models/recording.dart';
@@ -419,13 +420,19 @@ class MockWifiService implements WifiService {
     );
   }
 
-  /// Writes a 1-byte placeholder at [path] so `File.existsSync()` returns
-  /// true. Playback in dev mode uses the bundled asset, so file content
-  /// does not matter — only existence is checked by isOnDeviceProvider.
+  /// Copies the bundled mock video to [path] so the device storage actually
+  /// contains a playable file. Falls back to a 1-byte sentinel when rootBundle
+  /// is unavailable (e.g. in unit-test environments without asset loading).
   Future<void> _writePlaceholder(String path) async {
     final file = File(path);
     await file.parent.create(recursive: true);
-    await file.writeAsBytes([0x00], flush: true);
+    try {
+      final data = await rootBundle.load('assets/ble/mock-video.mp4');
+      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
+    } catch (e) {
+      debugPrint('MockWifiService: asset copy failed, writing sentinel: $e');
+      await file.writeAsBytes([0x00], flush: true);
+    }
   }
 
   @override
