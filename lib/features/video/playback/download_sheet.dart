@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/config/env.dart';
 import '../../../core/models/wifi.dart';
 import '../../../core/services/clip_service.dart';
+import '../../../core/services/gallery_service.dart';
 import '../../../core/wifi/wifi_providers.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
@@ -74,10 +75,18 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
         (p) {
           if (mounted) setState(() => _progress = p);
         },
-        onDone: () {
-          if (mounted) {
-            ref.invalidate(isOnDeviceProvider(widget.match.id));
-          }
+        onDone: () async {
+          if (!mounted) return;
+          ref.invalidate(isOnDeviceProvider(widget.match.id));
+          // Also push the downloaded video to the device gallery so it appears
+          // in Photos and can be shared without leaving the app.
+          final path = await ref
+              .read(videoPathServiceProvider)
+              .recordingPath(widget.match.id);
+          await GalleryService.saveVideo(
+            sourcePath: path,
+            displayName: '${widget.match.id}.mp4',
+          );
         },
         onError: (e) {
           if (mounted) setState(() => _error = e.toString());
