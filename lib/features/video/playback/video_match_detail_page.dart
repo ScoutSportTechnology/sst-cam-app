@@ -7,9 +7,11 @@ import '../video_state.dart'
     show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
+import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/widgets/wf_chip.dart';
+import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import 'download_sheet.dart';
 
 class VideoMatchDetailPage extends ConsumerStatefulWidget {
@@ -32,6 +34,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   // Video player state
   VideoPlayerController? _playerController;
   bool _playerInitialized = false;
+  bool _isPlaying = false;
   bool _isOnDevice = false; // true once isOnDeviceProvider resolves true
   List<app_overlay.OverlayState> _overlayStates = [];
   app_overlay.OverlayState _currentOverlay = const app_overlay.OverlayState(
@@ -95,7 +98,12 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         .then((_) {
           if (mounted && _playerController == controller) {
             controller.setLooping(true);
-            setState(() => _playerInitialized = true);
+            controller.addListener(_onPlayerStateChange);
+            controller.play();
+            setState(() {
+              _playerInitialized = true;
+              _isPlaying = true;
+            });
           }
         })
         .catchError((Object e, StackTrace st) {
@@ -111,8 +119,27 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         });
   }
 
+  void _onPlayerStateChange() {
+    final ctrl = _playerController;
+    if (ctrl != null && mounted) {
+      final playing = ctrl.value.isPlaying;
+      if (playing != _isPlaying) setState(() => _isPlaying = playing);
+    }
+  }
+
+  void _togglePlayPause() {
+    final ctrl = _playerController;
+    if (ctrl == null) return;
+    if (ctrl.value.isPlaying) {
+      ctrl.pause();
+    } else {
+      ctrl.play();
+    }
+  }
+
   @override
   void dispose() {
+    _playerController?.removeListener(_onPlayerStateChange);
     final ctrl = _playerController;
     _playerController = null;
     ctrl?.dispose();
@@ -132,6 +159,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     _maybeStartInit(match);
 
     final selectedCount = _selected.length;
+    final cameraId = ref.watch(activeCameraIdProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -158,6 +186,8 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             notOnDevice: !_isOnDevice,
             currentOverlay: _currentOverlay,
             onDownload: () => _showDownloadSheet(context, match),
+            isPlaying: _isPlaying,
+            onPlayPauseTap: _togglePlayPause,
           ),
           _Scrubber(
             match: match,
@@ -173,6 +203,11 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
               });
             },
           ),
+          // Live camera preview — only visible when a camera is connected.
+          // Sits between the recorded-video area and the events section so
+          // the user can monitor the live feed while reviewing past events.
+          if (cameraId != null)
+            LivePreviewView(deviceId: cameraId),
           _OverlayToggleRow(
             scoreOn: _scoreOverlayOn,
             eventsOn: _eventsOverlayOn,
@@ -280,6 +315,8 @@ class _Player extends StatelessWidget {
     required this.notOnDevice,
     required this.currentOverlay,
     required this.onDownload,
+    required this.isPlaying,
+    required this.onPlayPauseTap,
   });
 
   final LibraryMatch match;
@@ -291,29 +328,35 @@ class _Player extends StatelessWidget {
   final bool notOnDevice;
   final app_overlay.OverlayState currentOverlay;
   final VoidCallback onDownload;
+  final bool isPlaying;
+  final VoidCallback onPlayPauseTap;
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return GestureDetector(
+      onTap: notOnDevice ? null : onPlayPauseTap,
+      child: Stack(
       children: [
         _buildPlayerBody(),
-        Positioned.fill(
-          child: Center(
-            child: Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.4),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  width: 2,
+        // Play button — shown only when a player exists and is paused.
+        if (!notOnDevice && playerController != null && !isPlaying)
+          Positioned.fill(
+            child: Center(
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: T.bg.withValues(alpha: 0.85),
+                  border: Border.all(color: T.hair),
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: T.ink,
+                  size: 26,
                 ),
               ),
-              child: const Icon(Icons.play_arrow, color: Colors.white),
             ),
           ),
-        ),
         if (scoreOverlayOn)
           Positioned(
             top: 8,
@@ -413,6 +456,7 @@ class _Player extends StatelessWidget {
             ),
           ),
       ],
+      ),
     );
   }
 

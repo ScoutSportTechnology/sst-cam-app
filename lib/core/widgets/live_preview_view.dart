@@ -15,9 +15,15 @@ import 'wf_card.dart';
 /// falls back to the wireframe striped placeholder otherwise (no descriptor,
 /// VLC error, or dev-mock with a fake RTSP URL).
 ///
-/// Lifecycle of the WiFi Direct group is owned by `wifiHandoffProvider` —
-/// this widget only reads state and the preview URL. Pass `autoStart: true`
-/// when using the widget outside the orchestrated app shell (e.g. tests).
+/// Preview on/off state is shared via [livePreviewEnabledProvider] (keyed by
+/// deviceId) so multiple surfaces on different pages stay in sync.
+///
+/// Pass [showButtons] = false when the parent manages the Preview/Stop toggle
+/// externally (e.g. the main camera card's action row). Default true shows
+/// the toggle buttons inside the surface itself.
+///
+/// Pass [autoStart] = true when using the widget outside the orchestrated app
+/// shell (e.g. tests that mount without wifiHandoffProvider). Idempotent.
 class LivePreviewView extends ConsumerStatefulWidget {
   const LivePreviewView({
     super.key,
@@ -26,6 +32,7 @@ class LivePreviewView extends ConsumerStatefulWidget {
     this.height,
     this.aspect,
     this.autoStart = false,
+    this.showButtons = true,
   });
 
   final String? deviceId;
@@ -33,6 +40,9 @@ class LivePreviewView extends ConsumerStatefulWidget {
   final double? height;
   final double? aspect;
   final bool autoStart;
+  /// Whether to render Preview / Stop toggle buttons inside this surface.
+  /// Set false when the parent provides external controls.
+  final bool showButtons;
 
   @override
   ConsumerState<LivePreviewView> createState() => _LivePreviewViewState();
@@ -47,26 +57,14 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   // Dev-mode mock video player (used when no real RTSP stream is available).
   VideoPlayerController? _mock;
 
-  // Preview is off by default — the user must tap to start it.
-  bool _previewEnabled = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // Do NOT auto-start. The user taps the preview surface to enable it.
-  }
-
   void _enablePreview() {
-    setState(() => _previewEnabled = true);
-    if (kAppEnv.isDevBackend) {
-      _initMockPlayer();
-    }
+    ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state = true;
   }
 
   void _disablePreview() {
-    setState(() => _previewEnabled = false);
-    _tearDownMock();
-    _tearDownVlc();
+    ref
+        .read(livePreviewEnabledProvider(widget.deviceId).notifier)
+        .state = false;
   }
 
   void _tearDownMock() {
@@ -109,8 +107,6 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     _vlc?.removeListener(_onVlcChange);
     // ignore: discarded_futures
     _vlc?.dispose();
-    // Null before dispose so any in-flight initialize().then() callback
-    // fails the _mock == controller identity check and skips play().
     final mock = _mock;
     _mock = null;
     mock?.dispose();
@@ -144,9 +140,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   Widget build(BuildContext context) {
     final deviceId = widget.deviceId;
 
-    // Optional fallback for callers that aren't using the orchestrator (e.g.
-    // tests that mount the widget without `wifiHandoffProvider`). Idempotent
-    // because MockWifiService.connectGroup returns the existing group.
+    // Optional fallback for callers that aren't using the orchestrator.
     if (widget.autoStart && deviceId != null && _autoStartedFor != deviceId) {
       _autoStartedFor = deviceId;
       // ignore: unawaited_futures, discarded_futures
@@ -170,33 +164,58 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
       );
     }
 
-    // Preview is off — ThumbPlaceholder with a centered WfButton tap target.
-    if (!_previewEnabled) {
-      final offBody = Stack(
-        fit: StackFit.expand,
-        children: [
-          ThumbPlaceholder(label: widget.label ?? 'PREVIEW'),
-          Center(
-            child: WfButton(
-              label: 'Preview',
-              variant: WfButtonVariant.outline,
-              size: WfButtonSize.sm,
-              leading: const Icon(
-                Icons.play_arrow_rounded,
-                size: 13,
-                color: T.ink,
-              ),
-              onPressed: _enablePreview,
-            ),
-          ),
-        ],
-      );
-      if (widget.height != null) {
-        return SizedBox(height: widget.height, width: double.infinity, child: offBody);
+    // React to preview enabled/disabled via the shared provider.
+    ref.listen<bool>(livePreviewEnabledProvider(deviceId), (prev, next) {
+      if (next && !(prev ?? false)) {
+        // Preview just turned on.
+        if (kAppEnv.isDevBackend) _initMockPlayer();
+      } else if (!next && (prev ?? false)) {
+        // Preview just turned off.
+        _tearDownMock();
+        _tearDownVlc();
       }
-      return AspectRatio(aspectRatio: widget.aspect ?? 16 / 9, child: offBody);
+    });
+
+    final previewEnabled = ref.watch(livePreviewEnabledProvider(deviceId));
+
+    // Preview is off — show placeholder (and optional Preview button).
+    if (!previewEnabled) {
+      final offBody = widget.showButtons
+          ? Stack(
+              fit: StackFit.expand,
+              children: [
+                ThumbPlaceholder(label: widget.label ?? 'PREVIEW'),
+                Center(
+                  child: WfButton(
+                    label: 'Preview',
+                    variant: WfButtonVariant.outline,
+                    size: WfButtonSize.sm,
+                    leading: const Icon(
+                      Icons.play_arrow_rounded,
+                      size: 13,
+                      color: T.ink,
+                    ),
+                    onPressed: _enablePreview,
+                  ),
+                ),
+              ],
+            )
+          : ThumbPlaceholder(label: widget.label ?? 'PREVIEW');
+
+      if (widget.height != null) {
+        return SizedBox(
+          height: widget.height,
+          width: double.infinity,
+          child: offBody,
+        );
+      }
+      return AspectRatio(
+        aspectRatio: widget.aspect ?? 16 / 9,
+        child: offBody,
+      );
     }
 
+    // Preview is on — read WiFi/frame state.
     final wifiState = ref
         .watch(wifiConnectionStateProvider(deviceId))
         .valueOrNull;
@@ -205,9 +224,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
     // Spin up / replace the VLC controller whenever the descriptor URL changes.
-    // Skipped in dev-backend mode: _vlc stays null so the mock-video branch
-    // in the Stack below renders instead of the VLC loading phase.
-    if (!kAppEnv.isDevBackend && _previewEnabled) {
+    if (!kAppEnv.isDevBackend && previewEnabled) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
         _swapVlcController(url);
@@ -238,9 +255,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             aspectRatio: 16 / 9,
             placeholder: const ThumbPlaceholder(),
           )
-        else if (kAppEnv.isDevBackend &&
-            (_mock?.value.isInitialized ?? false))
-          // In dev mode with no real RTSP stream, loop the mock video asset.
+        else if (kAppEnv.isDevBackend && (_mock?.value.isInitialized ?? false))
           FittedBox(
             fit: BoxFit.cover,
             child: SizedBox(
@@ -259,17 +274,17 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             top: 8,
             child: _FrameCounter(sequence: frame.sequence),
           ),
-        // Stop button — bottom-right corner, consistent with WfButton vocabulary.
-        Positioned(
-          right: 8,
-          bottom: 8,
-          child: WfButton(
-            label: 'Stop',
-            variant: WfButtonVariant.outline,
-            size: WfButtonSize.sm,
-            onPressed: _disablePreview,
+        if (widget.showButtons)
+          Positioned(
+            right: 8,
+            bottom: 8,
+            child: WfButton(
+              label: 'Stop',
+              variant: WfButtonVariant.outline,
+              size: WfButtonSize.sm,
+              onPressed: _disablePreview,
+            ),
           ),
-        ),
       ],
     );
 
