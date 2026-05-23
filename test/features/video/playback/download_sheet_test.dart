@@ -495,14 +495,12 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // No active camera in dev mode → download proceeds with 'dev-mock' fallback.
-  // In dev mode MockWifiService.downloadRecording ignores deviceId, so no
-  // camera connection is required to start a mock download.
+  // No active camera → error shown, download not started.
   // ---------------------------------------------------------------------------
 
   group('no active camera', () {
     testWidgets(
-      'dev mode: download starts with dev-mock fallback when activeCameraId is null',
+      'shows "Connect a camera first" error when activeCameraId is null',
       (tester) async {
         await largeScreen(tester);
         await _insertMatch(db.value);
@@ -521,10 +519,8 @@ void main() {
         await tester.tap(find.text('Start download'));
         await tester.pump();
 
-        // In dev mode the download proceeds (no "Connect a camera" error).
-        expect(find.textContaining('Connect a camera first'), findsNothing);
-        expect(wifiSvc.downloadCalled, isTrue);
-        expect(wifiSvc.lastDeviceId, 'dev-mock');
+        expect(find.textContaining('Connect a camera first'), findsOneWidget);
+        expect(wifiSvc.downloadCalled, isFalse);
       },
     );
   });

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/env.dart';
 import '../../../core/models/wifi.dart';
 import '../../../core/services/clip_service.dart';
 import '../../../core/services/gallery_service.dart';
@@ -56,11 +55,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   }
 
   Future<void> _startFullDownload() async {
-    final activeId = ref.read(activeCameraIdProvider);
-    // In dev mode MockWifiService.downloadRecording ignores deviceId entirely —
-    // no real WiFi group is required. Fall back to a placeholder id so the
-    // download works without a connected camera.
-    final deviceId = activeId ?? (kAppEnv.isDevBackend ? 'dev-mock' : null);
+    final deviceId = ref.read(activeCameraIdProvider);
     if (deviceId == null) {
       setState(() => _error = 'Connect a camera first');
       return;
