@@ -106,7 +106,11 @@
       "Bash(tee /tmp/test-out.txt)",
       "Bash(echo \"DONE exit $?\")",
       "Bash(xargs kill)",
-      "mcp__dart__run_tests"
+      "mcp__dart__run_tests",
+      "Bash(sed *)",
+      "Bash(pkill -f \"flutter test\")",
+      "Bash(pkill -f \"flutter test test/features/video/playback/download_sheet_test\")",
+      "Bash(wait)"
     ]
   }
 }
