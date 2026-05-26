@@ -96,9 +96,11 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             controller.setLooping(true);
             controller.addListener(_onPlayerStateChange);
             controller.play();
+            final videoSecs = controller.value.duration.inSeconds;
             setState(() {
               _playerInitialized = true;
               _isPlaying = true;
+              if (videoSecs > 0) _matchDurationSeconds = videoSecs;
             });
           }
         })
@@ -201,17 +203,16 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             onPlayPauseTap: _togglePlayPause,
           ),
           _Scrubber(
-            match: match,
+            totalSeconds: _matchDurationSeconds,
+            events: match.events,
             value: _playheadFraction,
             onChanged: (v) {
               setState(() {
                 _playheadFraction = v;
-                final maxSecs = _parseDuration(match.fullDuration);
-                if (maxSecs > 0) {
-                  final secs = (v * maxSecs).round();
+                if (_matchDurationSeconds > 0) {
+                  final secs = (v * _matchDurationSeconds).round();
                   _currentOverlay =
                       app_overlay.OverlayState.atTime(_overlayStates, secs);
-                  // Seek the video to match the scrubber position.
                   _playerController?.seekTo(Duration(seconds: secs));
                 }
               });
@@ -266,14 +267,14 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                     });
                   },
                   onJump: () {
-                    final maxSecs = _parseDuration(match.fullDuration);
-                    if (maxSecs == 0) return;
-                    final fraction = e.timeSeconds / maxSecs;
+                    if (_matchDurationSeconds == 0) return;
+                    final fraction = e.timeSeconds / _matchDurationSeconds;
                     setState(() {
                       _playheadFraction = fraction;
                       _currentOverlay =
                           app_overlay.OverlayState.atTime(_overlayStates, e.timeSeconds);
                     });
+                    _playerController?.seekTo(Duration(seconds: e.timeSeconds));
                   },
                 );
               },
@@ -501,22 +502,28 @@ class _Player extends StatelessWidget {
 
 class _Scrubber extends StatelessWidget {
   const _Scrubber({
-    required this.match,
+    required this.totalSeconds,
+    required this.events,
     required this.value,
     required this.onChanged,
   });
-  final LibraryMatch match;
+  final int totalSeconds;
+  final List<LibraryEvent> events;
   final double value;
   final ValueChanged<double> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final maxSecs = _parseDuration(match.fullDuration);
+    final maxSecs = totalSeconds;
     if (maxSecs == 0) return const SizedBox.shrink();
-    final ticks = match.events.map((e) => e.timeSeconds / maxSecs).toList();
+    final ticks = events.map((e) => e.timeSeconds / maxSecs).toList();
     final currentSec = (value * maxSecs).round();
     final m = (currentSec ~/ 60).toString().padLeft(2, '0');
     final s = (currentSec % 60).toString().padLeft(2, '0');
+    final th = (maxSecs ~/ 3600).toString().padLeft(2, '0');
+    final tm = ((maxSecs % 3600) ~/ 60).toString().padLeft(2, '0');
+    final ts = (maxSecs % 60).toString().padLeft(2, '0');
+    final totalLabel = '$th:$tm:$ts';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
@@ -601,7 +608,7 @@ class _Scrubber extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  match.fullDuration,
+                  totalLabel,
                   style: const TextStyle(
                     fontFamily: T.mono,
                     fontSize: 11,
