@@ -95,11 +95,10 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
           if (mounted && _playerController == controller) {
             controller.setLooping(true);
             controller.addListener(_onPlayerStateChange);
-            controller.play();
             final videoSecs = controller.value.duration.inSeconds;
             setState(() {
               _playerInitialized = true;
-              _isPlaying = true;
+              _isPlaying = false;
               if (videoSecs > 0) _matchDurationSeconds = videoSecs;
             });
           }
