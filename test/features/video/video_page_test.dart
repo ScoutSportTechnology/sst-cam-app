@@ -171,7 +171,8 @@ void main() {
   // Sport filter ----------------------------------------------------------------
 
   group('Sport filter', () {
-    testWidgets('renders "All" chip and "All sports" picker button',
+    testWidgets(
+        '"All sports" picker button shown; no standalone All chip; Soccer not inline',
         (tester) async {
       await _insertMatch(
         db.value,
@@ -185,11 +186,13 @@ void main() {
       final container = _container(tester);
       await _awaitLibrary(tester, container);
 
-      // Both filter rows have an "All" chip.
-      expect(find.text('All'), findsWidgets);
-      // Sport picker button shows the category label when no filter is active.
+      // Filter bar shows "All sports" picker button when no filter is active.
       expect(find.text('All sports'), findsOneWidget);
-      // Individual sport names are NOT rendered inline — they live in the sheet.
+      // "All teams" picker for the team filter.
+      expect(find.text('All teams'), findsOneWidget);
+      // No standalone "All" chips — "All" only lives inside the sheet.
+      expect(find.text('All'), findsNothing);
+      // Individual sport names are NOT rendered inline.
       expect(find.text('Soccer'), findsNothing);
     });
   });

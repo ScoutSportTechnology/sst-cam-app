@@ -33,9 +33,7 @@ class VideoPage extends ConsumerWidget {
             padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
             child: _LibrarySearchField(),
           ),
-          const SizedBox(height: 32, child: _SportFilterRow()),
-          const SizedBox(height: 8),
-          const SizedBox(height: 32, child: _TeamFilterRow()),
+          const SizedBox(height: 32, child: _LibraryFilterBar()),
           const SizedBox(height: 4),
           Expanded(
             child: libraryAsync.when(
@@ -148,81 +146,55 @@ class _LibrarySearchFieldState extends ConsumerState<_LibrarySearchField> {
 }
 
 // ---------------------------------------------------------------------------
-// Sport filter row — "All" chip + picker button
+// Filter bar — horizontal row of picker buttons, one per filter type
 // ---------------------------------------------------------------------------
 
-class _SportFilterRow extends ConsumerWidget {
-  const _SportFilterRow();
+class _LibraryFilterBar extends ConsumerWidget {
+  const _LibraryFilterBar();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final sport = ref.watch(librarySportFilterProvider);
     final sports = ref.watch(availableLibrarySportsProvider);
-    final selected = ref.watch(librarySportFilterProvider);
-
-    return Row(
-      children: [
-        const SizedBox(width: 14),
-        GestureDetector(
-          onTap: () =>
-              ref.read(librarySportFilterProvider.notifier).state = null,
-          child: WfChip(label: 'All', active: selected == null),
-        ),
-        const SizedBox(width: 6),
-        _FilterPickerChip(
-          label: selected ?? 'All sports',
-          active: selected != null,
-          onTap: () => showModalBottomSheet<void>(
-            context: context,
-            backgroundColor: T.panel,
-            builder: (sheetCtx) => _OptionPickerSheet(
-              options: sports,
-              selected: selected,
-              onSelect: (value) =>
-                  ref.read(librarySportFilterProvider.notifier).state = value,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Team filter row — "All" chip + picker button
-// ---------------------------------------------------------------------------
-
-class _TeamFilterRow extends ConsumerWidget {
-  const _TeamFilterRow();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
+    final team = ref.watch(libraryTeamFilterProvider);
     final teams = ref.watch(filteredLibraryTeamsProvider);
-    final selected = ref.watch(libraryTeamFilterProvider);
 
-    return Row(
-      children: [
-        const SizedBox(width: 14),
-        GestureDetector(
-          onTap: () =>
-              ref.read(libraryTeamFilterProvider.notifier).state = null,
-          child: WfChip(label: 'All', active: selected == null),
-        ),
-        const SizedBox(width: 6),
-        _FilterPickerChip(
-          label: selected ?? 'All teams',
-          active: selected != null,
-          onTap: () => showModalBottomSheet<void>(
-            context: context,
-            backgroundColor: T.panel,
-            builder: (sheetCtx) => _OptionPickerSheet(
-              options: teams.map((t) => t.name).toList(),
-              selected: selected,
-              onSelect: (value) =>
-                  ref.read(libraryTeamFilterProvider.notifier).state = value,
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          _FilterPickerChip(
+            label: sport ?? 'All sports',
+            active: sport != null,
+            onTap: () => showModalBottomSheet<void>(
+              context: context,
+              backgroundColor: T.panel,
+              builder: (_) => _OptionPickerSheet(
+                options: sports,
+                selected: sport,
+                onSelect: (value) =>
+                    ref.read(librarySportFilterProvider.notifier).state = value,
+              ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: 6),
+          _FilterPickerChip(
+            label: team ?? 'All teams',
+            active: team != null,
+            onTap: () => showModalBottomSheet<void>(
+              context: context,
+              backgroundColor: T.panel,
+              builder: (_) => _OptionPickerSheet(
+                options: teams.map((t) => t.name).toList(),
+                selected: team,
+                onSelect: (value) =>
+                    ref.read(libraryTeamFilterProvider.notifier).state = value,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
