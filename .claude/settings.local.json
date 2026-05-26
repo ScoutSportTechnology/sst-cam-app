@@ -110,7 +110,8 @@
       "Bash(sed *)",
       "Bash(pkill -f \"flutter test\")",
       "Bash(pkill -f \"flutter test test/features/video/playback/download_sheet_test\")",
-      "Bash(wait)"
+      "Bash(wait)",
+      "Bash(xargs ls)"
     ]
   }
 }
