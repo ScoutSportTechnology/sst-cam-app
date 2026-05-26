@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -29,15 +31,18 @@ class DownloadSheet extends ConsumerStatefulWidget {
   ConsumerState<DownloadSheet> createState() => _DownloadSheetState();
 }
 
+enum _DownloadMode { full, all, selected }
+
 class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   VideoDownloadHandle? _handle;
   VideoDownloadProgress? _progress;
   String? _error;
-  // 'full' | 'all' | 'selected'
-  String _mode = 'full';
+  StreamSubscription<VideoDownloadProgress>? _subscription;
+  _DownloadMode _mode = _DownloadMode.full;
 
   @override
   void dispose() {
+    _subscription?.cancel();
     // Sheet is closing — if a download is mid-flight, leave it running.
     super.dispose();
   }
@@ -45,11 +50,11 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   Future<void> _start() async {
     setState(() => _error = null);
 
-    if (_mode == 'full') {
+    if (_mode == _DownloadMode.full) {
       await _startFullDownload();
     } else {
       await _startClips(
-        _mode == 'all' ? widget.allEvents : widget.selectedEvents,
+        _mode == _DownloadMode.all ? widget.allEvents : widget.selectedEvents,
       );
     }
   }
@@ -72,12 +77,15 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
         deviceId,
         matchId,
       );
-      _handle = handle;
-      handle.progress.listen(
+      setState(() => _handle = handle);
+      _subscription = handle.progress.listen(
         (p) {
           if (mounted) setState(() => _progress = p);
         },
         onDone: () async {
+          // Only invalidate and save if the download actually completed
+          // (not cancelled or failed).
+          if (_progress?.status != DownloadStatus.completed) return;
           // The file is now on device (MockWifiService publishes completed
           // only after _writePlaceholder finishes). Invalidate the provider
           // and save to gallery regardless of whether the sheet is still open.
@@ -127,6 +135,9 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       } on ClipTrimException catch (e) {
         if (mounted) setState(() => _error = 'Clip failed: ${e.message}');
         return;
+      } catch (e) {
+        if (mounted) setState(() => _error = 'Clip failed: $e');
+        return;
       }
     }
     if (mounted) {
@@ -145,13 +156,13 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     final selectedCount = widget.selectedEvents.length;
     final allCount = widget.allEvents.length;
     final opts = <_Opt>[
-      _Opt(key: 'full', label: 'Full game',
+      _Opt(key: _DownloadMode.full, label: 'Full game',
           sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi'),
       if (allCount > 0)
-        _Opt(key: 'all', label: 'All highlights',
+        _Opt(key: _DownloadMode.all, label: 'All highlights',
             sub: '$allCount event${allCount == 1 ? '' : 's'} · requires full game on device'),
       if (selectedCount > 0)
-        _Opt(key: 'selected', label: 'Selected highlights',
+        _Opt(key: _DownloadMode.selected, label: 'Selected highlights',
             sub: '$selectedCount event${selectedCount == 1 ? '' : 's'} selected · requires full game on device'),
     ];
 
@@ -408,7 +419,7 @@ class _Opt {
     required this.label,
     required this.sub,
   });
-  final String key;
+  final _DownloadMode key;
   final String label;
   final String sub;
 }

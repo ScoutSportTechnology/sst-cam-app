@@ -371,6 +371,7 @@ class MockWifiService implements WifiService {
         );
         _publish(entry, failed);
         controller.close();
+        _downloads.remove(downloadId);
         return;
       }
       final fraction = (tick / ticks).clamp(0.0, 1.0);
@@ -418,6 +419,7 @@ class MockWifiService implements WifiService {
             ),
           );
           controller.close();
+          _downloads.remove(downloadId);
         }).catchError((Object e, StackTrace _) {
           debugPrint('MockWifiService: placeholder write failed: $e');
           _publish(
@@ -433,6 +435,7 @@ class MockWifiService implements WifiService {
             ),
           );
           controller.close();
+          _downloads.remove(downloadId);
         });
       }
     });
@@ -444,6 +447,9 @@ class MockWifiService implements WifiService {
       progress: controller.stream,
       cancel: () async {
         if (entry.progress.isTerminal) return;
+        // Guard against cancelling mid-finalize: if all bytes are received,
+        // _writePlaceholder is in progress and will publish completed itself.
+        if (entry.progress.bytesReceived >= entry.progress.bytesTotal) return;
         entry.timer?.cancel();
         final cancelled = VideoDownloadProgress(
           downloadId: downloadId,
@@ -455,6 +461,7 @@ class MockWifiService implements WifiService {
         );
         _publish(entry, cancelled);
         await controller.close();
+        _downloads.remove(downloadId);
       },
     );
   }

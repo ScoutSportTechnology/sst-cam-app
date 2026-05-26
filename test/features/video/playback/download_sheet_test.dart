@@ -169,6 +169,7 @@ Widget _buildSheet({
   );
 }
 
+
 LibraryMatch _makeMatch({String id = _matchId, int sizeMb = 0}) => LibraryMatch(
       id: id,
       teamId: 'nr-u14',
@@ -333,12 +334,19 @@ void main() {
         // we CAN verify the provider was invalidated by checking the container
         // has discarded its previous (cached) value.
         // The simplest observable: the provider's state is AsyncLoading after
-        // invalidation (because the file check hasn't re-resolved yet).
+        // invalidation (because the file check hasn't re-resolved yet), OR it
+        // has already resolved. Either way it must not be the old cached false.
         final state = container.read(isOnDeviceProvider(_matchId));
-        // Either loading (just invalidated) or a fresh resolved value is acceptable.
-        // The key invariant is that the previous false-value cache was discarded.
-        // We assert the state is not an error.
+        // Provider must not have errored, and must not have retained the old
+        // cached false value (loading = invalidated, true = re-resolved).
         expect(state.hasError, isFalse);
+        expect(
+          state.isLoading || state.valueOrNull == true,
+          isTrue,
+          reason:
+              'Provider should be loading (just invalidated) or resolved true; '
+              'resolved-false means the cached pre-download value was not discarded',
+        );
       },
     );
   });
@@ -524,4 +532,8 @@ void main() {
       },
     );
   });
+
+  // _startClips coverage lives in start_clips_test.dart (same directory).
+  // Tests are isolated there to prevent cross-test interference caused by
+  // pending async work when testWidgets tests share a process.
 }

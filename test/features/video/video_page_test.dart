@@ -285,6 +285,7 @@ void main() {
       // After clearing, matches should be visible again.
       expect(find.text('No matches for this filter'), findsNothing);
       expect(container.read(librarySportFilterProvider), isNull);
+      expect(container.read(libraryTeamFilterProvider), isNull);
     });
   });
 

@@ -137,6 +137,26 @@ void main() {
       expect(File(path).existsSync(), isTrue);
     });
 
+    test('emits failed with errorMessage on simulated failure', () async {
+      final failSvc = MockWifiService(
+        downloadDuration: const Duration(milliseconds: 200),
+        downloadFailureRate: 1.0,
+        randomSeed: 0,
+        videoPathService: videoPathService,
+      );
+      addTearDown(failSvc.dispose);
+
+      final handle = await failSvc.downloadRecording('device-1', 'uuid-fail');
+      final events = await handle.progress.toList();
+
+      expect(
+        events.any((e) => e.status == DownloadStatus.failed),
+        isTrue,
+        reason: 'Expected at least one failed event',
+      );
+      expect(events.last.errorMessage, 'Simulated network drop');
+    });
+
     test('cancel stops stream before completion; placeholder not written',
         () async {
       const uuid = 'rec-uuid-cancel';

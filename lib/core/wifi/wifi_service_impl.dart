@@ -155,19 +155,60 @@ class WifiServiceImpl implements WifiService {
       final fraction = (tick / ticks).clamp(0.0, 1.0);
       final bytes = (totalBytes * fraction).toInt();
       final isDone = fraction >= 1.0;
-      final next = VideoDownloadProgress(
-        downloadId: downloadId,
-        recordingId: uuid,
-        status: isDone ? DownloadStatus.completed : DownloadStatus.running,
-        bytesReceived: bytes,
-        bytesTotal: totalBytes,
-        kbps: 8000 + sin(tick * 0.3) * 1500,
-      );
-      _publishProgress(entry, next);
-      if (isDone) {
-        // Write a 1-byte placeholder file to signal completion.
-        File(savePath).writeAsBytesSync([0x00], flush: true);
+      if (!isDone) {
+        final next = VideoDownloadProgress(
+          downloadId: downloadId,
+          recordingId: uuid,
+          status: DownloadStatus.running,
+          bytesReceived: bytes,
+          bytesTotal: totalBytes,
+          kbps: 8000 + sin(tick * 0.3) * 1500,
+        );
+        _publishProgress(entry, next);
+      } else {
+        // Publish running-at-100% while we write the file.
+        _publishProgress(
+          entry,
+          VideoDownloadProgress(
+            downloadId: downloadId,
+            recordingId: uuid,
+            status: DownloadStatus.running,
+            bytesReceived: totalBytes,
+            bytesTotal: totalBytes,
+            kbps: 0,
+          ),
+        );
         timer.cancel();
+        try {
+          File(savePath).writeAsBytesSync([0x00], flush: true);
+        } catch (e) {
+          _publishProgress(
+            entry,
+            VideoDownloadProgress(
+              downloadId: downloadId,
+              recordingId: uuid,
+              status: DownloadStatus.failed,
+              bytesReceived: totalBytes,
+              bytesTotal: totalBytes,
+              kbps: 0,
+              errorMessage: e.toString(),
+            ),
+          );
+          controller.close();
+          return;
+        }
+        // File written — now emit completed.
+        _publishProgress(
+          entry,
+          VideoDownloadProgress(
+            downloadId: downloadId,
+            recordingId: uuid,
+            status: DownloadStatus.completed,
+            bytesReceived: totalBytes,
+            bytesTotal: totalBytes,
+            kbps: 0,
+          ),
+        );
         controller.close();
       }
     });

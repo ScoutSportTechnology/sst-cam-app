@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 
 import '../core/db/app_database.dart';
@@ -75,7 +76,15 @@ class MockDataSeeder {
       final data = await rootBundle.load('assets/ble/mock-video.mp4');
       await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
     } catch (_) {
-      await file.writeAsBytes([0x00], flush: true);
+      try {
+        await file.writeAsBytes([0x00], flush: true);
+      } catch (writeError) {
+        debugPrint(
+          'MockDataSeeder: sentinel write also failed: $writeError',
+        );
+        // Non-fatal: the match row is already committed; missing placeholder
+        // means isOnDeviceProvider returns false for this match.
+      }
     }
   }
 

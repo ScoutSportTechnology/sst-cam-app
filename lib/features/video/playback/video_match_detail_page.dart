@@ -6,6 +6,7 @@ import 'dart:io';
 
 import '../../../core/models/overlay.dart' as app_overlay;
 import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
+import '../overlay_helper.dart' show buildOverlayStates;
 import '../video_state.dart'
     show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
 import '../../../core/theme/tokens.dart';
@@ -46,6 +47,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     recentEventLabel: null,
   );
 
+  // Throttle for _onPlayerStateChange to avoid 60 Hz setState calls.
+  DateTime? _lastOverlayUpdate;
+
   // Guards: overlays built once; player started once when on-device is confirmed.
   bool _initStarted = false;
   bool _playerInitStarted = false;
@@ -70,7 +74,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
 
   void _buildOverlayStates(LibraryMatch match) {
     _matchDurationSeconds = _parseDuration(match.fullDuration);
-    _overlayStates = app_overlay.OverlayState.fromEvents(
+    _overlayStates = buildOverlayStates(
       match.events,
       periodLengthSeconds: match.periodLengthSeconds,
       homeShortName: match.teamShortName,
@@ -116,6 +120,13 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   void _onPlayerStateChange() {
     final ctrl = _playerController;
     if (ctrl == null || !mounted) return;
+    // Throttle to ~250 ms so we don't call setState on every video frame.
+    final now = DateTime.now();
+    if (_lastOverlayUpdate != null &&
+        now.difference(_lastOverlayUpdate!) < const Duration(milliseconds: 250)) {
+      return;
+    }
+    _lastOverlayUpdate = now;
     final playing = ctrl.value.isPlaying;
     final posSecs = ctrl.value.position.inSeconds;
     final fraction = _matchDurationSeconds > 0
@@ -124,6 +135,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     setState(() {
       _isPlaying = playing;
       _playheadFraction = fraction;
+      _currentOverlay = app_overlay.OverlayState.atTime(_overlayStates, posSecs);
     });
   }
 
@@ -220,8 +232,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
           _OverlayToggleRow(
             scoreOn: _scoreOverlayOn,
             eventsOn: _eventsOverlayOn,
-            lastScoreOn: _lastScoreOn,
-            lastEventsOn: _lastEventsOn,
             onScoreChanged: (v) => setState(() {
               _scoreOverlayOn = v;
               _lastScoreOn = v;
@@ -235,6 +245,11 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                 if (value) {
                   _scoreOverlayOn = _lastScoreOn;
                   _eventsOverlayOn = _lastEventsOn;
+                  // If both saved states are false, restore sensible defaults.
+                  if (!_scoreOverlayOn && !_eventsOverlayOn) {
+                    _scoreOverlayOn = true;
+                    _eventsOverlayOn = true;
+                  }
                 } else {
                   _scoreOverlayOn = false;
                   _eventsOverlayOn = false;
@@ -254,7 +269,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                 final selected = _selected.contains(i);
                 return _EventRow(
                   event: e,
-                  index: i,
                   selected: selected,
                   onTap: () {
                     setState(() {
@@ -312,6 +326,25 @@ int _parseDuration(String hms) {
   final parts = hms.split(':').map(int.parse).toList();
   if (parts.length == 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return parts[0] * 60 + parts[1];
+}
+
+/// Returns the period abbreviation for a sport.
+/// Soccer/Rugby → H (Half), Basketball → Q (Quarter),
+/// Hockey → P (Period), Volleyball → S (Set), Other → P.
+String _periodAbbr(String sport) {
+  switch (sport) {
+    case 'Soccer':
+    case 'Rugby':
+      return 'H';
+    case 'Basketball':
+      return 'Q';
+    case 'Hockey':
+      return 'P';
+    case 'Volleyball':
+      return 'S';
+    default:
+      return 'P';
+  }
 }
 
 class _Player extends StatelessWidget {
@@ -399,7 +432,7 @@ class _Player extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '${currentOverlay.period}H',
+                    '${currentOverlay.period}${_periodAbbr(match.sport)}',
                     style: const TextStyle(
                       fontFamily: T.mono,
                       fontSize: 9,
@@ -475,7 +508,7 @@ class _Player extends StatelessWidget {
       return AspectRatio(
         aspectRatio: 16 / 9,
         child: ColoredBox(
-          color: Colors.black,
+          color: T.bg,
           child: Center(
             child: WfButton(
               label: 'Download to watch',
@@ -627,8 +660,6 @@ class _OverlayToggleRow extends StatelessWidget {
   const _OverlayToggleRow({
     required this.scoreOn,
     required this.eventsOn,
-    required this.lastScoreOn,
-    required this.lastEventsOn,
     required this.onScoreChanged,
     required this.onEventsChanged,
     required this.onMasterChanged,
@@ -636,8 +667,6 @@ class _OverlayToggleRow extends StatelessWidget {
 
   final bool scoreOn;
   final bool eventsOn;
-  final bool lastScoreOn;
-  final bool lastEventsOn;
   final ValueChanged<bool> onScoreChanged;
   final ValueChanged<bool> onEventsChanged;
   final ValueChanged<bool> onMasterChanged;
@@ -708,13 +737,11 @@ class _EventsHeader extends StatelessWidget {
 class _EventRow extends StatelessWidget {
   const _EventRow({
     required this.event,
-    required this.index,
     required this.selected,
     required this.onTap,
     required this.onJump,
   });
   final LibraryEvent event;
-  final int index;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onJump;

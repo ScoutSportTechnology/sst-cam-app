@@ -169,19 +169,23 @@ final filteredLibraryMatchesProvider = Provider<List<LibraryMatch>>((ref) {
         // Sport filter
         if (sport != null && m.sport != sport) return false;
 
+        // Pre-lowercase the match fields once per match for efficient reuse.
+        final teamNameLower = m.teamName.toLowerCase();
+        final shortNameLower = m.teamShortName.toLowerCase();
+        final opponentLower = m.opponent.toLowerCase();
+
         // Team filter (both sides: recording team or opponent)
         if (teamFilter != null && teamFilter.isNotEmpty) {
-          final matchesTeam = m.teamName.toLowerCase() == teamFilter;
-          final matchesOpponent =
-              m.opponent.toLowerCase().contains(teamFilter);
+          final matchesTeam = teamNameLower == teamFilter;
+          final matchesOpponent = opponentLower.contains(teamFilter);
           if (!matchesTeam && !matchesOpponent) return false;
         }
 
         // Text search (R8: teamName, shortName, or opponent)
         if (query.isNotEmpty) {
-          final inTeamName = m.teamName.toLowerCase().contains(query);
-          final inShortName = m.teamShortName.toLowerCase().contains(query);
-          final inOpponent = m.opponent.toLowerCase().contains(query);
+          final inTeamName = teamNameLower.contains(query);
+          final inShortName = shortNameLower.contains(query);
+          final inOpponent = opponentLower.contains(query);
           if (!inTeamName && !inShortName && !inOpponent) return false;
         }
 
@@ -215,16 +219,14 @@ final filteredLibraryTeamsProvider = Provider<List<TeamRecord>>((ref) {
   final sport = ref.watch(librarySportFilterProvider);
 
   final recordingTeamIds = library.map((m) => m.teamId).toSet();
-  // Lowercase opponent strings — used to check if a team appears as opponent.
-  final opponentNamesLower = library.map((m) => m.opponent.toLowerCase()).toSet();
+  // Build a set of exact lowercased opponent names for O(1) lookup.
+  // Teams whose full name matches an opponent string exactly will be included.
+  final opponentNamesSet = library.map((m) => m.opponent.toLowerCase()).toSet();
 
   return teams.where((t) {
     final nameLower = t.name.toLowerCase();
     final isRecordingTeam = recordingTeamIds.contains(t.id);
-    // Mirror the opponent-match logic in filteredLibraryMatchesProvider:
-    // a team counts as "present as opponent" if its name is a substring of
-    // any opponent string in the library (same contains-direction as the filter).
-    final isOpponent = opponentNamesLower.any((opp) => opp.contains(nameLower));
+    final isOpponent = opponentNamesSet.contains(nameLower);
     if (!isRecordingTeam && !isOpponent) return false;
     if (sport != null && t.sport != sport) return false;
     if (query.isEmpty) return true;

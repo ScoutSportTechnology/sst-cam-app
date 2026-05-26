@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/models/overlay.dart';
+import 'package:sst_cam_app/features/video/overlay_helper.dart';
 import 'package:sst_cam_app/features/video/video_state.dart';
 
 void main() {
@@ -42,7 +43,7 @@ void main() {
           goalEvent(timeSeconds: 40, team: 'HOME'),
         ];
 
-        final states = OverlayState.fromEvents(
+        final states = buildOverlayStates(
           events,
           periodLengthSeconds: 60,
           homeShortName: 'HOME',
@@ -75,7 +76,7 @@ void main() {
     );
 
     test('empty event list → single baseline state', () {
-      final states = OverlayState.fromEvents(
+      final states = buildOverlayStates(
         const [],
         periodLengthSeconds: 900,
         homeShortName: 'HOME',
@@ -95,7 +96,7 @@ void main() {
         goalEvent(timeSeconds: 30, team: 'VISITOR'),
       ];
 
-      final states = OverlayState.fromEvents(
+      final states = buildOverlayStates(
         events,
         periodLengthSeconds: 900,
         homeShortName: 'HOME',
@@ -113,7 +114,7 @@ void main() {
           foulEvent(timeSeconds: 15, team: 'HOME'),
         ];
 
-        final states = OverlayState.fromEvents(
+        final states = buildOverlayStates(
           events,
           periodLengthSeconds: 900,
           homeShortName: 'HOME',
@@ -135,7 +136,7 @@ void main() {
         goalEvent(timeSeconds: 1800, team: 'HOME'),
       ];
 
-      final states = OverlayState.fromEvents(
+      final states = buildOverlayStates(
         events,
         periodLengthSeconds: 900,
         homeShortName: 'HOME',
@@ -146,6 +147,23 @@ void main() {
       expect(states[3].period, 3);
     });
 
+    test('periodLengthSeconds=0 does not throw and defaults period to 1', () {
+      final events = [
+        goalEvent(timeSeconds: 500, team: 'HOME'),
+        goalEvent(timeSeconds: 1200, team: 'AWAY'),
+      ];
+
+      final states = buildOverlayStates(
+        events,
+        periodLengthSeconds: 0,
+        homeShortName: 'HOME',
+      );
+
+      expect(states.length, 3);
+      expect(states[1].period, 1);
+      expect(states[2].period, 1);
+    });
+
     test('events are sorted chronologically before processing', () {
       // Supply events out of order; scores must still accumulate in time order.
       final events = [
@@ -154,7 +172,7 @@ void main() {
         goalEvent(timeSeconds: 30, team: 'AWAY', label: 'Second'),
       ];
 
-      final states = OverlayState.fromEvents(
+      final states = buildOverlayStates(
         events,
         periodLengthSeconds: 900,
         homeShortName: 'HOME',
@@ -189,7 +207,7 @@ void main() {
         goalEvent(timeSeconds: 25, team: 'AWAY'),
         goalEvent(timeSeconds: 40, team: 'HOME'),
       ];
-      states = OverlayState.fromEvents(
+      states = buildOverlayStates(
         events,
         periodLengthSeconds: 900,
         homeShortName: 'HOME',
@@ -246,6 +264,77 @@ void main() {
       expect(result.timeSeconds, 40);
       expect(result.homeScore, 2);
       expect(result.awayScore, 1);
+    });
+
+    test('30s expiry: label present at exactly 30s gap (boundary)', () {
+      // State at t=10; query at t=40 → gap=30, label still present.
+      const stateAt10 = [
+        OverlayState(
+          timeSeconds: 0,
+          homeScore: 0,
+          awayScore: 0,
+          period: 1,
+          recentEventLabel: null,
+        ),
+        OverlayState(
+          timeSeconds: 10,
+          homeScore: 1,
+          awayScore: 0,
+          period: 1,
+          recentEventLabel: 'Goal',
+        ),
+      ];
+      final result = OverlayState.atTime(stateAt10, 40);
+      expect(result.recentEventLabel, 'Goal',
+          reason: 'gap == 30 is not > 30, so label should be present');
+    });
+
+    test('30s expiry: label stripped when gap > 30s', () {
+      // State at t=10; query at t=41 → gap=31 > 30, label stripped.
+      const stateAt10 = [
+        OverlayState(
+          timeSeconds: 0,
+          homeScore: 0,
+          awayScore: 0,
+          period: 1,
+          recentEventLabel: null,
+        ),
+        OverlayState(
+          timeSeconds: 10,
+          homeScore: 1,
+          awayScore: 0,
+          period: 1,
+          recentEventLabel: 'Goal',
+        ),
+      ];
+      final result = OverlayState.atTime(stateAt10, 41);
+      expect(result.recentEventLabel, isNull,
+          reason: 'gap == 31 > 30, so label should be stripped');
+      // Scores and period are preserved.
+      expect(result.homeScore, 1);
+      expect(result.awayScore, 0);
+    });
+
+    test('30s expiry: label present at gap=0', () {
+      const stateAt10 = [
+        OverlayState(
+          timeSeconds: 0,
+          homeScore: 0,
+          awayScore: 0,
+          period: 1,
+          recentEventLabel: null,
+        ),
+        OverlayState(
+          timeSeconds: 10,
+          homeScore: 1,
+          awayScore: 0,
+          period: 1,
+          recentEventLabel: 'Goal',
+        ),
+      ];
+      final result = OverlayState.atTime(stateAt10, 10);
+      expect(result.recentEventLabel, 'Goal',
+          reason: 'gap == 0, label should be present');
     });
 
     test('timeSeconds before any event in a list with no t=0 baseline → '

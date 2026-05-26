@@ -58,6 +58,7 @@ class VideoPage extends ConsumerWidget {
                           null;
                       ref.read(libraryTeamFilterProvider.notifier).state =
                           null;
+                      ref.read(librarySearchQueryProvider.notifier).state = '';
                     },
                   );
                 }
