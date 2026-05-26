@@ -18,7 +18,7 @@
     "--add-host=host.docker.internal:host-gateway"
   ],
   "features": {
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    //"ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
     //"ghcr.io/devcontainers-extra/features/go-task:1": {}
   },
   "remoteUser": "vscode",
@@ -29,9 +29,10 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "anthropic.claude-code",
         "dart-code.flutter",
         "dart-code.dart-code",
-        "task.vscode-task",
+        //"task.vscode-task",
         "redhat.vscode-yaml",
         "drblury.protobuf-vsc",
         "dbcode.dbcode",
