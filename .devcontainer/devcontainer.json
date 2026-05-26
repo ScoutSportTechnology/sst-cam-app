@@ -1,22 +1,11 @@
 {
   "name": "SST Cam — Flutter Dev",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "options": [
-      "--tag",
-      "flutter4android"
-    ]
-  },
+  "dockerComposeFile": ["docker-compose.devcontainer.yml"],
+  "service": "app",
+  "workspaceFolder": "/workspaces/sst-cam-app",
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
-  "runArgs": [
-    "--platform",
-    "linux/amd64",
-    "--name",
-    "${localWorkspaceFolderBasename}_flutter4android_devcontainer",
-    "--add-host=host.docker.internal:host-gateway"
-  ],
   "features": {
     //"ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
     //"ghcr.io/devcontainers-extra/features/go-task:1": {}

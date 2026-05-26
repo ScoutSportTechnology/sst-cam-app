@@ -1,0 +1,28 @@
+# Docker Compose file for the SST Cam devcontainer.
+# devcontainer.json points here via "dockerComposeFile" and attaches to the "app" service.
+#
+# NOTE: mounts for the Claude Code config volume and .bashrc bind are declared in
+# devcontainer.json (not here) so they can use devcontainer token substitution
+# (${devcontainerId}, ${localWorkspaceFolder}).
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Preserve the flutter4android image tag from the original build config.
+    image: flutter4android
+    platform: linux/amd64
+    # Required: bridges host.docker.internal so ADB_SERVER_SOCKET
+    # (tcp:host.docker.internal:5037) can reach the host ADB server.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mock-camera-wifi:
+    build:
+      context: .
+      dockerfile: mock-camera-wifi/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8554:8554"   # RTSP H.264 preview
+      - "8080:8080"   # HTTP recording download
