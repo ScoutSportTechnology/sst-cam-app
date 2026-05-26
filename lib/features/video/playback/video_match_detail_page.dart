@@ -30,7 +30,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   bool _lastScoreOn = true; // restored when master toggle goes ON
   bool _lastEventsOn = true; // restored when master toggle goes ON
   late Set<int> _selected;
-  double _playheadFraction = 0.38;
+  double _playheadFraction = 0.0;
 
   // Video player state
   VideoPlayerController? _playerController;
