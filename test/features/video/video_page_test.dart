@@ -168,10 +168,10 @@ void main() {
     });
   });
 
-  // Sport filter chips -----------------------------------------------------------
+  // Sport filter ----------------------------------------------------------------
 
-  group('Sport filter chips', () {
-    testWidgets('renders "All" chip and sport chips from available sports',
+  group('Sport filter', () {
+    testWidgets('renders "All" chip and "All sports" picker button',
         (tester) async {
       await _insertMatch(
         db.value,
@@ -185,35 +185,49 @@ void main() {
       final container = _container(tester);
       await _awaitLibrary(tester, container);
 
-      // "All" chips appear (sport + team rows both have "All").
+      // Both filter rows have an "All" chip.
       expect(find.text('All'), findsWidgets);
-
-      // All teams in seed data are Soccer — "Soccer" chip should appear.
-      expect(find.text('Soccer'), findsOneWidget);
+      // Sport picker button shows the category label when no filter is active.
+      expect(find.text('All sports'), findsOneWidget);
+      // Individual sport names are NOT rendered inline — they live in the sheet.
+      expect(find.text('Soccer'), findsNothing);
     });
   });
 
-  // Team filter chips ------------------------------------------------------------
+  // Team filter -----------------------------------------------------------------
 
-  group('Team filter chips', () {
+  group('Team filter', () {
     testWidgets(
-        'shows full team name; only teams with library matches appear',
+        'shows "All teams" picker button; bottom sheet lists only teams with matches',
         (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
       await tester.pumpWidget(_buildPage(db.value));
       final container = _container(tester);
-      // Seed data has 3 past matches under nr-u14 only.
       await _awaitLibrary(tester, container, count: 1);
 
-      // "Northside Rovers U14" is the only team with matches → one chip.
-      expect(find.text('Northside Rovers U14'), findsOneWidget);
-      // Teams with no library matches must not appear as chips.
+      // Team picker button shows category label — no team names inline.
+      expect(find.text('All teams'), findsOneWidget);
+      expect(find.text('Northside Rovers U14'), findsNothing);
       expect(find.text('Northside Rovers U12'), findsNothing);
       expect(find.text('Eastfield FC Reserves'), findsNothing);
       expect(find.text('Riverdale United'), findsNothing);
-      // Short names must not be used as chip labels.
+      // Short names must not appear.
       expect(find.text('NRB'), findsNothing);
       expect(find.text('EFC'), findsNothing);
       expect(find.text('RDU'), findsNothing);
+
+      // Open the picker sheet.
+      await tester.tap(find.text('All teams'));
+      await tester.pumpAndSettle();
+
+      // Only "Northside Rovers U14" has library matches → it appears in the sheet.
+      expect(find.text('Northside Rovers U14'), findsOneWidget);
+      // Teams with no matches must not appear in the sheet.
+      expect(find.text('Northside Rovers U12'), findsNothing);
+      expect(find.text('Eastfield FC Reserves'), findsNothing);
+      expect(find.text('Riverdale United'), findsNothing);
     });
   });
 

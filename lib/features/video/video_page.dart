@@ -33,9 +33,9 @@ class VideoPage extends ConsumerWidget {
             padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
             child: _LibrarySearchField(),
           ),
-          const SizedBox(height: 32, child: _LibrarySportFilterChips()),
+          const SizedBox(height: 32, child: _SportFilterRow()),
           const SizedBox(height: 8),
-          const SizedBox(height: 32, child: _LibraryTeamFilterChips()),
+          const SizedBox(height: 32, child: _TeamFilterRow()),
           const SizedBox(height: 4),
           Expanded(
             child: libraryAsync.when(
@@ -148,63 +148,221 @@ class _LibrarySearchFieldState extends ConsumerState<_LibrarySearchField> {
 }
 
 // ---------------------------------------------------------------------------
-// Sport filter chips
+// Sport filter row — "All" chip + picker button
 // ---------------------------------------------------------------------------
 
-class _LibrarySportFilterChips extends ConsumerWidget {
-  const _LibrarySportFilterChips();
+class _SportFilterRow extends ConsumerWidget {
+  const _SportFilterRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sports = ref.watch(availableLibrarySportsProvider);
     final selected = ref.watch(librarySportFilterProvider);
-    final entries = <String?>[null, ...sports];
 
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      itemCount: entries.length,
-      separatorBuilder: (context, index) => const SizedBox(width: 6),
-      itemBuilder: (_, i) {
-        final s = entries[i];
-        final active = s == selected;
-        return GestureDetector(
+    return Row(
+      children: [
+        const SizedBox(width: 14),
+        GestureDetector(
           onTap: () =>
-              ref.read(librarySportFilterProvider.notifier).state = s,
-          child: WfChip(label: s ?? 'All', active: active),
-        );
-      },
+              ref.read(librarySportFilterProvider.notifier).state = null,
+          child: WfChip(label: 'All', active: selected == null),
+        ),
+        const SizedBox(width: 6),
+        _FilterPickerChip(
+          label: selected ?? 'All sports',
+          active: selected != null,
+          onTap: () => showModalBottomSheet<void>(
+            context: context,
+            backgroundColor: T.panel,
+            builder: (sheetCtx) => _OptionPickerSheet(
+              options: sports,
+              selected: selected,
+              onSelect: (value) =>
+                  ref.read(librarySportFilterProvider.notifier).state = value,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Team filter chips
+// Team filter row — "All" chip + picker button
 // ---------------------------------------------------------------------------
 
-class _LibraryTeamFilterChips extends ConsumerWidget {
-  const _LibraryTeamFilterChips();
+class _TeamFilterRow extends ConsumerWidget {
+  const _TeamFilterRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final teams = ref.watch(filteredLibraryTeamsProvider);
     final selected = ref.watch(libraryTeamFilterProvider);
-    final entries = <String?>[null, ...teams.map((t) => t.name)];
 
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      itemCount: entries.length,
-      separatorBuilder: (context, index) => const SizedBox(width: 6),
-      itemBuilder: (_, i) {
-        final s = entries[i];
-        final active = s == selected;
-        return GestureDetector(
+    return Row(
+      children: [
+        const SizedBox(width: 14),
+        GestureDetector(
           onTap: () =>
-              ref.read(libraryTeamFilterProvider.notifier).state = s,
-          child: WfChip(label: s ?? 'All', active: active),
-        );
-      },
+              ref.read(libraryTeamFilterProvider.notifier).state = null,
+          child: WfChip(label: 'All', active: selected == null),
+        ),
+        const SizedBox(width: 6),
+        _FilterPickerChip(
+          label: selected ?? 'All teams',
+          active: selected != null,
+          onTap: () => showModalBottomSheet<void>(
+            context: context,
+            backgroundColor: T.panel,
+            builder: (sheetCtx) => _OptionPickerSheet(
+              options: teams.map((t) => t.name).toList(),
+              selected: selected,
+              onSelect: (value) =>
+                  ref.read(libraryTeamFilterProvider.notifier).state = value,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared: filter picker chip (label + chevron)
+// ---------------------------------------------------------------------------
+
+class _FilterPickerChip extends StatelessWidget {
+  const _FilterPickerChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = active ? T.accentInk : T.ink2;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? T.accent : T.fillSoft,
+          border: Border.all(color: active ? T.accent : T.hair, width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: fg,
+                letterSpacing: 0.2,
+              ),
+            ),
+            const SizedBox(width: 3),
+            Icon(Icons.keyboard_arrow_down_rounded, size: 13, color: fg),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared: bottom sheet picker
+// ---------------------------------------------------------------------------
+
+class _OptionPickerSheet extends StatelessWidget {
+  const _OptionPickerSheet({
+    required this.options,
+    this.selected,
+    required this.onSelect,
+  });
+
+  final List<String> options;
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      minimum: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: T.fillDark,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          _SheetTile(
+            label: 'All',
+            checked: selected == null,
+            onTap: () {
+              onSelect(null);
+              Navigator.of(context).pop();
+            },
+          ),
+          ...options.map(
+            (opt) => _SheetTile(
+              label: opt,
+              checked: opt == selected,
+              onTap: () {
+                onSelect(opt);
+                Navigator.of(context).pop();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetTile extends StatelessWidget {
+  const _SheetTile({
+    required this.label,
+    required this.checked,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool checked;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: checked ? T.accent : T.ink,
+                  fontWeight:
+                      checked ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ),
+            if (checked) const Icon(Icons.check, color: T.accent, size: 18),
+          ],
+        ),
+      ),
     );
   }
 }
