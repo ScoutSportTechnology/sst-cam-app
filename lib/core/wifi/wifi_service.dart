@@ -1,3 +1,4 @@
+import '../models/overlay.dart';
 import '../models/recording.dart';
 import '../models/wifi.dart';
 
@@ -68,6 +69,36 @@ abstract class WifiService {
   /// a UI surface needs to react to any download progressing (e.g. a global
   /// progress bar).
   Stream<VideoDownloadProgress> allDownloadProgress();
+
+  // ---------------------------------------------------------------------------
+  // Recordings
+  // ---------------------------------------------------------------------------
+
+  /// Returns true if the camera has a raw recording identified by [uuid].
+  /// [uuid] is the match record's ID — the only identifier used for recordings.
+  Future<bool> checkCameraHasRecording(String uuid);
+
+  /// Downloads the full raw recording for [uuid] from [deviceId].
+  /// Returns a [VideoDownloadHandle] with a progress stream and cancel hook,
+  /// identical to [startDownload] but addressed by recording UUID rather than
+  /// a [DownloadToken].
+  Future<VideoDownloadHandle> downloadRecording(String deviceId, String uuid);
+
+  /// Downloads the full recording for [uuid], instructing the camera to burn
+  /// the provided [overlays] and [config] onto the output video.
+  /// In mock mode the camera ignores overlays and returns the raw recording.
+  /// The interface is defined here for firmware to implement later.
+  Future<VideoDownloadHandle> downloadRecordingWithOverlays(
+    String deviceId,
+    String uuid,
+    List<OverlayState> overlays,
+    OverlayConfig config,
+  );
+
+  /// Broadcast stream of the current overlay state at ~1 Hz.
+  /// Used by live-match surfaces (Match tab / Live tab).
+  /// The video review page does NOT consume this — it derives overlay from DB events.
+  Stream<OverlayState> overlayStateStream(String deviceId);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

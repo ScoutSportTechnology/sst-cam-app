@@ -18,5 +18,53 @@
     "shortName": "EFC",
     "sport": "Soccer",
     "hidden": false
+  },
+  {
+    "id": "mock-team-ru",
+    "userId": "default-user",
+    "name": "Riverdale Utd",
+    "shortName": "RU",
+    "sport": "Soccer",
+    "hidden": false
+  },
+  {
+    "id": "mock-team-lk",
+    "userId": "default-user",
+    "name": "Lakeside FC",
+    "shortName": "LK",
+    "sport": "Soccer",
+    "hidden": false
+  },
+  {
+    "id": "mock-team-ba",
+    "userId": "default-user",
+    "name": "Bayshore Athletic",
+    "shortName": "BA",
+    "sport": "Soccer",
+    "hidden": false
+  },
+  {
+    "id": "mock-team-ws",
+    "userId": "default-user",
+    "name": "Westview SC",
+    "shortName": "WS",
+    "sport": "Soccer",
+    "hidden": false
+  },
+  {
+    "id": "mock-team-pu",
+    "userId": "default-user",
+    "name": "Pinecrest United",
+    "shortName": "PU",
+    "sport": "Soccer",
+    "hidden": false
+  },
+  {
+    "id": "mock-team-rm",
+    "userId": "default-user",
+    "name": "Ridgemont FC",
+    "shortName": "RM",
+    "sport": "Soccer",
+    "hidden": false
   }
 ]

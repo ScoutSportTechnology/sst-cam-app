@@ -64,3 +64,10 @@ final allDownloadsProgressProvider = StreamProvider<VideoDownloadProgress>((
 ) {
   return ref.watch(wifiServiceProvider).allDownloadProgress();
 });
+
+/// Shared on/off toggle for the live camera preview surface.
+/// Keyed by deviceId so each camera has independent state. Null key is valid
+/// (always false) when no camera is selected.
+final livePreviewEnabledProvider = StateProvider.family<bool, String?>(
+  (ref, _) => false,
+);

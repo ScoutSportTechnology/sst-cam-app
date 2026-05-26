@@ -108,18 +108,26 @@ void main() {
     );
 
     testWidgets(
-      '2. Tapping Soccer chip hides Basketball match',
+      '2. Selecting Soccer via picker hides Basketball match',
       (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 1400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
         final mock = _newMock();
         addTearDown(mock.dispose);
 
         await tester.pumpWidget(_buildHarness(db, mock));
         await _pumpLanding(tester);
 
-        // Tap the "Soccer" sport chip.
+        // Open the sport picker.
+        await tester.tap(find.text('All sports'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        // Select "Soccer" in the sheet.
         await tester.tap(find.text('Soccer'));
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 300));
 
         // Soccer matches still visible.
         expect(find.textContaining('vs Eastfield FC'), findsWidgets);
@@ -129,25 +137,36 @@ void main() {
     );
 
     testWidgets(
-      '3. Tapping "All" chip after sport filter restores all matches',
+      '3. Selecting "All" from picker after sport filter restores all matches',
       (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 1400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
         final mock = _newMock();
         addTearDown(mock.dispose);
 
         await tester.pumpWidget(_buildHarness(db, mock));
         await _pumpLanding(tester);
 
-        // Apply Soccer filter.
+        // Apply Soccer filter via picker.
+        await tester.tap(find.text('All sports'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
         await tester.tap(find.text('Soccer'));
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 300));
 
         expect(find.textContaining('vs Hoopsters'), findsNothing);
 
-        // Tap "All" to clear the filter.
-        await tester.tap(find.text('All').first);
+        // Open the picker again (button now shows "Soccer").
+        await tester.tap(find.text('Soccer'));
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 300));
+
+        // Tap "All" to clear the filter.
+        await tester.tap(find.text('All'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
 
         // Both matches visible again.
         expect(find.textContaining('vs Eastfield FC'), findsWidgets);

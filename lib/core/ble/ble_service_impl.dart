@@ -218,8 +218,11 @@ class BleServiceImpl implements BleService {
     String deviceId,
     BleCommand command,
   ) async {
-    throw UnimplementedError(
-      'TODO: wire to firmware — proto encoding + BLE write not yet implemented',
+    // Proto encoding + BLE write not yet implemented.
+    // Return an error response rather than throwing so callers can handle it
+    // gracefully without crashing.
+    return BleCommandResponse<T>.error(
+      'sendCommand not yet implemented — proto encoding + BLE write pending',
     );
   }
 
@@ -232,9 +235,8 @@ class BleServiceImpl implements BleService {
     String deviceId,
     PushSessionConfig config,
   ) {
-    throw UnimplementedError(
-      'TODO: wire to firmware — pushSessionConfig not yet implemented',
-    );
+    // Noop until firmware wiring is complete.
+    return Future<void>.value();
   }
 
   // ---------------------------------------------------------------------------

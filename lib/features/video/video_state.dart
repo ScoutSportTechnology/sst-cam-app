@@ -2,6 +2,7 @@
 // filter state. Backed by TeamMatchesTable joined with TeamsTable.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -34,21 +35,29 @@ class LibraryMatch {
   const LibraryMatch({
     required this.id,
     required this.teamId,
+    required this.teamName,
+    required this.teamShortName,
     required this.date,
     required this.opponent,
     required this.result,
+    required this.sport,
     required this.fullDuration,
     required this.fullSizeMb,
+    required this.periodLengthSeconds,
     required this.events,
     required this.downloadState,
   });
   final String id;
   final String teamId;
+  final String teamName;
+  final String teamShortName;
   final String date;
   final String opponent;
   final String result;
+  final String sport;
   final String fullDuration; // 01:23:42
   final int fullSizeMb;
+  final int periodLengthSeconds;
   final List<LibraryEvent> events;
   final String downloadState; // 'all-local', 'partial', 'remote'
 }
@@ -85,11 +94,15 @@ LibraryMatch _rowToLibraryMatch(LibraryMatchRow row) {
   return LibraryMatch(
     id: match.id,
     teamId: team.id,
+    teamName: team.name,
+    teamShortName: team.shortName,
     date: match.date,
     opponent: match.opponent,
     result: match.result,
+    sport: team.sport,
     fullDuration: fullDuration,
     fullSizeMb: match.sizeMb,
+    periodLengthSeconds: match.periodLengthSeconds,
     events: events,
     downloadState: downloadState,
   );
@@ -117,37 +130,73 @@ final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
   return library.where((m) => m.id == id).firstOrNull;
 });
 
-/// Per-team aggregated stats derived from the library, excluding remote-only
-/// entries. Computed once here so [VideoPage] and any other consumer read from
-/// a single reactive snapshot — avoiding the dual-read divergence where the
-/// page recomputed inline from `libraryProvider` while
-/// `filteredLibraryTeamsProvider` read it separately.
-final libraryStatsByTeamProvider =
-    Provider<Map<String, ({int matches, int clips, int sizeMb, String date})>>(
-  (ref) {
-    final library = ref.watch(libraryProvider).valueOrNull ?? const [];
-    final byTeam =
-        <String, ({int matches, int clips, int sizeMb, String date})>{};
-    for (final m in library.where((m) => m.downloadState != 'remote')) {
-      final cur =
-          byTeam[m.teamId] ?? (matches: 0, clips: 0, sizeMb: 0, date: m.date);
-      byTeam[m.teamId] = (
-        matches: cur.matches + 1,
-        clips: cur.clips + m.events.length + 1,
-        sizeMb: cur.sizeMb + m.fullSizeMb,
-        date: m.date,
-      );
-    }
-    return byTeam;
-  },
-);
-
 // ---------------------------------------------------------------------------
 // Filter / search state for the Library (Video) page.
 // ---------------------------------------------------------------------------
 
 final librarySearchQueryProvider = StateProvider<String>((_) => '');
 final librarySportFilterProvider = StateProvider<String?>((_) => null); // null = All
+
+/// Team name filter for the library page. Null = no team filter.
+/// When set to a team's full name, returns any match where the teamName
+/// matches OR opponent contains the name (case-insensitive).
+final libraryTeamFilterProvider = StateProvider<String?>((_) => null);
+
+/// True when the recording file exists at the UUID-derived device storage path.
+/// This is the authoritative on-device check (R10) — replaces the sizeMb heuristic.
+final isOnDeviceProvider = FutureProvider.family<bool, String>((
+  ref,
+  matchId,
+) async {
+  final svc = ref.watch(videoPathServiceProvider);
+  final path = await svc.recordingPath(matchId);
+  return File(path).existsSync();
+});
+
+/// Flat, filtered list of past LibraryMatch records across all teams.
+/// Applies sport filter, team filter, and text search simultaneously.
+/// Search matches teamName, teamShortName, and opponent string (case-insensitive).
+/// Team filter matches if teamShortName == filter OR opponent contains filter.
+final filteredLibraryMatchesProvider = Provider<List<LibraryMatch>>((ref) {
+  final library = ref.watch(libraryProvider);
+  return library.when(
+    data: (matches) {
+      final query = ref.watch(librarySearchQueryProvider).toLowerCase().trim();
+      final sport = ref.watch(librarySportFilterProvider);
+      final teamFilter = ref.watch(libraryTeamFilterProvider)?.toLowerCase();
+
+      return matches.where((m) {
+        // Sport filter
+        if (sport != null && m.sport != sport) return false;
+
+        // Pre-lowercase the match fields once per match for efficient reuse.
+        final teamNameLower = m.teamName.toLowerCase();
+        final shortNameLower = m.teamShortName.toLowerCase();
+        final opponentLower = m.opponent.toLowerCase();
+
+        // Team filter (both sides: recording team or opponent)
+        if (teamFilter != null && teamFilter.isNotEmpty) {
+          final matchesTeam = teamNameLower == teamFilter;
+          final matchesOpponent = opponentLower.contains(teamFilter);
+          if (!matchesTeam && !matchesOpponent) return false;
+        }
+
+        // Text search (R8: teamName, shortName, or opponent)
+        if (query.isNotEmpty) {
+          final inTeamName = teamNameLower.contains(query);
+          final inShortName = shortNameLower.contains(query);
+          final inOpponent = opponentLower.contains(query);
+          if (!inTeamName && !inShortName && !inOpponent) return false;
+        }
+
+        return true;
+      }).toList();
+    },
+    loading: () => [],
+    // ignore: avoid_types_on_closure_parameters
+    error: (e, st) => [],
+  );
+});
 
 /// Sports actually present in the current library set, in `kSports` order.
 final availableLibrarySportsProvider = Provider<List<String>>((ref) {
@@ -161,25 +210,27 @@ final availableLibrarySportsProvider = Provider<List<String>>((ref) {
   return kSports.where(present.contains).toList();
 });
 
-/// Teams that have at least one local library entry, after applying search +
-/// sport filter.
+/// Teams that appear in the library — either as the recording team or by name
+/// as an opponent — after applying search + sport filter.
 final filteredLibraryTeamsProvider = Provider<List<TeamRecord>>((ref) {
   final library = ref.watch(libraryProvider).valueOrNull ?? const [];
   final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
   final query = ref.watch(librarySearchQueryProvider).trim().toLowerCase();
   final sport = ref.watch(librarySportFilterProvider);
 
-  // Build set of team IDs that have local library entries.
-  final presentIds = library
-      .where((m) => m.downloadState != 'remote')
-      .map((m) => m.teamId)
-      .toSet();
+  final recordingTeamIds = library.map((m) => m.teamId).toSet();
+  // Build a set of exact lowercased opponent names for O(1) lookup.
+  // Teams whose full name matches an opponent string exactly will be included.
+  final opponentNamesSet = library.map((m) => m.opponent.toLowerCase()).toSet();
 
   return teams.where((t) {
-    if (!presentIds.contains(t.id)) return false;
+    final nameLower = t.name.toLowerCase();
+    final isRecordingTeam = recordingTeamIds.contains(t.id);
+    final isOpponent = opponentNamesSet.contains(nameLower);
+    if (!isRecordingTeam && !isOpponent) return false;
     if (sport != null && t.sport != sport) return false;
     if (query.isEmpty) return true;
-    return t.name.toLowerCase().contains(query) ||
+    return nameLower.contains(query) ||
         t.shortName.toLowerCase().contains(query);
   }).toList();
 });

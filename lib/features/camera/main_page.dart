@@ -14,6 +14,7 @@ import '../../core/widgets/indicators.dart';
 import '../../core/widgets/live_preview_view.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
+import '../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
 import '../discovery/discovery_page.dart';
 
 /// Main tab — hero camera card + telemetry grid.
@@ -86,6 +87,8 @@ class _HeroCameraCard extends ConsumerWidget {
     final fwRaw = device?.firmwareVersion ?? '';
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
 
+    final previewOn = ref.watch(livePreviewEnabledProvider(deviceId));
+
     return Container(
       decoration: BoxDecoration(
         color: T.surface,
@@ -94,7 +97,12 @@ class _HeroCameraCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          LivePreviewView(deviceId: deviceId, label: 'LIVE THUMBNAIL'),
+          // Video surface — buttons are in the action row below, not overlaid.
+          LivePreviewView(
+            deviceId: deviceId,
+            label: 'LIVE THUMBNAIL',
+            showButtons: false,
+          ),
           Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
@@ -153,21 +161,45 @@ class _HeroCameraCard extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                if (connected)
+                if (connected) ...[
+                  // Primary: open match tab.
+                  WfButton(
+                    label: 'Open match',
+                    variant: WfButtonVariant.primary,
+                    full: true,
+                    onPressed: () =>
+                        DefaultTabController.maybeOf(context)?.animateTo(2),
+                  ),
+                  const SizedBox(height: 8),
+                  // Secondary row: Preview/Stop + Disconnect.
                   Row(
                     children: [
                       Expanded(
                         child: WfButton(
-                          label: 'Open match',
-                          variant: WfButtonVariant.primary,
-                          onPressed: () => DefaultTabController.maybeOf(
-                            context,
-                          )?.animateTo(2),
+                          label: previewOn ? 'Stop preview' : 'Preview',
+                          variant: WfButtonVariant.outline,
+                          size: WfButtonSize.sm,
+                          leading: previewOn
+                              ? null
+                              : const Icon(
+                                  Icons.play_arrow_rounded,
+                                  size: 13,
+                                  color: T.ink,
+                                ),
+                          onPressed: () {
+                            ref
+                                .read(
+                                  livePreviewEnabledProvider(deviceId)
+                                      .notifier,
+                                )
+                                .state = !previewOn;
+                          },
                         ),
                       ),
                       const SizedBox(width: 8),
                       WfButton(
                         label: 'Disconnect',
+                        size: WfButtonSize.sm,
                         onPressed: () {
                           ref.read(bleServiceProvider).disconnect(deviceId!);
                           ref.read(activeCameraIdProvider.notifier).state =
@@ -175,8 +207,8 @@ class _HeroCameraCard extends ConsumerWidget {
                         },
                       ),
                     ],
-                  )
-                else
+                  ),
+                ] else
                   WfButton(
                     label: 'Connect camera',
                     variant: WfButtonVariant.primary,

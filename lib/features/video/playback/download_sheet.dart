@@ -1,80 +1,150 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/wifi.dart';
-import '../../../core/ble/ble_providers.dart';
+import '../../../core/services/clip_service.dart';
+import '../../../core/services/gallery_service.dart';
 import '../../../core/wifi/wifi_providers.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
-import '../../../core/widgets/wf_chip.dart';
+import '../../../core/state/db_providers.dart'
+    show clipServiceProvider, videoPathServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
-import '../video_state.dart' show LibraryMatch;
+import '../video_state.dart' show isOnDeviceProvider, LibraryMatch, LibraryEvent;
 
 class DownloadSheet extends ConsumerStatefulWidget {
-  const DownloadSheet({super.key, required this.match, required this.selectedCount});
+  const DownloadSheet({
+    super.key,
+    required this.match,
+    required this.selectedEvents,
+    required this.allEvents,
+  });
   final LibraryMatch match;
-  final int selectedCount;
+  /// Events the user has checked (for "Selected highlights" option).
+  final List<LibraryEvent> selectedEvents;
+  /// All events in the match (for "All highlights" option).
+  final List<LibraryEvent> allEvents;
 
   @override
   ConsumerState<DownloadSheet> createState() => _DownloadSheetState();
 }
 
+enum _DownloadMode { full, all, selected }
+
 class _DownloadSheetState extends ConsumerState<DownloadSheet> {
-  String _selected = 'hisel';
   VideoDownloadHandle? _handle;
   VideoDownloadProgress? _progress;
   String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.selectedCount == 0) _selected = 'full';
-  }
+  StreamSubscription<VideoDownloadProgress>? _subscription;
+  _DownloadMode _mode = _DownloadMode.full;
 
   @override
   void dispose() {
-    // Sheet is closing — if a download is mid-flight, leave it running. The
-    // service holds the handle and global progress is observable via
-    // `allDownloadsProgressProvider`.
+    _subscription?.cancel();
+    // Sheet is closing — if a download is mid-flight, leave it running.
     super.dispose();
   }
 
   Future<void> _start() async {
-    final activeId = ref.read(activeCameraIdProvider);
-    if (activeId == null) {
+    setState(() => _error = null);
+
+    if (_mode == _DownloadMode.full) {
+      await _startFullDownload();
+    } else {
+      await _startClips(
+        _mode == _DownloadMode.all ? widget.allEvents : widget.selectedEvents,
+      );
+    }
+  }
+
+  Future<void> _startFullDownload() async {
+    final deviceId = ref.read(activeCameraIdProvider);
+    if (deviceId == null) {
       setState(() => _error = 'Connect a camera first');
       return;
     }
-    setState(() => _error = null);
+
+    // Capture references before the async call so the onDone callback can
+    // run correctly even if the sheet has already been dismissed (mounted=false).
+    final matchId = widget.match.id;
+    final pathSvc = ref.read(videoPathServiceProvider);
+    final container = ProviderScope.containerOf(context);
+
     try {
-      // BLE — get short-lived URL + auth token for the recording.
-      final token = await ref
-          .read(bleServiceProvider)
-          .requestDownload(activeId, widget.match.id);
-
-      // WiFi — group lifecycle is owned by `wifiHandoffProvider`, but in
-      // case the user opens this sheet before the orchestrator's first tick
-      // has landed, defensively bring the group up here. Idempotent.
-      final wifi = ref.read(wifiServiceProvider);
-      if (wifi.currentGroup(activeId) == null) {
-        await wifi.connectGroup(activeId);
-      }
-      final handle = await wifi.startDownload(activeId, token);
-
+      final handle = await ref.read(wifiServiceProvider).downloadRecording(
+        deviceId,
+        matchId,
+      );
       setState(() => _handle = handle);
-      handle.progress.listen(
+      _subscription = handle.progress.listen(
         (p) {
-          if (!mounted) return;
-          setState(() => _progress = p);
+          if (mounted) setState(() => _progress = p);
         },
-        onError: (Object e) {
-          if (!mounted) return;
-          setState(() => _error = e.toString());
+        onDone: () async {
+          // Only invalidate and save if the download actually completed
+          // (not cancelled or failed).
+          if (_progress?.status != DownloadStatus.completed) return;
+          // The file is now on device (MockWifiService publishes completed
+          // only after _writePlaceholder finishes). Invalidate the provider
+          // and save to gallery regardless of whether the sheet is still open.
+          container.invalidate(isOnDeviceProvider(matchId));
+          final path = await pathSvc.recordingPath(matchId);
+          await GalleryService.saveVideo(
+            sourcePath: path,
+            displayName: '$matchId.mp4',
+          );
         },
+        onError: (e) {
+          if (mounted) setState(() => _error = e.toString());
+        },
+        cancelOnError: true,
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _startClips(List<LibraryEvent> events) async {
+    if (events.isEmpty) {
+      setState(() => _error = 'No events selected');
+      return;
+    }
+    final onDevice = await ref.read(isOnDeviceProvider(widget.match.id).future);
+    if (!onDevice) {
+      if (mounted) setState(() => _error = 'Download the full game first');
+      return;
+    }
+    final clipSvc = ref.read(clipServiceProvider);
+    final videoPathSvc = ref.read(videoPathServiceProvider);
+    final sourcePath = await videoPathSvc.recordingPath(widget.match.id);
+    int created = 0;
+    for (final event in events) {
+      try {
+        final startSeconds = (event.timeSeconds - 15).clamp(0, double.infinity).toInt();
+        await clipSvc.trim(
+          matchId: widget.match.id,
+          sourcePath: sourcePath,
+          startSeconds: startSeconds,
+          durationSeconds: 30,
+          label: event.label,
+        );
+        created++;
+      } on ClipTrimException catch (e) {
+        if (mounted) setState(() => _error = 'Clip failed: ${e.message}');
+        return;
+      } catch (e) {
+        if (mounted) setState(() => _error = 'Clip failed: $e');
+        return;
+      }
+    }
+    if (mounted) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$created clip${created == 1 ? '' : 's'} saved')),
+      );
     }
   }
 
@@ -83,34 +153,17 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     final running = _handle != null;
     if (running) return _buildProgress();
     final fullSize = '${widget.match.fullSizeMb} MB';
-    final hiSize = '0 MB';
+    final selectedCount = widget.selectedEvents.length;
+    final allCount = widget.allEvents.length;
     final opts = <_Opt>[
-      _Opt(
-        key: 'full',
-        label: 'Full game',
-        sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi',
-      ),
-      _Opt(
-        key: 'h1',
-        label: '1st half',
-        sub: '35:00 · ${(widget.match.fullSizeMb / 2).round()} MB · ~6 min',
-      ),
-      _Opt(
-        key: 'h2',
-        label: '2nd half',
-        sub: '38:12 · ${(widget.match.fullSizeMb / 2).round()} MB · ~7 min',
-      ),
-      _Opt(
-        key: 'hi',
-        label: 'All highlights',
-        sub: '${widget.match.events.length} events · ±10s · $hiSize',
-      ),
-      _Opt(
-        key: 'hisel',
-        label: 'Selected highlights',
-        sub: '${widget.selectedCount} events selected',
-        badge: widget.selectedCount > 0 ? '${widget.selectedCount}' : null,
-      ),
+      _Opt(key: _DownloadMode.full, label: 'Full game',
+          sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi'),
+      if (allCount > 0)
+        _Opt(key: _DownloadMode.all, label: 'All highlights',
+            sub: '$allCount event${allCount == 1 ? '' : 's'} · requires full game on device'),
+      if (selectedCount > 0)
+        _Opt(key: _DownloadMode.selected, label: 'Selected highlights',
+            sub: '$selectedCount event${selectedCount == 1 ? '' : 's'} selected · requires full game on device'),
     ];
 
     return Padding(
@@ -146,54 +199,55 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           ),
           const SizedBox(height: 14),
           ...opts.map(
-            (o) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: GestureDetector(
-                onTap: () => setState(() => _selected = o.key),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _selected == o.key ? T.accentSoft : T.surface,
-                    border: Border.all(
-                      color: _selected == o.key ? T.accent : T.hair,
-                      width: 1.4,
+            (o) {
+              final selected = _mode == o.key;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: GestureDetector(
+                  onTap: () => setState(() => _mode = o.key),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: selected ? T.accentSoft : T.fillSoft,
+                      border: Border.all(
+                        color: selected ? T.accent : T.hair,
+                        width: selected ? 1.4 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        _Radio(on: selected),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                o.label,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: T.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                o.sub,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: T.ink2,
+                                  fontFamily: T.mono,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      _Radio(on: _selected == o.key),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              o.label,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: T.ink,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              o.sub,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: T.ink2,
-                                fontFamily: T.mono,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (o.badge != null)
-                        WfChip(label: o.badge!, active: true),
-                    ],
-                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
           const SizedBox(height: 8),
           Row(
@@ -321,6 +375,12 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
               p!.errorMessage!,
               style: const TextStyle(fontSize: 12, color: T.danger),
             ),
+          ] else if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
           ],
           const SizedBox(height: 18),
           Row(
@@ -358,12 +418,10 @@ class _Opt {
     required this.key,
     required this.label,
     required this.sub,
-    this.badge,
   });
-  final String key;
+  final _DownloadMode key;
   final String label;
   final String sub;
-  final String? badge;
 }
 
 class _Radio extends StatelessWidget {

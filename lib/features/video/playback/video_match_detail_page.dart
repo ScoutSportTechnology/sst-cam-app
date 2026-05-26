@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 
-import '../../../core/services/clip_service.dart';
-import '../../../core/services/video_path_service.dart';
+import 'dart:io';
+
+import '../../../core/models/overlay.dart' as app_overlay;
+import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
+import '../overlay_helper.dart' show buildOverlayStates;
 import '../video_state.dart'
-    show libraryMatchProvider, LibraryMatch, LibraryEvent;
-import '../../../core/state/db_providers.dart' show clipServiceProvider;
+    show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/wf_button.dart';
@@ -23,9 +26,33 @@ class VideoMatchDetailPage extends ConsumerStatefulWidget {
 }
 
 class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
-  bool _overlaysOn = true;
+  bool _scoreOverlayOn = true;
+  bool _eventsOverlayOn = true;
+  bool _lastScoreOn = true; // restored when master toggle goes ON
+  bool _lastEventsOn = true; // restored when master toggle goes ON
   late Set<int> _selected;
-  double _playheadFraction = 0.38;
+  double _playheadFraction = 0.0;
+
+  // Video player state
+  VideoPlayerController? _playerController;
+  bool _playerInitialized = false;
+  bool _isPlaying = false;
+  int _matchDurationSeconds = 0;
+  List<app_overlay.OverlayState> _overlayStates = [];
+  app_overlay.OverlayState _currentOverlay = const app_overlay.OverlayState(
+    timeSeconds: 0,
+    homeScore: 0,
+    awayScore: 0,
+    period: 1,
+    recentEventLabel: null,
+  );
+
+  // Throttle for _onPlayerStateChange to avoid 60 Hz setState calls.
+  DateTime? _lastOverlayUpdate;
+
+  // Guards: overlays built once; player started once when on-device is confirmed.
+  bool _initStarted = false;
+  bool _playerInitStarted = false;
 
   @override
   void initState() {
@@ -37,6 +64,100 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     };
   }
 
+  /// Builds overlay states once on first non-null match. Player init is
+  /// triggered reactively from [build] when [isOnDeviceProvider] resolves true.
+  void _maybeStartInit(LibraryMatch match) {
+    if (_initStarted) return;
+    _initStarted = true;
+    _buildOverlayStates(match);
+  }
+
+  void _buildOverlayStates(LibraryMatch match) {
+    _matchDurationSeconds = _parseDuration(match.fullDuration);
+    _overlayStates = buildOverlayStates(
+      match.events,
+      periodLengthSeconds: match.periodLengthSeconds,
+      homeShortName: match.teamShortName,
+    );
+  }
+
+  /// Starts the video player. Called from [build] once [isOnDeviceProvider]
+  /// resolves to true (includes after a download completes and the provider
+  /// is invalidated + re-evaluated).
+  Future<void> _startPlayer() async {
+    if (!mounted) return;
+    // The seeder and MockWifiService both write the actual mock video to the
+    // device path, so VideoPlayerController.file() works in dev and prod alike.
+    final path = await ref
+        .read(videoPathServiceProvider)
+        .recordingPath(widget.matchId);
+    final controller = VideoPlayerController.file(File(path));
+    _playerController = controller;
+    await controller
+        .initialize()
+        .then((_) {
+          if (mounted && _playerController == controller) {
+            controller.setLooping(true);
+            controller.addListener(_onPlayerStateChange);
+            final videoSecs = controller.value.duration.inSeconds;
+            setState(() {
+              _playerInitialized = true;
+              _isPlaying = false;
+              if (videoSecs > 0) _matchDurationSeconds = videoSecs;
+            });
+          }
+        })
+        .catchError((Object e, StackTrace st) {
+          // Platform channels are unavailable in test environments.
+          debugPrint('VideoMatchDetailPage: player init failed: $e\n$st');
+          if (mounted && _playerController == controller) {
+            controller.dispose();
+            _playerController = null;
+          }
+        });
+  }
+
+  void _onPlayerStateChange() {
+    final ctrl = _playerController;
+    if (ctrl == null || !mounted) return;
+    // Throttle to ~250 ms so we don't call setState on every video frame.
+    final now = DateTime.now();
+    if (_lastOverlayUpdate != null &&
+        now.difference(_lastOverlayUpdate!) < const Duration(milliseconds: 250)) {
+      return;
+    }
+    _lastOverlayUpdate = now;
+    final playing = ctrl.value.isPlaying;
+    final posSecs = ctrl.value.position.inSeconds;
+    final fraction = _matchDurationSeconds > 0
+        ? (posSecs / _matchDurationSeconds).clamp(0.0, 1.0)
+        : 0.0;
+    setState(() {
+      _isPlaying = playing;
+      _playheadFraction = fraction;
+      _currentOverlay = app_overlay.OverlayState.atTime(_overlayStates, posSecs);
+    });
+  }
+
+  void _togglePlayPause() {
+    final ctrl = _playerController;
+    if (ctrl == null) return;
+    if (ctrl.value.isPlaying) {
+      ctrl.pause();
+    } else {
+      ctrl.play();
+    }
+  }
+
+  @override
+  void dispose() {
+    _playerController?.removeListener(_onPlayerStateChange);
+    final ctrl = _playerController;
+    _playerController = null;
+    ctrl?.dispose();
+    super.dispose();
+  }
+
   LibraryMatch? _match() => ref.read(libraryMatchProvider(widget.matchId));
 
   @override
@@ -45,7 +166,24 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     if (match == null) {
       return const Scaffold(body: Center(child: Text('Match not found')));
     }
+
+    // Watch on-device status reactively. When a download completes and
+    // isOnDeviceProvider is invalidated, this triggers a rebuild that starts
+    // the player — fixing the stale _isOnDevice local-state bug.
+    final isOnDevice =
+        ref.watch(isOnDeviceProvider(widget.matchId)).valueOrNull ?? false;
+
     final selectedCount = _selected.length;
+
+    // Trigger overlay-state build once (idempotent guard inside).
+    _maybeStartInit(match);
+
+    // Trigger player init the first time the file is confirmed on device.
+    if (isOnDevice && !_playerInitStarted) {
+      _playerInitStarted = true;
+      // ignore: discarded_futures
+      _startPlayer();
+    }
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -53,9 +191,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(match.date),
+            Text('${match.teamName} vs ${match.opponent}'),
             Text(
-              '${match.opponent} · ${match.result}',
+              '${match.date}${match.result.isNotEmpty ? ' · ${match.result}' : ''}',
               style: const TextStyle(fontSize: 11, color: T.ink2),
             ),
           ],
@@ -65,17 +203,59 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         children: [
           _Player(
             match: match,
-            overlaysOn: _overlaysOn,
+            scoreOverlayOn: _scoreOverlayOn,
+            eventsOverlayOn: _eventsOverlayOn,
             playheadFraction: _playheadFraction,
+            playerController: _playerInitialized ? _playerController : null,
+            notOnDevice: !isOnDevice,
+            currentOverlay: _currentOverlay,
+            onDownload: () => _showDownloadSheet(context, match),
+            isPlaying: _isPlaying,
+            onPlayPauseTap: _togglePlayPause,
           ),
           _Scrubber(
-            match: match,
+            totalSeconds: _matchDurationSeconds,
+            events: match.events,
             value: _playheadFraction,
-            onChanged: (v) => setState(() => _playheadFraction = v),
+            onChanged: (v) {
+              setState(() {
+                _playheadFraction = v;
+                if (_matchDurationSeconds > 0) {
+                  final secs = (v * _matchDurationSeconds).round();
+                  _currentOverlay =
+                      app_overlay.OverlayState.atTime(_overlayStates, secs);
+                  _playerController?.seekTo(Duration(seconds: secs));
+                }
+              });
+            },
           ),
           _OverlayToggleRow(
-            on: _overlaysOn,
-            onChanged: (v) => setState(() => _overlaysOn = v),
+            scoreOn: _scoreOverlayOn,
+            eventsOn: _eventsOverlayOn,
+            onScoreChanged: (v) => setState(() {
+              _scoreOverlayOn = v;
+              _lastScoreOn = v;
+            }),
+            onEventsChanged: (v) => setState(() {
+              _eventsOverlayOn = v;
+              _lastEventsOn = v;
+            }),
+            onMasterChanged: (value) {
+              setState(() {
+                if (value) {
+                  _scoreOverlayOn = _lastScoreOn;
+                  _eventsOverlayOn = _lastEventsOn;
+                  // If both saved states are false, restore sensible defaults.
+                  if (!_scoreOverlayOn && !_eventsOverlayOn) {
+                    _scoreOverlayOn = true;
+                    _eventsOverlayOn = true;
+                  }
+                } else {
+                  _scoreOverlayOn = false;
+                  _eventsOverlayOn = false;
+                }
+              });
+            },
           ),
           _EventsHeader(total: match.events.length, selected: selectedCount),
           Expanded(
@@ -100,9 +280,14 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                     });
                   },
                   onJump: () {
-                    final maxSecs = _parseDuration(match.fullDuration);
-                    if (maxSecs == 0) return;
-                    setState(() => _playheadFraction = e.timeSeconds / maxSecs);
+                    if (_matchDurationSeconds == 0) return;
+                    final fraction = e.timeSeconds / _matchDurationSeconds;
+                    setState(() {
+                      _playheadFraction = fraction;
+                      _currentOverlay =
+                          app_overlay.OverlayState.atTime(_overlayStates, e.timeSeconds);
+                    });
+                    _playerController?.seekTo(Duration(seconds: e.timeSeconds));
                   },
                 );
               },
@@ -111,9 +296,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
           _Footer(
             selectedCount: selectedCount,
             onDownload: () => _showDownloadSheet(context, match),
-            onCreateClip: match.downloadState == 'all-local'
-                ? () => _createClip(context, match)
-                : null,
           ),
         ],
       ),
@@ -121,50 +303,23 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   }
 
   void _showDownloadSheet(BuildContext context, LibraryMatch match) {
+    final selectedEvents = [
+      for (int i = 0; i < match.events.length; i++)
+        if (_selected.contains(i)) match.events[i],
+    ];
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: T.bg,
       isScrollControlled: true,
       barrierColor: Colors.black.withValues(alpha: 0.55),
-      builder: (_) =>
-          DownloadSheet(match: match, selectedCount: _selected.length),
+      builder: (_) => DownloadSheet(
+        match: match,
+        selectedEvents: selectedEvents,
+        allEvents: match.events,
+      ),
     );
   }
 
-  Future<void> _createClip(BuildContext context, LibraryMatch match) async {
-    final clipSvc = ref.read(clipServiceProvider);
-    final maxSecs = _parseDuration(match.fullDuration);
-    if (maxSecs == 0) return;
-    final startSeconds = (_playheadFraction * maxSecs).round();
-    final durationSeconds = 30; // default 30-second clip
-
-    // Source path: the local recording file in the app-private videos/ dir.
-    // In mock mode this file may not exist — the error is surfaced below.
-    final sourcePath = await VideoPathService().recordingPath(match.id);
-    try {
-      final clipPath = await clipSvc.trim(
-        matchId: match.id,
-        sourcePath: sourcePath,
-        startSeconds: startSeconds,
-        durationSeconds: durationSeconds,
-      );
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Clip saved: ${clipPath.split('/').last}'),
-          action: SnackBarAction(
-            label: 'Share',
-            onPressed: () {/* share action wired in follow-up */},
-          ),
-        ),
-      );
-    } on ClipTrimException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Clip failed: $e')),
-      );
-    }
-  }
 }
 
 int _parseDuration(String hms) {
@@ -173,39 +328,78 @@ int _parseDuration(String hms) {
   return parts[0] * 60 + parts[1];
 }
 
+/// Returns the period abbreviation for a sport.
+/// Soccer/Rugby → H (Half), Basketball → Q (Quarter),
+/// Hockey → P (Period), Volleyball → S (Set), Other → P.
+String _periodAbbr(String sport) {
+  switch (sport) {
+    case 'Soccer':
+    case 'Rugby':
+      return 'H';
+    case 'Basketball':
+      return 'Q';
+    case 'Hockey':
+      return 'P';
+    case 'Volleyball':
+      return 'S';
+    default:
+      return 'P';
+  }
+}
+
 class _Player extends StatelessWidget {
   const _Player({
     required this.match,
-    required this.overlaysOn,
+    required this.scoreOverlayOn,
+    required this.eventsOverlayOn,
     required this.playheadFraction,
+    required this.playerController,
+    required this.notOnDevice,
+    required this.currentOverlay,
+    required this.onDownload,
+    required this.isPlaying,
+    required this.onPlayPauseTap,
   });
+
   final LibraryMatch match;
-  final bool overlaysOn;
+  final bool scoreOverlayOn;
+  final bool eventsOverlayOn;
   final double playheadFraction;
+  final VideoPlayerController? playerController;
+  /// True when the recording is not yet on this device.
+  final bool notOnDevice;
+  final app_overlay.OverlayState currentOverlay;
+  final VoidCallback onDownload;
+  final bool isPlaying;
+  final VoidCallback onPlayPauseTap;
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return GestureDetector(
+      onTap: notOnDevice ? null : onPlayPauseTap,
+      child: Stack(
       children: [
-        const ThumbPlaceholder(label: 'PLAYER'),
-        Positioned.fill(
-          child: Center(
-            child: Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.4),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  width: 2,
+        _buildPlayerBody(),
+        // Play button — shown only when a player exists and is paused.
+        if (!notOnDevice && playerController != null && !isPlaying)
+          Positioned.fill(
+            child: Center(
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: T.bg.withValues(alpha: 0.85),
+                  border: Border.all(color: T.hair),
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: T.ink,
+                  size: 26,
                 ),
               ),
-              child: const Icon(Icons.play_arrow, color: Colors.white),
             ),
           ),
-        ),
-        if (overlaysOn) ...[
+        if (scoreOverlayOn)
           Positioned(
             top: 8,
             left: 8,
@@ -217,48 +411,62 @@ class _Player extends StatelessWidget {
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-                children: const [
+                children: [
                   Text(
-                    'NR',
-                    style: TextStyle(
+                    match.teamShortName,
+                    style: const TextStyle(
                       fontSize: 9,
                       color: T.ink2,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
-                    '2',
-                    style: TextStyle(
+                    '${currentOverlay.homeScore}',
+                    style: const TextStyle(
                       fontFamily: T.mono,
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: T.ink,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
-                    '1H',
-                    style: TextStyle(
+                    '${currentOverlay.period}${_periodAbbr(match.sport)}',
+                    style: const TextStyle(
                       fontFamily: T.mono,
                       fontSize: 9,
                       color: T.ink3,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 4),
                   Text(
-                    '1',
-                    style: TextStyle(
+                    () {
+                      final t = currentOverlay.timeSeconds;
+                      final mm = (t ~/ 60).toString().padLeft(2, '0');
+                      final ss = (t % 60).toString().padLeft(2, '0');
+                      return '$mm:$ss';
+                    }(),
+                    style: const TextStyle(
+                      fontFamily: T.mono,
+                      fontSize: 9,
+                      color: T.ink3,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${currentOverlay.awayScore}',
+                    style: const TextStyle(
                       fontFamily: T.mono,
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: T.ink,
                     ),
                   ),
-                  SizedBox(width: 6),
+                  const SizedBox(width: 6),
                   Text(
-                    'EFC',
-                    style: TextStyle(
+                    match.opponent.split(' ').first,
+                    style: const TextStyle(
                       fontSize: 9,
                       color: T.ink2,
                       fontWeight: FontWeight.w600,
@@ -268,15 +476,18 @@ class _Player extends StatelessWidget {
               ),
             ),
           ),
+        if (eventsOverlayOn &&
+            currentOverlay.recentEventLabel != null &&
+            currentOverlay.recentEventLabel!.isNotEmpty)
           Positioned(
             top: 8,
             right: 8,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               color: T.accent,
-              child: const Text(
-                'GOAL · #07',
-                style: TextStyle(
+              child: Text(
+                currentOverlay.recentEventLabel!,
+                style: const TextStyle(
                   fontFamily: T.mono,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
@@ -286,30 +497,65 @@ class _Player extends StatelessWidget {
               ),
             ),
           ),
-        ],
       ],
+      ),
     );
+  }
+
+  Widget _buildPlayerBody() {
+    if (notOnDevice) {
+      // Not on device: single download CTA over the dark frame.
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: ColoredBox(
+          color: T.bg,
+          child: Center(
+            child: WfButton(
+              label: 'Download to watch',
+              variant: WfButtonVariant.primary,
+              leading: const Icon(Icons.download, size: 15, color: T.accentInk),
+              onPressed: onDownload,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (playerController != null) {
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: VideoPlayer(playerController!),
+      );
+    }
+    // On device but player not yet initialized (or failed in test env).
+    return const ThumbPlaceholder(label: 'PLAYER');
   }
 }
 
 class _Scrubber extends StatelessWidget {
   const _Scrubber({
-    required this.match,
+    required this.totalSeconds,
+    required this.events,
     required this.value,
     required this.onChanged,
   });
-  final LibraryMatch match;
+  final int totalSeconds;
+  final List<LibraryEvent> events;
   final double value;
   final ValueChanged<double> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final maxSecs = _parseDuration(match.fullDuration);
+    final maxSecs = totalSeconds;
     if (maxSecs == 0) return const SizedBox.shrink();
-    final ticks = match.events.map((e) => e.timeSeconds / maxSecs).toList();
+    final ticks = events.map((e) => e.timeSeconds / maxSecs).toList();
     final currentSec = (value * maxSecs).round();
     final m = (currentSec ~/ 60).toString().padLeft(2, '0');
     final s = (currentSec % 60).toString().padLeft(2, '0');
+    final th = (maxSecs ~/ 3600).toString().padLeft(2, '0');
+    final tm = ((maxSecs % 3600) ~/ 60).toString().padLeft(2, '0');
+    final ts = (maxSecs % 60).toString().padLeft(2, '0');
+    final totalLabel = '$th:$tm:$ts';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
@@ -394,7 +640,7 @@ class _Scrubber extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  match.fullDuration,
+                  totalLabel,
                   style: const TextStyle(
                     fontFamily: T.mono,
                     fontSize: 11,
@@ -411,12 +657,23 @@ class _Scrubber extends StatelessWidget {
 }
 
 class _OverlayToggleRow extends StatelessWidget {
-  const _OverlayToggleRow({required this.on, required this.onChanged});
-  final bool on;
-  final ValueChanged<bool> onChanged;
+  const _OverlayToggleRow({
+    required this.scoreOn,
+    required this.eventsOn,
+    required this.onScoreChanged,
+    required this.onEventsChanged,
+    required this.onMasterChanged,
+  });
+
+  final bool scoreOn;
+  final bool eventsOn;
+  final ValueChanged<bool> onScoreChanged;
+  final ValueChanged<bool> onEventsChanged;
+  final ValueChanged<bool> onMasterChanged;
 
   @override
   Widget build(BuildContext context) {
+    final masterOn = scoreOn || eventsOn;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
       decoration: const Border(
@@ -430,11 +687,17 @@ class _OverlayToggleRow extends StatelessWidget {
               style: TextStyle(fontSize: 11, color: T.ink2),
             ),
           ),
-          WfChip(label: 'Score', active: on),
+          GestureDetector(
+            onTap: () => onScoreChanged(!scoreOn),
+            child: WfChip(label: 'Score', active: scoreOn),
+          ),
           const SizedBox(width: 6),
-          WfChip(label: 'Events', active: on),
+          GestureDetector(
+            onTap: () => onEventsChanged(!eventsOn),
+            child: WfChip(label: 'Events', active: eventsOn),
+          ),
           const SizedBox(width: 8),
-          WfSwitch(value: on, onChanged: onChanged),
+          WfSwitch(value: masterOn, onChanged: onMasterChanged),
         ],
       ),
     );
@@ -542,11 +805,9 @@ class _Footer extends StatelessWidget {
   const _Footer({
     required this.selectedCount,
     required this.onDownload,
-    this.onCreateClip,
   });
   final int selectedCount;
   final VoidCallback onDownload;
-  final VoidCallback? onCreateClip;
 
   @override
   Widget build(BuildContext context) {
@@ -555,33 +816,19 @@ class _Footer extends StatelessWidget {
       decoration: const Border(
         top: BorderSide(color: T.rule),
       ).toBoxDecoration(),
-      child: Row(
-        children: [
-          Expanded(
-            child: WfButton(
-              label: 'Clip',
-              onPressed: onCreateClip,
-            ),
+      child: WfButton(
+        label: selectedCount > 0
+            ? 'Download · $selectedCount clips'
+            : 'Download · options',
+        variant: WfButtonVariant.primary,
+        leading: const Text(
+          '↓',
+          style: TextStyle(
+            color: T.accentInk,
+            fontWeight: FontWeight.w700,
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: WfButton(
-              label: selectedCount > 0
-                  ? 'Download · $selectedCount clips'
-                  : 'Download · options',
-              variant: WfButtonVariant.primary,
-              leading: const Text(
-                '↓',
-                style: TextStyle(
-                  color: T.accentInk,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              onPressed: onDownload,
-            ),
-          ),
-        ],
+        ),
+        onPressed: onDownload,
       ),
     );
   }

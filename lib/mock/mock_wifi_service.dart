@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/services.dart' show rootBundle;
+
+import '../core/models/overlay.dart';
 import '../core/models/recording.dart';
 import '../core/models/wifi.dart';
 import '../core/services/video_path_service.dart';
@@ -59,7 +64,9 @@ class MockWifiService implements WifiService {
     this.downloadDuration = const Duration(seconds: 6),
     this.downloadFailureRate = 0.0,
     int? randomSeed,
-  }) : _rng = Random(randomSeed);
+    VideoPathService? videoPathService,
+  })  : _rng = Random(randomSeed),
+        _videoPathService = videoPathService ?? VideoPathService();
 
   final Duration pairingDelay;
   final int previewFps;
@@ -67,6 +74,7 @@ class MockWifiService implements WifiService {
   final double downloadFailureRate;
 
   final Random _rng;
+  final VideoPathService _videoPathService;
   final Map<String, _GroupState> _groups = {};
   final Map<String, _DownloadState> _downloads = {};
   final _allProgressController =
@@ -219,7 +227,7 @@ class MockWifiService implements WifiService {
     final downloadId =
         'dl-${DateTime.now().millisecondsSinceEpoch}-${_rng.nextInt(0xFFFF)}';
     final savePath =
-        saveAs ?? await VideoPathService().recordingPath(token.recordingId);
+        saveAs ?? await _videoPathService.recordingPath(token.recordingId);
     // Pretend the recording is around 60 MB; matches a few minutes of 1080p.
     final totalBytes = 60 * 1024 * 1024;
     final controller = StreamController<VideoDownloadProgress>.broadcast();
@@ -306,6 +314,196 @@ class MockWifiService implements WifiService {
       },
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Recordings
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<bool> checkCameraHasRecording(String uuid) => Future.value(true);
+
+  @override
+  Future<VideoDownloadHandle> downloadRecording(
+    String deviceId,
+    String uuid,
+  ) async {
+    final downloadId =
+        'dl-${DateTime.now().millisecondsSinceEpoch}-${_rng.nextInt(0xFFFF)}';
+    final savePath = await _videoPathService.recordingPath(uuid);
+    final totalBytes = 60 * 1024 * 1024;
+    final controller = StreamController<VideoDownloadProgress>.broadcast();
+
+    var initial = VideoDownloadProgress(
+      downloadId: downloadId,
+      recordingId: uuid,
+      status: DownloadStatus.queued,
+      bytesReceived: 0,
+      bytesTotal: totalBytes,
+      kbps: 0,
+    );
+    final entry = _DownloadState(
+      progress: initial,
+      controller: controller,
+      timer: null,
+    );
+    _downloads[downloadId] = entry;
+    _publish(entry, initial);
+
+    final ticks = downloadDuration.inMilliseconds ~/ 50;
+    var tick = 0;
+    entry.timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      tick++;
+      if (entry.progress.status == DownloadStatus.cancelled ||
+          entry.progress.status == DownloadStatus.failed) {
+        timer.cancel();
+        return;
+      }
+      if (tick == ticks ~/ 2 && _rng.nextDouble() < downloadFailureRate) {
+        timer.cancel();
+        final failed = VideoDownloadProgress(
+          downloadId: downloadId,
+          recordingId: uuid,
+          status: DownloadStatus.failed,
+          bytesReceived: entry.progress.bytesReceived,
+          bytesTotal: totalBytes,
+          kbps: 0,
+          errorMessage: 'Simulated network drop',
+        );
+        _publish(entry, failed);
+        controller.close();
+        _downloads.remove(downloadId);
+        return;
+      }
+      final fraction = (tick / ticks).clamp(0.0, 1.0);
+      final bytes = (totalBytes * fraction).toInt();
+      final isDone = fraction >= 1.0;
+
+      if (!isDone) {
+        _publish(
+          entry,
+          VideoDownloadProgress(
+            downloadId: downloadId,
+            recordingId: uuid,
+            status: DownloadStatus.running,
+            bytesReceived: bytes,
+            bytesTotal: totalBytes,
+            kbps: 8000 + sin(tick * 0.3) * 1500,
+          ),
+        );
+      } else {
+        // Transfer bytes are done. Keep status=running while the file is
+        // written to disk so the "Done" button only appears once the file
+        // is actually on the device.
+        timer.cancel();
+        _publish(
+          entry,
+          VideoDownloadProgress(
+            downloadId: downloadId,
+            recordingId: uuid,
+            status: DownloadStatus.running,
+            bytesReceived: totalBytes,
+            bytesTotal: totalBytes,
+            kbps: 0,
+          ),
+        );
+        _writePlaceholder(savePath).then((_) {
+          _publish(
+            entry,
+            VideoDownloadProgress(
+              downloadId: downloadId,
+              recordingId: uuid,
+              status: DownloadStatus.completed,
+              bytesReceived: totalBytes,
+              bytesTotal: totalBytes,
+              kbps: 0,
+            ),
+          );
+          controller.close();
+          _downloads.remove(downloadId);
+        }).catchError((Object e, StackTrace _) {
+          debugPrint('MockWifiService: placeholder write failed: $e');
+          _publish(
+            entry,
+            VideoDownloadProgress(
+              downloadId: downloadId,
+              recordingId: uuid,
+              status: DownloadStatus.failed,
+              bytesReceived: totalBytes,
+              bytesTotal: totalBytes,
+              kbps: 0,
+              errorMessage: e.toString(),
+            ),
+          );
+          controller.close();
+          _downloads.remove(downloadId);
+        });
+      }
+    });
+
+    return VideoDownloadHandle(
+      downloadId: downloadId,
+      recordingId: uuid,
+      savePath: savePath,
+      progress: controller.stream,
+      cancel: () async {
+        if (entry.progress.isTerminal) return;
+        // Guard against cancelling mid-finalize: if all bytes are received,
+        // _writePlaceholder is in progress and will publish completed itself.
+        if (entry.progress.bytesReceived >= entry.progress.bytesTotal) return;
+        entry.timer?.cancel();
+        final cancelled = VideoDownloadProgress(
+          downloadId: downloadId,
+          recordingId: uuid,
+          status: DownloadStatus.cancelled,
+          bytesReceived: entry.progress.bytesReceived,
+          bytesTotal: entry.progress.bytesTotal,
+          kbps: 0,
+        );
+        _publish(entry, cancelled);
+        await controller.close();
+        _downloads.remove(downloadId);
+      },
+    );
+  }
+
+  /// Copies the bundled mock video to [path] so the device storage actually
+  /// contains a playable file. Falls back to a 1-byte sentinel when rootBundle
+  /// is unavailable (e.g. in unit-test environments without asset loading).
+  Future<void> _writePlaceholder(String path) async {
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    try {
+      final data = await rootBundle.load('assets/ble/mock-video.mp4');
+      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
+    } catch (e) {
+      debugPrint('MockWifiService: asset copy failed, writing sentinel: $e');
+      await file.writeAsBytes([0x00], flush: true);
+    }
+  }
+
+  @override
+  Future<VideoDownloadHandle> downloadRecordingWithOverlays(
+    String deviceId,
+    String uuid,
+    List<OverlayState> overlays,
+    OverlayConfig config,
+  ) async {
+    // Mock: overlays ignored — camera-side rendering is not implemented
+    return downloadRecording(deviceId, uuid);
+  }
+
+  @override
+  Stream<OverlayState> overlayStateStream(String deviceId) =>
+      Stream.periodic(
+        const Duration(seconds: 1),
+        (i) => const OverlayState(
+          timeSeconds: 0,
+          homeScore: 0,
+          awayScore: 0,
+          period: 1,
+          recentEventLabel: null,
+        ),
+      );
 
   @override
   List<VideoDownloadProgress> activeDownloads() =>

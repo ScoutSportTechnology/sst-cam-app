@@ -6,6 +6,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
+import '../../core/widgets/wf_filter_bar.dart';
 import 'team_detail_page.dart';
 import 'team_form_sheet.dart';
 
@@ -46,7 +47,7 @@ class TeamsPage extends ConsumerWidget {
             padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
             child: _SearchField(),
           ),
-          const SizedBox(height: 32, child: _SportFilterChips()),
+          const SizedBox(height: 32, child: _TeamsFilterBar()),
           teamsAsync.when(
             loading: () => const Expanded(
               child: Center(child: CircularProgressIndicator()),
@@ -181,28 +182,24 @@ class _SearchFieldState extends ConsumerState<_SearchField> {
   }
 }
 
-class _SportFilterChips extends ConsumerWidget {
-  const _SportFilterChips();
+class _TeamsFilterBar extends ConsumerWidget {
+  const _TeamsFilterBar();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sports = ref.watch(availableSportsProvider);
-    final selected = ref.watch(teamsSportFilterProvider);
-    final entries = <String?>[null, ...sports]; // null = "All"
+    final sport = ref.watch(teamsSportFilterProvider);
 
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      itemCount: entries.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 6),
-      itemBuilder: (_, i) {
-        final s = entries[i];
-        final active = s == selected;
-        return GestureDetector(
-          onTap: () => ref.read(teamsSportFilterProvider.notifier).state = s,
-          child: WfChip(label: s ?? 'All', active: active),
-        );
-      },
+    return WfFilterBar(
+      filters: [
+        FilterSpec(
+          label: 'All sports',
+          options: sports,
+          selected: sport,
+          onSelect: (v) =>
+              ref.read(teamsSportFilterProvider.notifier).state = v,
+        ),
+      ],
     );
   }
 }
