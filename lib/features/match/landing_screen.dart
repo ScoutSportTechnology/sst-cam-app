@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
-import '../../core/widgets/wf_chip.dart';
+import '../../core/widgets/wf_filter_bar.dart';
 import '../teams/matches/team_match_form_sheet.dart';
 import '../teams/teams_state.dart' show teamsControllerProvider, TeamRecord;
 import 'match_state.dart';
@@ -28,9 +28,7 @@ class LandingScreen extends ConsumerWidget {
             padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
             child: _MatchSearchField(),
           ),
-          const SizedBox(height: 32, child: _MatchSportFilterChips()),
-          const SizedBox(height: 6),
-          const SizedBox(height: 32, child: _MatchTeamFilterChips()),
+          const SizedBox(height: 32, child: _MatchFilterBar()),
           Expanded(
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -193,72 +191,44 @@ class _MatchSearchFieldState extends ConsumerState<_MatchSearchField> {
 }
 
 // ---------------------------------------------------------------------------
-// SPORT FILTER CHIPS
+// FILTER BAR
 // ---------------------------------------------------------------------------
 
-class _MatchSportFilterChips extends ConsumerWidget {
-  const _MatchSportFilterChips();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final matches =
-        ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
-    final sports = matches.map((m) => m.team.sport).toSet().toList()..sort();
-    final selected = ref.watch(upcomingMatchSportFilterProvider);
-    final entries = <String?>[null, ...sports];
-
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      itemCount: entries.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 6),
-      itemBuilder: (_, i) {
-        final s = entries[i];
-        final active = s == selected;
-        return GestureDetector(
-          onTap: () {
-            ref.read(upcomingMatchSportFilterProvider.notifier).state = s;
-            ref.read(upcomingMatchTeamFilterProvider.notifier).state = null;
-          },
-          child: WfChip(label: s ?? 'All', active: active),
-        );
-      },
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// TEAM FILTER CHIPS
-// ---------------------------------------------------------------------------
-
-class _MatchTeamFilterChips extends ConsumerWidget {
-  const _MatchTeamFilterChips();
+class _MatchFilterBar extends ConsumerWidget {
+  const _MatchFilterBar();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];
     final sport = ref.watch(upcomingMatchSportFilterProvider);
-    final filtered = sport == null
+    final team = ref.watch(upcomingMatchTeamFilterProvider);
+
+    final sports = matches.map((m) => m.team.sport).toSet().toList()..sort();
+    final sportFiltered = sport == null
         ? matches
         : matches.where((m) => m.team.sport == sport).toList();
-    final teams = filtered.map((m) => m.team.name).toSet().toList()..sort();
-    final selected = ref.watch(upcomingMatchTeamFilterProvider);
-    final entries = <String?>[null, ...teams];
+    final teams =
+        sportFiltered.map((m) => m.team.name).toSet().toList()..sort();
 
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      itemCount: entries.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 6),
-      itemBuilder: (_, i) {
-        final t = entries[i];
-        final active = t == selected;
-        return GestureDetector(
-          onTap: () =>
-              ref.read(upcomingMatchTeamFilterProvider.notifier).state = t,
-          child: WfChip(label: t ?? 'All teams', active: active),
-        );
-      },
+    return WfFilterBar(
+      filters: [
+        FilterSpec(
+          label: 'All sports',
+          options: sports,
+          selected: sport,
+          onSelect: (v) {
+            ref.read(upcomingMatchSportFilterProvider.notifier).state = v;
+            ref.read(upcomingMatchTeamFilterProvider.notifier).state = null;
+          },
+        ),
+        FilterSpec(
+          label: 'All teams',
+          options: teams,
+          selected: team,
+          onSelect: (v) =>
+              ref.read(upcomingMatchTeamFilterProvider.notifier).state = v,
+        ),
+      ],
     );
   }
 }
