@@ -137,9 +137,9 @@ final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
 final librarySearchQueryProvider = StateProvider<String>((_) => '');
 final librarySportFilterProvider = StateProvider<String?>((_) => null); // null = All
 
-/// Team short-name filter for the library page. Null = no team filter.
-/// When set to a team's shortName, returns any match where the teamShortName
-/// matches OR opponent contains the shortName (case-insensitive).
+/// Team name filter for the library page. Null = no team filter.
+/// When set to a team's full name, returns any match where the teamName
+/// matches OR opponent contains the name (case-insensitive).
 final libraryTeamFilterProvider = StateProvider<String?>((_) => null);
 
 /// True when the recording file exists at the UUID-derived device storage path.
@@ -171,7 +171,7 @@ final filteredLibraryMatchesProvider = Provider<List<LibraryMatch>>((ref) {
 
         // Team filter (both sides: recording team or opponent)
         if (teamFilter != null && teamFilter.isNotEmpty) {
-          final matchesTeam = m.teamShortName.toLowerCase() == teamFilter;
+          final matchesTeam = m.teamName.toLowerCase() == teamFilter;
           final matchesOpponent =
               m.opponent.toLowerCase().contains(teamFilter);
           if (!matchesTeam && !matchesOpponent) return false;
@@ -206,25 +206,29 @@ final availableLibrarySportsProvider = Provider<List<String>>((ref) {
   return kSports.where(present.contains).toList();
 });
 
-/// Teams that have at least one local library entry, after applying search +
-/// sport filter.
+/// Teams that appear in the library — either as the recording team or by name
+/// as an opponent — after applying search + sport filter.
 final filteredLibraryTeamsProvider = Provider<List<TeamRecord>>((ref) {
   final library = ref.watch(libraryProvider).valueOrNull ?? const [];
   final teams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
   final query = ref.watch(librarySearchQueryProvider).trim().toLowerCase();
   final sport = ref.watch(librarySportFilterProvider);
 
-  // Build set of team IDs that have local library entries.
-  final presentIds = library
-      .where((m) => m.downloadState != 'remote')
-      .map((m) => m.teamId)
-      .toSet();
+  final recordingTeamIds = library.map((m) => m.teamId).toSet();
+  // Lowercase opponent strings — used to check if a team appears as opponent.
+  final opponentNamesLower = library.map((m) => m.opponent.toLowerCase()).toSet();
 
   return teams.where((t) {
-    if (!presentIds.contains(t.id)) return false;
+    final nameLower = t.name.toLowerCase();
+    final isRecordingTeam = recordingTeamIds.contains(t.id);
+    // Mirror the opponent-match logic in filteredLibraryMatchesProvider:
+    // a team counts as "present as opponent" if its name is a substring of
+    // any opponent string in the library (same contains-direction as the filter).
+    final isOpponent = opponentNamesLower.any((opp) => opp.contains(nameLower));
+    if (!isRecordingTeam && !isOpponent) return false;
     if (sport != null && t.sport != sport) return false;
     if (query.isEmpty) return true;
-    return t.name.toLowerCase().contains(query) ||
+    return nameLower.contains(query) ||
         t.shortName.toLowerCase().contains(query);
   }).toList();
 });

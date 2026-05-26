@@ -32,8 +32,6 @@ import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:sst_cam_app/features/settings/users/users_state.dart'
     show activeUserProvider;
-import 'package:sst_cam_app/features/teams/teams_state.dart'
-    show teamsControllerProvider;
 import 'package:sst_cam_app/features/video/video_page.dart';
 import 'package:sst_cam_app/features/video/video_state.dart';
 import 'package:sst_cam_app/mock/mock_ble_service.dart';
@@ -198,24 +196,24 @@ void main() {
   // Team filter chips ------------------------------------------------------------
 
   group('Team filter chips', () {
-    testWidgets('renders one chip per team in teamsControllerProvider',
+    testWidgets(
+        'shows full team name; only teams with library matches appear',
         (tester) async {
       await tester.pumpWidget(_buildPage(db.value));
       final container = _container(tester);
+      // Seed data has 3 past matches under nr-u14 only.
+      await _awaitLibrary(tester, container, count: 1);
 
-      // Wait for teams to load.
-      for (var i = 0; i < 30; i++) {
-        await tester.pump(const Duration(milliseconds: 10));
-        final teams = container.read(teamsControllerProvider).valueOrNull;
-        if (teams != null && teams.isNotEmpty) break;
-      }
-      await tester.pump();
-
-      // Seed data has 4 teams: NRA, NRB, EFC, RDU.
-      expect(find.text('NRA'), findsWidgets);
-      expect(find.text('NRB'), findsOneWidget);
-      expect(find.text('EFC'), findsOneWidget);
-      expect(find.text('RDU'), findsOneWidget);
+      // "Northside Rovers U14" is the only team with matches → one chip.
+      expect(find.text('Northside Rovers U14'), findsOneWidget);
+      // Teams with no library matches must not appear as chips.
+      expect(find.text('Northside Rovers U12'), findsNothing);
+      expect(find.text('Eastfield FC Reserves'), findsNothing);
+      expect(find.text('Riverdale United'), findsNothing);
+      // Short names must not be used as chip labels.
+      expect(find.text('NRB'), findsNothing);
+      expect(find.text('EFC'), findsNothing);
+      expect(find.text('RDU'), findsNothing);
     });
   });
 

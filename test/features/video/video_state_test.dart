@@ -17,6 +17,8 @@ import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:sst_cam_app/features/settings/users/users_state.dart'
     show activeUserProvider;
+import 'package:sst_cam_app/features/teams/teams_state.dart'
+    show teamsControllerProvider;
 import 'package:sst_cam_app/features/video/video_state.dart';
 
 import '../../test_helpers.dart';
@@ -324,11 +326,11 @@ void main() {
       expect(basketball.any((m) => m.id == 'fmf-sport-1'), isFalse);
     });
 
-    test('team filter: matches where teamShortName == filter', () async {
+    test('team filter: matches where teamName == filter', () async {
       final c = _makeContainer(db.value);
       c.listen(libraryProvider, (_, _) {});
 
-      // nr-u14 shortName is 'NRA'; nr-u12 shortName is 'NRB'.
+      // nr-u14 name is 'Northside Rovers U14'; nr-u12 name is 'Northside Rovers U12'.
       await insertLocalMatch(
         db.value,
         id: 'fmf-tf-nra',
@@ -346,8 +348,9 @@ void main() {
 
       await _awaitLibrary(c, db.value, count: 2);
 
-      // Set team filter to 'nra' (case-insensitive).
-      c.read(libraryTeamFilterProvider.notifier).state = 'nra';
+      // Set team filter to full name (case-insensitive).
+      c.read(libraryTeamFilterProvider.notifier).state =
+          'northside rovers u14';
       final results = c.read(filteredLibraryMatchesProvider);
       expect(results.any((m) => m.id == 'fmf-tf-nra'), isTrue);
       expect(results.any((m) => m.id == 'fmf-tf-nrb'), isFalse);
@@ -447,6 +450,101 @@ void main() {
       c.read(librarySearchQueryProvider.notifier).state = 'ZZZNOMATCH';
       final results = c.read(filteredLibraryMatchesProvider);
       expect(results.any((m) => m.id == 'fmf-search-none'), isFalse);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // filteredLibraryTeamsProvider
+  // ---------------------------------------------------------------------------
+
+  group('filteredLibraryTeamsProvider', () {
+    Future<void> insertMatch(
+      AppDatabase db, {
+      required String id,
+      required String teamId,
+      required String opponent,
+      String date = 'Jun 01',
+    }) async {
+      await db.teamsDao.insertTeamMatch(
+        TeamMatchesTableCompanion.insert(
+          id: id,
+          teamId: teamId,
+          opponent: opponent,
+          date: date,
+          result: 'W 1-0',
+          kind: 'past',
+          numPeriods: 2,
+          periodLengthSeconds: 35 * 60,
+          sizeMb: const Value(100),
+        ),
+      );
+    }
+
+    // Wait until both libraryProvider and teamsControllerProvider have data.
+    Future<void> awaitProviders(ProviderContainer c, {int minLibrary = 1}) async {
+      c.listen(libraryProvider, (_, _) {});
+      c.listen(teamsControllerProvider, (_, _) {});
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+        final lib = c.read(libraryProvider).valueOrNull ?? const [];
+        final teams = c.read(teamsControllerProvider).valueOrNull;
+        if (lib.length >= minLibrary && teams != null && teams.isNotEmpty) break;
+      }
+    }
+
+    test('includes team that appears only as opponent (not a recording team)',
+        () async {
+      final c = _makeContainer(db.value);
+
+      // nr-u12 has no recordings; insert a match by nr-u14 where nr-u12 is the opponent.
+      await insertMatch(
+        db.value,
+        id: 'flt-opp-nr12',
+        teamId: 'nr-u14',
+        opponent: 'Northside Rovers U12',
+      );
+
+      await awaitProviders(c);
+
+      final teams = c.read(filteredLibraryTeamsProvider);
+      final names = teams.map((t) => t.name).toSet();
+      expect(names, contains('Northside Rovers U12'));
+    });
+
+    test('recording-team-only teams still appear', () async {
+      final c = _makeContainer(db.value);
+
+      await insertMatch(
+        db.value,
+        id: 'flt-rec-nr14',
+        teamId: 'nr-u14',
+        opponent: 'Generic Opponent',
+      );
+
+      await awaitProviders(c);
+
+      final teams = c.read(filteredLibraryTeamsProvider);
+      final names = teams.map((t) => t.name).toSet();
+      expect(names, contains('Northside Rovers U14'));
+    });
+
+    test('teams with no library presence (neither recording nor opponent) are excluded',
+        () async {
+      final c = _makeContainer(db.value);
+
+      // nr-u14 records vs some unknown team; rd-utd appears neither as recording nor opponent.
+      await insertMatch(
+        db.value,
+        id: 'flt-exc-rdu',
+        teamId: 'nr-u14',
+        opponent: 'Unknown Team',
+      );
+
+      await awaitProviders(c);
+
+      final teams = c.read(filteredLibraryTeamsProvider);
+      final names = teams.map((t) => t.name).toSet();
+      expect(names, isNot(contains('Riverdale United')));
     });
   });
 

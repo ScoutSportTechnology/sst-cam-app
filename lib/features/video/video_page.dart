@@ -6,7 +6,6 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_chip.dart';
 import '../discovery/discovery_page.dart';
-import '../teams/teams_state.dart' show teamsControllerProvider;
 import 'playback/video_match_detail_page.dart';
 
 class VideoPage extends ConsumerWidget {
@@ -188,10 +187,9 @@ class _LibraryTeamFilterChips extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final teams =
-        ref.watch(teamsControllerProvider).valueOrNull ?? const [];
+    final teams = ref.watch(filteredLibraryTeamsProvider);
     final selected = ref.watch(libraryTeamFilterProvider);
-    final entries = <String?>[null, ...teams.map((t) => t.shortName)];
+    final entries = <String?>[null, ...teams.map((t) => t.name)];
 
     return ListView.separated(
       scrollDirection: Axis.horizontal,
