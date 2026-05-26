@@ -5,6 +5,7 @@ import 'video_state.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_chip.dart';
+import '../../core/widgets/wf_filter_bar.dart';
 import '../discovery/discovery_page.dart';
 import 'playback/video_match_detail_page.dart';
 
@@ -159,182 +160,23 @@ class _LibraryFilterBar extends ConsumerWidget {
     final team = ref.watch(libraryTeamFilterProvider);
     final teams = ref.watch(filteredLibraryTeamsProvider);
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        children: [
-          _FilterPickerChip(
-            label: sport ?? 'All sports',
-            active: sport != null,
-            onTap: () => showModalBottomSheet<void>(
-              context: context,
-              backgroundColor: T.panel,
-              builder: (_) => _OptionPickerSheet(
-                options: sports,
-                selected: sport,
-                onSelect: (value) =>
-                    ref.read(librarySportFilterProvider.notifier).state = value,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _FilterPickerChip(
-            label: team ?? 'All teams',
-            active: team != null,
-            onTap: () => showModalBottomSheet<void>(
-              context: context,
-              backgroundColor: T.panel,
-              builder: (_) => _OptionPickerSheet(
-                options: teams.map((t) => t.name).toList(),
-                selected: team,
-                onSelect: (value) =>
-                    ref.read(libraryTeamFilterProvider.notifier).state = value,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Shared: filter picker chip (label + chevron)
-// ---------------------------------------------------------------------------
-
-class _FilterPickerChip extends StatelessWidget {
-  const _FilterPickerChip({
-    required this.label,
-    required this.active,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = active ? T.accentInk : T.ink2;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: active ? T.accent : T.fillSoft,
-          border: Border.all(color: active ? T.accent : T.hair, width: 1),
+    return WfFilterBar(
+      filters: [
+        FilterSpec(
+          label: 'All sports',
+          options: sports,
+          selected: sport,
+          onSelect: (v) =>
+              ref.read(librarySportFilterProvider.notifier).state = v,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: fg,
-                letterSpacing: 0.2,
-              ),
-            ),
-            const SizedBox(width: 3),
-            Icon(Icons.keyboard_arrow_down_rounded, size: 13, color: fg),
-          ],
+        FilterSpec(
+          label: 'All teams',
+          options: teams.map((t) => t.name).toList(),
+          selected: team,
+          onSelect: (v) =>
+              ref.read(libraryTeamFilterProvider.notifier).state = v,
         ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Shared: bottom sheet picker
-// ---------------------------------------------------------------------------
-
-class _OptionPickerSheet extends StatelessWidget {
-  const _OptionPickerSheet({
-    required this.options,
-    this.selected,
-    required this.onSelect,
-  });
-
-  final List<String> options;
-  final String? selected;
-  final ValueChanged<String?> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      minimum: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 10),
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: T.fillDark,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          _SheetTile(
-            label: 'All',
-            checked: selected == null,
-            onTap: () {
-              onSelect(null);
-              Navigator.of(context).pop();
-            },
-          ),
-          ...options.map(
-            (opt) => _SheetTile(
-              label: opt,
-              checked: opt == selected,
-              onTap: () {
-                onSelect(opt);
-                Navigator.of(context).pop();
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SheetTile extends StatelessWidget {
-  const _SheetTile({
-    required this.label,
-    required this.checked,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool checked;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: checked ? T.accent : T.ink,
-                  fontWeight:
-                      checked ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ),
-            if (checked) const Icon(Icons.check, color: T.accent, size: 18),
-          ],
-        ),
-      ),
+      ],
     );
   }
 }
