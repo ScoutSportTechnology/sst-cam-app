@@ -36,6 +36,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   VideoPlayerController? _playerController;
   bool _playerInitialized = false;
   bool _isPlaying = false;
+  int _matchDurationSeconds = 0;
   List<app_overlay.OverlayState> _overlayStates = [];
   app_overlay.OverlayState _currentOverlay = const app_overlay.OverlayState(
     timeSeconds: 0,
@@ -68,6 +69,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   }
 
   void _buildOverlayStates(LibraryMatch match) {
+    _matchDurationSeconds = _parseDuration(match.fullDuration);
     _overlayStates = app_overlay.OverlayState.fromEvents(
       match.events,
       periodLengthSeconds: match.periodLengthSeconds,
@@ -112,10 +114,16 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
 
   void _onPlayerStateChange() {
     final ctrl = _playerController;
-    if (ctrl != null && mounted) {
-      final playing = ctrl.value.isPlaying;
-      if (playing != _isPlaying) setState(() => _isPlaying = playing);
-    }
+    if (ctrl == null || !mounted) return;
+    final playing = ctrl.value.isPlaying;
+    final posSecs = ctrl.value.position.inSeconds;
+    final fraction = _matchDurationSeconds > 0
+        ? (posSecs / _matchDurationSeconds).clamp(0.0, 1.0)
+        : 0.0;
+    setState(() {
+      _isPlaying = playing;
+      _playheadFraction = fraction;
+    });
   }
 
   void _togglePlayPause() {
