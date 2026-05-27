@@ -98,6 +98,25 @@ class SettingsPage extends ConsumerWidget {
                     MaterialPageRoute(builder: (_) => const DataSettingsPage()),
                   ),
                 ),
+                Builder(builder: (ctx) {
+                  final devNav = ref.watch(devNavigationProvider);
+                  if (devNav.developerSettings == null) return const SizedBox.shrink();
+                  return Column(
+                    children: [
+                      const Divider(height: 1, color: T.rule),
+                      _NavRow(
+                        leading: const Icon(Icons.code),
+                        label: 'Developer',
+                        sub: 'Dev tools & data mode',
+                        onTap: () => Navigator.of(ctx).push(
+                          MaterialPageRoute(
+                            builder: (_) => devNav.developerSettings!(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
               ],
             ),
           ),

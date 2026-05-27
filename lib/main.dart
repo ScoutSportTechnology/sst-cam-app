@@ -14,6 +14,7 @@ import 'core/services/gallery_service.dart';
 import 'core/state/db_providers.dart';
 import 'core/wifi/wifi_providers.dart';
 import 'features/discovery/debug_page.dart';
+import 'features/settings/developer/developer_settings_page.dart';
 import 'mock/emulator/mock_ble_service.dart';
 import 'mock/emulator/mock_wifi_service.dart';
 import 'mock/seed/mock_data_seeder.dart';
@@ -59,7 +60,10 @@ Future<void> main() async {
         () async => MockDataSeeder(db).seed(),
       ),
       devNavigationProvider.overrideWithValue(
-        DevNavigation(debugPage: () => const DebugPage()),
+        DevNavigation(
+          debugPage: () => const DebugPage(),
+          developerSettings: () => const DeveloperSettingsPage(),
+        ),
       ),
     ],
   );

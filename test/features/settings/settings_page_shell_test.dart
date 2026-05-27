@@ -21,6 +21,7 @@ import 'package:sst_cam_app/features/camera/camera_state.dart'
 import 'package:sst_cam_app/features/settings/users/users_state.dart'
     show activeUserProvider;
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
+import 'package:sst_cam_app/core/config/dev_navigation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -244,6 +245,45 @@ void main() {
 
       // Stop the scan so it doesn't dangle into the next test.
       await mock.stopScan();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Developer nav row (U9)
+  // ---------------------------------------------------------------------------
+
+  group('Developer nav row', () {
+    Widget buildWithDevNav({DevNavigation devNav = const DevNavigation()}) {
+      final mock = _newMock();
+      return ProviderScope(
+        overrides: [
+          ...dbOverrides(db),
+          bleServiceProvider.overrideWithValue(mock),
+          devNavigationProvider.overrideWithValue(devNav),
+        ],
+        child: const MaterialApp(home: SettingsPage()),
+      );
+    }
+
+    testWidgets('Developer row absent when developerSettings is null',
+        (tester) async {
+      await tester.pumpWidget(buildWithDevNav());
+      await tester.pumpAndSettle();
+      expect(find.text('Developer'), findsNothing);
+    });
+
+    testWidgets('Developer row visible when developerSettings is non-null',
+        (tester) async {
+      await tester.pumpWidget(
+        buildWithDevNav(
+          devNav: DevNavigation(
+            developerSettings: () => const Scaffold(body: Text('DevPage')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Developer'), 200);
+      expect(find.text('Developer'), findsOneWidget);
     });
   });
 }
