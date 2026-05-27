@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/dev_reseeder.dart';
 import '../../core/db/app_database.dart';
-import '../../mock/seed/mock_data_seeder.dart';
-import '../../core/config/env.dart';
 import '../../features/settings/users/users_state.dart' show activeUserProvider;
 import '../../core/state/db_providers.dart';
 import '../../core/theme/tokens.dart';
@@ -56,9 +55,7 @@ class _DebugPageState extends ConsumerState<DebugPage>
 
       // Re-apply base seed and optional mock fixtures.
       await db.seedBaseData();
-      if (kUseMockData) {
-        await MockDataSeeder(db).seed();
-      }
+      await ref.read(devReseedProvider)();
 
       // Reset the active user to the default so all provider scopes
       // that watch activeUserProvider reload their data correctly.
