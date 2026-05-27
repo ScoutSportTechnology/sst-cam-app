@@ -8,9 +8,8 @@ import '../../core/state/db_providers.dart';
 import '../../core/theme/tokens.dart';
 
 /// Developer-only screen for inspecting the local Drift database.
-///
-/// Accessible only when [kAppEnv] != [AppEnv.prod]. Entry point: long-press
-/// the version label in Settings. Provides a table browser and a Reset action.
+/// Entry point: long-press the About row in Settings (wired via
+/// [devNavigationProvider] in main.dart). Provides a table browser and Reset.
 class DebugPage extends ConsumerStatefulWidget {
   const DebugPage({super.key});
 
