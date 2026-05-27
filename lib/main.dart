@@ -24,7 +24,15 @@ Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  final devConfig = await DevConfig.load();
+  DevConfig devConfig;
+  try {
+    devConfig = await DevConfig.load();
+  } catch (e) {
+    // path_provider_android 2.3.x uses JNI directly; if JNI init fails the
+    // channel-error propagates here. Fall back to defaults so the app loads.
+    debugPrint('DevConfig.load failed, using defaults: $e');
+    devConfig = DevConfig.defaults;
+  }
 
   // Pre-create a container without overrides to read the DB provider.
   // We rebuild with full overrides below so mock services see devConfig.

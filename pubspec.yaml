@@ -26,7 +26,13 @@ dependencies:
   dio: ^5.7.0
   video_player: ^2.9.2
   # RTSP H.264 preview from the camera (libVLC). Used by LivePreviewView.
-  flutter_vlc_player: ^7.4.2
+  # Pinned to 7.4.3: v7.4.4 regenerated Messages.java with pigeon's new package-
+  # namespace channel format but did not bump flutter_vlc_player_platform_interface,
+  # so Dart and Android talk on different channels → channel-error on every call.
+  # v7.4.2 has the correct channel format but still references the removed Flutter
+  # v1 embedding API (PluginRegistry.Registrar) → build failure. v7.4.3 is the
+  # first version that drops v1 embedding AND keeps the old channel format.
+  flutter_vlc_player: 7.4.3
   # Cut-only MP4 trimming (no re-encode). LGPL, FFmpeg 7.1.1. Community-maintained
   # fork of the archived arthenica/ffmpeg-kit (ffmpeg_kit_flutter_min had a broken Maven artifact).
   ffmpeg_kit_flutter_new_full: ^2.0.0
@@ -35,6 +41,10 @@ dependencies:
   drift: ^2.20.2
   sqlite3_flutter_libs: ^0.5.27
   shared_preferences: ^2.3.3
+  # Pinned via override below: path_provider_android 2.3.x switched from method
+  # channels to direct JNI (libdartjni.so), which crashes on Android 16 x86_64
+  # with SIGSEGV in FindClass when JNI is not initialised before first use.
+  # 2.2.22 is the last pre-JNI release. Remove override once upstream fixes it.
   path_provider: ^2.1.4
   path: ^1.9.0
 
@@ -54,6 +64,9 @@ dev_dependencies:
   path_provider_platform_interface: ^2.1.2
   plugin_platform_interface: ^2.1.8
   flutter_launcher_icons: ^0.14.1
+
+dependency_overrides:
+  path_provider_android: 2.2.22
 
 flutter:
   uses-material-design: true

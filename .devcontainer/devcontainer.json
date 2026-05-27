@@ -4,6 +4,9 @@
     "docker-compose.yml"
   ],
   "service": "app",
+  "runServices": [
+    "mock-camera-wifi"
+  ],
   "workspaceFolder": "/workspaces/sst-cam-app",
   "containerEnv": {
     "SHELL": "/bin/bash"

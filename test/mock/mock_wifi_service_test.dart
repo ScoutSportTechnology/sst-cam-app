@@ -91,6 +91,15 @@ void main() {
       await svc.connectGroup('device-1');
       await expectLater(svc.disconnectGroup('device-1'), completes);
     });
+
+    test('connectionStateStream replays current state to late subscribers',
+        () async {
+      // Connect first, THEN subscribe — simulates LivePreviewView subscribing
+      // only when preview is enabled (after WiFi has already transitioned).
+      await svc.connectGroup('device-1');
+      final first = await svc.connectionStateStream('device-1').first;
+      expect(first, WifiDirectState.connected);
+    });
   });
 
   // ---------------------------------------------------------------------------

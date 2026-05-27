@@ -104,7 +104,9 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
       url,
       hwAcc: HwAcc.full,
       autoPlay: true,
-      options: VlcPlayerOptions(),
+      options: VlcPlayerOptions(
+        rtp: VlcRtpOptions([VlcRtpOptions.rtpOverRtsp(true)]),
+      ),
     );
     controller.addListener(_onVlcChange);
     _vlc = controller;

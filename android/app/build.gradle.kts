@@ -49,3 +49,32 @@ android {
 flutter {
     source = "../.."
 }
+
+// Patch GeneratedPluginRegistrant.java to use catch (Throwable) instead of
+// catch (Exception). Flutter generates the file with `catch (Exception e)`,
+// which does NOT catch java.lang.Error subclasses such as UnsatisfiedLinkError.
+// On Android 16 x86_64, FFmpegKit throws an UnsatisfiedLinkError (missing
+// libc++ symbol in libavfilter.so). That Error escapes the try-catch, aborts
+// registerWith(), and leaves every subsequent plugin unregistered (path_provider,
+// shared_preferences, sqlite3, …). Catching Throwable isolates the failure to
+// FFmpegKit so all other plugins still register. Remove this patch once upstream
+// fixes the generated catch clause or FFmpegKit supports Android 16.
+val patchGeneratedPluginRegistrant by tasks.registering {
+    val generatedFile = file("src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java")
+    doLast {
+        if (generatedFile.exists()) {
+            val original = generatedFile.readText()
+            val patched = original.replace("} catch (Exception e) {", "} catch (Throwable e) {")
+            if (patched != original) {
+                generatedFile.writeText(patched)
+                logger.lifecycle("Patched GeneratedPluginRegistrant.java: catch (Throwable)")
+            }
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("compile") && name.endsWith("JavaWithJavac")) {
+        dependsOn(patchGeneratedPluginRegistrant)
+    }
+}

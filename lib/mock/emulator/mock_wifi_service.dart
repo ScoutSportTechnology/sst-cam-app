@@ -166,8 +166,21 @@ class MockWifiService implements WifiService {
   WifiDirectGroup? currentGroup(String deviceId) => _groups[deviceId]?.group;
 
   @override
-  Stream<WifiDirectState> connectionStateStream(String deviceId) =>
-      _state(deviceId).connController.stream;
+  Stream<WifiDirectState> connectionStateStream(String deviceId) {
+    final s = _state(deviceId);
+    // Prepend the current state so late subscribers (e.g. LivePreviewView
+    // watching only when preview is on) never miss a transition that already
+    // occurred.
+    return Stream<WifiDirectState>.multi((controller) {
+      controller.add(s.state);
+      final sub = s.connController.stream.listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: controller.close,
+      );
+      controller.onCancel = sub.cancel;
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Preview

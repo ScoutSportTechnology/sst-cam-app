@@ -119,7 +119,20 @@
       "Bash(protoc --version)",
       "Bash(unzip -q protoc-25.3-linux-x86_64.zip -d /tmp/protoc25)",
       "Bash(/tmp/protoc25/bin/protoc --version)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "Bash(unzip -l /workspaces/sst-cam-app/build/flutter_vlc_player/outputs/aar/flutter_vlc_player-debug.aar)",
+      "Bash(unzip -p /workspaces/sst-cam-app/build/flutter_vlc_player/outputs/aar/flutter_vlc_player-debug.aar)",
+      "Bash(zipinfo /workspaces/sst-cam-app/build/flutter_vlc_player/outputs/aar/flutter_vlc_player-debug.aar)",
+      "Bash(tar tz *)",
+      "Bash(tar xz *)",
+      "mcp__dart__list_devices",
+      "mcp__dart__get_app_logs",
+      "mcp__dart__get_runtime_errors",
+      "mcp__dart__hot_restart",
+      "mcp__dart__list_running_apps",
+      "Bash(kill -0 275568)",
+      "Bash(tee /tmp/fr2.txt)",
+      "Bash(adb logcat *)"
     ]
   }
 }
