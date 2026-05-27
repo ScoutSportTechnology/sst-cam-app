@@ -113,7 +113,13 @@
       "Bash(wait)",
       "Bash(xargs ls)",
       "Bash(timeout 3 bash -c \"echo '' | nc mock-camera-wifi 8554\")",
-      "Bash(timeout 3 bash -c \"cat < /dev/tcp/mock-camera-wifi/8554\")"
+      "Bash(timeout 3 bash -c \"cat < /dev/tcp/mock-camera-wifi/8554\")",
+      "Bash(sudo apt-get update -qq)",
+      "Bash(sudo apt-get install -y protobuf-compiler)",
+      "Bash(protoc --version)",
+      "Bash(unzip -q protoc-25.3-linux-x86_64.zip -d /tmp/protoc25)",
+      "Bash(/tmp/protoc25/bin/protoc --version)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
