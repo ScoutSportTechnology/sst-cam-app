@@ -5,11 +5,11 @@ import 'dart:math';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
 
-import '../core/models/overlay.dart';
-import '../core/models/recording.dart';
-import '../core/models/wifi.dart';
-import '../core/services/video_path_service.dart';
-import '../core/wifi/wifi_service.dart';
+import '../../core/models/overlay.dart';
+import '../../core/models/recording.dart';
+import '../../core/models/wifi.dart';
+import '../../core/services/video_path_service.dart';
+import '../../core/wifi/wifi_service.dart';
 
 class _GroupState {
   _GroupState()

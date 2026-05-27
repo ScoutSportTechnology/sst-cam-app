@@ -7,7 +7,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:sst_cam_app/core/db/app_database.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
-import 'package:sst_cam_app/mock/mock_data_seeder.dart';
+import 'package:sst_cam_app/mock/seed/mock_data_seeder.dart';
 
 // ---------------------------------------------------------------------------
 // Fake path_provider that uses a temp directory for tests.

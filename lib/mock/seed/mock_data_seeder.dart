@@ -5,8 +5,8 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 
-import '../core/db/app_database.dart';
-import '../core/services/video_path_service.dart';
+import '../../core/db/app_database.dart';
+import '../../core/services/video_path_service.dart';
 
 /// Seeds the Drift database with mock fixture data from assets/mock/fixtures/.
 ///

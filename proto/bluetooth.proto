@@ -95,15 +95,17 @@ message Command {
 
     // Session push (U9) — sent once before recording starts
     PushSessionConfigCommand push_session_config = 52;
-
-    reserved 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70;
-    reserved "list_teams", "list_team_matches", "create_team", "update_team",
-             "delete_team", "set_team_hidden", "add_player", "update_player",
-             "remove_player", "add_team_match", "remove_team_match";
-    reserved 80, 81, 82, 83;
-    reserved "list_sport_presets", "create_sport_preset",
-             "update_sport_preset", "delete_sport_preset";
   }
+
+  // Tombstoned field numbers/names from the team and sport-preset commands
+  // that were removed during the consolidation. Never reuse these.
+  reserved 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70;
+  reserved "list_teams", "list_team_matches", "create_team", "update_team",
+           "delete_team", "set_team_hidden", "add_player", "update_player",
+           "remove_player", "add_team_match", "remove_team_match";
+  reserved 80, 81, 82, 83;
+  reserved "list_sport_presets", "create_sport_preset",
+           "update_sport_preset", "delete_sport_preset";
 }
 
 message CommandResponse {
@@ -118,10 +120,11 @@ message CommandResponse {
     DownloadTokenResponse download_token  = 13;
     DeviceTelemetry       telemetry       = 14;  // GetTelemetryCommand reply
     MatchState            match_state     = 15;  // GetMatchStateCommand reply
-    reserved 16, 17, 18, 19, 20, 21, 22;
-    reserved "team_list", "team_match_list", "team", "player", "team_match",
-             "sport_preset_list", "sport_preset";
   }
+
+  reserved 16, 17, 18, 19, 20, 21, 22;
+  reserved "team_list", "team_match_list", "team", "player", "team_match",
+           "sport_preset_list", "sport_preset";
 }
 
 enum ResponseStatus {

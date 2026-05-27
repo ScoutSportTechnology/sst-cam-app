@@ -9,7 +9,7 @@ import 'app.dart';
 import 'core/config/env.dart';
 import 'core/services/gallery_service.dart';
 import 'core/state/db_providers.dart';
-import 'mock/mock_data_seeder.dart';
+import 'mock/seed/mock_data_seeder.dart';
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();

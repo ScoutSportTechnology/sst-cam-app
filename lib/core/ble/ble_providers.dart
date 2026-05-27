@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ble_service.dart';
 import 'ble_service_impl.dart';
-import '../../mock/mock_ble_service.dart';
+import '../../mock/emulator/mock_ble_service.dart';
 import '../config/env.dart';
 import '../models/device.dart';
 import '../models/telemetry.dart';

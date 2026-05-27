@@ -8,7 +8,7 @@ import 'package:sst_cam_app/core/models/overlay.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
-import 'package:sst_cam_app/mock/mock_wifi_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 
 // ---------------------------------------------------------------------------
 // Fake path_provider that uses a temp directory for tests.

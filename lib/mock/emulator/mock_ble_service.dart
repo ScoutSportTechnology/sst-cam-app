@@ -5,12 +5,12 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../core/models/command.dart';
-import '../core/models/device.dart';
-import '../core/models/match.dart';
-import '../core/models/recording.dart';
-import '../core/models/telemetry.dart';
-import '../core/ble/ble_service.dart';
+import '../../core/models/command.dart';
+import '../../core/models/device.dart';
+import '../../core/models/match.dart';
+import '../../core/models/recording.dart';
+import '../../core/models/telemetry.dart';
+import '../../core/ble/ble_service.dart';
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [

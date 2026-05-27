@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/env.dart';
 import '../models/wifi.dart';
-import '../../mock/mock_wifi_service.dart';
+import '../../mock/emulator/mock_wifi_service.dart';
 import 'wifi_service.dart';
 import 'wifi_service_impl.dart';
 

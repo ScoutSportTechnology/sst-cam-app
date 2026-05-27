@@ -13,7 +13,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sst_cam_app/mock/mock_ble_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/features/match/match_state.dart'
     show
         upcomingMatchesProvider,

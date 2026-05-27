@@ -34,7 +34,7 @@ import 'package:sst_cam_app/features/settings/users/users_state.dart'
     show activeUserProvider;
 import 'package:sst_cam_app/features/video/video_page.dart';
 import 'package:sst_cam_app/features/video/video_state.dart';
-import 'package:sst_cam_app/mock/mock_ble_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 
 import '../../test_helpers.dart';
 
