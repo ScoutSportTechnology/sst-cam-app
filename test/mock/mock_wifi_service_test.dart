@@ -94,6 +94,64 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // serverAddress — configurable IP (U6)
+  // ---------------------------------------------------------------------------
+
+  group('serverAddress', () {
+    test('default groupOwnerIp is localhost', () async {
+      final group = await svc.connectGroup('device-1');
+      expect(group.groupOwnerIp, 'localhost');
+    });
+
+    test('custom serverAddress propagates to groupOwnerIp', () async {
+      final customSvc = MockWifiService(
+        serverAddress: '192.168.1.100',
+        pairingDelay: Duration.zero,
+        videoPathService: videoPathService,
+      );
+      addTearDown(customSvc.dispose);
+      final group = await customSvc.connectGroup('device-1');
+      expect(group.groupOwnerIp, '192.168.1.100');
+    });
+
+    test('empty serverAddress falls back to localhost', () async {
+      final emptySvc = MockWifiService(
+        serverAddress: '',
+        pairingDelay: Duration.zero,
+        videoPathService: videoPathService,
+      );
+      addTearDown(emptySvc.dispose);
+      final group = await emptySvc.connectGroup('device-1');
+      expect(group.groupOwnerIp, 'localhost');
+    });
+
+    test('previewDescriptor url contains serverAddress', () async {
+      final customSvc = MockWifiService(
+        serverAddress: '10.0.0.5',
+        pairingDelay: Duration.zero,
+        videoPathService: videoPathService,
+      );
+      addTearDown(customSvc.dispose);
+      await customSvc.connectGroup('device-1');
+      final desc = customSvc.previewDescriptor('device-1');
+      expect(desc, isNotNull);
+      expect(desc!.url, 'rtsp://10.0.0.5:8554/preview');
+    });
+
+    test('download falls back to bundled file when HTTP server unreachable',
+        () async {
+      // localhost:8080 not running in unit tests → HTTP GET fails → fallback
+      const uuid = 'rec-fallback-test';
+      final handle = await svc.downloadRecording('device-1', uuid);
+      await handle.progress.toList();
+
+      final path = await videoPathService.recordingPath(uuid);
+      expect(File(path).existsSync(), isTrue,
+          reason: 'Fallback write must produce a file even without HTTP server');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // checkCameraHasRecording
   // ---------------------------------------------------------------------------
 

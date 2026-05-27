@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -59,15 +60,21 @@ class _DownloadState {
 /// liveness badge / frame counter.
 class MockWifiService implements WifiService {
   MockWifiService({
+    this.serverAddress = 'localhost',
     this.pairingDelay = const Duration(milliseconds: 900),
     this.previewFps = 15,
     this.downloadDuration = const Duration(seconds: 6),
     this.downloadFailureRate = 0.0,
     int? randomSeed,
     VideoPathService? videoPathService,
+    Dio? httpClient,
   })  : _rng = Random(randomSeed),
-        _videoPathService = videoPathService ?? VideoPathService();
+        _videoPathService = videoPathService ?? VideoPathService(),
+        _dio =
+            httpClient ??
+            Dio(BaseOptions(connectTimeout: const Duration(seconds: 3)));
 
+  final String serverAddress;
   final Duration pairingDelay;
   final int previewFps;
   final Duration downloadDuration;
@@ -75,6 +82,10 @@ class MockWifiService implements WifiService {
 
   final Random _rng;
   final VideoPathService _videoPathService;
+  final Dio _dio;
+
+  String get _resolvedAddress =>
+      serverAddress.isEmpty ? 'localhost' : serverAddress;
   final Map<String, _GroupState> _groups = {};
   final Map<String, _DownloadState> _downloads = {};
   final _allProgressController =
@@ -111,16 +122,16 @@ class MockWifiService implements WifiService {
     await Future.delayed(pairingDelay);
 
     final group = WifiDirectGroup(
-      ssid: 'DIRECT-${deviceId.substring(deviceId.length - 4)}',
-      psk: 'mock-${_rng.nextInt(0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
-      groupOwnerIp: '192.168.49.1',
+      ssid: 'DIRECT-mock-sst-cam',
+      psk: 'dev-psk',
+      groupOwnerIp: _resolvedAddress,
       previewPort: 8554,
       downloadPort: 8080,
       role: 'GROUP_OWNER',
     );
     state.group = group;
     state.previewDescriptor = PreviewStreamDescriptor(
-      url: group.previewUrl(),
+      url: 'rtsp://$_resolvedAddress:8554/preview',
       codec: PreviewCodec.rtspH264,
       width: 640,
       height: 360,
@@ -406,7 +417,11 @@ class MockWifiService implements WifiService {
             kbps: 0,
           ),
         );
-        _writePlaceholder(savePath).then((_) {
+        _downloadOrFallback(
+          'http://$_resolvedAddress:8080/recordings/$uuid',
+          'dev-token',
+          savePath,
+        ).then((_) {
           _publish(
             entry,
             VideoDownloadProgress(
@@ -464,6 +479,38 @@ class MockWifiService implements WifiService {
         _downloads.remove(downloadId);
       },
     );
+  }
+
+  /// Tries a real HTTP GET to [url] with a Bearer [authToken] and writes the
+  /// response bytes to [path]. Falls back to [_writePlaceholder] when the
+  /// server is unreachable (e.g. Docker service not running in dev).
+  Future<void> _downloadOrFallback(
+    String url,
+    String authToken,
+    String path,
+  ) async {
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    try {
+      final resp = await _dio.get<List<int>>(
+        url,
+        options: Options(
+          headers: {'Authorization': 'Bearer $authToken'},
+          responseType: ResponseType.bytes,
+        ),
+      );
+      if (resp.statusCode == 200 && resp.data != null) {
+        await file.writeAsBytes(resp.data!, flush: true);
+        return;
+      }
+    } on DioException catch (e) {
+      debugPrint(
+        'MockWifiService: HTTP download failed ($e), using bundled fallback',
+      );
+    } catch (e) {
+      debugPrint('MockWifiService: unexpected error during download: $e');
+    }
+    await _writePlaceholder(path);
   }
 
   /// Copies the bundled mock video to [path] so the device storage actually
