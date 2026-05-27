@@ -66,6 +66,7 @@ RUN dpkg --add-architecture amd64 \
     socat \
     openssh-client \
     sudo \
+    python3 \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*

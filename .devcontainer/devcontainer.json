@@ -1,6 +1,8 @@
 {
   "name": "SST Cam — Flutter Dev",
-  "dockerComposeFile": ["docker-compose.devcontainer.yml"],
+  "dockerComposeFile": [
+    "docker-compose.yml"
+  ],
   "service": "app",
   "workspaceFolder": "/workspaces/sst-cam-app",
   "containerEnv": {
@@ -12,7 +14,6 @@
   },
   "remoteUser": "vscode",
   "mounts": [
-    "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
     "source=${localWorkspaceFolder}/.devcontainer/.bashrc,target=/home/vscode/.bashrc.1,readonly,type=bind"
   ],
   "customizations": {

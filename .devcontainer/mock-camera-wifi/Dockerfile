@@ -17,7 +17,7 @@ RUN ffmpeg -f lavfi -i "testsrc2=size=640x360:rate=15" \
 # Stage 3: final runtime image
 FROM alpine:3.21
 
-RUN apk add --no-cache ffmpeg python3 py3-supervisor
+RUN apk add --no-cache ffmpeg python3 supervisor
 
 COPY --from=mediamtx-bin /mediamtx /usr/local/bin/mediamtx
 COPY --from=video-gen /tmp/sample.mp4 /srv/sample.mp4

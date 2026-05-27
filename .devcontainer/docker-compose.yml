@@ -1,9 +1,8 @@
 # Docker Compose file for the SST Cam devcontainer.
 # devcontainer.json points here via "dockerComposeFile" and attaches to the "app" service.
 #
-# NOTE: mounts for the Claude Code config volume and .bashrc bind are declared in
-# devcontainer.json (not here) so they can use devcontainer token substitution
-# (${devcontainerId}, ${localWorkspaceFolder}).
+# NOTE: .bashrc bind is declared in devcontainer.json so it can use the
+# ${localWorkspaceFolder} devcontainer token substitution.
 
 services:
   app:
@@ -13,6 +12,11 @@ services:
     # Preserve the flutter4android image tag from the original build config.
     image: flutter4android
     platform: linux/amd64
+    stdin_open: true
+    tty: true
+    volumes:
+      - ..:/workspaces/sst-cam-app:cached
+      - claude-code:/home/vscode/.claude
     # Required: bridges host.docker.internal so ADB_SERVER_SOCKET
     # (tcp:host.docker.internal:5037) can reach the host ADB server.
     extra_hosts:
@@ -20,9 +24,15 @@ services:
 
   mock-camera-wifi:
     build:
-      context: .
-      dockerfile: mock-camera-wifi/Dockerfile
+      context: mock-camera-wifi
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "8554:8554"   # RTSP H.264 preview
       - "8080:8080"   # HTTP recording download
+
+volumes:
+  claude-code:
+    # Explicit name prevents Docker Compose from prefixing with the project name.
+    # This makes the volume stable across rebuilds — your Claude Code sessions survive.
+    name: sst-cam-app-claude-code
