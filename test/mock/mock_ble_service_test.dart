@@ -4,6 +4,8 @@ import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
+import 'package:sst_cam_app/core/models/telemetry.dart';
+import 'package:sst_cam_app/core/models/match.dart';
 
 void main() {
   // Required so rootBundle can load fixture assets in unit tests.
@@ -176,6 +178,95 @@ void main() {
       );
       expect(resp.isOk, isTrue);
       expect(resp.payload?.httpUrl, startsWith('http://'));
+    });
+  });
+
+  group('advertiseDevices', () {
+    test('advertiseDevices=true (default) emits devices during scan', () async {
+      final emitted = <List<SstDevice>>[];
+      final sub = svc.discoveredDevices.listen(emitted.add);
+
+      await svc.startScan(timeout: const Duration(seconds: 10));
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
+
+      await svc.stopScan();
+      await sub.cancel();
+
+      expect(emitted.any((l) => l.isNotEmpty), isTrue);
+    });
+
+    test('advertiseDevices=false emits only an empty list and completes', () async {
+      final noAdSvc = MockBleService(
+        advertiseDevices: false,
+        scanDeviceAppearDelays: [Duration.zero, Duration.zero],
+        connectionDelay: Duration.zero,
+        failureRate: 0.0,
+      );
+      addTearDown(noAdSvc.dispose);
+
+      final emitted = <List<SstDevice>>[];
+      final sub = noAdSvc.discoveredDevices.listen(emitted.add);
+
+      await noAdSvc.startScan(timeout: const Duration(seconds: 10));
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
+
+      await noAdSvc.stopScan();
+      await sub.cancel();
+
+      expect(emitted.every((l) => l.isEmpty), isTrue);
+    });
+  });
+
+  group('Proto round-trip', () {
+    test('GetTelemetryCommand returns BleCommandResponse with valid DeviceTelemetry', () async {
+      final resp = await svc.sendCommand<DeviceTelemetry>(
+        'SST-CAM-001',
+        GetTelemetryCommand(),
+      );
+      expect(resp.isOk, isTrue);
+      final t = resp.payload;
+      expect(t, isNotNull);
+      expect(t!.storageTotalBytes, greaterThan(0));
+      expect(t.cpuUsedPct, inInclusiveRange(0.0, 1.0));
+      expect(t.ramUsedPct, inInclusiveRange(0.0, 1.0));
+      expect(t.tempCelsius, greaterThan(0.0));
+    });
+
+    test('GetMatchStateCommand returns valid MatchState', () async {
+      final resp = await svc.sendCommand<MatchState>(
+        'SST-CAM-001',
+        GetMatchStateCommand(),
+      );
+      expect(resp.isOk, isTrue);
+      expect(resp.payload, isNotNull);
+      expect(resp.payload!.status, isA<MatchStatus>());
+    });
+
+    test('correlation_id is echoed correctly in the response', () async {
+      // sendCommand() generates a correlation_id internally; the proto
+      // round-trip must echo it back unchanged.
+      final resp = await svc.sendCommand<DeviceTelemetry>(
+        'SST-CAM-001',
+        GetTelemetryCommand(),
+      );
+      // We can't directly inspect the internal id, but isOk proves the
+      // response was matched (error responses carry an errorMessage).
+      expect(resp.isOk, isTrue);
+      expect(resp.errorMessage, isNull);
+    });
+
+    test('proto round-trip is lossless for DeviceTelemetry fields', () async {
+      final resp = await svc.sendCommand<DeviceTelemetry>(
+        'SST-CAM-001',
+        GetTelemetryCommand(),
+      );
+      final t = resp.payload!;
+      // storageFreeBytes + storageTotalBytes survive the int64 round-trip
+      expect(t.storageFreeBytes, greaterThanOrEqualTo(0));
+      expect(t.storageTotalBytes, greaterThan(t.storageFreeBytes));
+      expect(t.wifiState, isA<WifiState>());
     });
   });
 

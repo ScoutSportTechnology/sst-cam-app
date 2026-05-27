@@ -20,6 +20,7 @@ dependencies:
 
   # Wire format (BLE + future WiFi control)
   protobuf: ^3.1.0
+  fixnum: ^1.1.0
 
   # Video / HTTP
   dio: ^5.7.0

@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
@@ -11,6 +13,7 @@ import '../../core/models/match.dart';
 import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
 import '../../core/ble/ble_service.dart';
+import '../../models/proto/bluetooth.pb.dart' as proto;
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [
@@ -197,6 +200,7 @@ class _DeviceState {
 /// failure injection for error-path testing.
 class MockBleService implements BleService {
   MockBleService({
+    this.advertiseDevices = true,
     this.scanDeviceAppearDelays = const [
       Duration(seconds: 1),
       Duration(seconds: 2),
@@ -206,6 +210,9 @@ class MockBleService implements BleService {
     int? randomSeed,
   }) : _rng = Random(randomSeed);
 
+  /// When false, startScan() emits an empty list and completes without
+  /// scheduling any fake devices. Camera emulation is effectively disabled.
+  final bool advertiseDevices;
   final List<Duration> scanDeviceAppearDelays;
   final Duration connectionDelay;
 
@@ -316,6 +323,11 @@ class MockBleService implements BleService {
     _isScanning = true;
     _discovered.clear();
     _discoveryController.add([]);
+
+    if (!advertiseDevices) {
+      _scanTimer = Timer(timeout, stopScan);
+      return;
+    }
 
     for (var i = 0; i < _fakeDevices.length; i++) {
       final delay = i < scanDeviceAppearDelays.length
@@ -440,6 +452,8 @@ class MockBleService implements BleService {
     );
   }
 
+  static const _uuid = Uuid();
+
   @override
   Future<BleCommandResponse<T>> sendCommand<T>(
     String deviceId,
@@ -448,28 +462,243 @@ class MockBleService implements BleService {
     await Future.delayed(const Duration(milliseconds: 80));
     if (command is ListRecordingsCommand) await _ensureRecordingsLoaded();
 
-    return switch (command) {
-      GetDeviceInfoCommand() => BleCommandResponse.ok(
-        const DeviceInfoResponse(deviceId: 'mock-device-uuid') as T?,
+    final correlationId = _uuid.v4();
+
+    // --- encode command → proto bytes → decode (round-trip validation) ---
+    final protoCmd = _encodeCommand(command, correlationId);
+    final cmdChunk = proto.ChunkedPayload(
+      correlationId: correlationId,
+      chunkIndex: 0,
+      totalChunks: 1,
+      data: protoCmd.writeToBuffer(),
+    );
+    // Deserialize back — proves field mappings are correct
+    final cmdBytes = cmdChunk.writeToBuffer();
+    final decodedChunk = proto.ChunkedPayload.fromBuffer(cmdBytes);
+    final _ = proto.Command.fromBuffer(decodedChunk.data);
+
+    // --- build response → encode → decode ---
+    final protoResp = _buildResponse(command, correlationId);
+    final respChunk = proto.ChunkedPayload(
+      correlationId: correlationId,
+      chunkIndex: 0,
+      totalChunks: 1,
+      data: protoResp.writeToBuffer(),
+    );
+    final respBytes = respChunk.writeToBuffer();
+    final decodedRespChunk = proto.ChunkedPayload.fromBuffer(respBytes);
+    final decodedResp = proto.CommandResponse.fromBuffer(
+      decodedRespChunk.data,
+    );
+
+    if (decodedResp.status != proto.ResponseStatus.OK) {
+      return BleCommandResponse.error(decodedResp.errorMessage);
+    }
+
+    return _mapResponse<T>(command, decodedResp);
+  }
+
+  proto.Command _encodeCommand(BleCommand cmd, String correlationId) =>
+      switch (cmd) {
+        GetDeviceInfoCommand() => proto.Command(
+          correlationId: correlationId,
+          getDeviceInfo: proto.GetDeviceInfoCommand(),
+        ),
+        GetTelemetryCommand() => proto.Command(
+          correlationId: correlationId,
+          getTelemetry: proto.GetTelemetryCommand(),
+        ),
+        GetMatchStateCommand() => proto.Command(
+          correlationId: correlationId,
+          getMatchState: proto.GetMatchStateCommand(),
+        ),
+        ListRecordingsCommand() => proto.Command(
+          correlationId: correlationId,
+          listRecordings: proto.ListRecordingsCommand(),
+        ),
+        DownloadRequestCommand(:final recordingId) => proto.Command(
+          correlationId: correlationId,
+          downloadRequest: proto.DownloadRequestCommand(
+            recordingId: recordingId,
+          ),
+        ),
+        _ => proto.Command(correlationId: correlationId),
+      };
+
+  proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
+    return switch (cmd) {
+      GetDeviceInfoCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        deviceInfo: proto.DeviceInfoResponse(deviceId: 'mock-device-uuid'),
       ),
-      GetTelemetryCommand() => BleCommandResponse.ok(_makeTelemetry(0) as T?),
-      GetMatchStateCommand() => BleCommandResponse.ok(MatchState.idle() as T?),
-      ListRecordingsCommand() => BleCommandResponse.ok(_recordings as T?),
-      DownloadRequestCommand(:final recordingId) => BleCommandResponse.ok(
-        DownloadToken(
-              recordingId: recordingId,
-              httpUrl: 'http://192.168.1.42:8080/recordings/$recordingId.mp4',
-              authToken: 'mock-token-${DateTime.now().millisecondsSinceEpoch}',
-              expiresAt: DateTime.now().add(const Duration(minutes: 15)),
-            )
-            as T?,
+      GetTelemetryCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        telemetry: _makeProtoTelemetry(0),
       ),
-      _ => BleCommandResponse<T>(
-        status: BleResponseStatus.error,
-        errorMessage: 'Unsupported command: ${command.runtimeType}',
+      GetMatchStateCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        matchState: proto.MatchState(
+          status: proto.MatchStatus.MATCH_NOT_STARTED,
+        ),
+      ),
+      ListRecordingsCommand() => _buildRecordingListResponse(correlationId),
+      DownloadRequestCommand(:final recordingId) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        downloadToken: proto.DownloadTokenResponse(
+          recordingId: recordingId,
+          httpUrl:
+              'http://192.168.1.42:8080/recordings/$recordingId.mp4',
+          authToken:
+              'mock-token-${DateTime.now().millisecondsSinceEpoch}',
+          expiresAt: Int64(
+            DateTime.now()
+                .add(const Duration(minutes: 15))
+                .millisecondsSinceEpoch ~/
+            1000,
+          ),
+        ),
+      ),
+      _ => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.ERROR,
+        errorMessage: 'Unsupported command: ${cmd.runtimeType}',
       ),
     };
   }
+
+  proto.CommandResponse _buildRecordingListResponse(String correlationId) {
+    final protoRecs = _recordings
+        .map(
+          (r) => proto.RecordingMetadata(
+            id: r.id,
+            durationS: Int64(r.durationSeconds),
+            sizeBytes: Int64(r.sizeBytes),
+            startedAt: Int64(r.startedAt.millisecondsSinceEpoch ~/ 1000),
+            sport: r.sport,
+            teams: r.teams,
+          ),
+        )
+        .toList();
+    return proto.CommandResponse(
+      correlationId: correlationId,
+      status: proto.ResponseStatus.OK,
+      recordingList: proto.RecordingListResponse(recordings: protoRecs),
+    );
+  }
+
+  BleCommandResponse<T> _mapResponse<T>(
+    BleCommand cmd,
+    proto.CommandResponse resp,
+  ) {
+    return switch (cmd) {
+      GetDeviceInfoCommand() => BleCommandResponse.ok(
+        DeviceInfoResponse(deviceId: resp.deviceInfo.deviceId) as T?,
+      ),
+      GetTelemetryCommand() => BleCommandResponse.ok(
+        _dartTelemetry(resp.telemetry) as T?,
+      ),
+      GetMatchStateCommand() => BleCommandResponse.ok(
+        _dartMatchState(resp.matchState) as T?,
+      ),
+      ListRecordingsCommand() => BleCommandResponse.ok(
+        resp.recordingList.recordings
+                .map(
+                  (r) => RecordingMetadata(
+                    id: r.id,
+                    durationSeconds: r.durationS.toInt(),
+                    sizeBytes: r.sizeBytes.toInt(),
+                    startedAt: DateTime.fromMillisecondsSinceEpoch(
+                      r.startedAt.toInt() * 1000,
+                    ),
+                    sport: r.sport,
+                    teams: r.teams,
+                  ),
+                )
+                .toList()
+            as T?,
+      ),
+      DownloadRequestCommand() => BleCommandResponse.ok(
+        DownloadToken(
+              recordingId: resp.downloadToken.recordingId,
+              httpUrl: resp.downloadToken.httpUrl,
+              authToken: resp.downloadToken.authToken,
+              expiresAt: DateTime.fromMillisecondsSinceEpoch(
+                resp.downloadToken.expiresAt.toInt() * 1000,
+              ),
+            )
+            as T?,
+      ),
+      _ => BleCommandResponse.error(
+        'Unsupported command: ${cmd.runtimeType}',
+      ),
+    };
+  }
+
+  proto.DeviceTelemetry _makeProtoTelemetry(int tick) {
+    const totalBytes = 256 * 1024 * 1024 * 1024;
+    final usedBytes = (totalBytes * 0.35 + tick * 1024 * 1024).toInt();
+    final freeBytes = totalBytes - usedBytes;
+    return proto.DeviceTelemetry(
+      storageFreeBytes: Int64(freeBytes),
+      storageTotalBytes: Int64(totalBytes),
+      wifiState: proto.WifiState.WIFI_CONNECTED,
+      wifiSsid: 'StadiumNet-5G',
+      wifiSignalDbm: (-65 + (sin(tick * 0.4) * 8)).round(),
+      internetReachable: true,
+      tempCelsius: 48.0 + sin(tick * 0.1) * 6,
+      ramUsedPct: (0.45 + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
+      cpuUsedPct: (0.30 + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
+      uptimeSeconds: Int64(tick),
+      isRecording: false,
+      isStreaming: false,
+    );
+  }
+
+  DeviceTelemetry _dartTelemetry(proto.DeviceTelemetry p) => DeviceTelemetry(
+    storageFreeBytes: p.storageFreeBytes.toInt(),
+    storageTotalBytes: p.storageTotalBytes.toInt(),
+    wifiState: _dartWifiState(p.wifiState),
+    wifiSsid: p.wifiSsid.isEmpty ? null : p.wifiSsid,
+    wifiSignalDbm: p.wifiSignalDbm,
+    internetReachable: p.internetReachable,
+    tempCelsius: p.tempCelsius,
+    ramUsedPct: p.ramUsedPct,
+    cpuUsedPct: p.cpuUsedPct,
+    uptimeSeconds: p.uptimeSeconds.toInt(),
+    isRecording: p.isRecording,
+    isStreaming: p.isStreaming,
+  );
+
+  WifiState _dartWifiState(proto.WifiState s) => switch (s) {
+    proto.WifiState.WIFI_DISABLED => WifiState.disabled,
+    proto.WifiState.WIFI_DISCONNECTED => WifiState.disconnected,
+    proto.WifiState.WIFI_CONNECTED => WifiState.connected,
+    _ => WifiState.unknown,
+  };
+
+  MatchState _dartMatchState(proto.MatchState s) => MatchState(
+    status: switch (s.status) {
+      proto.MatchStatus.MATCH_NOT_STARTED => MatchStatus.notStarted,
+      proto.MatchStatus.MATCH_ACTIVE => MatchStatus.active,
+      proto.MatchStatus.MATCH_PAUSED => MatchStatus.paused,
+      proto.MatchStatus.MATCH_HALF_TIME => MatchStatus.halfTime,
+      proto.MatchStatus.MATCH_FINISHED => MatchStatus.finished,
+      _ => MatchStatus.unknown,
+    },
+    currentPeriod: s.currentPeriod,
+    timeRemainingSeconds: s.timeRemainingS,
+    scoreA: s.scoreA,
+    scoreB: s.scoreB,
+    teamAId: s.teamAId,
+    teamBId: s.teamBId,
+    updatedAt: s.hasUpdatedAt()
+        ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt() * 1000)
+        : DateTime.now(),
+  );
 
   @override
   Stream<MatchState> matchStateStream(String deviceId) {
