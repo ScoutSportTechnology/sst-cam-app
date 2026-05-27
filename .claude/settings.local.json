@@ -111,7 +111,13 @@
       "Bash(pkill -f \"flutter test\")",
       "Bash(pkill -f \"flutter test test/features/video/playback/download_sheet_test\")",
       "Bash(wait)",
-      "Bash(xargs ls)"
+      "Bash(xargs ls)",
+      "Bash(timeout 3 bash -c \"echo '' | nc mock-camera-wifi 8554\")",
+      "Bash(echo \"RTSP port: connection attempted \\(nc exit=$?\\)\")",
+      "Bash(timeout 3 bash -c \"cat < /dev/tcp/mock-camera-wifi/8554\")",
+      "Bash(echo \"TCP connection to mock-camera-wifi:8554 exit=$?\")",
+      "Bash(echo \"---mediamtx-api-status: $?\")",
+      "Bash(echo \"RTSP curl exit=$?\")"
     ]
   }
 }
