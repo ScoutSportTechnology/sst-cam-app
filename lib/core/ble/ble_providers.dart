@@ -2,22 +2,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ble_service.dart';
 import 'ble_service_impl.dart';
-import '../../mock/emulator/mock_ble_service.dart';
-import '../config/env.dart';
 import '../models/device.dart';
 import '../models/telemetry.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
 
 // ---------------------------------------------------------------------------
-// Service — backend chosen by `kAppEnv` (see lib/core/config/env.dart). Tests
-// still override via `bleServiceProvider.overrideWithValue(MockBleService())`.
+// Service — defaults to BleServiceImpl (real hardware). Dev entry-point
+// (main.dart) overrides with MockBleService; tests override via
+// bleServiceProvider.overrideWithValue(MockBleService()).
 // ---------------------------------------------------------------------------
 
 final bleServiceProvider = Provider<BleService>((ref) {
-  final BleService svc = kAppEnv.isDevBackend
-      ? MockBleService(failureRate: 0)
-      : BleServiceImpl();
+  final svc = BleServiceImpl();
   ref.onDispose(svc.dispose);
   return svc;
 });

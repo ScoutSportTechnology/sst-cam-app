@@ -6,9 +6,16 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'core/ble/ble_providers.dart';
 import 'core/config/dev_config.dart';
+import 'core/config/dev_navigation.dart';
+import 'core/config/dev_reseeder.dart';
 import 'core/services/gallery_service.dart';
 import 'core/state/db_providers.dart';
+import 'core/wifi/wifi_providers.dart';
+import 'features/discovery/debug_page.dart';
+import 'mock/emulator/mock_ble_service.dart';
+import 'mock/emulator/mock_wifi_service.dart';
 import 'mock/seed/mock_data_seeder.dart';
 
 Future<void> main() async {
@@ -16,13 +23,14 @@ Future<void> main() async {
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   final devConfig = await DevConfig.load();
-  final shouldSeed = devConfig.dataMode != DataMode.empty;
 
-  final container = ProviderContainer();
+  // Pre-create a container without overrides to read the DB provider.
+  // We rebuild with full overrides below so mock services see devConfig.
+  final bootstrap = ProviderContainer();
+  final db = bootstrap.read(appDatabaseProvider);
 
-  if (shouldSeed) {
+  if (devConfig.dataMode == DataMode.seed) {
     try {
-      final db = container.read(appDatabaseProvider);
       await MockDataSeeder(db).seed();
     } catch (e, st) {
       FlutterError.reportError(
@@ -36,6 +44,26 @@ Future<void> main() async {
     }
   }
 
+  final bleMock = MockBleService(
+    advertiseDevices: devConfig.cameraEmulation,
+    failureRate: 0,
+  );
+  final wifiMock = MockWifiService(serverAddress: devConfig.serverAddress);
+
+  final container = ProviderContainer(
+    overrides: [
+      bleServiceProvider.overrideWithValue(bleMock),
+      wifiServiceProvider.overrideWithValue(wifiMock),
+      devConfigProvider.overrideWithValue(devConfig),
+      devReseedProvider.overrideWithValue(
+        () async => MockDataSeeder(db).seed(),
+      ),
+      devNavigationProvider.overrideWithValue(
+        DevNavigation(debugPage: () => const DebugPage()),
+      ),
+    ],
+  );
+
   runApp(
     UncontrolledProviderScope(
       container: container,
@@ -43,9 +71,7 @@ Future<void> main() async {
     ),
   );
 
-  // After the first frame the engine and MainActivity are fully attached, so
-  // platform channels work. Sync seeded "on device" matches to the gallery.
-  if (shouldSeed) {
+  if (devConfig.dataMode == DataMode.seed) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncSeedVideosToGallery(container);
     });
@@ -72,7 +98,9 @@ void _syncSeedVideosToGallery(ProviderContainer container) {
           final data = await rootBundle.load('assets/ble/mock-video.mp4');
           await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
         } catch (e) {
-          debugPrint('_syncSeedVideosToGallery: asset write failed for ${row.id}: $e');
+          debugPrint(
+            '_syncSeedVideosToGallery: asset write failed for ${row.id}: $e',
+          );
           continue;
         }
       }

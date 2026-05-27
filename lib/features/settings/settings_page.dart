@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/config/env.dart';
+import '../../core/config/dev_navigation.dart';
 import '../../core/models/device.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import 'streaming/streaming_state.dart'
@@ -14,7 +14,6 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import 'data/data_settings_page.dart';
-import '../discovery/debug_page.dart';
 import '../discovery/diagnostics_page.dart';
 import '../discovery/discovery_page.dart';
 import 'sport_presets/sport_presets_page.dart';
@@ -120,19 +119,27 @@ class SettingsPage extends ConsumerWidget {
                   trailing: Text('3 granted', style: TextStyle(color: T.ink2, fontSize: 12)),
                 ),
                 const Divider(height: 1, color: T.rule),
-                GestureDetector(
-                  onLongPress: kAppEnv != AppEnv.prod
-                      ? () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(builder: (_) => const DebugPage()),
-                          )
-                      : null,
-                  child: const _RowItem(
-                    leading: Icon(Icons.info_outline),
-                    label: 'About',
-                    trailing: Text('0.3.2', style: TextStyle(color: T.ink2, fontSize: 12)),
-                  ),
-                ),
+                Builder(builder: (ctx) {
+                  final devNav = ref.watch(devNavigationProvider);
+                  return GestureDetector(
+                    onLongPress: devNav.debugPage != null
+                        ? () => Navigator.push(
+                              ctx,
+                              MaterialPageRoute<void>(
+                                builder: (_) => devNav.debugPage!(),
+                              ),
+                            )
+                        : null,
+                    child: const _RowItem(
+                      leading: Icon(Icons.info_outline),
+                      label: 'About',
+                      trailing: Text(
+                        '0.3.2',
+                        style: TextStyle(color: T.ink2, fontSize: 12),
+                      ),
+                    ),
+                  );
+                }),
               ],
             ),
           ),
