@@ -17,6 +17,7 @@ import 'features/discovery/debug_page.dart';
 import 'features/settings/developer/developer_settings_page.dart';
 import 'mock/emulator/mock_ble_service.dart';
 import 'mock/emulator/mock_wifi_service.dart';
+import 'mock/seed/data_mode.dart';
 import 'mock/seed/mock_data_seeder.dart';
 
 Future<void> main() async {
@@ -30,19 +31,17 @@ Future<void> main() async {
   final bootstrap = ProviderContainer();
   final db = bootstrap.read(appDatabaseProvider);
 
-  if (devConfig.dataMode == DataMode.seed) {
-    try {
-      await MockDataSeeder(db).seed();
-    } catch (e, st) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: e,
-          stack: st,
-          library: 'MockDataSeeder',
-          context: ErrorDescription('seeding mock fixture data'),
-        ),
-      );
-    }
+  try {
+    await applyDataMode(db, devConfig.dataMode);
+  } catch (e, st) {
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: e,
+        stack: st,
+        library: 'applyDataMode',
+        context: ErrorDescription('applying data mode ${devConfig.dataMode}'),
+      ),
+    );
   }
 
   final bleMock = MockBleService(
@@ -75,7 +74,7 @@ Future<void> main() async {
     ),
   );
 
-  if (devConfig.dataMode == DataMode.seed) {
+  if (devConfig.dataMode != DataMode.empty) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncSeedVideosToGallery(container);
     });
