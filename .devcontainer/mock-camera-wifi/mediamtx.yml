@@ -1,21 +1,10 @@
 # mediamtx v1.18.2 configuration for mock-camera-wifi
 # Accepts an inbound RTSP publish from ffmpeg and re-serves it to readers.
+#
+# Defaults: authMethod=internal, authInternalUsers=[{user:any,pass:any}] — all
+# publishers and readers are accepted without credentials (dev only).
 
 rtspAddress: :8554
 
-authMethod: internal
-
-# No auth — internal ffmpeg publisher only; not exposed beyond adb reverse
-authInternalUsers:
-  - user: any
-    pass: any
-    ips: []
-    permissions:
-      - action: publish
-        path: any
-      - action: read
-        path: any
-
 paths:
   preview:
-    source: publisher
