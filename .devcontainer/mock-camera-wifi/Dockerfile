@@ -17,7 +17,7 @@ RUN ffmpeg -f lavfi -i "testsrc2=size=640x360:rate=15" \
 # Stage 3: final runtime image
 FROM alpine:3.21
 
-RUN apk add --no-cache ffmpeg python3 supervisor
+RUN apk add --no-cache ffmpeg python3 supervisor wget netcat-openbsd
 
 COPY --from=mediamtx-bin /mediamtx /usr/local/bin/mediamtx
 COPY --from=video-gen /tmp/sample.mp4 /srv/sample.mp4
@@ -30,4 +30,8 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 8554 8080
 
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -qO- http://localhost:8080/health || exit 1
+
 ENTRYPOINT ["/entrypoint.sh"]
+

@@ -71,8 +71,9 @@ RUN dpkg --add-architecture amd64 \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js LTS via NodeSource (baked into image — no per-container download)
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+# Install Node.js 22.x via NodeSource (baked into image — no per-container download)
+# Pinned to setup_22.x rather than setup_lts.x to prevent silent Node.js major-version bumps on rebuild.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*

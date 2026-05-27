@@ -10,10 +10,15 @@ Endpoints:
 
 import os
 import re
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 SAMPLE_PATH = "/srv/sample.mp4"
 PORT = 8080
+# Any non-empty Bearer token is accepted by default. Set DOWNLOAD_TOKEN in the
+# environment (or docker-compose.yml) to validate a specific value — useful for
+# confirming the Flutter app sends the expected token.
+DOWNLOAD_TOKEN = os.environ.get("DOWNLOAD_TOKEN", "")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -29,11 +34,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path == "/health":
+        path = urlparse(self.path).path
+        if path == "/health":
             self.send_json(200, '{"status":"ok"}')
             return
 
-        if re.match(r"^/recordings/[^/]+$", self.path):
+        if re.match(r"^/recordings/[^/]+$", path):
             self._serve_recording()
             return
 
@@ -41,8 +47,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _serve_recording(self):
         auth = self.headers.get("Authorization", "")
-        if not auth.startswith("Bearer ") or len(auth) <= len("Bearer "):
+        token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+        if not token or (DOWNLOAD_TOKEN and token != DOWNLOAD_TOKEN):
             self.send_json(401, '{"error":"unauthorized"}')
+            return
+
+        if not os.path.exists(SAMPLE_PATH):
+            self.send_json(503, '{"error":"media unavailable"}')
             return
 
         size = os.path.getsize(SAMPLE_PATH)
@@ -66,6 +77,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.match(r"bytes=(\d+)-(\d*)", range_header)
         if not m:
             self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{size}")
             self.end_headers()
             return
 
@@ -90,18 +102,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _stream_bytes(self, offset, length):
         chunk = 65536
-        with open(SAMPLE_PATH, "rb") as f:
-            f.seek(offset)
-            remaining = length
-            while remaining > 0:
-                data = f.read(min(chunk, remaining))
-                if not data:
-                    break
-                self.wfile.write(data)
-                remaining -= len(data)
+        try:
+            with open(SAMPLE_PATH, "rb") as f:
+                f.seek(offset)
+                remaining = length
+                while remaining > 0:
+                    data = f.read(min(chunk, remaining))
+                    if not data:
+                        break
+                    self.wfile.write(data)
+                    remaining -= len(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"Download server listening on :{PORT}", flush=True)
     server.serve_forever()

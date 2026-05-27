@@ -26,10 +26,11 @@ services:
     build:
       context: mock-camera-wifi
       dockerfile: Dockerfile
+    platform: linux/amd64
     restart: unless-stopped
     ports:
-      - "8554:8554"   # RTSP H.264 preview
-      - "8080:8080"   # HTTP recording download
+      - "127.0.0.1:8554:8554"   # RTSP H.264 preview
+      - "127.0.0.1:8080:8080"   # HTTP recording download
 
 volumes:
   claude-code:

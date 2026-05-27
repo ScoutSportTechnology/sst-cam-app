@@ -9,7 +9,7 @@
     "SHELL": "/bin/bash"
   },
   "features": {
-    //"ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    // Claude Code is baked into the Dockerfile image — no feature needed here.
     //"ghcr.io/devcontainers-extra/features/go-task:1": {}
   },
   "remoteUser": "vscode",
