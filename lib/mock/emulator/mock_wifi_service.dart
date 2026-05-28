@@ -72,7 +72,10 @@ class MockWifiService implements WifiService {
         _videoPathService = videoPathService ?? VideoPathService(),
         _dio =
             httpClient ??
-            Dio(BaseOptions(connectTimeout: const Duration(seconds: 3)));
+            Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 3),
+              receiveTimeout: const Duration(seconds: 30),
+            ));
 
   final String serverAddress;
   final Duration pairingDelay;
@@ -296,6 +299,7 @@ class MockWifiService implements WifiService {
         );
         _publish(entry, failed);
         controller.close();
+        _downloads.remove(downloadId);
         return;
       }
       final fraction = (tick / ticks).clamp(0.0, 1.0);
@@ -314,6 +318,7 @@ class MockWifiService implements WifiService {
       if (isDone) {
         timer.cancel();
         controller.close();
+        _downloads.remove(downloadId);
       }
     });
 
@@ -335,6 +340,7 @@ class MockWifiService implements WifiService {
         );
         _publish(entry, cancelled);
         await controller.close();
+        _downloads.remove(downloadId);
       },
     );
   }

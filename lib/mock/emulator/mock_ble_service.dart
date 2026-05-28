@@ -201,6 +201,7 @@ class _DeviceState {
 class MockBleService implements BleService {
   MockBleService({
     this.advertiseDevices = true,
+    this.serverAddress = 'localhost',
     this.scanDeviceAppearDelays = const [
       Duration(seconds: 1),
       Duration(seconds: 2),
@@ -213,6 +214,7 @@ class MockBleService implements BleService {
   /// When false, startScan() emits an empty list and completes without
   /// scheduling any fake devices. Camera emulation is effectively disabled.
   final bool advertiseDevices;
+  final String serverAddress;
   final List<Duration> scanDeviceAppearDelays;
   final Duration connectionDelay;
 
@@ -522,7 +524,15 @@ class MockBleService implements BleService {
             recordingId: recordingId,
           ),
         ),
-        _ => proto.Command(correlationId: correlationId),
+        RequestThumbnailCommand(:final width, :final height, :final quality) =>
+          proto.Command(
+            correlationId: correlationId,
+            thumbnail: proto.ThumbnailRequest(
+              width: width,
+              height: height,
+              quality: quality,
+            ),
+          ),
       };
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
@@ -551,7 +561,7 @@ class MockBleService implements BleService {
         downloadToken: proto.DownloadTokenResponse(
           recordingId: recordingId,
           httpUrl:
-              'http://192.168.1.42:8080/recordings/$recordingId.mp4',
+              'http://$serverAddress:8080/recordings/$recordingId.mp4',
           authToken:
               'mock-token-${DateTime.now().millisecondsSinceEpoch}',
           expiresAt: Int64(
@@ -562,10 +572,13 @@ class MockBleService implements BleService {
           ),
         ),
       ),
-      _ => proto.CommandResponse(
+      RequestThumbnailCommand() => proto.CommandResponse(
         correlationId: correlationId,
-        status: proto.ResponseStatus.ERROR,
-        errorMessage: 'Unsupported command: ${cmd.runtimeType}',
+        status: proto.ResponseStatus.OK,
+        thumbnail: proto.ThumbnailResponse(
+          jpegBytes: _kPlaceholderJpeg,
+          captureTimestamp: Int64(DateTime.now().millisecondsSinceEpoch),
+        ),
       ),
     };
   }
@@ -632,8 +645,13 @@ class MockBleService implements BleService {
             )
             as T?,
       ),
-      _ => BleCommandResponse.error(
-        'Unsupported command: ${cmd.runtimeType}',
+      RequestThumbnailCommand() => BleCommandResponse.ok(
+        ThumbnailResult(
+          jpegBytes: Uint8List.fromList(resp.thumbnail.jpegBytes),
+          capturedAt: DateTime.fromMillisecondsSinceEpoch(
+            resp.thumbnail.captureTimestamp.toInt(),
+          ),
+        ) as T?,
       ),
     };
   }
@@ -723,7 +741,7 @@ class MockBleService implements BleService {
     await Future.delayed(const Duration(milliseconds: 200));
     return DownloadToken(
       recordingId: recordingId,
-      httpUrl: 'http://192.168.1.42:8080/recordings/$recordingId.mp4',
+      httpUrl: 'http://$serverAddress:8080/recordings/$recordingId.mp4',
       authToken: 'mock-token-${DateTime.now().millisecondsSinceEpoch}',
       expiresAt: DateTime.now().add(const Duration(minutes: 15)),
     );

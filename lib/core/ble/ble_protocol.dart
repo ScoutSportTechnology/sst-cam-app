@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:fixnum/fixnum.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/command.dart';
+import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
@@ -152,8 +152,13 @@ class BleProtocol {
             )
             as T?,
       ),
-      _ => BleCommandResponse.error(
-        'No response mapping for command type ${cmd.runtimeType}',
+      RequestThumbnailCommand() => BleCommandResponse.ok(
+        ThumbnailResult(
+          jpegBytes: Uint8List.fromList(resp.thumbnail.jpegBytes),
+          capturedAt: DateTime.fromMillisecondsSinceEpoch(
+            resp.thumbnail.captureTimestamp.toInt(),
+          ),
+        ) as T?,
       ),
     };
   }
@@ -201,34 +206,3 @@ class BleProtocol {
         : DateTime.now(),
   );
 }
-
-/// Encodes a proto [DeviceTelemetry] value for use in test fixtures and the
-/// emulator. Returns the proto message (not serialized).
-proto.DeviceTelemetry encodeProtoTelemetry({
-  required int storageFreeBytes,
-  required int storageTotalBytes,
-  proto.WifiState wifiState = proto.WifiState.WIFI_CONNECTED,
-  String wifiSsid = '',
-  int wifiSignalDbm = 0,
-  bool internetReachable = true,
-  double tempCelsius = 48.0,
-  double ramUsedPct = 0.45,
-  double cpuUsedPct = 0.30,
-  int uptimeSeconds = 0,
-  bool isRecording = false,
-  bool isStreaming = false,
-}) =>
-    proto.DeviceTelemetry(
-      storageFreeBytes: Int64(storageFreeBytes),
-      storageTotalBytes: Int64(storageTotalBytes),
-      wifiState: wifiState,
-      wifiSsid: wifiSsid,
-      wifiSignalDbm: wifiSignalDbm,
-      internetReachable: internetReachable,
-      tempCelsius: tempCelsius,
-      ramUsedPct: ramUsedPct,
-      cpuUsedPct: cpuUsedPct,
-      uptimeSeconds: Int64(uptimeSeconds),
-      isRecording: isRecording,
-      isStreaming: isStreaming,
-    );

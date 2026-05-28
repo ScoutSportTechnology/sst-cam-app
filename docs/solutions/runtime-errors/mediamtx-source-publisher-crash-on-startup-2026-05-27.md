@@ -1,7 +1,7 @@
 ---
 title: "mediamtx silently crashes on startup when source: publisher is set in paths config"
 date: 2026-05-27
-category: docs/solutions/runtime-errors/
+category: runtime-errors
 module: mock-camera-wifi
 problem_type: runtime_error
 component: development_workflow

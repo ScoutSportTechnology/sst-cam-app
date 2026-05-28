@@ -54,12 +54,14 @@ Future<void> main() async {
 
   final bleMock = MockBleService(
     advertiseDevices: devConfig.cameraEmulation,
+    serverAddress: devConfig.serverAddress,
     failureRate: 0,
   );
   final wifiMock = MockWifiService(serverAddress: devConfig.serverAddress);
 
   final container = ProviderContainer(
     overrides: [
+      appDatabaseProvider.overrideWithValue(db),
       bleServiceProvider.overrideWithValue(bleMock),
       wifiServiceProvider.overrideWithValue(wifiMock),
       devConfigProvider.overrideWithValue(devConfig),

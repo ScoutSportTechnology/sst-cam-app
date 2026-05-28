@@ -19,8 +19,11 @@ class DeveloperSettingsState {
 
 class DeveloperSettingsNotifier
     extends AutoDisposeNotifier<DeveloperSettingsState> {
+  var _disposed = false;
+
   @override
   DeveloperSettingsState build() {
+    ref.onDispose(() => _disposed = true);
     final active = ref.watch(devConfigProvider);
     return DeveloperSettingsState(activeConfig: active, stagedConfig: active);
   }
@@ -28,12 +31,14 @@ class DeveloperSettingsNotifier
   Future<void> setDataMode(DataMode mode) async {
     final next = state.stagedConfig.copyWith(dataMode: mode);
     await next.save();
+    if (_disposed) return;
     state = state._withStaged(next);
   }
 
   Future<void> setCameraEmulation(bool enabled) async {
     final next = state.stagedConfig.copyWith(cameraEmulation: enabled);
     await next.save();
+    if (_disposed) return;
     state = state._withStaged(next);
   }
 
@@ -41,6 +46,7 @@ class DeveloperSettingsNotifier
     final resolved = address.isEmpty ? 'localhost' : address;
     final next = state.stagedConfig.copyWith(serverAddress: resolved);
     await next.save();
+    if (_disposed) return;
     state = state._withStaged(next);
   }
 }

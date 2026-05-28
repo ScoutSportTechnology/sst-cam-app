@@ -22,10 +22,10 @@ DOWNLOAD_TOKEN = os.environ.get("DOWNLOAD_TOKEN", "")
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args):
+    def log_message(self, fmt: str, *args: object) -> None:
         print(fmt % args, flush=True)
 
-    def send_json(self, code, body):
+    def send_json(self, code: int, body: str) -> None:
         data = body.encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -33,7 +33,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
             self.send_json(200, '{"status":"ok"}')
@@ -45,7 +45,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_json(404, '{"error":"not found"}')
 
-    def _serve_recording(self):
+    def _serve_recording(self) -> None:
         auth = self.headers.get("Authorization", "")
         token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
         if not token or (DOWNLOAD_TOKEN and token != DOWNLOAD_TOKEN):
@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._serve_full(size)
 
-    def _serve_full(self, size):
+    def _serve_full(self, size: int) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "video/mp4")
         self.send_header("Content-Length", str(size))
@@ -72,13 +72,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self._stream_bytes(0, size)
 
-    def _serve_range(self, size, range_header):
-        # Parse "bytes=N-M" or "bytes=N-"
+    def _serve_range(self, size: int, range_header: str) -> None:
+        # Parse "bytes=N-M" or "bytes=N-" (open-ended).
+        # Unsupported forms (e.g. suffix-range bytes=-N) fall back to a full
+        # 200 response per RFC 9110 §14.2: a server that cannot satisfy the
+        # range SHOULD send the full entity rather than 416.
         m = re.match(r"bytes=(\d+)-(\d*)", range_header)
         if not m:
-            self.send_response(416)
-            self.send_header("Content-Range", f"bytes */{size}")
-            self.end_headers()
+            self._serve_full(size)
             return
 
         start = int(m.group(1))
@@ -100,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self._stream_bytes(start, length)
 
-    def _stream_bytes(self, offset, length):
+    def _stream_bytes(self, offset: int, length: int) -> None:
         chunk = 65536
         try:
             with open(SAMPLE_PATH, "rb") as f:
