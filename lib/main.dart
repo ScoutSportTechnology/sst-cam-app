@@ -18,8 +18,7 @@ import 'features/discovery/debug_page.dart';
 import 'features/settings/developer/developer_settings_page.dart';
 import 'mock/emulator/mock_ble_service.dart';
 import 'mock/emulator/mock_wifi_service.dart';
-import 'mock/seed/data_mode.dart';
-import 'mock/seed/mock_data_seeder.dart';
+import 'mock/internal/mock_data_service.dart';
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
