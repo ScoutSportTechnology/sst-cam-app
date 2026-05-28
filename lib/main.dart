@@ -11,6 +11,7 @@ import 'core/config/dev_config.dart';
 import 'core/config/dev_navigation.dart';
 import 'core/config/dev_reseeder.dart';
 import 'core/services/gallery_service.dart';
+import 'core/db/app_database.dart';
 import 'core/state/db_providers.dart';
 import 'core/wifi/wifi_providers.dart';
 import 'features/discovery/debug_page.dart';
@@ -34,10 +35,7 @@ Future<void> main() async {
     devConfig = DevConfig.defaults;
   }
 
-  // Pre-create a container without overrides to read the DB provider.
-  // We rebuild with full overrides below so mock services see devConfig.
-  final bootstrap = ProviderContainer();
-  final db = bootstrap.read(appDatabaseProvider);
+  final db = AppDatabase();
 
   try {
     await applyDataMode(db, devConfig.dataMode);
