@@ -18,9 +18,10 @@ echo "[$(date -Is)] adb-bridge starting (pid $$)"
 
 trap 'pkill -P $$ 2>/dev/null; rm -f "$PIDFILE"' EXIT
 
-# Ports to reverse-forward from device localhost → host (Docker maps these from
-# mock-camera-wifi: 8554=RTSP preview, 8080=HTTP download).
-REVERSE_PORTS=(8554 8080)
+# Reverse-forward mappings: "device_port:host_port"
+# RTSP uses 8555 on the host to avoid QEMU virtualscene which binds host:8554.
+# The device-side port stays 8554 so RTSP URLs need no change.
+REVERSE_MAP=("8554:8555" "8080:8080")
 
 declare -A bridged
 declare -A reversed  # device_id -> "1" once reverse ports are confirmed set up
@@ -41,13 +42,16 @@ while true; do
     [ -z "$dev" ] && continue
     current=$(adb -s "$dev" reverse --list 2>/dev/null | awk '{print $2}' | sort | tr '\n' ',')
     needed=""
-    for port in "${REVERSE_PORTS[@]}"; do
-      echo "$current" | grep -q "tcp:$port" || needed="$needed $port"
+    for mapping in "${REVERSE_MAP[@]}"; do
+      dev_port="${mapping%%:*}"
+      echo "$current" | grep -q "tcp:$dev_port" || needed="$needed $mapping"
     done
     if [ -n "$needed" ]; then
-      for port in $needed; do
-        adb -s "$dev" reverse "tcp:$port" "tcp:$port" >/dev/null 2>&1 && \
-          echo "[$(date -Is)] reverse $dev tcp:$port -> host tcp:$port"
+      for mapping in $needed; do
+        dev_port="${mapping%%:*}"
+        host_port="${mapping##*:}"
+        adb -s "$dev" reverse "tcp:$dev_port" "tcp:$host_port" >/dev/null 2>&1 && \
+          echo "[$(date -Is)] reverse $dev tcp:$dev_port -> host tcp:$host_port"
       done
       reversed[$dev]=1
     fi

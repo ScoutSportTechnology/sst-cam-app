@@ -29,7 +29,7 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8554:8554"   # RTSP H.264 preview
+      - "127.0.0.1:8555:8554"   # RTSP H.264 preview (8555 avoids QEMU virtualscene on 8554)
       - "127.0.0.1:8080:8080"   # HTTP recording download
 
 volumes:
