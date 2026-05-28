@@ -119,6 +119,55 @@ void main() {
     });
   });
 
+  group('Externalized fixtures (U4)', () {
+    test('discovery returns the devices defined in devices.json', () async {
+      final emitted = <List<SstDevice>>[];
+      final sub = svc.discoveredDevices.listen(emitted.add);
+
+      await svc.startScan();
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
+      await svc.stopScan();
+      await sub.cancel();
+
+      final devices =
+          emitted.lastWhere((l) => l.length == 2, orElse: () => []);
+      expect(devices, hasLength(2));
+      expect(
+        devices.map((d) => d.id),
+        containsAll(['SST-CAM-001', 'SST-CAM-002']),
+      );
+      final first = devices.firstWhere((d) => d.id == 'SST-CAM-001');
+      expect(first.name, 'sst-cam-0001');
+      expect(first.batteryPercent, 82);
+      expect(first.rssi, -58);
+    });
+
+    test('telemetry baseline comes from telemetry.json', () async {
+      const id = 'SST-CAM-001';
+      await svc.connect(id);
+      final t = await svc.telemetryStream(id).first; // tick 0 → no drift
+      expect(t.storageTotalBytes, 274877906944); // 256 GiB baseline
+      expect(t.wifiSsid, 'StadiumNet-5G');
+      expect(t.wifiSignalDbm, -65);
+    });
+
+    test('proto and dart telemetry share one baseline at tick 0', () async {
+      const id = 'SST-CAM-001';
+      await svc.connect(id);
+      final dartT = await svc.telemetryStream(id).first; // tick 0
+      final resp = await svc.sendCommand<DeviceTelemetry>(
+        id,
+        GetTelemetryCommand(),
+      );
+      final protoT = resp.payload!;
+      expect(protoT.storageTotalBytes, dartT.storageTotalBytes);
+      expect(protoT.wifiSsid, dartT.wifiSsid);
+      expect(protoT.wifiSignalDbm, dartT.wifiSignalDbm);
+      expect(protoT.tempCelsius, closeTo(dartT.tempCelsius, 0.0001));
+    });
+  });
+
   group('Thumbnail', () {
     test('returns valid JPEG bytes', () async {
       const id = 'SST-CAM-001';

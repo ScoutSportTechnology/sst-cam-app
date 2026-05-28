@@ -195,6 +195,61 @@ class _DeviceState {
   }
 }
 
+/// Baseline telemetry values loaded from `telemetry.json`. The mock applies
+/// its sinusoidal drift and slow storage growth on top of these in code.
+class _TelemetryBaseline {
+  const _TelemetryBaseline({
+    required this.storageTotalBytes,
+    required this.storageUsedFraction,
+    required this.tempCelsius,
+    required this.wifiSsid,
+    required this.wifiSignalDbm,
+    required this.cpuUsedPct,
+    required this.ramUsedPct,
+    required this.internetReachable,
+    required this.isRecording,
+    required this.isStreaming,
+  });
+
+  final int storageTotalBytes;
+  final double storageUsedFraction;
+  final double tempCelsius;
+  final String wifiSsid;
+  final int wifiSignalDbm;
+  final double cpuUsedPct;
+  final double ramUsedPct;
+  final bool internetReachable;
+  final bool isRecording;
+  final bool isStreaming;
+
+  static const fallback = _TelemetryBaseline(
+    storageTotalBytes: 256 * 1024 * 1024 * 1024,
+    storageUsedFraction: 0.35,
+    tempCelsius: 48.0,
+    wifiSsid: 'StadiumNet-5G',
+    wifiSignalDbm: -65,
+    cpuUsedPct: 0.30,
+    ramUsedPct: 0.45,
+    internetReachable: true,
+    isRecording: false,
+    isStreaming: false,
+  );
+
+  factory _TelemetryBaseline.fromJson(Map<String, dynamic> j) =>
+      _TelemetryBaseline(
+        storageTotalBytes: j['storageTotalBytes'] as int,
+        storageUsedFraction: (j['storageUsedFraction'] as num).toDouble(),
+        tempCelsius: (j['tempCelsius'] as num).toDouble(),
+        wifiSsid: j['wifiSsid'] as String,
+        wifiSignalDbm: j['wifiSignalDbm'] as int,
+        cpuUsedPct: (j['cpuUsedPct'] as num).toDouble(),
+        ramUsedPct: (j['ramUsedPct'] as num).toDouble(),
+        internetReachable: j['internetReachable'] as bool,
+        isRecording: j['isRecording'] as bool,
+        isStreaming: j['isStreaming'] as bool,
+      );
+}
+
 /// Test double for [BleService]. Simulates realistic device behaviour:
 /// progressive discovery, sinusoidal telemetry drift, and configurable
 /// failure injection for error-path testing.
@@ -228,8 +283,10 @@ class MockBleService implements BleService {
   Timer? _scanTimer;
   final List<SstDevice> _discovered = [];
 
-  static final _fakeDevices = [
-    const SstDevice(
+  /// In-code device list used only when `devices.json` cannot be loaded
+  /// (e.g. unit tests without an asset bundle). Mirrors the fixture contents.
+  static const _fallbackDevices = [
+    SstDevice(
       id: 'SST-CAM-001',
       name: 'sst-cam-0001',
       firmwareVersion: '0.1.0',
@@ -238,7 +295,7 @@ class MockBleService implements BleService {
       batteryPercent: 82,
       rssi: -58,
     ),
-    const SstDevice(
+    SstDevice(
       id: 'SST-CAM-002',
       name: 'sst-cam-0002',
       firmwareVersion: '0.1.0',
@@ -248,6 +305,70 @@ class MockBleService implements BleService {
       rssi: -71,
     ),
   ];
+
+  /// Discoverable cameras, loaded from `devices.json` on first scan/connect.
+  /// Starts as the in-code fallback so sync stream accessors always have data.
+  List<SstDevice> _deviceCatalog = _fallbackDevices;
+
+  /// Telemetry baseline, loaded from `telemetry.json` lazily. Drift is applied
+  /// on top of this in [_makeTelemetry] / [_makeProtoTelemetry].
+  _TelemetryBaseline _baseline = _TelemetryBaseline.fallback;
+
+  Future<void>? _catalogLoadFuture;
+
+  /// Loads `devices.json` + `telemetry.json` once; concurrent callers share the
+  /// same [Future]. Falls back to the in-code values if the bundle is absent.
+  Future<void> _ensureCatalogLoaded() =>
+      _catalogLoadFuture ??= _doLoadCatalog();
+
+  Future<void> _doLoadCatalog() async {
+    await Future.wait([_loadDevices(), _loadTelemetryBaseline()]);
+  }
+
+  Future<void> _loadDevices() async {
+    try {
+      final rows = (await _loadJsonAsset('lib/mock/emulator/fixtures/devices.json')
+              as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      _deviceCatalog = rows
+          .map(
+            (r) => SstDevice(
+              id: r['id'] as String,
+              name: r['name'] as String,
+              firmwareVersion: r['firmwareVersion'] as String,
+              model: r['model'] as String,
+              protocolVersion: r['protocolVersion'] as int,
+              batteryPercent: r['batteryPercent'] as int,
+              rssi: r['rssi'] as int,
+            ),
+          )
+          .toList();
+    } catch (e) {
+      debugPrint('MockBleService: devices.json unavailable — $e');
+      _deviceCatalog = _fallbackDevices;
+    }
+  }
+
+  Future<void> _loadTelemetryBaseline() async {
+    try {
+      final json = await _loadJsonAsset('lib/mock/emulator/fixtures/telemetry.json')
+          as Map<String, dynamic>;
+      _baseline = _TelemetryBaseline.fromJson(json);
+    } catch (e) {
+      debugPrint('MockBleService: telemetry.json unavailable — $e');
+      _baseline = _TelemetryBaseline.fallback;
+    }
+  }
+
+  /// Loads a JSON asset, stripping whole-line `//` comments (JSON has none).
+  Future<dynamic> _loadJsonAsset(String path) async {
+    final raw = await rootBundle.loadString(path);
+    final stripped = raw
+        .split('\n')
+        .where((l) => !l.trimLeft().startsWith('//'))
+        .join('\n');
+    return jsonDecode(stripped);
+  }
 
   static final _fallbackRecordings = [
     RecordingMetadata(
@@ -279,15 +400,10 @@ class MockBleService implements BleService {
 
   Future<void> _doLoadRecordings() async {
     try {
-      final raw = await rootBundle.loadString(
-        'lib/mock/emulator/fixtures/recordings.json',
-      );
-      final stripped = raw
-          .split('\n')
-          .where((l) => !l.trimLeft().startsWith('//'))
-          .join('\n');
-      final rows = (jsonDecode(stripped) as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final rows =
+          (await _loadJsonAsset('lib/mock/emulator/fixtures/recordings.json')
+                  as List<dynamic>)
+              .cast<Map<String, dynamic>>();
       _recordings = rows
           .map(
             (r) => RecordingMetadata(
@@ -331,13 +447,16 @@ class MockBleService implements BleService {
       return;
     }
 
-    for (var i = 0; i < _fakeDevices.length; i++) {
+    await _ensureCatalogLoaded();
+    if (!_isScanning) return;
+
+    for (var i = 0; i < _deviceCatalog.length; i++) {
       final delay = i < scanDeviceAppearDelays.length
           ? scanDeviceAppearDelays[i]
           : scanDeviceAppearDelays.last;
       Future.delayed(delay, () {
         if (!_isScanning) return;
-        _discovered.add(_fakeDevices[i]);
+        _discovered.add(_deviceCatalog[i]);
         _discoveryController.add(List.unmodifiable(_discovered));
       });
     }
@@ -354,7 +473,8 @@ class MockBleService implements BleService {
 
   @override
   Future<void> connect(String deviceId) async {
-    final device = _fakeDevices.where((d) => d.id == deviceId).firstOrNull;
+    await _ensureCatalogLoaded();
+    final device = _deviceCatalog.where((d) => d.id == deviceId).firstOrNull;
     if (device == null) {
       throw BleConnectionException('Device $deviceId not found');
     }
@@ -394,16 +514,16 @@ class MockBleService implements BleService {
   @override
   Stream<CameraConnectionState> connectionStateStream(String deviceId) {
     final device =
-        _fakeDevices.where((d) => d.id == deviceId).firstOrNull ??
-        _fakeDevices.first;
+        _deviceCatalog.where((d) => d.id == deviceId).firstOrNull ??
+        _deviceCatalog.first;
     return _deviceState(deviceId, device).connController.stream;
   }
 
   @override
   Stream<DeviceTelemetry> telemetryStream(String deviceId) {
     final device =
-        _fakeDevices.where((d) => d.id == deviceId).firstOrNull ??
-        _fakeDevices.first;
+        _deviceCatalog.where((d) => d.id == deviceId).firstOrNull ??
+        _deviceCatalog.first;
     return _deviceState(deviceId, device).telemetryController.stream;
   }
 
@@ -422,21 +542,23 @@ class MockBleService implements BleService {
   }
 
   DeviceTelemetry _makeTelemetry(int tick) {
-    const totalBytes = 256 * 1024 * 1024 * 1024;
-    final used = (totalBytes * 0.35 + tick * 1024 * 1024).toInt();
+    final b = _baseline;
+    final used =
+        (b.storageTotalBytes * b.storageUsedFraction + tick * 1024 * 1024)
+            .toInt();
     return DeviceTelemetry(
-      storageFreeBytes: totalBytes - used,
-      storageTotalBytes: totalBytes,
+      storageFreeBytes: b.storageTotalBytes - used,
+      storageTotalBytes: b.storageTotalBytes,
       wifiState: WifiState.connected,
-      wifiSsid: 'StadiumNet-5G',
-      wifiSignalDbm: (-65 + (sin(tick * 0.4) * 8)).round(),
-      internetReachable: true,
-      tempCelsius: 48.0 + sin(tick * 0.1) * 6,
-      ramUsedPct: (0.45 + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
-      cpuUsedPct: (0.30 + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
+      wifiSsid: b.wifiSsid,
+      wifiSignalDbm: (b.wifiSignalDbm + (sin(tick * 0.4) * 8)).round(),
+      internetReachable: b.internetReachable,
+      tempCelsius: b.tempCelsius + sin(tick * 0.1) * 6,
+      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
+      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
       uptimeSeconds: tick,
-      isRecording: false,
-      isStreaming: false,
+      isRecording: b.isRecording,
+      isStreaming: b.isStreaming,
     );
   }
 
@@ -462,6 +584,7 @@ class MockBleService implements BleService {
     BleCommand command,
   ) async {
     await Future.delayed(const Duration(milliseconds: 80));
+    await _ensureCatalogLoaded();
     if (command is ListRecordingsCommand) await _ensureRecordingsLoaded();
 
     final correlationId = _uuid.v4();
@@ -657,22 +780,24 @@ class MockBleService implements BleService {
   }
 
   proto.DeviceTelemetry _makeProtoTelemetry(int tick) {
-    const totalBytes = 256 * 1024 * 1024 * 1024;
-    final usedBytes = (totalBytes * 0.35 + tick * 1024 * 1024).toInt();
-    final freeBytes = totalBytes - usedBytes;
+    final b = _baseline;
+    final usedBytes =
+        (b.storageTotalBytes * b.storageUsedFraction + tick * 1024 * 1024)
+            .toInt();
+    final freeBytes = b.storageTotalBytes - usedBytes;
     return proto.DeviceTelemetry(
       storageFreeBytes: Int64(freeBytes),
-      storageTotalBytes: Int64(totalBytes),
+      storageTotalBytes: Int64(b.storageTotalBytes),
       wifiState: proto.WifiState.WIFI_CONNECTED,
-      wifiSsid: 'StadiumNet-5G',
-      wifiSignalDbm: (-65 + (sin(tick * 0.4) * 8)).round(),
-      internetReachable: true,
-      tempCelsius: 48.0 + sin(tick * 0.1) * 6,
-      ramUsedPct: (0.45 + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
-      cpuUsedPct: (0.30 + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
+      wifiSsid: b.wifiSsid,
+      wifiSignalDbm: (b.wifiSignalDbm + (sin(tick * 0.4) * 8)).round(),
+      internetReachable: b.internetReachable,
+      tempCelsius: b.tempCelsius + sin(tick * 0.1) * 6,
+      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
+      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
       uptimeSeconds: Int64(tick),
-      isRecording: false,
-      isStreaming: false,
+      isRecording: b.isRecording,
+      isStreaming: b.isStreaming,
     );
   }
 
@@ -721,8 +846,8 @@ class MockBleService implements BleService {
   @override
   Stream<MatchState> matchStateStream(String deviceId) {
     final device =
-        _fakeDevices.where((d) => d.id == deviceId).firstOrNull ??
-        _fakeDevices.first;
+        _deviceCatalog.where((d) => d.id == deviceId).firstOrNull ??
+        _deviceCatalog.first;
     return _deviceState(deviceId, device).matchStateController.stream;
   }
 

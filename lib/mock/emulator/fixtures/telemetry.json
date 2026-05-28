@@ -1,0 +1,17 @@
+// Baseline telemetry values for the mock camera. MockBleService reads these
+// as the starting point and applies its sinusoidal drift (and slow storage
+// growth) on top in code, so the live readout still wobbles around these.
+// The in-code fallback in mock_ble_service.dart is used only when this asset
+// cannot be loaded (e.g. unit tests without an asset bundle).
+{
+  "storageTotalBytes": 274877906944,
+  "storageUsedFraction": 0.35,
+  "tempCelsius": 48.0,
+  "wifiSsid": "StadiumNet-5G",
+  "wifiSignalDbm": -65,
+  "cpuUsedPct": 0.30,
+  "ramUsedPct": 0.45,
+  "internetReachable": true,
+  "isRecording": false,
+  "isStreaming": false
+}

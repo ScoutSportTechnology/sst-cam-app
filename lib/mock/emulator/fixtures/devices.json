@@ -1,0 +1,24 @@
+// Discoverable mock cameras returned by MockBleService during a scan.
+// Edit freely — fields map 1:1 onto SstDevice. The in-code fallback in
+// mock_ble_service.dart is used only when this asset cannot be loaded
+// (e.g. unit tests without an asset bundle).
+[
+  {
+    "id": "SST-CAM-001",
+    "name": "sst-cam-0001",
+    "firmwareVersion": "0.1.0",
+    "model": "Jetson Orin NX",
+    "protocolVersion": 1,
+    "batteryPercent": 82,
+    "rssi": -58
+  },
+  {
+    "id": "SST-CAM-002",
+    "name": "sst-cam-0002",
+    "firmwareVersion": "0.1.0",
+    "model": "Jetson Orin NX",
+    "protocolVersion": 1,
+    "batteryPercent": 45,
+    "rssi": -71
+  }
+]
