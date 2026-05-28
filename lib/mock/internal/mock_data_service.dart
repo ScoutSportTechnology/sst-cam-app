@@ -5,26 +5,23 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 
-import '../../core/config/dev_config.dart';
 import '../../core/db/app_database.dart';
 import '../../core/services/video_path_service.dart';
 
-/// Applies [mode] to the local database at dev startup:
+/// Applies the seed-data flag to the local database at dev startup:
 ///
-/// - [DataMode.empty] → wipe all rows back to base scaffolding (default user
-///   + sport presets) so the app still boots with a clean slate.
-/// - [DataMode.seed] / [DataMode.full] → insert mock fixtures (teams, matches,
-///   players, streaming destinations, on-device videos).
+/// - [seed] == true → insert mock fixtures (teams, matches, players, streaming
+///   destinations, on-device videos).
+/// - [seed] == false → wipe all rows back to base scaffolding (default user +
+///   sport presets) so the app still boots with a clean slate.
 ///
 /// Lives under `lib/mock/` so it and its [MockDataSeeder] dependency are
 /// excluded from stage/prod builds — only `main.dart` (dev) imports it.
-Future<void> applyDataMode(AppDatabase db, DataMode mode) async {
-  switch (mode) {
-    case DataMode.empty:
-      await _wipeToBaseData(db);
-    case DataMode.seed:
-    case DataMode.full:
-      await MockDataSeeder(db).seed();
+Future<void> applySeedData(AppDatabase db, {required bool seed}) async {
+  if (seed) {
+    await MockDataSeeder(db).seed();
+  } else {
+    await _wipeToBaseData(db);
   }
 }
 

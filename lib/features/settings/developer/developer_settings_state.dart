@@ -28,8 +28,8 @@ class DeveloperSettingsNotifier
     return DeveloperSettingsState(activeConfig: active, stagedConfig: active);
   }
 
-  Future<void> setDataMode(DataMode mode) async {
-    final next = state.stagedConfig.copyWith(dataMode: mode);
+  Future<void> setSeedData(bool enabled) async {
+    final next = state.stagedConfig.copyWith(seedData: enabled);
     await next.save();
     if (_disposed) return;
     state = state._withStaged(next);

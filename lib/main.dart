@@ -37,14 +37,14 @@ Future<void> main() async {
   final db = AppDatabase();
 
   try {
-    await applyDataMode(db, devConfig.dataMode);
+    await applySeedData(db, seed: devConfig.seedData);
   } catch (e, st) {
     FlutterError.reportError(
       FlutterErrorDetails(
         exception: e,
         stack: st,
-        library: 'applyDataMode',
-        context: ErrorDescription('applying data mode ${devConfig.dataMode}'),
+        library: 'applySeedData',
+        context: ErrorDescription('applying seedData=${devConfig.seedData}'),
       ),
     );
   }
@@ -81,7 +81,7 @@ Future<void> main() async {
     ),
   );
 
-  if (devConfig.dataMode != DataMode.empty) {
+  if (devConfig.seedData) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncSeedVideosToGallery(container);
     });

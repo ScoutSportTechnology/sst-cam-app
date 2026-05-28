@@ -94,21 +94,22 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
             const SizedBox(height: 12),
           ],
 
-          // Data mode
-          const _SectionHeader('Data mode'),
+          // Seed app data
+          const _SectionHeader('Seed app data'),
           WfCard(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
-                for (final mode in DataMode.values) ...[
-                  if (mode != DataMode.values.first)
-                    const SizedBox(width: 8),
-                  _ModeChip(
-                    label: _dataModeLabel(mode),
-                    selected: staged.dataMode == mode,
-                    onTap: () => notifier.setDataMode(mode),
-                  ),
-                ],
+                const Expanded(
+                  child: Text('Seed app data',
+                      style: TextStyle(color: T.ink, fontSize: 14)),
+                ),
+                Switch(
+                  key: const Key('seedDataSwitch'),
+                  value: staged.seedData,
+                  onChanged: notifier.setSeedData,
+                  activeThumbColor: T.accent,
+                ),
               ],
             ),
           ),
@@ -135,6 +136,7 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
                   ),
                 ),
                 Switch(
+                  key: const Key('cameraEmulationSwitch'),
                   value: staged.cameraEmulation,
                   onChanged: notifier.setCameraEmulation,
                   activeThumbColor: T.accent,
@@ -180,12 +182,6 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
   }
 }
 
-String _dataModeLabel(DataMode mode) => switch (mode) {
-  DataMode.full => 'Full',
-  DataMode.seed => 'Seed only',
-  DataMode.empty => 'Empty',
-};
-
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader(this.label);
   final String label;
@@ -205,20 +201,3 @@ class _SectionHeader extends StatelessWidget {
   );
 }
 
-class _ModeChip extends StatelessWidget {
-  const _ModeChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: WfChip(label: label, active: selected),
-  );
-}

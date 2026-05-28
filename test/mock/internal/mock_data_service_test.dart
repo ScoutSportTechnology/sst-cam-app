@@ -5,7 +5,6 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:sst_cam_app/core/config/dev_config.dart';
 import 'package:sst_cam_app/core/db/app_database.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/mock/internal/mock_data_service.dart';
@@ -63,34 +62,28 @@ void main() {
     if (tempDir.existsSync()) await tempDir.delete(recursive: true);
   });
 
-  group('applyDataMode', () {
-    test('full mode seeds teams and matches', () async {
-      await applyDataMode(db, DataMode.full);
+  group('applySeedData', () {
+    test('seed=true seeds teams and matches', () async {
+      await applySeedData(db, seed: true);
       expect(await db.select(db.teamsTable).get(), isNotEmpty);
       expect(await db.select(db.teamMatchesTable).get(), isNotEmpty);
     });
 
-    test('seed mode seeds teams and matches', () async {
-      await applyDataMode(db, DataMode.seed);
-      expect(await db.select(db.teamsTable).get(), isNotEmpty);
-      expect(await db.select(db.teamMatchesTable).get(), isNotEmpty);
-    });
-
-    test('empty mode wipes fixtures but keeps base user', () async {
+    test('seed=false wipes fixtures but keeps base user', () async {
       // Seed first so there is something to wipe.
-      await applyDataMode(db, DataMode.full);
+      await applySeedData(db, seed: true);
       expect(await db.select(db.teamMatchesTable).get(), isNotEmpty);
 
-      await applyDataMode(db, DataMode.empty);
+      await applySeedData(db, seed: false);
       expect(
         await db.select(db.teamsTable).get(),
         isEmpty,
-        reason: 'empty mode must wipe seeded teams',
+        reason: 'seed=false must wipe seeded teams',
       );
       expect(
         await db.select(db.teamMatchesTable).get(),
         isEmpty,
-        reason: 'empty mode must wipe seeded matches',
+        reason: 'seed=false must wipe seeded matches',
       );
       expect(
         await db.select(db.usersTable).get(),

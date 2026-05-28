@@ -17,27 +17,29 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('DeveloperSettingsPage', () {
-    testWidgets('renders data mode chips', (tester) async {
+    testWidgets('renders seed data and camera switches (no mode chips)',
+        (tester) async {
       await tester.pumpWidget(_page());
       await tester.pumpAndSettle();
 
-      expect(find.text('Full'), findsOneWidget);
-      expect(find.text('Seed only'), findsOneWidget);
-      expect(find.text('Empty'), findsOneWidget);
+      expect(find.byKey(const Key('seedDataSwitch')), findsOneWidget);
+      expect(find.byKey(const Key('cameraEmulationSwitch')), findsOneWidget);
+      expect(find.text('Full'), findsNothing);
+      expect(find.text('Seed only'), findsNothing);
+      expect(find.text('Empty'), findsNothing);
     });
 
     testWidgets(
-      'selecting Empty mode shows restart indicator when active is Full',
+      'toggling seed data shows restart indicator when active is seeded',
       (tester) async {
-        const active = DevConfig(dataMode: DataMode.full);
+        const active = DevConfig(seedData: true);
         await tester.pumpWidget(_page(activeConfig: active));
         await tester.pumpAndSettle();
 
         // No indicator initially
         expect(find.text('Restart to apply'), findsNothing);
 
-        // Tap Empty chip
-        await tester.tap(find.text('Empty'));
+        await tester.tap(find.byKey(const Key('seedDataSwitch')));
         await tester.pumpAndSettle();
 
         expect(find.text('Restart to apply'), findsOneWidget);
@@ -53,8 +55,7 @@ void main() {
 
         expect(find.text('Restart to apply'), findsNothing);
 
-        final switchFinder = find.byType(Switch);
-        await tester.tap(switchFinder);
+        await tester.tap(find.byKey(const Key('cameraEmulationSwitch')));
         await tester.pumpAndSettle();
 
         expect(find.text('Restart to apply'), findsOneWidget);
@@ -95,7 +96,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Make a change to enable the button
-        await tester.tap(find.text('Empty'));
+        await tester.tap(find.byKey(const Key('seedDataSwitch')));
         await tester.pumpAndSettle();
 
         await tester.tap(find.text('Close & restart'));
@@ -112,7 +113,7 @@ void main() {
         await tester.pumpWidget(_page());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Empty'));
+        await tester.tap(find.byKey(const Key('seedDataSwitch')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Close & restart'));
         await tester.pumpAndSettle();
@@ -141,11 +142,11 @@ void main() {
       expect(staged.serverAddress, 'localhost');
     });
 
-    test('setDataMode updates stagedConfig', () async {
+    test('setSeedData updates stagedConfig', () async {
       final container = ProviderContainer(
         overrides: [
           devConfigProvider.overrideWithValue(
-            const DevConfig(dataMode: DataMode.full),
+            const DevConfig(seedData: true),
           ),
         ],
       );
@@ -153,10 +154,10 @@ void main() {
 
       await container
           .read(developerSettingsProvider.notifier)
-          .setDataMode(DataMode.empty);
+          .setSeedData(false);
 
       final state = container.read(developerSettingsProvider);
-      expect(state.stagedConfig.dataMode, DataMode.empty);
+      expect(state.stagedConfig.seedData, false);
       expect(state.hasPendingChanges, isTrue);
     });
   });
