@@ -51,10 +51,13 @@ Future<void> main() async {
 
   final bleMock = MockBleService(
     advertiseDevices: devConfig.cameraEmulation,
-    serverAddress: devConfig.serverAddress,
+    downloadBaseUrl: devConfig.downloadBaseUrl,
     failureRate: 0,
   );
-  final wifiMock = MockWifiService(serverAddress: devConfig.serverAddress);
+  final wifiMock = MockWifiService(
+    previewBaseUrl: devConfig.previewBaseUrl,
+    downloadBaseUrl: devConfig.downloadBaseUrl,
+  );
 
   final container = ProviderContainer(
     overrides: [
@@ -75,10 +78,7 @@ Future<void> main() async {
   );
 
   runApp(
-    UncontrolledProviderScope(
-      container: container,
-      child: const SstCamApp(),
-    ),
+    UncontrolledProviderScope(container: container, child: const SstCamApp()),
   );
 
   if (devConfig.seedData) {
@@ -105,7 +105,9 @@ void _syncSeedVideosToGallery(ProviderContainer container) {
       if (!file.existsSync() || file.lengthSync() <= 1024) {
         try {
           await file.parent.create(recursive: true);
-          final data = await rootBundle.load('lib/mock/emulator/mock-video.mp4');
+          final data = await rootBundle.load(
+            'lib/mock/emulator/mock-video.mp4',
+          );
           await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
         } catch (e) {
           debugPrint(

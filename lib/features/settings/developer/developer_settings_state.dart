@@ -42,16 +42,25 @@ class DeveloperSettingsNotifier
     state = state._withStaged(next);
   }
 
-  Future<void> setServerAddress(String address) async {
-    final resolved = address.isEmpty ? 'localhost' : address;
-    final next = state.stagedConfig.copyWith(serverAddress: resolved);
+  Future<void> setPreviewBase(String url) async {
+    final resolved = url.isEmpty ? DevConfig.defaults.previewBaseUrl : url;
+    final next = state.stagedConfig.copyWith(previewBaseUrl: resolved);
+    await next.save();
+    if (_disposed) return;
+    state = state._withStaged(next);
+  }
+
+  Future<void> setDownloadBase(String url) async {
+    final resolved = url.isEmpty ? DevConfig.defaults.downloadBaseUrl : url;
+    final next = state.stagedConfig.copyWith(downloadBaseUrl: resolved);
     await next.save();
     if (_disposed) return;
     state = state._withStaged(next);
   }
 }
 
-final developerSettingsProvider = AutoDisposeNotifierProvider<
-  DeveloperSettingsNotifier,
-  DeveloperSettingsState
->(DeveloperSettingsNotifier.new);
+final developerSettingsProvider =
+    AutoDisposeNotifierProvider<
+      DeveloperSettingsNotifier,
+      DeveloperSettingsState
+    >(DeveloperSettingsNotifier.new);

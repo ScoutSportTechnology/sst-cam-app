@@ -1,16 +1,15 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:flutter/services.dart' show rootBundle;
 
 import '../../core/models/overlay.dart';
 import '../../core/models/recording.dart';
 import '../../core/models/wifi.dart';
 import '../../core/services/video_path_service.dart';
 import '../../core/wifi/wifi_service.dart';
+import '../mock_video_fetcher.dart';
 
 class _GroupState {
   _GroupState()
@@ -60,7 +59,8 @@ class _DownloadState {
 /// liveness badge / frame counter.
 class MockWifiService implements WifiService {
   MockWifiService({
-    this.serverAddress = 'localhost',
+    this.previewBaseUrl = 'rtsp://localhost:8554',
+    this.downloadBaseUrl = 'http://localhost:8080',
     this.pairingDelay = const Duration(milliseconds: 900),
     this.previewFps = 15,
     this.downloadDuration = const Duration(seconds: 6),
@@ -68,16 +68,22 @@ class MockWifiService implements WifiService {
     int? randomSeed,
     VideoPathService? videoPathService,
     Dio? httpClient,
-  })  : _rng = Random(randomSeed),
-        _videoPathService = videoPathService ?? VideoPathService(),
-        _dio =
-            httpClient ??
-            Dio(BaseOptions(
-              connectTimeout: const Duration(seconds: 3),
-              receiveTimeout: const Duration(seconds: 30),
-            ));
+  }) : _rng = Random(randomSeed),
+       _videoPathService = videoPathService ?? VideoPathService(),
+       _dio =
+           httpClient ??
+           Dio(
+             BaseOptions(
+               connectTimeout: const Duration(seconds: 3),
+               receiveTimeout: const Duration(seconds: 30),
+             ),
+           );
 
-  final String serverAddress;
+  /// Base URL for the RTSP preview stream (`<previewBaseUrl>/preview`).
+  final String previewBaseUrl;
+
+  /// Base URL for HTTP recording downloads (`<downloadBaseUrl>/recordings/<id>`).
+  final String downloadBaseUrl;
   final Duration pairingDelay;
   final int previewFps;
   final Duration downloadDuration;
@@ -87,8 +93,6 @@ class MockWifiService implements WifiService {
   final VideoPathService _videoPathService;
   final Dio _dio;
 
-  String get _resolvedAddress =>
-      serverAddress.isEmpty ? 'localhost' : serverAddress;
   final Map<String, _GroupState> _groups = {};
   final Map<String, _DownloadState> _downloads = {};
   final _allProgressController =
@@ -107,9 +111,7 @@ class MockWifiService implements WifiService {
     if (state.state == WifiDirectState.starting) {
       // Wait for the in-flight pairing to finish, then return its group.
       final result = await state.connController.stream
-          .firstWhere(
-            (s) => s != WifiDirectState.starting,
-          )
+          .firstWhere((s) => s != WifiDirectState.starting)
           .timeout(
             const Duration(seconds: 10),
             onTimeout: () => WifiDirectState.failed,
@@ -124,17 +126,21 @@ class MockWifiService implements WifiService {
 
     await Future.delayed(pairingDelay);
 
+    // The group's host/ports are inert metadata in the mock — live URLs are
+    // sourced from the two base URLs. Derive a display host from the preview
+    // base so diagnostics stay meaningful; keep the contract ports as defaults.
+    final host = Uri.tryParse(previewBaseUrl)?.host;
     final group = WifiDirectGroup(
       ssid: 'DIRECT-mock-sst-cam',
       psk: 'dev-psk',
-      groupOwnerIp: _resolvedAddress,
+      groupOwnerIp: (host == null || host.isEmpty) ? 'localhost' : host,
       previewPort: 8554,
       downloadPort: 8080,
       role: 'GROUP_OWNER',
     );
     state.group = group;
     state.previewDescriptor = PreviewStreamDescriptor(
-      url: 'rtsp://$_resolvedAddress:8554/preview',
+      url: joinBaseUrl(previewBaseUrl, 'preview'),
       codec: PreviewCodec.rtspH264,
       width: 640,
       height: 360,
@@ -436,41 +442,44 @@ class MockWifiService implements WifiService {
             kbps: 0,
           ),
         );
-        _downloadOrFallback(
-          'http://$_resolvedAddress:8080/recordings/$uuid',
-          'dev-token',
-          savePath,
-        ).then((_) {
-          _publish(
-            entry,
-            VideoDownloadProgress(
-              downloadId: downloadId,
-              recordingId: uuid,
-              status: DownloadStatus.completed,
-              bytesReceived: totalBytes,
-              bytesTotal: totalBytes,
-              kbps: 0,
-            ),
-          );
-          controller.close();
-          _downloads.remove(downloadId);
-        }).catchError((Object e, StackTrace _) {
-          debugPrint('MockWifiService: placeholder write failed: $e');
-          _publish(
-            entry,
-            VideoDownloadProgress(
-              downloadId: downloadId,
-              recordingId: uuid,
-              status: DownloadStatus.failed,
-              bytesReceived: totalBytes,
-              bytesTotal: totalBytes,
-              kbps: 0,
-              errorMessage: e.toString(),
-            ),
-          );
-          controller.close();
-          _downloads.remove(downloadId);
-        });
+        fetchVideoOrFallback(
+              url: joinBaseUrl(downloadBaseUrl, 'recordings/$uuid'),
+              authToken: 'dev-token',
+              savePath: savePath,
+              httpClient: _dio,
+            )
+            .then((_) {
+              _publish(
+                entry,
+                VideoDownloadProgress(
+                  downloadId: downloadId,
+                  recordingId: uuid,
+                  status: DownloadStatus.completed,
+                  bytesReceived: totalBytes,
+                  bytesTotal: totalBytes,
+                  kbps: 0,
+                ),
+              );
+              controller.close();
+              _downloads.remove(downloadId);
+            })
+            .catchError((Object e, StackTrace _) {
+              debugPrint('MockWifiService: placeholder write failed: $e');
+              _publish(
+                entry,
+                VideoDownloadProgress(
+                  downloadId: downloadId,
+                  recordingId: uuid,
+                  status: DownloadStatus.failed,
+                  bytesReceived: totalBytes,
+                  bytesTotal: totalBytes,
+                  kbps: 0,
+                  errorMessage: e.toString(),
+                ),
+              );
+              controller.close();
+              _downloads.remove(downloadId);
+            });
       }
     });
 
@@ -500,53 +509,6 @@ class MockWifiService implements WifiService {
     );
   }
 
-  /// Tries a real HTTP GET to [url] with a Bearer [authToken] and writes the
-  /// response bytes to [path]. Falls back to [_writePlaceholder] when the
-  /// server is unreachable (e.g. Docker service not running in dev).
-  Future<void> _downloadOrFallback(
-    String url,
-    String authToken,
-    String path,
-  ) async {
-    final file = File(path);
-    await file.parent.create(recursive: true);
-    try {
-      final resp = await _dio.get<List<int>>(
-        url,
-        options: Options(
-          headers: {'Authorization': 'Bearer $authToken'},
-          responseType: ResponseType.bytes,
-        ),
-      );
-      if (resp.statusCode == 200 && resp.data != null) {
-        await file.writeAsBytes(resp.data!, flush: true);
-        return;
-      }
-    } on DioException catch (e) {
-      debugPrint(
-        'MockWifiService: HTTP download failed ($e), using bundled fallback',
-      );
-    } catch (e) {
-      debugPrint('MockWifiService: unexpected error during download: $e');
-    }
-    await _writePlaceholder(path);
-  }
-
-  /// Copies the bundled mock video to [path] so the device storage actually
-  /// contains a playable file. Falls back to a 1-byte sentinel when rootBundle
-  /// is unavailable (e.g. in unit-test environments without asset loading).
-  Future<void> _writePlaceholder(String path) async {
-    final file = File(path);
-    await file.parent.create(recursive: true);
-    try {
-      final data = await rootBundle.load('lib/mock/emulator/mock-video.mp4');
-      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
-    } catch (e) {
-      debugPrint('MockWifiService: asset copy failed, writing sentinel: $e');
-      await file.writeAsBytes([0x00], flush: true);
-    }
-  }
-
   @override
   Future<VideoDownloadHandle> downloadRecordingWithOverlays(
     String deviceId,
@@ -559,17 +521,16 @@ class MockWifiService implements WifiService {
   }
 
   @override
-  Stream<OverlayState> overlayStateStream(String deviceId) =>
-      Stream.periodic(
-        const Duration(seconds: 1),
-        (i) => const OverlayState(
-          timeSeconds: 0,
-          homeScore: 0,
-          awayScore: 0,
-          period: 1,
-          recentEventLabel: null,
-        ),
-      );
+  Stream<OverlayState> overlayStateStream(String deviceId) => Stream.periodic(
+    const Duration(seconds: 1),
+    (i) => const OverlayState(
+      timeSeconds: 0,
+      homeScore: 0,
+      awayScore: 0,
+      period: 1,
+      recentEventLabel: null,
+    ),
+  );
 
   @override
   List<VideoDownloadProgress> activeDownloads() =>

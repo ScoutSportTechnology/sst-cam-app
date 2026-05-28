@@ -17,17 +17,40 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('DeveloperSettingsPage', () {
-    testWidgets('renders seed data and camera switches (no mode chips)',
-        (tester) async {
+    testWidgets('renders seed data and camera switches (no mode chips)', (
+      tester,
+    ) async {
       await tester.pumpWidget(_page());
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('seedDataSwitch')), findsOneWidget);
       expect(find.byKey(const Key('cameraEmulationSwitch')), findsOneWidget);
+      expect(find.byKey(const Key('previewBaseField')), findsOneWidget);
+      expect(find.byKey(const Key('downloadBaseField')), findsOneWidget);
       expect(find.text('Full'), findsNothing);
       expect(find.text('Seed only'), findsNothing);
       expect(find.text('Empty'), findsNothing);
     });
+
+    testWidgets(
+      'editing the download base commits and shows the restart indicator',
+      (tester) async {
+        await tester.pumpWidget(_page());
+        await tester.pumpAndSettle();
+
+        expect(find.text('Restart to apply'), findsNothing);
+
+        await tester.enterText(
+          find.byKey(const Key('downloadBaseField')),
+          'https://mws.domain',
+        );
+        // Commit on focus loss.
+        await tester.tap(find.byKey(const Key('seedDataSwitch')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Restart to apply'), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'toggling seed data shows restart indicator when active is seeded',
@@ -46,21 +69,20 @@ void main() {
       },
     );
 
-    testWidgets(
-      'toggling camera emulation shows restart indicator',
-      (tester) async {
-        const active = DevConfig(cameraEmulation: true);
-        await tester.pumpWidget(_page(activeConfig: active));
-        await tester.pumpAndSettle();
+    testWidgets('toggling camera emulation shows restart indicator', (
+      tester,
+    ) async {
+      const active = DevConfig(cameraEmulation: true);
+      await tester.pumpWidget(_page(activeConfig: active));
+      await tester.pumpAndSettle();
 
-        expect(find.text('Restart to apply'), findsNothing);
+      expect(find.text('Restart to apply'), findsNothing);
 
-        await tester.tap(find.byKey(const Key('cameraEmulationSwitch')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('cameraEmulationSwitch')));
+      await tester.pumpAndSettle();
 
-        expect(find.text('Restart to apply'), findsOneWidget);
-      },
-    );
+      expect(find.text('Restart to apply'), findsOneWidget);
+    });
 
     testWidgets(
       'no restart indicator when staged config matches active config',
@@ -72,22 +94,21 @@ void main() {
       },
     );
 
-    testWidgets(
-      'close button is disabled when no pending changes',
-      (tester) async {
-        await tester.pumpWidget(_page());
-        await tester.pumpAndSettle();
+    testWidgets('close button is disabled when no pending changes', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_page());
+      await tester.pumpAndSettle();
 
-        // No pending changes → button disabled (onPressed == null)
-        final button = find.text('Close & restart');
-        expect(button, findsOneWidget);
+      // No pending changes → button disabled (onPressed == null)
+      final button = find.text('Close & restart');
+      expect(button, findsOneWidget);
 
-        // Tap should be no-op (no dialog shown)
-        await tester.tap(button);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsNothing);
-      },
-    );
+      // Tap should be no-op (no dialog shown)
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    });
 
     testWidgets(
       'close button shows confirmation dialog when changes are pending',
@@ -107,28 +128,27 @@ void main() {
       },
     );
 
-    testWidgets(
-      'Cancel in restart dialog closes dialog without restarting',
-      (tester) async {
-        await tester.pumpWidget(_page());
-        await tester.pumpAndSettle();
+    testWidgets('Cancel in restart dialog closes dialog without restarting', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_page());
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('seedDataSwitch')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Close & restart'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('seedDataSwitch')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close & restart'));
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Cancel'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(DeveloperSettingsPage), findsOneWidget);
-      },
-    );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(DeveloperSettingsPage), findsOneWidget);
+    });
   });
 
   group('DeveloperSettingsNotifier', () {
-    test('setServerAddress saves empty string as localhost', () async {
+    test('setPreviewBase coerces an empty string to the default', () async {
       final container = ProviderContainer(
         overrides: [devConfigProvider.overrideWithValue(const DevConfig())],
       );
@@ -136,18 +156,45 @@ void main() {
 
       await container
           .read(developerSettingsProvider.notifier)
-          .setServerAddress('');
+          .setPreviewBase('');
 
       final staged = container.read(developerSettingsProvider).stagedConfig;
-      expect(staged.serverAddress, 'localhost');
+      expect(staged.previewBaseUrl, DevConfig.defaults.previewBaseUrl);
+    });
+
+    test('setDownloadBase coerces an empty string to the default', () async {
+      final container = ProviderContainer(
+        overrides: [devConfigProvider.overrideWithValue(const DevConfig())],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(developerSettingsProvider.notifier)
+          .setDownloadBase('');
+
+      final staged = container.read(developerSettingsProvider).stagedConfig;
+      expect(staged.downloadBaseUrl, DevConfig.defaults.downloadBaseUrl);
+    });
+
+    test('setDownloadBase stores a custom value', () async {
+      final container = ProviderContainer(
+        overrides: [devConfigProvider.overrideWithValue(const DevConfig())],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(developerSettingsProvider.notifier)
+          .setDownloadBase('https://mws.domain');
+
+      final state = container.read(developerSettingsProvider);
+      expect(state.stagedConfig.downloadBaseUrl, 'https://mws.domain');
+      expect(state.hasPendingChanges, isTrue);
     });
 
     test('setSeedData updates stagedConfig', () async {
       final container = ProviderContainer(
         overrides: [
-          devConfigProvider.overrideWithValue(
-            const DevConfig(seedData: true),
-          ),
+          devConfigProvider.overrideWithValue(const DevConfig(seedData: true)),
         ],
       );
       addTearDown(container.dispose);

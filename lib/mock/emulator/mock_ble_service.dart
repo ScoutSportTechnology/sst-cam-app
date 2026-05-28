@@ -14,6 +14,7 @@ import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
 import '../../core/ble/ble_service.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
+import '../mock_video_fetcher.dart';
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [
@@ -256,7 +257,7 @@ class _TelemetryBaseline {
 class MockBleService implements BleService {
   MockBleService({
     this.advertiseDevices = true,
-    this.serverAddress = 'localhost',
+    this.downloadBaseUrl = 'http://localhost:8080',
     this.scanDeviceAppearDelays = const [
       Duration(seconds: 1),
       Duration(seconds: 2),
@@ -269,7 +270,9 @@ class MockBleService implements BleService {
   /// When false, startScan() emits an empty list and completes without
   /// scheduling any fake devices. Camera emulation is effectively disabled.
   final bool advertiseDevices;
-  final String serverAddress;
+
+  /// Base URL for the download token's `httpUrl` (`<base>/recordings/<id>`).
+  final String downloadBaseUrl;
   final List<Duration> scanDeviceAppearDelays;
   final Duration connectionDelay;
 
@@ -327,9 +330,10 @@ class MockBleService implements BleService {
 
   Future<void> _loadDevices() async {
     try {
-      final rows = (await _loadJsonAsset('lib/mock/emulator/fixtures/devices.json')
-              as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final rows =
+          (await _loadJsonAsset('lib/mock/emulator/fixtures/devices.json')
+                  as List<dynamic>)
+              .cast<Map<String, dynamic>>();
       _deviceCatalog = rows
           .map(
             (r) => SstDevice(
@@ -351,8 +355,9 @@ class MockBleService implements BleService {
 
   Future<void> _loadTelemetryBaseline() async {
     try {
-      final json = await _loadJsonAsset('lib/mock/emulator/fixtures/telemetry.json')
-          as Map<String, dynamic>;
+      final json =
+          await _loadJsonAsset('lib/mock/emulator/fixtures/telemetry.json')
+              as Map<String, dynamic>;
       _baseline = _TelemetryBaseline.fromJson(json);
     } catch (e) {
       debugPrint('MockBleService: telemetry.json unavailable — $e');
@@ -612,9 +617,7 @@ class MockBleService implements BleService {
     );
     final respBytes = respChunk.writeToBuffer();
     final decodedRespChunk = proto.ChunkedPayload.fromBuffer(respBytes);
-    final decodedResp = proto.CommandResponse.fromBuffer(
-      decodedRespChunk.data,
-    );
+    final decodedResp = proto.CommandResponse.fromBuffer(decodedRespChunk.data);
 
     if (decodedResp.status != proto.ResponseStatus.OK) {
       return BleCommandResponse.error(decodedResp.errorMessage);
@@ -683,15 +686,13 @@ class MockBleService implements BleService {
         status: proto.ResponseStatus.OK,
         downloadToken: proto.DownloadTokenResponse(
           recordingId: recordingId,
-          httpUrl:
-              'http://$serverAddress:8080/recordings/$recordingId.mp4',
-          authToken:
-              'mock-token-${DateTime.now().millisecondsSinceEpoch}',
+          httpUrl: joinBaseUrl(downloadBaseUrl, 'recordings/$recordingId'),
+          authToken: 'mock-token-${DateTime.now().millisecondsSinceEpoch}',
           expiresAt: Int64(
             DateTime.now()
-                .add(const Duration(minutes: 15))
-                .millisecondsSinceEpoch ~/
-            1000,
+                    .add(const Duration(minutes: 15))
+                    .millisecondsSinceEpoch ~/
+                1000,
           ),
         ),
       ),
@@ -770,11 +771,12 @@ class MockBleService implements BleService {
       ),
       RequestThumbnailCommand() => BleCommandResponse.ok(
         ThumbnailResult(
-          jpegBytes: Uint8List.fromList(resp.thumbnail.jpegBytes),
-          capturedAt: DateTime.fromMillisecondsSinceEpoch(
-            resp.thumbnail.captureTimestamp.toInt(),
-          ),
-        ) as T?,
+              jpegBytes: Uint8List.fromList(resp.thumbnail.jpegBytes),
+              capturedAt: DateTime.fromMillisecondsSinceEpoch(
+                resp.thumbnail.captureTimestamp.toInt(),
+              ),
+            )
+            as T?,
       ),
     };
   }
@@ -866,7 +868,7 @@ class MockBleService implements BleService {
     await Future.delayed(const Duration(milliseconds: 200));
     return DownloadToken(
       recordingId: recordingId,
-      httpUrl: 'http://$serverAddress:8080/recordings/$recordingId.mp4',
+      httpUrl: joinBaseUrl(downloadBaseUrl, 'recordings/$recordingId'),
       authToken: 'mock-token-${DateTime.now().millisecondsSinceEpoch}',
       expiresAt: DateTime.now().add(const Duration(minutes: 15)),
     );

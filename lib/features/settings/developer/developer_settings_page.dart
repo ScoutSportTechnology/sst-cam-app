@@ -18,29 +18,71 @@ class DeveloperSettingsPage extends ConsumerStatefulWidget {
 }
 
 class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
-  late TextEditingController _serverController;
-  bool _serverDirty = false;
+  late TextEditingController _previewController;
+  late TextEditingController _downloadController;
+  bool _previewDirty = false;
+  bool _downloadDirty = false;
 
   @override
   void initState() {
     super.initState();
     final staged = ref.read(developerSettingsProvider).stagedConfig;
-    _serverController = TextEditingController(text: staged.serverAddress);
+    _previewController = TextEditingController(text: staged.previewBaseUrl);
+    _downloadController = TextEditingController(text: staged.downloadBaseUrl);
   }
 
   @override
   void dispose() {
-    _serverController.dispose();
+    _previewController.dispose();
+    _downloadController.dispose();
     super.dispose();
   }
 
-  void _commitServerAddress() {
-    if (!_serverDirty) return;
-    _serverDirty = false;
+  void _commitPreviewBase() {
+    if (!_previewDirty) return;
+    _previewDirty = false;
     ref
         .read(developerSettingsProvider.notifier)
-        .setServerAddress(_serverController.text);
+        .setPreviewBase(_previewController.text);
   }
+
+  void _commitDownloadBase() {
+    if (!_downloadDirty) return;
+    _downloadDirty = false;
+    ref
+        .read(developerSettingsProvider.notifier)
+        .setDownloadBase(_downloadController.text);
+  }
+
+  Widget _baseUrlField({
+    required Key fieldKey,
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+    required VoidCallback onChanged,
+    required VoidCallback onCommit,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: const TextStyle(color: T.ink3, fontSize: 12)),
+      TextField(
+        key: fieldKey,
+        controller: controller,
+        style: const TextStyle(color: T.ink, fontSize: 14),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: const TextStyle(color: T.ink3),
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
+        ),
+        onChanged: (_) => onChanged(),
+        onSubmitted: (_) => onCommit(),
+        onTapOutside: (_) => onCommit(),
+        keyboardType: TextInputType.url,
+      ),
+    ],
+  );
 
   Future<void> _confirmRestart(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -101,8 +143,21 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
             child: Row(
               children: [
                 const Expanded(
-                  child: Text('Seed app data',
-                      style: TextStyle(color: T.ink, fontSize: 14)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Seed app data',
+                        style: TextStyle(color: T.ink, fontSize: 14),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Fills the local database with sample teams, matches '
+                        'and players, plus on-device past-match videos.',
+                        style: TextStyle(color: T.ink2, fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
                 Switch(
                   key: const Key('seedDataSwitch'),
@@ -115,55 +170,58 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
           ),
           const SizedBox(height: 16),
 
-          // Camera emulation
-          const _SectionHeader('Camera emulation'),
+          // Camera (BLE + live WiFi)
+          const _SectionHeader('Camera'),
           WfCard(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
+            child: Column(
               children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Emulate BLE camera',
-                          style: TextStyle(color: T.ink, fontSize: 14)),
-                      SizedBox(height: 2),
-                      Text(
-                        'Mock BLE device advertises and responds to commands',
-                        style: TextStyle(color: T.ink2, fontSize: 12),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Emulate camera',
+                            style: TextStyle(color: T.ink, fontSize: 14),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Mock BLE device advertises and the live WiFi '
+                            'preview/download endpoints respond.',
+                            style: TextStyle(color: T.ink2, fontSize: 12),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    Switch(
+                      key: const Key('cameraEmulationSwitch'),
+                      value: staged.cameraEmulation,
+                      onChanged: notifier.setCameraEmulation,
+                      activeThumbColor: T.accent,
+                    ),
+                  ],
                 ),
-                Switch(
-                  key: const Key('cameraEmulationSwitch'),
-                  value: staged.cameraEmulation,
-                  onChanged: notifier.setCameraEmulation,
-                  activeThumbColor: T.accent,
+                const Divider(height: 20, color: T.hair),
+                _baseUrlField(
+                  fieldKey: const Key('previewBaseField'),
+                  label: 'Preview base URL',
+                  controller: _previewController,
+                  hint: DevConfig.defaults.previewBaseUrl,
+                  onChanged: () => _previewDirty = true,
+                  onCommit: _commitPreviewBase,
+                ),
+                const SizedBox(height: 10),
+                _baseUrlField(
+                  fieldKey: const Key('downloadBaseField'),
+                  label: 'Download base URL',
+                  controller: _downloadController,
+                  hint: DevConfig.defaults.downloadBaseUrl,
+                  onChanged: () => _downloadDirty = true,
+                  onCommit: _commitDownloadBase,
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // WiFi server address
-          const _SectionHeader('WiFi server address'),
-          WfCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: TextField(
-              controller: _serverController,
-              style: const TextStyle(color: T.ink, fontSize: 14),
-              decoration: const InputDecoration(
-                hintText: 'localhost',
-                hintStyle: TextStyle(color: T.ink3),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
-              onChanged: (_) => _serverDirty = true,
-              onSubmitted: (_) => _commitServerAddress(),
-              onTapOutside: (_) => _commitServerAddress(),
-              keyboardType: TextInputType.url,
             ),
           ),
           const SizedBox(height: 32),
@@ -200,4 +258,3 @@ class _SectionHeader extends StatelessWidget {
     ),
   );
 }
-

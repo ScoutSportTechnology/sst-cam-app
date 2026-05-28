@@ -130,8 +130,7 @@ void main() {
       await svc.stopScan();
       await sub.cancel();
 
-      final devices =
-          emitted.lastWhere((l) => l.length == 2, orElse: () => []);
+      final devices = emitted.lastWhere((l) => l.length == 2, orElse: () => []);
       expect(devices, hasLength(2));
       expect(
         devices.map((d) => d.id),
@@ -192,7 +191,8 @@ void main() {
 
     test('requestDownload returns valid non-expired token', () async {
       final token = await svc.requestDownload('SST-CAM-001', 'rec-001');
-      expect(token.httpUrl, startsWith('http://'));
+      // Suffix-less /recordings/<id> form derived from downloadBaseUrl.
+      expect(token.httpUrl, 'http://localhost:8080/recordings/rec-001');
       expect(token.authToken, isNotEmpty);
       expect(token.isExpired, isFalse);
     });
@@ -245,43 +245,49 @@ void main() {
       expect(emitted.any((l) => l.isNotEmpty), isTrue);
     });
 
-    test('advertiseDevices=false emits only an empty list and completes', () async {
-      final noAdSvc = MockBleService(
-        advertiseDevices: false,
-        scanDeviceAppearDelays: [Duration.zero, Duration.zero],
-        connectionDelay: Duration.zero,
-        failureRate: 0.0,
-      );
-      addTearDown(noAdSvc.dispose);
+    test(
+      'advertiseDevices=false emits only an empty list and completes',
+      () async {
+        final noAdSvc = MockBleService(
+          advertiseDevices: false,
+          scanDeviceAppearDelays: [Duration.zero, Duration.zero],
+          connectionDelay: Duration.zero,
+          failureRate: 0.0,
+        );
+        addTearDown(noAdSvc.dispose);
 
-      final emitted = <List<SstDevice>>[];
-      final sub = noAdSvc.discoveredDevices.listen(emitted.add);
+        final emitted = <List<SstDevice>>[];
+        final sub = noAdSvc.discoveredDevices.listen(emitted.add);
 
-      await noAdSvc.startScan(timeout: const Duration(seconds: 10));
-      await Future.delayed(Duration.zero);
-      await Future.delayed(Duration.zero);
+        await noAdSvc.startScan(timeout: const Duration(seconds: 10));
+        await Future.delayed(Duration.zero);
+        await Future.delayed(Duration.zero);
 
-      await noAdSvc.stopScan();
-      await sub.cancel();
+        await noAdSvc.stopScan();
+        await sub.cancel();
 
-      expect(emitted.every((l) => l.isEmpty), isTrue);
-    });
+        expect(emitted.every((l) => l.isEmpty), isTrue);
+      },
+    );
   });
 
   group('Proto round-trip', () {
-    test('GetTelemetryCommand returns BleCommandResponse with valid DeviceTelemetry', () async {
-      final resp = await svc.sendCommand<DeviceTelemetry>(
-        'SST-CAM-001',
-        GetTelemetryCommand(),
-      );
-      expect(resp.isOk, isTrue);
-      final t = resp.payload;
-      expect(t, isNotNull);
-      expect(t!.storageTotalBytes, greaterThan(0));
-      expect(t.cpuUsedPct, inInclusiveRange(0.0, 1.0));
-      expect(t.ramUsedPct, inInclusiveRange(0.0, 1.0));
-      expect(t.tempCelsius, greaterThan(0.0));
-    });
+    test(
+      'GetTelemetryCommand returns BleCommandResponse with valid DeviceTelemetry',
+      () async {
+        final resp = await svc.sendCommand<DeviceTelemetry>(
+          'SST-CAM-001',
+          GetTelemetryCommand(),
+        );
+        expect(resp.isOk, isTrue);
+        final t = resp.payload;
+        expect(t, isNotNull);
+        expect(t!.storageTotalBytes, greaterThan(0));
+        expect(t.cpuUsedPct, inInclusiveRange(0.0, 1.0));
+        expect(t.ramUsedPct, inInclusiveRange(0.0, 1.0));
+        expect(t.tempCelsius, greaterThan(0.0));
+      },
+    );
 
     test('GetMatchStateCommand returns valid MatchState', () async {
       final resp = await svc.sendCommand<MatchState>(
