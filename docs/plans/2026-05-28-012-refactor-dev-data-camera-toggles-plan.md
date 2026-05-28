@@ -1,7 +1,7 @@
 ---
 title: "refactor: Dev data/camera toggles + mock-system fidelity"
 type: refactor
-status: active
+status: completed
 date: 2026-05-28
 origin: docs/brainstorms/2026-05-28-dev-data-camera-toggles-requirements.md
 ---
