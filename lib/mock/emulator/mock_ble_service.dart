@@ -280,7 +280,7 @@ class MockBleService implements BleService {
   Future<void> _doLoadRecordings() async {
     try {
       final raw = await rootBundle.loadString(
-        'assets/ble/fixtures/recordings.json',
+        'lib/mock/emulator/fixtures/recordings.json',
       );
       final stripped = raw
           .split('\n')

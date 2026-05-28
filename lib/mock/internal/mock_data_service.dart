@@ -105,7 +105,7 @@ class MockDataSeeder {
     // Falls back to a 1-byte sentinel only when rootBundle is unavailable
     // (unit-test environments that haven't loaded the asset bundle).
     try {
-      final data = await rootBundle.load('assets/ble/mock-video.mp4');
+      final data = await rootBundle.load('lib/mock/emulator/mock-video.mp4');
       await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
     } catch (_) {
       try {
@@ -202,7 +202,7 @@ class MockDataSeeder {
   /// Loads and parses a fixture JSON file, stripping `//` comment lines.
   Future<List<Map<String, dynamic>>> _loadFixture(String name) async {
     final raw =
-        await rootBundle.loadString('assets/ble/fixtures/$name.json');
+        await rootBundle.loadString('lib/mock/internal/fixtures/$name.json');
     // Strip lines that are purely // comments (JSON doesn't support comments).
     final stripped = raw
         .split('\n')

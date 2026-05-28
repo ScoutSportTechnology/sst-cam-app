@@ -539,7 +539,7 @@ class MockWifiService implements WifiService {
     final file = File(path);
     await file.parent.create(recursive: true);
     try {
-      final data = await rootBundle.load('assets/ble/mock-video.mp4');
+      final data = await rootBundle.load('lib/mock/emulator/mock-video.mp4');
       await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
     } catch (e) {
       debugPrint('MockWifiService: asset copy failed, writing sentinel: $e');

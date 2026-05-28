@@ -105,7 +105,7 @@ void _syncSeedVideosToGallery(ProviderContainer container) {
       if (!file.existsSync() || file.lengthSync() <= 1024) {
         try {
           await file.parent.create(recursive: true);
-          final data = await rootBundle.load('assets/ble/mock-video.mp4');
+          final data = await rootBundle.load('lib/mock/emulator/mock-video.mp4');
           await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
         } catch (e) {
           debugPrint(

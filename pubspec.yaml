@@ -71,8 +71,9 @@ dependency_overrides:
 flutter:
   uses-material-design: true
   assets:
-    - assets/ble/
-    - assets/ble/fixtures/
+    - lib/mock/internal/fixtures/
+    - lib/mock/emulator/fixtures/
+    - lib/mock/emulator/mock-video.mp4
 
 flutter_app_name:
   name: "SST Cam"
