@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,6 +18,7 @@ import 'features/settings/developer/developer_settings_page.dart';
 import 'mock/emulator/mock_ble_service.dart';
 import 'mock/emulator/mock_wifi_service.dart';
 import 'mock/internal/mock_data_service.dart';
+import 'mock/mock_video_fetcher.dart';
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
@@ -37,7 +37,11 @@ Future<void> main() async {
   final db = AppDatabase();
 
   try {
-    await applySeedData(db, seed: devConfig.seedData);
+    await applySeedData(
+      db,
+      seed: devConfig.seedData,
+      downloadBaseUrl: devConfig.downloadBaseUrl,
+    );
   } catch (e, st) {
     FlutterError.reportError(
       FlutterErrorDetails(
@@ -66,7 +70,11 @@ Future<void> main() async {
       wifiServiceProvider.overrideWithValue(wifiMock),
       devConfigProvider.overrideWithValue(devConfig),
       devReseedProvider.overrideWithValue(
-        () async => MockDataSeeder(db).seed(),
+        () async => applySeedData(
+          db,
+          seed: devConfig.seedData,
+          downloadBaseUrl: devConfig.downloadBaseUrl,
+        ),
       ),
       devNavigationProvider.overrideWithValue(
         DevNavigation(
@@ -83,14 +91,19 @@ Future<void> main() async {
 
   if (devConfig.seedData) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncSeedVideosToGallery(container);
+      _syncSeedVideosToGallery(container, devConfig.downloadBaseUrl);
     });
   }
 }
 
 /// Ensures seeded "on device" match videos are in `Movies/SSTCam/` so they
-/// appear in Google Photos and can be shared.
-void _syncSeedVideosToGallery(ProviderContainer container) {
+/// appear in Google Photos and can be shared. The seeder normally materializes
+/// these files already; the fetch here is a safety net that reuses the shared
+/// container → bundled → sentinel helper before copying to the gallery.
+void _syncSeedVideosToGallery(
+  ProviderContainer container,
+  String downloadBaseUrl,
+) {
   final pathSvc = container.read(videoPathServiceProvider);
   final db = container.read(appDatabaseProvider);
   // ignore: discarded_futures
@@ -103,18 +116,11 @@ void _syncSeedVideosToGallery(ProviderContainer container) {
       final file = File(path);
 
       if (!file.existsSync() || file.lengthSync() <= 1024) {
-        try {
-          await file.parent.create(recursive: true);
-          final data = await rootBundle.load(
-            'lib/mock/emulator/mock-video.mp4',
-          );
-          await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
-        } catch (e) {
-          debugPrint(
-            '_syncSeedVideosToGallery: asset write failed for ${row.id}: $e',
-          );
-          continue;
-        }
+        await fetchVideoOrFallback(
+          url: joinBaseUrl(downloadBaseUrl, 'recordings/${row.id}'),
+          authToken: 'dev-token',
+          savePath: path,
+        );
       }
 
       await GalleryService.saveVideo(
