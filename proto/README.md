@@ -1,10 +1,14 @@
 # SST-Cam Protocol
 
+> **Firmware developers:** the complete implementation contract — session lifecycle,
+> required commands, overlay rendering, file layout, and constraints — lives in
+> **`docs/firmware-spec.md`**. This README is a developer quick-reference for
+> the proto wire format only.
+
 All control messages are encoded as Protocol Buffers (proto3). The app writes
 requests and reads responses over a two-characteristic GATT service for
 control, and pulls bulk data (live preview, recording downloads) over a WiFi
-Direct link. This document is the authoritative contract for both the app and
-the firmware team.
+Direct link.
 
 ## Channel split
 
@@ -67,7 +71,7 @@ Polling responsibilities (all on the app side):
 | Data | Command | Suggested interval |
 | ---- | ------- | ----------------- |
 | Telemetry | `GetTelemetryCommand` | 1 s |
-| Match state | `GetMatchStateCommand` | 2 s |
+| Match state | `GetMatchStateCommand` | deferred in v1 (telemetry covers operational needs) |
 | Thumbnail | `ThumbnailRequest` | on demand |
 
 The firmware MUST respond to every command. If it cannot, it MUST send a
@@ -112,8 +116,12 @@ copies disagreed on integer values — the wider match.proto set won) and
 
 | File | Contents |
 | ---- | -------- |
-| `bluetooth.proto` | All BLE control schema: framing (`ChunkedPayload`, `ChunkAck`), `Command` / `CommandResponse` envelopes, telemetry, match, recording / streaming, teams + roster, configuration |
-| `wifi.proto` | WiFi Direct group descriptor, RTSP H.264 preview descriptor, preview heartbeat |
+| `bluetooth.proto` | All BLE control schema: framing, `Command` / `CommandResponse` envelopes, telemetry, match events, recording / streaming, session push, WiFi Direct handshake |
+| `wifi.proto` | WiFi-only descriptors: RTSP preview stream descriptor, preview heartbeat |
+
+**Regenerating Dart bindings:** run `just gen-proto` inside the devcontainer.
+Requires `protoc` and `protoc_plugin 21.1.2` (pinned to match `protobuf: 3.1.0`).
+Install: `sudo apt-get install protobuf-compiler && dart pub global activate protoc_plugin 21.1.2`
 
 ---
 

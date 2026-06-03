@@ -12,24 +12,32 @@ package sst_cam;
 //   * WiFi Direct = data plane. See wifi.proto for the bulk-data contracts
 //     (RTSP H.264 preview, HTTP recording downloads). The BLE side
 //     negotiates the WiFi group via StartWifiDirectCommand →
-//     WifiDirectGroupResponse (in wifi.proto).
+//     WifiDirectGroupResponse (both defined here).
+//
+// Architecture — app is source of truth:
+//   The app owns all business data (users, teams, rosters, match configs,
+//   streaming destinations). The camera is a stateless executor: it receives
+//   a session config once per session, reacts to events pushed by the app
+//   (recording control, match events, score updates), and produces files.
+//   The camera NEVER pushes unsolicited data and NEVER persists business data
+//   across sessions. See docs/firmware-spec.md for the full contract.
 //
 // History:
-//   This file was consolidated from six smaller files (command, telemetry,
-//   match, recording, team, config). During the merge:
-//     * Sport was deduplicated to match.proto's superset (UNKNOWN, SOCCER,
-//       BASKETBALL, AMERICAN_FOOTBALL, VOLLEYBALL, HOCKEY, BASEBALL, RUGBY,
-//       OTHER). team.proto's smaller set was wire-incompatible with this
-//       superset — recompile both sides when integrating.
-//     * PlayerInfo.position retyped from `string` to the `PlayerPosition`
-//       enum. Wire-incompatible; acceptable now because the firmware speaks
-//       opaque bytes (proto integration deferred per device-OS team).
-//     * DownloadTokenResponse field numbers fixed (auth_token was 2 like
-//       http_url in the original — now 3, expires_at bumped to 4).
+//   Consolidated from six smaller files (command, telemetry, match, recording,
+//   team, config). During the merge:
+//     * Sport was deduplicated to match.proto's superset.
+//     * PlayerInfo.position retyped from string to PlayerPosition enum.
+//     * DownloadTokenResponse field numbers fixed.
+//   Post-consolidation:
+//     * MatchConfigCommand tombstoned — replaced by PushSessionConfigCommand.
+//     * WifiDirect commands + response moved here from wifi.proto.
+//     * RecordingAction gained PAUSE / RESUME.
+//     * MatchControlCommand gained period field; MatchControlAction redesigned.
+//     * DeviceTelemetry gained battery_level_pct.
+//     * PushSessionConfigCommand gained team name/color fields.
 //
 // Versioning policy:
-//   * Use `reserved <numbers>` and `reserved "names"` to tombstone removed
-//     fields so they are never reused.
+//   * Use reserved <numbers> and reserved "names" to tombstone removed fields.
 //   * Adding optional fields is backward-compatible.
 //   * Removing / renaming / renumbering fields requires a coordinated
 //     firmware + app release. Bump DeviceInfoResponse.protocol_version.
@@ -39,17 +47,13 @@ package sst_cam;
 // 1. Envelope and framing
 // ===========================================================================
 
-// All payloads are wrapped in `ChunkedPayload` to handle proto messages
-// larger than the negotiated MTU (typically 512 bytes after MTU exchange).
 message ChunkedPayload {
   string correlation_id = 1;
-  uint32 chunk_index    = 2;  // 0-based
+  uint32 chunk_index    = 2;
   uint32 total_chunks   = 3;
-  bytes  data           = 4;  // serialised Command or CommandResponse bytes
+  bytes  data           = 4;
 }
 
-// Sent by the app after receiving each chunk (flow control for large
-// payloads such as thumbnails).
 message ChunkAck {
   string correlation_id = 1;
   uint32 chunk_index    = 2;
@@ -60,45 +64,42 @@ message ChunkAck {
 // ===========================================================================
 
 message Command {
-  // Unique per-request; echoed in CommandResponse so the app can match
-  // replies. App-generated UUID v4 string.
   string correlation_id = 1;
 
   oneof payload {
-    // Device / info
     GetDeviceInfoCommand  get_device_info  = 10;
     ThumbnailRequest      thumbnail        = 11;
-
-    // Polling — app requests these at regular intervals
     GetTelemetryCommand   get_telemetry    = 12;
     GetMatchStateCommand  get_match_state  = 13;
 
-    // Match control
-    MatchConfigCommand    match_config     = 20;
     MatchControlCommand   match_control    = 21;
     ScoreUpdateCommand    score_update     = 22;
     BannerEventCommand    banner_event     = 23;
 
-    // Recording / streaming
     RecordingControlCommand  recording_control  = 30;
     StreamingControlCommand  streaming_control  = 31;
     ListRecordingsCommand    list_recordings    = 32;
     DownloadRequestCommand   download_request   = 33;
 
-    // Configuration
     SetWifiConfigCommand      set_wifi_config      = 40;
     SetStreamingConfigCommand set_streaming_config = 41;
 
-    // Admin
     FactoryResetCommand   factory_reset    = 50;
     FirmwareUpdateCommand firmware_update  = 51;
 
-    // Session push (U9) — sent once before recording starts
     PushSessionConfigCommand push_session_config = 52;
+
+    StartWifiDirectCommand start_wifi_direct = 53;
+    StopWifiDirectCommand  stop_wifi_direct  = 54;
+
+    // Overlay layout spec — sent once after PushSessionConfigCommand.
+    // Defines the full visual design for overlays; firmware renders exactly
+    // what this spec describes. Can be resent to change designs mid-session.
+    PushOverlayLayoutCommand push_overlay_layout = 55;
   }
 
-  // Tombstoned field numbers/names from the team and sport-preset commands
-  // that were removed during the consolidation. Never reuse these.
+  reserved 20;
+  reserved "match_config";
   reserved 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70;
   reserved "list_teams", "list_team_matches", "create_team", "update_team",
            "delete_team", "set_team_hidden", "add_player", "update_player",
@@ -111,15 +112,16 @@ message Command {
 message CommandResponse {
   string         correlation_id = 1;
   ResponseStatus status         = 2;
-  string         error_message  = 3;  // non-empty only when status != OK
+  string         error_message  = 3;
 
   oneof payload {
-    DeviceInfoResponse    device_info     = 10;
-    ThumbnailResponse     thumbnail       = 11;
-    RecordingListResponse recording_list  = 12;
-    DownloadTokenResponse download_token  = 13;
-    DeviceTelemetry       telemetry       = 14;  // GetTelemetryCommand reply
-    MatchState            match_state     = 15;  // GetMatchStateCommand reply
+    DeviceInfoResponse      device_info       = 10;
+    ThumbnailResponse       thumbnail         = 11;
+    RecordingListResponse   recording_list    = 12;
+    DownloadTokenResponse   download_token    = 13;
+    DeviceTelemetry         telemetry         = 14;
+    MatchState              match_state       = 15;
+    WifiDirectGroupResponse wifi_direct_group = 23;
   }
 
   reserved 16, 17, 18, 19, 20, 21, 22;
@@ -139,8 +141,8 @@ enum ResponseStatus {
 // ===========================================================================
 
 message GetDeviceInfoCommand  {}
-message GetTelemetryCommand   {}  // app polls ~1 Hz
-message GetMatchStateCommand  {}  // app polls ~0.5 Hz
+message GetTelemetryCommand   {}
+message GetMatchStateCommand  {}
 message ListRecordingsCommand {}
 message FactoryResetCommand   {}
 message FirmwareUpdateCommand {}
@@ -149,36 +151,32 @@ message FirmwareUpdateCommand {}
 // 4. Telemetry / device info
 // ===========================================================================
 
-// Returned in CommandResponse.device_info.
 message DeviceInfoResponse {
   string device_id        = 1;
   string name             = 2;
-  string firmware_version = 3;  // semver, e.g. "0.2.1"
-  string model            = 4;  // e.g. "Jetson Orin NX"
-  uint32 protocol_version = 5;  // bumped on breaking schema changes
+  string firmware_version = 3;
+  string model            = 4;
+  uint32 protocol_version = 5;
 }
 
-// Returned in CommandResponse.telemetry. App polls at ~1 Hz.
 message DeviceTelemetry {
-  // Storage
   uint64 storage_free_bytes  = 1;
   uint64 storage_total_bytes = 2;
 
-  // Network
   WifiState wifi_state         = 3;
-  string    wifi_ssid          = 4;  // empty when disconnected
-  sint32    wifi_signal_dbm    = 5;  // 0 when disconnected
+  string    wifi_ssid          = 4;
+  sint32    wifi_signal_dbm    = 5;
   bool      internet_reachable = 6;
 
-  // System health
   float  temp_celsius   = 7;
-  float  ram_used_pct   = 8;  // 0.0–1.0
-  float  cpu_used_pct   = 9;  // 0.0–1.0
+  float  ram_used_pct   = 8;
+  float  cpu_used_pct   = 9;
   uint64 uptime_seconds = 10;
 
-  // Recording / streaming snapshot (mirrors MatchState but lighter weight)
   bool is_recording = 11;
   bool is_streaming = 12;
+
+  uint32 battery_level_pct = 13;
 }
 
 enum WifiState {
@@ -188,25 +186,21 @@ enum WifiState {
   WIFI_CONNECTED    = 3;
 }
 
-// Camera preview thumbnail — BLE is too slow for video, so the app pulls
-// stills here and uses the WiFi Direct RTSP stream for live preview.
 message ThumbnailRequest {
-  uint32 width   = 1;  // suggested 160
-  uint32 height  = 2;  // suggested 90
-  uint32 quality = 3;  // JPEG quality 0–100, suggested 60
+  uint32 width   = 1;
+  uint32 height  = 2;
+  uint32 quality = 3;
 }
 
 message ThumbnailResponse {
-  // Chunks are reassembled by the app using ChunkedPayload.
   bytes  jpeg_bytes        = 1;
-  uint64 capture_timestamp = 2;  // unix millis
+  uint64 capture_timestamp = 2;
 }
 
 // ===========================================================================
 // 5. Shared enums
 // ===========================================================================
 
-// Canonical Sport enum (superset of historical match.proto values).
 enum Sport {
   SPORT_UNKNOWN           = 0;
   SPORT_SOCCER            = 1;
@@ -229,67 +223,50 @@ enum PlayerPosition {
 }
 
 // ===========================================================================
-// 6. Match
+// 6. Match — event-push model
+//
+// The app is the match timer and score authority. The camera receives events
+// and reacts: it renders overlays on the RTSP stream and baked recording,
+// and maintains a display-only scoreboard clock. The camera never holds
+// authoritative match state — it only reflects what the app last pushed.
 // ===========================================================================
-
-message MatchConfigCommand {
-  Sport               sport           = 1;
-  uint32              period_length_s = 2;
-  uint32              num_periods     = 3;
-  TeamInfo            team_a          = 4;
-  TeamInfo            team_b          = 5;
-  repeated PlayerInfo roster_a        = 6;
-  repeated PlayerInfo roster_b        = 7;
-}
-
-message TeamInfo {
-  string id        = 1;
-  string name      = 2;
-  string color_hex = 3;  // e.g. "#1A73E8"
-}
-
-message PlayerInfo {
-  string         id       = 1;
-  string         name     = 2;
-  uint32         number   = 3;
-  PlayerPosition position = 4;
-}
 
 message MatchControlCommand {
   MatchControlAction action = 1;
+  uint32             period = 2;
 }
 
 enum MatchControlAction {
-  MATCH_ACTION_UNKNOWN = 0;
-  MATCH_START          = 1;
-  MATCH_STOP           = 2;
-  MATCH_PAUSE          = 3;
-  MATCH_RESUME         = 4;
-  MATCH_NEXT_PERIOD    = 5;
+  MATCH_ACTION_UNKNOWN  = 0;
+  MATCH_KICKOFF         = 1;
+  MATCH_PERIOD_END      = 2;
+  MATCH_PERIOD_START    = 3;
+  MATCH_FINAL_WHISTLE   = 4;
+  MATCH_CLOCK_PAUSE     = 5;
+  MATCH_CLOCK_RESUME    = 6;
 }
 
 message ScoreUpdateCommand {
-  string team_id = 1;  // must match TeamInfo.id from MatchConfigCommand
-  sint32 delta   = 2;  // +1 goal, -1 disallowed goal, etc.
+  string team_id = 1;
+  sint32 delta   = 2;
 }
 
 message BannerEventCommand {
-  string              template_id = 1;  // e.g. "goal", "foul", "substitution"
-  map<string, string> params      = 2;  // {"player_name": "Raul", "number": "10"}
+  string              template_id = 1;
+  map<string, string> params      = 2;
   uint32              duration_s  = 3;
-  string              player_id   = 4;  // optional; links to PlayerInfo
+  string              player_id   = 4;
 }
 
-// Returned via GetMatchStateCommand polling.
 message MatchState {
-  MatchStatus status          = 1;
-  uint32      current_period  = 2;  // 1-based
+  MatchStatus status           = 1;
+  uint32      current_period   = 2;
   uint32      time_remaining_s = 3;
-  uint32      score_a         = 4;
-  uint32      score_b         = 5;
-  string      team_a_id       = 6;
-  string      team_b_id       = 7;
-  uint64      updated_at      = 8;  // unix millis
+  uint32      score_a          = 4;
+  uint32      score_b          = 5;
+  string      team_a_id        = 6;
+  string      team_b_id        = 7;
+  uint64      updated_at       = 8;
 }
 
 enum MatchStatus {
@@ -313,11 +290,13 @@ enum RecordingAction {
   RECORDING_ACTION_UNKNOWN = 0;
   RECORDING_START          = 1;
   RECORDING_STOP           = 2;
+  RECORDING_PAUSE          = 3;
+  RECORDING_RESUME         = 4;
 }
 
 message StreamingControlCommand {
   StreamingAction action      = 1;
-  string          destination = 2;  // RTMP URL (pre-built with key by the app)
+  string          destination = 2;
 }
 
 enum StreamingAction {
@@ -326,76 +305,206 @@ enum StreamingAction {
   STREAMING_STOP           = 2;
 }
 
-// One entry per recorded file on the Jetson.
 message RecordingMetadata {
   string id           = 1;
   uint64 duration_s   = 2;
   uint64 size_bytes   = 3;
-  uint64 started_at   = 4;  // unix millis
-  string sport        = 5;  // human-readable label
-  string teams        = 6;  // e.g. "Team A vs Team B"
-  string thumbnail_id = 7;  // optional per-recording thumbnail handle
+  uint64 started_at   = 4;
+  string sport        = 5;
+  string teams        = 6;
+  string thumbnail_id = 7;
 }
 
 message RecordingListResponse {
   repeated RecordingMetadata recordings = 1;
 }
 
-// The Jetson serves video over WiFi Direct (HTTP/1.1 with byte-range support);
-// BLE is used only to obtain a short-lived URL + bearer token.
 message DownloadRequestCommand {
   string recording_id = 1;
 }
 
 message DownloadTokenResponse {
   string recording_id = 1;
-  string http_url     = 2;  // e.g. "http://192.168.49.1:8080/recordings/abc.mp4"
-  string auth_token   = 3;  // Bearer token; short-lived (~15 min)
-  uint64 expires_at   = 4;  // unix millis
+  string http_url     = 2;
+  string auth_token   = 3;
+  uint64 expires_at   = 4;
 }
 
 // ===========================================================================
-// 8. Configuration — credentials never logged by the app
+// 8. Configuration
 // ===========================================================================
 
-// WiFi credentials for the Jetson's outbound (cellular-tethered) network.
-// Stored on device; not used for the WiFi Direct group between phone and
-// camera (those credentials are returned in WifiDirectGroupResponse).
 message SetWifiConfigCommand {
   string ssid     = 1;
   string password = 2;
 }
 
-// Streaming destinations — the app collects keys and sends them to the
-// Jetson. Keys are NOT stored in the app or in version control; the Jetson
-// holds them.
 message SetStreamingConfigCommand {
   StreamingConfig config = 1;
 }
 
 message StreamingConfig {
-  // Provide whichever destinations are configured; leave others empty.
   string youtube_stream_key   = 1;
   string instagram_stream_key = 2;
-  string custom_rtmp_url      = 3;  // full RTMP URL including key
+  string custom_rtmp_url      = 3;
 }
 
 // ===========================================================================
-// 9. Session push (U9)
+// 9. Session push
 // ===========================================================================
 
-// Sent by the app once before the session starts. The camera holds this
-// in-memory for the duration of the session and forgets it on reset.
-// Replaces the previous CRUD-based data sync: the camera receives everything
-// it needs to execute the session in a single call.
 message PushSessionConfigCommand {
-  string match_uuid              = 1;
-  string user_uuid               = 2;
-  string sport                   = 3;  // lowercase, e.g. "soccer"
-  int32  num_periods             = 4;
-  int32  period_length_seconds   = 5;
-  optional string rtmp_url       = 6;  // null = no streaming
-  optional string stream_key     = 7;  // null when embedded in rtmp_url
-  string video_output_path       = 8;  // "/data/video/{userUuid}/{matchUuid}/"
-  string thumbnail_output_path   = 9;  // "/data/thumbnail/{userUuid}/{matchUuid}/"
+  string match_uuid            = 1;
+  string user_uuid             = 2;
+  string sport                 = 3;
+  int32  num_periods           = 4;
+  int32  period_length_seconds = 5;
+  optional string rtmp_url     = 6;
+  optional string stream_key   = 7;
+  string video_output_path     = 8;
+  string thumbnail_output_path = 9;
+
+  string team_a_id        = 10;
+  string team_b_id        = 11;
+  string team_a_name      = 12;
+  string team_b_name      = 13;
+  string team_a_color_hex = 14;
+  string team_b_color_hex = 15;
+}
+
+// ===========================================================================
+// 10. WiFi Direct negotiation (BLE-transported)
+// ===========================================================================
+
+message StartWifiDirectCommand {}
+
+message StopWifiDirectCommand {}
+
+message WifiDirectGroupResponse {
+  string ssid           = 1;
+  string psk            = 2;
+  string group_owner_ip = 3;
+  uint32 preview_port   = 4;
+  uint32 download_port  = 5;
+  string role           = 6;
+}
+
+// ===========================================================================
+// 11. Overlay layout system
+//
+// The app is the only source of overlay design. The camera never hard-codes
+// scoreboard layouts, fonts, or colors — it renders exactly what the layout
+// spec describes. This guarantees pixel-accurate sync between the app's
+// in-session preview and the camera's live stream + recorded footage.
+//
+// Design flow:
+//   1. App sends PushOverlayLayoutCommand (after PushSessionConfigCommand,
+//      before RecordingControlCommand).
+//   2. Camera stores the layout in session memory.
+//   3. Events (ScoreUpdateCommand, MatchControlCommand, BannerEventCommand)
+//      push data updates; camera re-renders affected elements automatically.
+//   4. App renders the same layout spec as a Flutter overlay on its preview.
+//
+// Coordinate space:
+//   All coordinates are in logical canvas pixels (canvas_width × canvas_height).
+//   x increases right; y increases down; (0,0) is top-left.
+//   The camera maps canvas coordinates to its output resolution; the app maps
+//   them to its preview surface. Both use the same spec.
+//
+// Z-order:
+//   z = 0  →  video background (always present; never declared in elements)
+//   z > 0  →  overlay elements; higher z is drawn on top
+// ===========================================================================
+
+message PushOverlayLayoutCommand {
+  OverlayLayout layout = 1;
+}
+
+message OverlayLayout {
+  uint32 canvas_width  = 1;  // logical pixels, e.g. 1920
+  uint32 canvas_height = 2;  // logical pixels, e.g. 1080
+
+  // Persistent elements: always visible once the layout is applied.
+  // Use for the scoreboard background, team names, score, clock, etc.
+  repeated OverlayElement elements = 3;
+
+  // Event-triggered templates: shown transiently when a matching
+  // BannerEventCommand(template_id) arrives; hidden after duration_ms.
+  // Text content may use {{param_name}} substitution with BannerEventCommand.params.
+  repeated OverlayTemplate templates = 4;
+}
+
+// A single visual element in the overlay.
+message OverlayElement {
+  string         id      = 1;  // unique within the layout; used for updates
+  OverlayShape   shape   = 2;
+  OverlayRect    bounds  = 3;
+  OverlayStyle   style   = 4;
+  OverlayBinding binding = 5;  // for TEXT shapes: live data source; default BINDING_STATIC
+  bool           visible = 6;  // default true; false = defined but initially hidden
+}
+
+// Position and layer of an element in canvas space.
+message OverlayRect {
+  float  x1 = 1;  // left edge (canvas pixels)
+  float  y1 = 2;  // top edge (canvas pixels)
+  uint32 z  = 3;  // layer; 0 = video; higher = closer to viewer
+  float  x2 = 4;  // right edge (canvas pixels)
+  float  y2 = 5;  // bottom edge (canvas pixels)
+}
+
+// Visual style properties.
+message OverlayStyle {
+  string     fill_color    = 1;  // hex e.g. "#1A1A1A"; empty = transparent
+  string     text_color    = 2;  // hex; for TEXT shapes
+  float      opacity       = 3;  // 0.0–1.0; default 1.0
+  float      corner_radius = 4;  // canvas pixels; 0 = sharp corners
+  string     font_family   = 5;  // e.g. "monospace"; firmware uses nearest available
+  float      font_size     = 6;  // canvas pixels
+  TextAlign  text_align    = 7;
+  FontWeight font_weight   = 8;
+  string     static_text   = 9;  // content when binding = BINDING_STATIC; also
+                                  // used as {{param}} template in OverlayTemplate
+}
+
+// An event-triggered template: activated by BannerEventCommand(event_type),
+// shown for duration_ms, then removed. Text in style.static_text may contain
+// {{param_name}} placeholders substituted from BannerEventCommand.params.
+message OverlayTemplate {
+  string   event_type  = 1;  // matches BannerEventCommand.template_id
+  uint32   duration_ms = 2;  // how long to show this overlay
+  repeated OverlayElement elements = 3;
+}
+
+// Shape types.
+enum OverlayShape {
+  SHAPE_UNKNOWN = 0;
+  SHAPE_RECT    = 1;  // filled rectangle
+  SHAPE_TEXT    = 2;  // text within bounds; wraps if needed
+  SHAPE_CIRCLE  = 3;  // ellipse inscribed in bounds
+}
+
+// Data bindings for TEXT elements.
+// When bound, the camera updates the element's rendered text automatically
+// whenever the corresponding data changes via an event command.
+enum OverlayBinding {
+  BINDING_STATIC       = 0;  // static text from style.static_text
+  BINDING_SCORE_A      = 1;  // home score as a plain number, e.g. "2"
+  BINDING_SCORE_B      = 2;  // away score as a plain number, e.g. "1"
+  BINDING_SCORE_VS     = 3;  // formatted "2 – 1"
+  BINDING_TEAM_A_NAME  = 4;  // from PushSessionConfigCommand.team_a_name
+  BINDING_TEAM_B_NAME  = 5;  // from PushSessionConfigCommand.team_b_name
+  BINDING_MATCH_CLOCK  = 6;  // "MM:SS" — display-only clock driven by MatchControlCommand
+  BINDING_PERIOD_LABEL = 7;  // "P1", "P2", "HT", "FT" — driven by MatchControlCommand
+}
+
+enum TextAlign {
+  TEXT_ALIGN_LEFT   = 0;
+  TEXT_ALIGN_CENTER = 1;
+  TEXT_ALIGN_RIGHT  = 2;
+}
+
+enum FontWeight {
+  FONT_WEIGHT_NORMAL = 0;
+  FONT_WEIGHT_BOLD   = 1;
 }
