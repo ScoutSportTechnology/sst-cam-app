@@ -1,0 +1,44 @@
+# Docker Compose file for the SST Cam devcontainer.
+# devcontainer.json points here via "dockerComposeFile" and attaches to the "app" service.
+#
+# NOTE: .bashrc bind is declared in devcontainer.json so it can use the
+# ${localWorkspaceFolder} devcontainer token substitution.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Preserve the flutter4android image tag from the original build config.
+    image: flutter4android
+    platform: linux/amd64
+    stdin_open: true
+    tty: true
+    volumes:
+      - ..:/workspaces/sst-cam-app:cached
+      - claude-code:/home/vscode/.claude
+    # Required: bridges host.docker.internal so ADB_SERVER_SOCKET
+    # (tcp:host.docker.internal:5037) can reach the host ADB server.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mock-camera-wifi:
+    build:
+      context: mock-camera-wifi
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    restart: unless-stopped
+    volumes:
+      # Serve the canonical repo video (same bytes the app bundles) for both
+      # the RTSP preview and HTTP downloads. Read-only; path is relative to
+      # this compose file (.devcontainer/).
+      - ../lib/mock/emulator/mock-video.mp4:/srv/sample.mp4:ro
+    ports:
+      - "127.0.0.1:8555:8554"   # RTSP H.264 preview (8555 avoids QEMU virtualscene on 8554)
+      - "127.0.0.1:8080:8080"   # HTTP recording download
+
+volumes:
+  claude-code:
+    # Explicit name prevents Docker Compose from prefixing with the project name.
+    # This makes the volume stable across rebuilds — your Claude Code sessions survive.
+    name: sst-cam-app-claude-code

@@ -1,17 +1,15 @@
-// Tests for LivePreviewView — U1: skip VLC controller in dev-backend mode.
+// Tests for LivePreviewView — the live RTSP preview surface.
 //
-// Platform channel note: flutter_vlc_player and video_player use native
-// platform channels unavailable in the test environment. The video_player
-// initialize() call fails silently via the catchError handler in
-// _initMockPlayer, leaving _mock == null. As a result, ThumbPlaceholder
-// is always shown (neither VLC nor the mock video can render). The key
-// behaviour we verify is that VlcPlayer is never inserted into the widget
-// tree when isDevBackend is true (the compile-time default for tests).
+// LivePreviewView drives a VLC controller off the WiFi preview descriptor URL
+// in ALL environments. In dev that URL points at the mock-camera-wifi
+// container (rtsp://localhost:8554/preview, reachable via `adb reverse`); in
+// stage/prod it points at the real camera. There is no longer a dev-only
+// bundled-video branch.
 //
-// autoStart is not used here to avoid pending timers from MockWifiService
-// pairingDelay. Instead, previewDescriptorProvider is overridden directly
-// to supply a non-null descriptor URL, which is the scenario that previously
-// caused VLC to be initialised.
+// Platform channel note: flutter_vlc_player uses a native platform view that
+// renders as an empty box in the test environment (no native init). The VLC
+// controller is still constructed and the VlcPlayer widget is inserted into
+// the tree, so we assert on its presence/absence rather than rendered frames.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,11 +19,11 @@ import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/core/wifi/wifi_providers.dart';
 import 'package:sst_cam_app/core/widgets/live_preview_view.dart';
 import 'package:sst_cam_app/core/widgets/wf_card.dart';
-import 'package:sst_cam_app/mock/mock_wifi_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 
 const _kDeviceId = 'SST-CAM-001';
 const _kFakeDescriptor = PreviewStreamDescriptor(
-  url: 'rtsp://192.168.49.1:8554/live',
+  url: 'rtsp://localhost:8554/preview',
   codec: PreviewCodec.rtspH264,
   width: 640,
   height: 360,
@@ -33,64 +31,67 @@ const _kFakeDescriptor = PreviewStreamDescriptor(
   bitrateKbps: 1500,
 );
 
-// Build a harness that wires a MockWifiService but also directly overrides
-// previewDescriptorProvider so the widget sees a non-null URL without needing
-// autoStart / connectGroup (which would leave pending timers).
 Widget _buildHarness({
   String? deviceId = _kDeviceId,
   PreviewStreamDescriptor? descriptor = _kFakeDescriptor,
+  bool previewEnabled = true,
+  WifiDirectState connectionState = WifiDirectState.connected,
 }) {
   final wifi = MockWifiService();
   return ProviderScope(
     overrides: [
       wifiServiceProvider.overrideWithValue(wifi),
-      if (deviceId != null)
-        previewDescriptorProvider(deviceId).overrideWith(
-          (_) => descriptor,
-        ),
+      if (deviceId != null) ...[
+        previewDescriptorProvider(deviceId).overrideWith((_) => descriptor),
+        wifiConnectionStateProvider(
+          deviceId,
+        ).overrideWith((_) => Stream.value(connectionState)),
+        livePreviewEnabledProvider(deviceId).overrideWith((_) => previewEnabled),
+      ],
     ],
     child: MaterialApp(
-      home: Scaffold(
-        body: LivePreviewView(deviceId: deviceId),
-      ),
+      home: Scaffold(body: LivePreviewView(deviceId: deviceId)),
     ),
   );
 }
 
 void main() {
-  group('LivePreviewView — dev-backend mode (U1)', () {
+  group('LivePreviewView — RTSP preview', () {
     testWidgets(
-      'ThumbPlaceholder shown before mock video initialises',
+      'drives VlcPlayer from the descriptor URL when preview is on + connected',
       (tester) async {
         await tester.pumpWidget(_buildHarness());
-        await tester.pump(); // one async gap — _initMockPlayer is async
+        await tester.pump(); // resolve the connection-state stream
 
-        // In the test env the video_player platform channel fails, so the
-        // catchError handler leaves _mock == null. ThumbPlaceholder fills
-        // the else branch.
-        expect(find.byType(ThumbPlaceholder), findsOneWidget);
+        expect(find.byType(VlcPlayer), findsOneWidget);
       },
     );
 
     testWidgets(
-      'VlcPlayer never in widget tree in dev-backend mode '
-      'even when descriptor URL is non-null',
+      'shows placeholder and no VlcPlayer when the descriptor is null',
       (tester) async {
-        // _kFakeDescriptor supplies a non-null URL directly via provider
-        // override — this is the scenario that previously triggered VLC.
-        await tester.pumpWidget(_buildHarness());
+        await tester.pumpWidget(_buildHarness(descriptor: null));
         await tester.pump();
 
-        // The isDevBackend guard must skip _swapVlcController entirely
-        // so _vlc stays null and VlcPlayer never appears.
         expect(find.byType(VlcPlayer), findsNothing);
         expect(find.byType(ThumbPlaceholder), findsOneWidget);
       },
     );
 
     testWidgets(
-      'deviceId null → ThumbPlaceholder with NO CAMERA label '
-      'regardless of backend mode',
+      'preview off shows the placeholder with a Preview button, no VlcPlayer',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness(previewEnabled: false));
+        await tester.pump();
+
+        expect(find.byType(VlcPlayer), findsNothing);
+        expect(find.byType(ThumbPlaceholder), findsOneWidget);
+        expect(find.text('Preview'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'deviceId null → ThumbPlaceholder with NO CAMERA label, no VlcPlayer',
       (tester) async {
         await tester.pumpWidget(_buildHarness(deviceId: null));
         await tester.pump();

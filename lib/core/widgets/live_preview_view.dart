@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
-import 'package:video_player/video_player.dart';
 
-import '../config/env.dart';
 import '../models/wifi.dart';
 import '../wifi/wifi_providers.dart';
 import '../theme/tokens.dart';
@@ -12,8 +10,9 @@ import 'wf_card.dart';
 
 /// 16:9 live preview surface. Plays the camera's RTSP H.264 stream via VLC
 /// when the WiFi Direct group is up and the descriptor URL is reachable;
-/// falls back to the wireframe striped placeholder otherwise (no descriptor,
-/// VLC error, or dev-mock with a fake RTSP URL).
+/// falls back to the wireframe striped placeholder otherwise (no descriptor or
+/// VLC error). In dev the descriptor URL points at the mock-camera-wifi
+/// container; in stage/prod it points at the real camera.
 ///
 /// Preview on/off state is shared via [livePreviewEnabledProvider] (keyed by
 /// deviceId) so multiple surfaces on different pages stay in sync.
@@ -54,9 +53,6 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   String? _vlcUrl;
   bool _vlcError = false;
 
-  // Dev-mode mock video player (used when no real RTSP stream is available).
-  VideoPlayerController? _mock;
-
   void _enablePreview() {
     ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state = true;
   }
@@ -67,49 +63,31 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         .state = false;
   }
 
-  void _tearDownMock() {
-    final mock = _mock;
-    _mock = null;
-    mock?.dispose();
+  /// Disposes [controller], swallowing the LateError that
+  /// VlcPlayerController.dispose() throws when its native view never attached
+  /// (preview torn down before the platform view initialised, or headless
+  /// test env). Nothing to release in that case.
+  void _disposeVlc(VlcPlayerController? controller) {
+    if (controller == null) return;
+    controller.removeListener(_onVlcChange);
+    // dispose() is async and completes with a LateError if its native view
+    // never attached — handle it on the future, not via a sync try/catch.
+    // ignore: discarded_futures
+    controller.dispose().catchError((Object e) {
+      debugPrint('LivePreviewView: VLC dispose skipped ($e)');
+    });
   }
 
   void _tearDownVlc() {
-    _vlc?.removeListener(_onVlcChange);
-    // ignore: discarded_futures
-    _vlc?.dispose();
+    _disposeVlc(_vlc);
     _vlc = null;
     _vlcUrl = null;
     _vlcError = false;
   }
 
-  void _initMockPlayer() {
-    final controller = VideoPlayerController.asset('assets/ble/mock-video.mp4');
-    _mock = controller;
-    controller
-      ..setLooping(true)
-      ..initialize().then((_) {
-        if (mounted && _mock == controller) {
-          _mock?.play();
-          setState(() {});
-        }
-      }).catchError((Object e, StackTrace st) {
-        // Platform not available in test environments — fall back to placeholder.
-        debugPrint('LivePreviewView: mock player init failed: $e\n$st');
-        if (mounted && _mock == controller) {
-          controller.dispose();
-          _mock = null;
-        }
-      });
-  }
-
   @override
   void dispose() {
-    _vlc?.removeListener(_onVlcChange);
-    // ignore: discarded_futures
-    _vlc?.dispose();
-    final mock = _mock;
-    _mock = null;
-    mock?.dispose();
+    _disposeVlc(_vlc);
     super.dispose();
   }
 
@@ -121,14 +99,14 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   }
 
   void _swapVlcController(String url) {
-    _vlc?.removeListener(_onVlcChange);
-    // ignore: discarded_futures
-    _vlc?.dispose();
+    _disposeVlc(_vlc);
     final controller = VlcPlayerController.network(
       url,
       hwAcc: HwAcc.full,
       autoPlay: true,
-      options: VlcPlayerOptions(),
+      options: VlcPlayerOptions(
+        rtp: VlcRtpOptions([VlcRtpOptions.rtpOverRtsp(true)]),
+      ),
     );
     controller.addListener(_onVlcChange);
     _vlc = controller;
@@ -164,14 +142,9 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
       );
     }
 
-    // React to preview enabled/disabled via the shared provider.
+    // Tear down the VLC controller when preview is turned off.
     ref.listen<bool>(livePreviewEnabledProvider(deviceId), (prev, next) {
-      if (next && !(prev ?? false)) {
-        // Preview just turned on.
-        if (kAppEnv.isDevBackend) _initMockPlayer();
-      } else if (!next && (prev ?? false)) {
-        // Preview just turned off.
-        _tearDownMock();
+      if (!next && (prev ?? false)) {
         _tearDownVlc();
       }
     });
@@ -224,7 +197,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
     // Spin up / replace the VLC controller whenever the descriptor URL changes.
-    if (!kAppEnv.isDevBackend && previewEnabled) {
+    if (previewEnabled) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
         _swapVlcController(url);
@@ -254,15 +227,6 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             controller: _vlc!,
             aspectRatio: 16 / 9,
             placeholder: const ThumbPlaceholder(),
-          )
-        else if (kAppEnv.isDevBackend && (_mock?.value.isInitialized ?? false))
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: _mock!.value.size.width,
-              height: _mock!.value.size.height,
-              child: VideoPlayer(_mock!),
-            ),
           )
         else
           ThumbPlaceholder(label: liveBadgeOn ? null : statusLabel),

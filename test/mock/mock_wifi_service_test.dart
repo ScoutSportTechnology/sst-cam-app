@@ -8,7 +8,7 @@ import 'package:sst_cam_app/core/models/overlay.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
-import 'package:sst_cam_app/mock/mock_wifi_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 
 // ---------------------------------------------------------------------------
 // Fake path_provider that uses a temp directory for tests.
@@ -40,8 +40,7 @@ class _FakePathProvider
   @override
   Future<List<String>?> getExternalStoragePaths({
     StorageDirectory? type,
-  }) async =>
-      null;
+  }) async => null;
 
   @override
   Future<String?> getDownloadsPath() async => null;
@@ -91,6 +90,100 @@ void main() {
       await svc.connectGroup('device-1');
       await expectLater(svc.disconnectGroup('device-1'), completes);
     });
+
+    test(
+      'connectionStateStream replays current state to late subscribers',
+      () async {
+        // Connect first, THEN subscribe — simulates LivePreviewView subscribing
+        // only when preview is enabled (after WiFi has already transitioned).
+        await svc.connectGroup('device-1');
+        final first = await svc.connectionStateStream('device-1').first;
+        expect(first, WifiDirectState.connected);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Config-driven addressing — preview/download base URLs (U5)
+  // ---------------------------------------------------------------------------
+
+  group('addressing', () {
+    test(
+      'default groupOwnerIp derives from the default preview base',
+      () async {
+        final group = await svc.connectGroup('device-1');
+        expect(group.groupOwnerIp, 'localhost');
+      },
+    );
+
+    test('groupOwnerIp derives the host from previewBaseUrl', () async {
+      final customSvc = MockWifiService(
+        previewBaseUrl: 'rtsp://192.168.1.100:8554',
+        pairingDelay: Duration.zero,
+        videoPathService: videoPathService,
+      );
+      addTearDown(customSvc.dispose);
+      final group = await customSvc.connectGroup('device-1');
+      expect(group.groupOwnerIp, '192.168.1.100');
+    });
+
+    test(
+      'previewDescriptor url defaults to rtsp://localhost:8554/preview',
+      () async {
+        await svc.connectGroup('device-1');
+        final desc = svc.previewDescriptor('device-1');
+        expect(desc, isNotNull);
+        expect(desc!.url, 'rtsp://localhost:8554/preview');
+      },
+    );
+
+    test(
+      'previewDescriptor url derives from a port-less preview base',
+      () async {
+        final customSvc = MockWifiService(
+          previewBaseUrl: 'rtsp://mws.domain',
+          pairingDelay: Duration.zero,
+          videoPathService: videoPathService,
+        );
+        addTearDown(customSvc.dispose);
+        await customSvc.connectGroup('device-1');
+        final desc = customSvc.previewDescriptor('device-1');
+        expect(desc, isNotNull);
+        expect(desc!.url, 'rtsp://mws.domain/preview');
+      },
+    );
+
+    test(
+      'a trailing slash on the preview base does not double the separator',
+      () async {
+        final customSvc = MockWifiService(
+          previewBaseUrl: 'rtsp://mws.domain/',
+          pairingDelay: Duration.zero,
+          videoPathService: videoPathService,
+        );
+        addTearDown(customSvc.dispose);
+        await customSvc.connectGroup('device-1');
+        final desc = customSvc.previewDescriptor('device-1');
+        expect(desc!.url, 'rtsp://mws.domain/preview');
+      },
+    );
+
+    test(
+      'download falls back to bundled file when HTTP server unreachable',
+      () async {
+        // localhost:8080 not running in unit tests → HTTP GET fails → fallback
+        const uuid = 'rec-fallback-test';
+        final handle = await svc.downloadRecording('device-1', uuid);
+        await handle.progress.toList();
+
+        final path = await videoPathService.recordingPath(uuid);
+        expect(
+          File(path).existsSync(),
+          isTrue,
+          reason: 'Fallback write must produce a file even without HTTP server',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -157,36 +250,35 @@ void main() {
       expect(events.last.errorMessage, 'Simulated network drop');
     });
 
-    test('cancel stops stream before completion; placeholder not written',
-        () async {
-      const uuid = 'rec-uuid-cancel';
-      final handle = await svc.downloadRecording('device-1', uuid);
+    test(
+      'cancel stops stream before completion; placeholder not written',
+      () async {
+        const uuid = 'rec-uuid-cancel';
+        final handle = await svc.downloadRecording('device-1', uuid);
 
-      final events = <VideoDownloadProgress>[];
-      late StreamSubscription<VideoDownloadProgress> sub;
-      sub = handle.progress.listen(
-        events.add,
-        onDone: () {},
-      );
+        final events = <VideoDownloadProgress>[];
+        late StreamSubscription<VideoDownloadProgress> sub;
+        sub = handle.progress.listen(events.add, onDone: () {});
 
-      // Let a couple of ticks fire, then cancel.
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      await handle.cancel();
-      await sub.cancel();
+        // Let a couple of ticks fire, then cancel.
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await handle.cancel();
+        await sub.cancel();
 
-      expect(
-        events.any((e) => e.status == DownloadStatus.cancelled),
-        isTrue,
-        reason: 'Expected at least one cancelled event',
-      );
+        expect(
+          events.any((e) => e.status == DownloadStatus.cancelled),
+          isTrue,
+          reason: 'Expected at least one cancelled event',
+        );
 
-      final path = await videoPathService.recordingPath(uuid);
-      expect(
-        File(path).existsSync(),
-        isFalse,
-        reason: 'Placeholder must not be written when download is cancelled',
-      );
-    });
+        final path = await videoPathService.recordingPath(uuid);
+        expect(
+          File(path).existsSync(),
+          isFalse,
+          reason: 'Placeholder must not be written when download is cancelled',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

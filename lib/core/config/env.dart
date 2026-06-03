@@ -10,12 +10,8 @@
 // stage — BleServiceImpl over flutter_blue_plus; real device required.
 // prod  — BleServiceImpl; release build.
 //
-// Mock fixture data is controlled separately:
-//   flutter run --dart-define=kUseMockData=true
-//
-// kUseMockData=true seeds the Drift DB with JSON fixtures from assets/ble/
-// on first launch (or after a reset). Independent of APP_ENV — you can run
-// stage+kUseMockData=true or dev+kUseMockData=false.
+// Data mode (seed / empty) is controlled at runtime via DevConfig
+// (SharedPreferences), not at build time. See lib/core/config/dev_config.dart.
 
 enum AppEnv { dev, stage, prod }
 
@@ -28,17 +24,9 @@ const AppEnv kAppEnv = _envName == 'prod'
     ? AppEnv.prod
     : (_envName == 'stage' ? AppEnv.stage : AppEnv.dev);
 
-/// Whether to load mock fixture data from assets/ble/fixtures/ into the DB.
-/// Defaults to true when APP_ENV=dev (the development default), false otherwise.
-/// Override at build/run time: --dart-define=kUseMockData=false (or =true).
-const bool kUseMockData = bool.fromEnvironment(
-  'kUseMockData',
-  defaultValue: _envName == 'dev',
-);
-
 extension AppEnvX on AppEnv {
   /// Whether the BLE/WiFi backend is the in-memory dev mock.
-  /// Controls service instantiation only — not data loading (see kUseMockData).
+  /// Controls service instantiation only — not data loading (see DevConfig).
   bool get isDevBackend => this == AppEnv.dev;
 
   String get label => switch (this) {

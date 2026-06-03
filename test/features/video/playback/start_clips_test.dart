@@ -28,8 +28,8 @@ import 'package:sst_cam_app/features/settings/users/users_state.dart'
 import 'package:sst_cam_app/features/video/playback/download_sheet.dart';
 import 'package:sst_cam_app/features/video/video_state.dart'
     show isOnDeviceProvider, LibraryEvent, LibraryMatch;
-import 'package:sst_cam_app/mock/mock_ble_service.dart';
-import 'package:sst_cam_app/mock/mock_wifi_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 import 'package:drift/drift.dart' show Value;
 
 import '../../../test_helpers.dart';

@@ -25,8 +25,14 @@ just ci               # format-check + analyze + test (mirrors CI)
 
 ## Dev container
 
-Open in VS Code → "Reopen in Container". Container has Flutter SDK, Android SDK,
-`protoc`, and the Dart protoc plugin. All commands above work inside it.
+Open in VS Code → "Reopen in Container". The setup uses Docker Compose
+(`.devcontainer/docker-compose.yml`) with two services:
+
+- **app** — Flutter SDK, Android SDK, `protoc`, Dart protoc plugin, Node.js 22, Claude Code.
+  All `just` commands run inside this container.
+- **mock-camera-wifi** — RTSP H.264 preview stream on `:8554` (mediamtx + ffmpeg loop)
+  and HTTP recording download on `:8080` (Bearer auth + Range support). Simulates the
+  camera's WiFi Direct data plane for dev without real hardware.
 
 **iOS builds require macOS + Xcode.** The devcontainer is Linux-only; iOS builds
 go through a macOS CI runner or local `flutter build ios`.
@@ -55,6 +61,10 @@ docs/
                      Relevant when implementing features or debugging in documented areas.
   brainstorms/       Requirements documents from ce-brainstorm
   plans/             Implementation plans from ce-plan
+.devcontainer/
+  mock-camera-wifi/  Docker service that emulates the camera's WiFi Direct data plane.
+                     mediamtx serves RTSP H.264 on :8554; download_server.py serves MP4
+                     downloads on :8080 with Bearer auth and Range support.
 proto/               Proto3 schemas — wire format + firmware contract
   README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/

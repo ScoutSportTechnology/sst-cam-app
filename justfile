@@ -45,6 +45,10 @@ build-android:
 build-android-release:
     flutter build apk --release
 
+# Build Android APK (prod — stage/prod entry-point, zero mock code)
+build-android-prod:
+    flutter build apk --release --target=lib/main_prod.dart --dart-define=APP_ENV=prod
+
 # Run app on connected device
 run:
     flutter run

@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
+import 'ble_protocol.dart';
 import 'ble_service.dart';
 
 // UUIDs defined in proto/README.md.
@@ -209,8 +212,8 @@ class BleServiceImpl implements BleService {
   }
 
   // ---------------------------------------------------------------------------
-  // Commands — write ChunkedPayload to cmdWrite; await response on cmdResponse
-  // TODO: wire to firmware — proto encoding + BLE chunking not yet implemented
+  // Commands — encode via BleProtocol → write ChunkedPayload to cmdWrite;
+  // await ChunkedPayload response on cmdResponse → decode via BleProtocol.
   // ---------------------------------------------------------------------------
 
   @override
@@ -218,12 +221,37 @@ class BleServiceImpl implements BleService {
     String deviceId,
     BleCommand command,
   ) async {
-    // Proto encoding + BLE write not yet implemented.
-    // Return an error response rather than throwing so callers can handle it
-    // gracefully without crashing.
-    return BleCommandResponse<T>.error(
-      'sendCommand not yet implemented — proto encoding + BLE write pending',
-    );
+    final conn = _connected[deviceId];
+    if (conn == null || conn._cmdWrite == null) {
+      return BleCommandResponse.error('Device $deviceId not connected');
+    }
+
+    final corrId = BleProtocol.newCorrelationId();
+    final completer = Completer<List<int>>();
+    conn._pendingRequests[corrId] = completer;
+
+    try {
+      final bytes = BleProtocol.encodeCommand(command, corrId);
+      await conn._cmdWrite!.write(bytes, withoutResponse: false);
+
+      final responseBytes = await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          conn._pendingRequests.remove(corrId);
+          throw BleTimeoutException(
+            'Command ${command.runtimeType} timed out for $deviceId',
+          );
+        },
+      );
+
+      return BleProtocol.decodeResponse<T>(responseBytes, command, corrId);
+    } on BleTimeoutException {
+      return BleCommandResponse<T>.timeout();
+    } catch (e) {
+      return BleCommandResponse.error('sendCommand failed: $e');
+    } finally {
+      conn._pendingRequests.remove(corrId);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -296,6 +324,7 @@ class _ConnectedDevice {
   final _connController = StreamController<CameraConnectionState>.broadcast();
   final _telemetryController = StreamController<DeviceTelemetry>.broadcast();
   final _matchStateController = StreamController<MatchState>.broadcast();
+  final _pendingRequests = <String, Completer<List<int>>>{};
 
   BluetoothCharacteristic? _cmdWrite;
   BluetoothCharacteristic? _cmdResponse;
@@ -303,9 +332,49 @@ class _ConnectedDevice {
   Timer? _telemetryTimer;
   Timer? _matchStateTimer;
 
+  // Accumulates chunks; keyed by correlation_id.
+  final _chunkBuffers = <String, Uint8List>{};
+  final _chunkCounts = <String, int>{};
+  final _chunkTotals = <String, int>{};
+
   void _startResponseListener() {
-    _responseSub = _cmdResponse?.onValueReceived.listen((_) {
-      // TODO: wire to firmware — reassemble ChunkedPayload → proto CommandResponse → route
+    _responseSub = _cmdResponse?.onValueReceived.listen((rawBytes) {
+      try {
+        final chunk = proto.ChunkedPayload.fromBuffer(rawBytes);
+        final corrId = chunk.correlationId;
+        final total = chunk.totalChunks;
+
+        if (total == 1) {
+          // Single-chunk fast path: deliver immediately.
+          _pendingRequests.remove(corrId)?.complete(rawBytes);
+          return;
+        }
+
+        // Multi-chunk: accumulate and deliver when all chunks arrive.
+        // This simple implementation concatenates data bytes in order.
+        final buf = _chunkBuffers.putIfAbsent(corrId, () => Uint8List(0));
+        _chunkBuffers[corrId] = Uint8List.fromList(buf + chunk.data);
+        _chunkCounts[corrId] = (_chunkCounts[corrId] ?? 0) + 1;
+        _chunkTotals[corrId] = total;
+
+        if (_chunkCounts[corrId] == total) {
+          // All chunks received — wrap reassembled data in a final ChunkedPayload
+          // so decodeResponse() can strip the envelope uniformly.
+          final full = proto.ChunkedPayload(
+            correlationId: corrId,
+            chunkIndex: 0,
+            totalChunks: 1,
+            data: _chunkBuffers[corrId]!,
+          ).writeToBuffer();
+          _chunkBuffers.remove(corrId);
+          _chunkCounts.remove(corrId);
+          _chunkTotals.remove(corrId);
+          _pendingRequests.remove(corrId)?.complete(full);
+        }
+      } catch (_) {
+        // Malformed chunk — silently drop; the pending completer will
+        // eventually time out and surface as BleResponseStatus.timeout.
+      }
     });
   }
 

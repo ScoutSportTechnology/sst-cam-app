@@ -1,0 +1,14 @@
+# mediamtx v1.18.2 configuration for mock-camera-wifi
+# Accepts an inbound RTSP publish from ffmpeg and re-serves it to readers.
+#
+# Defaults: authMethod=internal, authInternalUsers=[{user:any,pass:any}] — all
+# publishers and readers are accepted without credentials (dev only).
+
+rtspAddress: :8554
+# Force RTP-over-TCP for all clients. UDP ports 8000/8001 are not exposed in
+# docker-compose.yml and not forwarded via adb reverse, so UDP transport silently
+# fails and VLC falls back to an unsupported RTSP dialect → "invalid SETUP path".
+rtspTransports: [tcp]
+
+paths:
+  preview:

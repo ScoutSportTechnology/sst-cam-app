@@ -18,8 +18,8 @@ import 'package:sst_cam_app/features/settings/users/users_state.dart'
     show activeUserProvider;
 import 'package:sst_cam_app/features/video/playback/video_match_detail_page.dart';
 import 'package:sst_cam_app/features/video/video_state.dart';
-import 'package:sst_cam_app/mock/mock_ble_service.dart';
-import 'package:sst_cam_app/mock/mock_wifi_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 import 'package:video_player/video_player.dart' show VideoPlayer;
 import 'package:drift/drift.dart' show Value;
 

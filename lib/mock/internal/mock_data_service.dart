@@ -1,14 +1,87 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:dio/dio.dart';
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
-import '../core/db/app_database.dart';
-import '../core/services/video_path_service.dart';
+import '../../core/db/app_database.dart';
+import '../../core/services/video_path_service.dart';
+import '../mock_video_fetcher.dart';
 
-/// Seeds the Drift database with mock fixture data from assets/mock/fixtures/.
+/// Applies the seed-data flag to the local database at dev startup:
+///
+/// - [seed] == true → insert mock fixtures (teams, matches, players, streaming
+///   destinations) and materialize on-device videos by fetching them over the
+///   live mock WiFi download path ([downloadBaseUrl]).
+/// - [seed] == false → wipe all rows back to base scaffolding (default user +
+///   sport presets) AND delete on-device past-match video files so the app
+///   boots with a clean slate.
+///
+/// [downloadBaseUrl] is read regardless of the camera toggle so the seed path
+/// can always reach the mock download endpoint. Lives under `lib/mock/` so it
+/// and its [MockDataSeeder] dependency are excluded from stage/prod builds —
+/// only `main.dart` (dev) imports it.
+Future<void> applySeedData(
+  AppDatabase db, {
+  required bool seed,
+  String downloadBaseUrl = 'http://localhost:8080',
+  VideoPathService? videoPathService,
+  Dio? httpClient,
+}) async {
+  final videoSvc = videoPathService ?? VideoPathService();
+  if (seed) {
+    await MockDataSeeder(
+      db,
+      downloadBaseUrl: downloadBaseUrl,
+      videoPathService: videoSvc,
+      httpClient: httpClient,
+    ).seed();
+  } else {
+    await _wipeToBaseData(db, videoSvc);
+  }
+}
+
+Future<void> _wipeToBaseData(
+  AppDatabase db,
+  VideoPathService videoPathService,
+) async {
+  // Capture on-device past-match ids BEFORE the wipe so the video files can be
+  // deleted afterwards — once the rows are gone the ids are unrecoverable.
+  final onDeviceIds =
+      await (db.select(db.teamMatchesTable)..where(
+            (m) => m.kind.equals('past') & m.sizeMb.isBiggerThanValue(0),
+          ))
+          .get()
+          .then((rows) => rows.map((r) => r.id).toList());
+
+  await db.transaction(() async {
+    await db.delete(db.clipsTable).go(); // cascade-deletes thumbnails
+    await db.delete(db.teamMatchesTable).go();
+    await db.delete(db.playersTable).go();
+    await db.delete(db.teamsTable).go();
+    await db.delete(db.streamingDestinationsTable).go();
+    await db.delete(db.sportPresetsTable).go();
+    await db.delete(db.usersTable).go();
+  });
+  // Re-seed the base scaffolding (default user + built-in presets) so provider
+  // scopes that require an active user keep working.
+  await db.seedBaseData();
+
+  // Delete the on-device video files for the wiped past matches.
+  for (final id in onDeviceIds) {
+    final file = File(await videoPathService.recordingPath(id));
+    if (!file.existsSync()) continue;
+    try {
+      await file.delete();
+    } catch (e) {
+      debugPrint('MockDataService: failed to delete video for $id: $e');
+    }
+  }
+}
+
+/// Seeds the Drift database with mock fixture data from the internal fixtures.
 ///
 /// Reads JSON fixtures committed to the repo and inserts them into the DB
 /// so every screen has realistic data in development without a real device.
@@ -20,11 +93,21 @@ import '../core/services/video_path_service.dart';
 /// (i.e. "on device"). This lets the Video Library detect a local file without
 /// requiring an actual download.
 class MockDataSeeder {
-  MockDataSeeder(this._db, {VideoPathService? videoPathService})
-      : _videoPathService = videoPathService ?? VideoPathService();
+  MockDataSeeder(
+    this._db, {
+    this.downloadBaseUrl = 'http://localhost:8080',
+    VideoPathService? videoPathService,
+    Dio? httpClient,
+  }) : _videoPathService = videoPathService ?? VideoPathService(),
+       _httpClient = httpClient;
 
   final AppDatabase _db;
+
+  /// Base URL of the mock WiFi download endpoint; on-device videos are fetched
+  /// from `<downloadBaseUrl>/recordings/<matchId>`.
+  final String downloadBaseUrl;
   final VideoPathService _videoPathService;
+  final Dio? _httpClient;
 
   /// Seeds teams, players, matches, and streaming destinations from fixture
   /// JSON files. The default user ('default-user') is assumed to already exist
@@ -53,8 +136,7 @@ class MockDataSeeder {
     // Write placeholder files for "on device" past matches AFTER the
     // transaction completes so any failure here does not roll back DB rows.
     final onDeviceMatches = matches.where(
-      (row) =>
-          row['kind'] == 'past' && (row['sizeMb'] as int? ?? 0) > 0,
+      (row) => row['kind'] == 'past' && (row['sizeMb'] as int? ?? 0) > 0,
     );
     await Future.wait(
       onDeviceMatches.map((row) => _writePlaceholderFile(row['id'] as String)),
@@ -68,24 +150,14 @@ class MockDataSeeder {
     // A 1-byte sentinel left by an older version of the seeder must be
     // overwritten so the player receives a playable file.
     if (file.existsSync() && file.lengthSync() > 1024) return;
-    await file.parent.create(recursive: true);
-    // Copy the bundled mock video so the file is a real, playable MP4.
-    // Falls back to a 1-byte sentinel only when rootBundle is unavailable
-    // (unit-test environments that haven't loaded the asset bundle).
-    try {
-      final data = await rootBundle.load('assets/ble/mock-video.mp4');
-      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
-    } catch (_) {
-      try {
-        await file.writeAsBytes([0x00], flush: true);
-      } catch (writeError) {
-        debugPrint(
-          'MockDataSeeder: sentinel write also failed: $writeError',
-        );
-        // Non-fatal: the match row is already committed; missing placeholder
-        // means isOnDeviceProvider returns false for this match.
-      }
-    }
+    // Fetch over the live mock download path (container → bundled → sentinel)
+    // so the seed video matches what the camera would actually serve.
+    await fetchVideoOrFallback(
+      url: joinBaseUrl(downloadBaseUrl, 'recordings/$matchId'),
+      authToken: 'dev-token',
+      savePath: path,
+      httpClient: _httpClient,
+    );
   }
 
   Future<void> _insertTeams(List<Map<String, dynamic>> rows) async {
@@ -101,7 +173,9 @@ class MockDataSeeder {
           ),
         )
         .toList();
-    await _db.batch((b) => b.insertAllOnConflictUpdate(_db.teamsTable, companions));
+    await _db.batch(
+      (b) => b.insertAllOnConflictUpdate(_db.teamsTable, companions),
+    );
   }
 
   Future<void> _insertPlayers(List<Map<String, dynamic>> rows) async {
@@ -116,7 +190,9 @@ class MockDataSeeder {
           ),
         )
         .toList();
-    await _db.batch((b) => b.insertAllOnConflictUpdate(_db.playersTable, companions));
+    await _db.batch(
+      (b) => b.insertAllOnConflictUpdate(_db.playersTable, companions),
+    );
   }
 
   Future<void> _insertMatches(List<Map<String, dynamic>> rows) async {
@@ -137,7 +213,9 @@ class MockDataSeeder {
           ),
         )
         .toList();
-    await _db.batch((b) => b.insertAllOnConflictUpdate(_db.teamMatchesTable, companions));
+    await _db.batch(
+      (b) => b.insertAllOnConflictUpdate(_db.teamMatchesTable, companions),
+    );
   }
 
   Future<void> _insertStreamingDestinations(
@@ -169,8 +247,9 @@ class MockDataSeeder {
 
   /// Loads and parses a fixture JSON file, stripping `//` comment lines.
   Future<List<Map<String, dynamic>>> _loadFixture(String name) async {
-    final raw =
-        await rootBundle.loadString('assets/ble/fixtures/$name.json');
+    final raw = await rootBundle.loadString(
+      'lib/mock/internal/fixtures/$name.json',
+    );
     // Strip lines that are purely // comments (JSON doesn't support comments).
     final stripped = raw
         .split('\n')

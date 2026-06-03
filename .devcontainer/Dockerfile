@@ -66,7 +66,15 @@ RUN dpkg --add-architecture amd64 \
     socat \
     openssh-client \
     sudo \
+    python3 \
     && apt-get autoremove -y \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22.x via NodeSource (baked into image — no per-container download)
+# Pinned to setup_22.x rather than setup_lts.x to prevent silent Node.js major-version bumps on rebuild.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
 
@@ -84,3 +92,9 @@ COPY --from=builder --chown=vscode:vscode /flutter ${FLUTTER_SDK_ROOT}
 
 # Set claude config directory permissions
 RUN mkdir -p /home/vscode/.claude && chown -R vscode:vscode /home/vscode/.claude
+
+# Install Claude Code globally in a user-writable npm prefix so it can self-update
+# without sudo. NPM_CONFIG_PREFIX directs all `npm install -g` to this directory.
+ENV NPM_CONFIG_PREFIX=/home/vscode/.npm-global
+ENV PATH=$PATH:/home/vscode/.npm-global/bin
+RUN mkdir -p /home/vscode/.npm-global && npm install -g @anthropic-ai/claude-code

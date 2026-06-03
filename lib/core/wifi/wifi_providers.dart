@@ -1,20 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/env.dart';
 import '../models/wifi.dart';
-import '../../mock/mock_wifi_service.dart';
 import 'wifi_service.dart';
 import 'wifi_service_impl.dart';
 
 // ---------------------------------------------------------------------------
-// Service — backend chosen by `kAppEnv` (see lib/core/config/env.dart). Tests
-// override via `wifiServiceProvider.overrideWithValue(MockWifiService())`.
+// Service — defaults to WifiServiceImpl (real hardware). Dev entry-point
+// (main.dart) overrides with MockWifiService; tests override via
+// wifiServiceProvider.overrideWithValue(MockWifiService()).
 // ---------------------------------------------------------------------------
 
 final wifiServiceProvider = Provider<WifiService>((ref) {
-  final WifiService svc = kAppEnv.isDevBackend
-      ? MockWifiService()
-      : WifiServiceImpl();
+  final svc = WifiServiceImpl();
   ref.onDispose(svc.dispose);
   return svc;
 });
