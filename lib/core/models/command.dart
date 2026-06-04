@@ -1,6 +1,8 @@
 // Dart-side command types — map 1:1 to proto Command.payload variants.
 // RealBleService translates these to/from protobuf bytes on the wire.
 
+import 'overlay_layout.dart';
+
 sealed class BleCommand {}
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,8 @@ class PushSessionConfig {
     this.streamKey,
     required this.videoOutputPath,
     required this.thumbnailOutputPath,
+    this.teamAColorHex,
+    this.teamBColorHex,
   });
 
   final String matchUuid;
@@ -91,6 +95,74 @@ class PushSessionConfig {
   /// Absolute path on the camera where thumbnail files will be written, e.g.
   /// `/data/thumbnail/{userUuid}/{matchUuid}/`.
   final String thumbnailOutputPath;
+
+  /// Hex colour for team A overlay elements, e.g. '#FF5733'.
+  final String? teamAColorHex;
+
+  /// Hex colour for team B overlay elements, e.g. '#33A1FF'.
+  final String? teamBColorHex;
+}
+
+// ---------------------------------------------------------------------------
+// New enums for control commands
+// ---------------------------------------------------------------------------
+
+enum RecordingControlAction { start, stop, pause, resume }
+
+enum StreamingControlAction { start, stop }
+
+enum BleMatchControlAction {
+  kickoff,
+  periodEnd,
+  periodStart,
+  finalWhistle,
+  clockPause,
+  clockResume,
+}
+
+// ---------------------------------------------------------------------------
+// New BleCommand subclasses (U4)
+// ---------------------------------------------------------------------------
+
+class RecordingControlCommand extends BleCommand {
+  RecordingControlCommand({required this.action});
+  final RecordingControlAction action;
+}
+
+class StreamingControlCommand extends BleCommand {
+  StreamingControlCommand({required this.action, this.rtmpUrl});
+  final StreamingControlAction action;
+  final String? rtmpUrl;
+}
+
+class MatchControlCommand extends BleCommand {
+  MatchControlCommand({required this.action, required this.period});
+  final BleMatchControlAction action;
+  final int period;
+}
+
+class ScoreUpdateCommand extends BleCommand {
+  ScoreUpdateCommand({required this.teamId, required this.delta});
+  final String teamId;
+  final int delta;
+}
+
+class BannerEventCommand extends BleCommand {
+  BannerEventCommand({
+    required this.templateId,
+    this.params = const {},
+    required this.durationSeconds,
+    this.playerId,
+  });
+  final String templateId;
+  final Map<String, String> params;
+  final int durationSeconds;
+  final String? playerId;
+}
+
+class PushOverlayLayoutCommand extends BleCommand {
+  PushOverlayLayoutCommand({required this.layout});
+  final OverlayLayout layout;
 }
 
 // ---------------------------------------------------------------------------

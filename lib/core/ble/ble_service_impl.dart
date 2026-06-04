@@ -7,6 +7,7 @@ import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/overlay_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 import 'ble_protocol.dart';
@@ -265,6 +266,19 @@ class BleServiceImpl implements BleService {
   ) {
     // Noop until firmware wiring is complete.
     return Future<void>.value();
+  }
+
+  @override
+  Future<void> pushOverlayLayout(String deviceId, OverlayLayout layout) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      PushOverlayLayoutCommand(layout: layout),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'pushOverlayLayout failed: ${resp.errorMessage}',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------

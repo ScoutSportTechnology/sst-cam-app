@@ -1,6 +1,7 @@
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/overlay_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 
@@ -97,6 +98,12 @@ abstract class BleService {
   Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
+  );
+
+  /// Push overlay layout to the camera at session start.
+  Future<void> pushOverlayLayout(
+    String deviceId,
+    OverlayLayout layout,
   );
 
   // ---------------------------------------------------------------------------
