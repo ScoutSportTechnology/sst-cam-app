@@ -9,6 +9,7 @@ import 'package:sst_cam_app/core/db/app_database.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/match.dart';
+import 'package:sst_cam_app/core/models/overlay_layout.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/services/backup_service.dart';
@@ -81,6 +82,11 @@ class _StubBleService implements BleService {
   Future<void> pushSessionConfig(
     String deviceId,
     PushSessionConfig config,
+  ) async {}
+  @override
+  Future<void> pushOverlayLayout(
+    String deviceId,
+    OverlayLayout layout,
   ) async {}
   @override
   Future<void> dispose() async {}
