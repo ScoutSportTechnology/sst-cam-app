@@ -20,7 +20,7 @@ class EventSheet extends ConsumerStatefulWidget {
 }
 
 class _EventSheetState extends ConsumerState<EventSheet> {
-  static const _types = ['Goal', 'Foul', 'Card', 'Sub', 'Save', 'Other'];
+  static const _types = ['Goal', 'Foul', 'Yellow Card', 'Red Card', 'Sub', 'Save', 'Other'];
 
   int _step = 0;
   String _type = '';
