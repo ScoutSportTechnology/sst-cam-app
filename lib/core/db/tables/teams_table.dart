@@ -12,6 +12,7 @@ class TeamsTable extends Table {
   TextColumn get name => text()();
   TextColumn get shortName => text()();
   TextColumn get sport => text()();
+  TextColumn get colorHex => text().nullable()();
   BoolColumn get hidden => boolean().withDefault(const Constant(false))();
 
   @override

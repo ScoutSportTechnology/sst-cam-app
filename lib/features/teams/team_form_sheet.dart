@@ -5,6 +5,7 @@ import '../../core/models/team.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
+import '../../core/widgets/wf_chip.dart';
 
 /// Show the create / edit team form. Returns the entered draft, or null if
 /// the user cancelled. Pass `existing` to prefill for edit; the sheet keeps
@@ -38,7 +39,18 @@ class _TeamFormState extends State<_TeamForm> {
   late final TextEditingController _name;
   late final TextEditingController _shortName;
   late String _sport;
+  String? _colorHex;
   String? _error;
+
+  static const _palette = [
+    ('#FFFFFF', 'White'),
+    ('#000000', 'Black'),
+    ('#4CAF50', 'Green'),
+    ('#F44336', 'Red'),
+    ('#2196F3', 'Blue'),
+    ('#FFEB3B', 'Yellow'),
+    ('#FF9800', 'Orange'),
+  ];
 
   @override
   void initState() {
@@ -47,6 +59,7 @@ class _TeamFormState extends State<_TeamForm> {
     _name = TextEditingController(text: e?.name ?? '');
     _shortName = TextEditingController(text: e?.shortName ?? '');
     _sport = e?.sport ?? kSports.first;
+    _colorHex = e?.colorHex;
   }
 
   @override
@@ -70,8 +83,14 @@ class _TeamFormState extends State<_TeamForm> {
         name: name,
         shortName: resolvedShort,
         sport: _sport,
+        colorHex: _colorHex,
       ),
     );
+  }
+
+  Color _parseHex(String hex) {
+    final value = int.tryParse(hex.replaceFirst('#', ''), radix: 16) ?? 0;
+    return Color(0xFF000000 | value);
   }
 
   @override
@@ -155,6 +174,39 @@ class _TeamFormState extends State<_TeamForm> {
                     ),
                   )
                   .toList(),
+            ),
+            const SizedBox(height: 14),
+            const WfNote('COLOR'),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                GestureDetector(
+                  onTap: () => setState(() => _colorHex = null),
+                  child: WfChip(label: 'None', active: _colorHex == null),
+                ),
+                ..._palette.map((entry) {
+                  final (hex, name) = entry;
+                  final isActive = _colorHex == hex;
+                  return GestureDetector(
+                    onTap: () => setState(() => _colorHex = hex),
+                    child: WfChip(
+                      label: name,
+                      active: isActive,
+                      leading: Container(
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: _parseHex(hex),
+                          border: Border.all(color: T.hair, width: 1),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),

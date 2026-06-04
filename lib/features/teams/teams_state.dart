@@ -31,6 +31,7 @@ TeamRecord rowToTeamRecord(
   shortName: t.shortName,
   sport: t.sport,
   hidden: t.hidden,
+  colorHex: t.colorHex,
   roster: players.map(rowToPlayer).toList(),
 );
 
@@ -146,6 +147,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
         name: draft.name.trim(),
         shortName: draft.shortName.trim(),
         sport: draft.sport,
+        colorHex: Value(draft.colorHex),
       ),
     );
     return TeamRecord(
@@ -153,6 +155,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
       name: draft.name.trim(),
       shortName: draft.shortName.trim(),
       sport: draft.sport,
+      colorHex: draft.colorHex,
       roster: const [],
     );
   }
@@ -167,6 +170,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
         name: draft.name.trim(),
         shortName: draft.shortName.trim(),
         sport: draft.sport,
+        colorHex: Value(draft.colorHex),
       ),
     );
   }

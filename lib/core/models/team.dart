@@ -31,6 +31,7 @@ class TeamRecord {
     required this.sport,
     required this.roster,
     this.hidden = false,
+    this.colorHex,
   });
 
   final String id;
@@ -42,6 +43,7 @@ class TeamRecord {
   final String sport;
   final List<Player> roster;
   final bool hidden;
+  final String? colorHex;
 
   TeamRecord copyWith({
     String? name,
@@ -49,6 +51,7 @@ class TeamRecord {
     String? sport,
     List<Player>? roster,
     bool? hidden,
+    String? colorHex,
   }) {
     return TeamRecord(
       id: id,
@@ -57,6 +60,7 @@ class TeamRecord {
       sport: sport ?? this.sport,
       roster: roster ?? this.roster,
       hidden: hidden ?? this.hidden,
+      colorHex: colorHex ?? this.colorHex,
     );
   }
 }
@@ -189,11 +193,13 @@ class TeamDraft {
     required this.shortName,
     required this.sport,
     this.id = '',
+    this.colorHex,
   });
   final String id;
   final String name;
   final String shortName;
   final String sport;
+  final String? colorHex;
 }
 
 @immutable
