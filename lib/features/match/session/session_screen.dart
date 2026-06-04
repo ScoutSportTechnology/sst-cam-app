@@ -2,10 +2,13 @@
 // phases. Recording / streaming controls are independent of the period timer
 // so the user can record before kickoff or after the final whistle.
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/ble/ble_providers.dart';
+import '../../../core/models/command.dart';
 import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
@@ -102,10 +105,28 @@ class SessionScreen extends ConsumerWidget {
               onMarkEvent: isPeriodActive
                   ? () => _showEventSheet(context, ref)
                   : null,
-              onKickoff: () => _kickoff(context, ctl, state),
-              onEndPeriod: ctl.endPeriod,
-              onStartNextPeriod: () => ctl.startPeriod(),
-              onEndMatch: () => _confirmEnd(context, ctl, state),
+              onKickoff: () => _kickoff(context, ref, ctl, state),
+              onEndPeriod: () {
+                _sendIfConnected(
+                  ref,
+                  MatchControlCommand(
+                    action: BleMatchControlAction.periodEnd,
+                    period: state.currentPeriod,
+                  ),
+                );
+                ctl.endPeriod();
+              },
+              onStartNextPeriod: () {
+                _sendIfConnected(
+                  ref,
+                  MatchControlCommand(
+                    action: BleMatchControlAction.periodStart,
+                    period: state.currentPeriod + 1,
+                  ),
+                );
+                ctl.startPeriod();
+              },
+              onEndMatch: () => _confirmEnd(context, ref, ctl, state),
             ),
             if (isEnded) const _EndedBanner(),
             const Divider(height: 1, color: T.rule),
@@ -118,11 +139,73 @@ class SessionScreen extends ConsumerWidget {
             ),
             _BottomControls(
               state: state,
-              onTimerTap: ctl.toggleTimer,
-              onRecToggle: connected ? ctl.toggleRecPause : null,
-              onRecStop: connected ? ctl.stopRecording : null,
-              onStreamToggle:
-                  connected ? () => ctl.setStreaming(!state.streaming) : null,
+              onTimerTap: () {
+                final isRunning = state.timer == MatchTimer.running;
+                _sendIfConnected(
+                  ref,
+                  MatchControlCommand(
+                    action: isRunning
+                        ? BleMatchControlAction.clockPause
+                        : BleMatchControlAction.clockResume,
+                    period: state.currentPeriod,
+                  ),
+                );
+                ctl.toggleTimer();
+              },
+              onRecToggle: connected
+                  ? () {
+                      final currentRec = state.rec;
+                      ctl.toggleRecPause();
+                      if (currentRec == RecState.idle) {
+                        _sendIfConnected(
+                          ref,
+                          RecordingControlCommand(
+                            action: RecordingControlAction.start,
+                          ),
+                        );
+                      } else if (currentRec == RecState.recording) {
+                        _sendIfConnected(
+                          ref,
+                          RecordingControlCommand(
+                            action: RecordingControlAction.pause,
+                          ),
+                        );
+                      } else if (currentRec == RecState.paused) {
+                        _sendIfConnected(
+                          ref,
+                          RecordingControlCommand(
+                            action: RecordingControlAction.resume,
+                          ),
+                        );
+                      }
+                    }
+                  : null,
+              onRecStop: connected
+                  ? () {
+                      _sendIfConnected(
+                        ref,
+                        RecordingControlCommand(
+                          action: RecordingControlAction.stop,
+                        ),
+                      );
+                      ctl.stopRecording();
+                    }
+                  : null,
+              onStreamToggle: connected
+                  ? () {
+                      final newStreaming = !state.streaming;
+                      _sendIfConnected(
+                        ref,
+                        StreamingControlCommand(
+                          action: newStreaming
+                              ? StreamingControlAction.start
+                              : StreamingControlAction.stop,
+                          rtmpUrl: null,
+                        ),
+                      );
+                      ctl.setStreaming(newStreaming);
+                    }
+                  : null,
             ),
           ],
         ),
@@ -143,12 +226,20 @@ class SessionScreen extends ConsumerWidget {
 
   Future<void> _kickoff(
     BuildContext context,
+    WidgetRef ref,
     LiveMatchController ctl,
     LiveMatchState state,
   ) async {
     // Kickoff prompt — only on the very first period. Subsequent periods
     // continue with whatever recording / streaming state is active.
     if (state.currentPeriod != 0) {
+      _sendIfConnected(
+        ref,
+        MatchControlCommand(
+          action: BleMatchControlAction.kickoff,
+          period: state.currentPeriod + 1,
+        ),
+      );
       ctl.startPeriod();
       return;
     }
@@ -156,6 +247,13 @@ class SessionScreen extends ConsumerWidget {
     final streamAlreadyOn = state.streaming;
     if (recAlreadyOn && streamAlreadyOn) {
       // Both are already running — nothing to ask, just start the period.
+      _sendIfConnected(
+        ref,
+        MatchControlCommand(
+          action: BleMatchControlAction.kickoff,
+          period: state.currentPeriod + 1,
+        ),
+      );
       ctl.startPeriod();
       return;
     }
@@ -165,11 +263,19 @@ class SessionScreen extends ConsumerWidget {
       askStream: !streamAlreadyOn,
     );
     if (choice == null) return;
+    _sendIfConnected(
+      ref,
+      MatchControlCommand(
+        action: BleMatchControlAction.kickoff,
+        period: state.currentPeriod + 1,
+      ),
+    );
     ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);
   }
 
   Future<void> _confirmEnd(
     BuildContext context,
+    WidgetRef ref,
     LiveMatchController ctl,
     LiveMatchState state,
   ) async {
@@ -177,6 +283,13 @@ class SessionScreen extends ConsumerWidget {
     final streamOn = state.streaming;
     if (!recOn && !streamOn) {
       // Nothing is running — no toggles to ask about, just end.
+      _sendIfConnected(
+        ref,
+        MatchControlCommand(
+          action: BleMatchControlAction.finalWhistle,
+          period: state.currentPeriod,
+        ),
+      );
       ctl.endMatch(stopRecording: false, stopStreaming: false);
       return;
     }
@@ -186,6 +299,13 @@ class SessionScreen extends ConsumerWidget {
       askStopStream: streamOn,
     );
     if (choice == null) return;
+    _sendIfConnected(
+      ref,
+      MatchControlCommand(
+        action: BleMatchControlAction.finalWhistle,
+        period: state.currentPeriod,
+      ),
+    );
     ctl.endMatch(
       stopRecording: choice.$1 ?? false,
       stopStreaming: choice.$2 ?? false,
@@ -204,6 +324,41 @@ class SessionScreen extends ConsumerWidget {
           ref
               .read(liveMatchProvider.notifier)
               .addEvent(type: type, teamLabel: team, jersey: jersey);
+          // BLE wiring for events
+          if (type == 'Goal') {
+            _sendIfConnected(
+              ref,
+              ScoreUpdateCommand(teamId: team, delta: 1),
+            );
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(templateId: 'goal', durationSeconds: 5),
+            );
+          } else if (type == 'Yellow Card') {
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(
+                templateId: 'yellow_card',
+                durationSeconds: 4,
+              ),
+            );
+          } else if (type == 'Red Card') {
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(
+                templateId: 'red_card',
+                durationSeconds: 4,
+              ),
+            );
+          } else if (type == 'Sub') {
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(
+                templateId: 'substitution',
+                durationSeconds: 4,
+              ),
+            );
+          }
         },
       ),
     );
@@ -1068,4 +1223,16 @@ class _ToggleRow extends StatelessWidget {
 
 extension on Border {
   BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
+}
+
+// ---------------------------------------------------------------------------
+// BLE HELPER — fire-and-forget command when a camera is connected
+// ---------------------------------------------------------------------------
+
+void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
+  final id = ref.read(activeCameraIdProvider);
+  if (id == null) return;
+  final connState = ref.read(connectionStateProvider(id)).valueOrNull;
+  if (connState != CameraConnectionState.connected) return;
+  unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
 }
