@@ -49,7 +49,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -93,6 +93,12 @@ class AppDatabase extends _$AppDatabase {
           );
           await customStatement(
             "UPDATE users SET name = 'Coach' WHERE id = 'default-user' AND name = 'default'",
+          );
+        }
+        if (from < 3) {
+          // v2→v3: add color_hex to teams.
+          await customStatement(
+            'ALTER TABLE teams ADD COLUMN color_hex TEXT',
           );
         }
       });

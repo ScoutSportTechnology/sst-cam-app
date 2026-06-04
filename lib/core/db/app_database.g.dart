@@ -233,6 +233,14 @@ class $TeamsTableTable extends TeamsTable
     requiredDuringInsert: true,
   );
   @override
+  late final GeneratedColumn<String> colorHex = GeneratedColumn<String>(
+    'color_hex',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
   late final GeneratedColumn<bool> hidden = GeneratedColumn<bool>(
     'hidden',
     aliasedName,
@@ -251,6 +259,7 @@ class $TeamsTableTable extends TeamsTable
     name,
     shortName,
     sport,
+    colorHex,
     hidden,
   ];
   @override
@@ -284,6 +293,10 @@ class $TeamsTableTable extends TeamsTable
         DriftSqlType.string,
         data['${effectivePrefix}sport'],
       )!,
+      colorHex: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}color_hex'],
+      ),
       hidden: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}hidden'],
@@ -303,6 +316,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
   final String name;
   final String shortName;
   final String sport;
+  final String? colorHex;
   final bool hidden;
   const TeamsTableData({
     required this.id,
@@ -310,6 +324,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
     required this.name,
     required this.shortName,
     required this.sport,
+    this.colorHex,
     required this.hidden,
   });
   @override
@@ -320,6 +335,9 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
     map['name'] = Variable<String>(name);
     map['short_name'] = Variable<String>(shortName);
     map['sport'] = Variable<String>(sport);
+    if (!nullToAbsent || colorHex != null) {
+      map['color_hex'] = Variable<String>(colorHex);
+    }
     map['hidden'] = Variable<bool>(hidden);
     return map;
   }
@@ -331,6 +349,9 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
       name: Value(name),
       shortName: Value(shortName),
       sport: Value(sport),
+      colorHex: colorHex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(colorHex),
       hidden: Value(hidden),
     );
   }
@@ -346,6 +367,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
       name: serializer.fromJson<String>(json['name']),
       shortName: serializer.fromJson<String>(json['shortName']),
       sport: serializer.fromJson<String>(json['sport']),
+      colorHex: serializer.fromJson<String?>(json['colorHex']),
       hidden: serializer.fromJson<bool>(json['hidden']),
     );
   }
@@ -358,6 +380,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
       'name': serializer.toJson<String>(name),
       'shortName': serializer.toJson<String>(shortName),
       'sport': serializer.toJson<String>(sport),
+      'colorHex': serializer.toJson<String?>(colorHex),
       'hidden': serializer.toJson<bool>(hidden),
     };
   }
@@ -368,6 +391,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
     String? name,
     String? shortName,
     String? sport,
+    Value<String?> colorHex = const Value.absent(),
     bool? hidden,
   }) => TeamsTableData(
     id: id ?? this.id,
@@ -375,6 +399,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
     name: name ?? this.name,
     shortName: shortName ?? this.shortName,
     sport: sport ?? this.sport,
+    colorHex: colorHex.present ? colorHex.value : this.colorHex,
     hidden: hidden ?? this.hidden,
   );
   TeamsTableData copyWithCompanion(TeamsTableCompanion data) {
@@ -384,6 +409,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
       name: data.name.present ? data.name.value : this.name,
       shortName: data.shortName.present ? data.shortName.value : this.shortName,
       sport: data.sport.present ? data.sport.value : this.sport,
+      colorHex: data.colorHex.present ? data.colorHex.value : this.colorHex,
       hidden: data.hidden.present ? data.hidden.value : this.hidden,
     );
   }
@@ -396,13 +422,15 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
           ..write('name: $name, ')
           ..write('shortName: $shortName, ')
           ..write('sport: $sport, ')
+          ..write('colorHex: $colorHex, ')
           ..write('hidden: $hidden')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, userId, name, shortName, sport, hidden);
+  int get hashCode =>
+      Object.hash(id, userId, name, shortName, sport, colorHex, hidden);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -412,6 +440,7 @@ class TeamsTableData extends DataClass implements Insertable<TeamsTableData> {
           other.name == this.name &&
           other.shortName == this.shortName &&
           other.sport == this.sport &&
+          other.colorHex == this.colorHex &&
           other.hidden == this.hidden);
 }
 
@@ -421,6 +450,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
   final Value<String> name;
   final Value<String> shortName;
   final Value<String> sport;
+  final Value<String?> colorHex;
   final Value<bool> hidden;
   final Value<int> rowid;
   const TeamsTableCompanion({
@@ -429,6 +459,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
     this.name = const Value.absent(),
     this.shortName = const Value.absent(),
     this.sport = const Value.absent(),
+    this.colorHex = const Value.absent(),
     this.hidden = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -438,6 +469,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
     required String name,
     required String shortName,
     required String sport,
+    this.colorHex = const Value.absent(),
     this.hidden = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -451,6 +483,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
     Expression<String>? name,
     Expression<String>? shortName,
     Expression<String>? sport,
+    Expression<String>? colorHex,
     Expression<bool>? hidden,
     Expression<int>? rowid,
   }) {
@@ -460,6 +493,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
       if (name != null) 'name': name,
       if (shortName != null) 'short_name': shortName,
       if (sport != null) 'sport': sport,
+      if (colorHex != null) 'color_hex': colorHex,
       if (hidden != null) 'hidden': hidden,
       if (rowid != null) 'rowid': rowid,
     });
@@ -471,6 +505,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
     Value<String>? name,
     Value<String>? shortName,
     Value<String>? sport,
+    Value<String?>? colorHex,
     Value<bool>? hidden,
     Value<int>? rowid,
   }) {
@@ -480,6 +515,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
       name: name ?? this.name,
       shortName: shortName ?? this.shortName,
       sport: sport ?? this.sport,
+      colorHex: colorHex ?? this.colorHex,
       hidden: hidden ?? this.hidden,
       rowid: rowid ?? this.rowid,
     );
@@ -503,6 +539,9 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
     if (sport.present) {
       map['sport'] = Variable<String>(sport.value);
     }
+    if (colorHex.present) {
+      map['color_hex'] = Variable<String>(colorHex.value);
+    }
     if (hidden.present) {
       map['hidden'] = Variable<bool>(hidden.value);
     }
@@ -520,6 +559,7 @@ class TeamsTableCompanion extends UpdateCompanion<TeamsTableData> {
           ..write('name: $name, ')
           ..write('shortName: $shortName, ')
           ..write('sport: $sport, ')
+          ..write('colorHex: $colorHex, ')
           ..write('hidden: $hidden, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -3461,6 +3501,7 @@ typedef $$TeamsTableTableCreateCompanionBuilder =
       required String name,
       required String shortName,
       required String sport,
+      Value<String?> colorHex,
       Value<bool> hidden,
       Value<int> rowid,
     });
@@ -3471,6 +3512,7 @@ typedef $$TeamsTableTableUpdateCompanionBuilder =
       Value<String> name,
       Value<String> shortName,
       Value<String> sport,
+      Value<String?> colorHex,
       Value<bool> hidden,
       Value<int> rowid,
     });
@@ -3566,6 +3608,11 @@ class $$TeamsTableTableFilterComposer
 
   ColumnFilters<String> get sport => $composableBuilder(
     column: $table.sport,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get colorHex => $composableBuilder(
+    column: $table.colorHex,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3677,6 +3724,11 @@ class $$TeamsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get colorHex => $composableBuilder(
+    column: $table.colorHex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get hidden => $composableBuilder(
     column: $table.hidden,
     builder: (column) => ColumnOrderings(column),
@@ -3726,6 +3778,9 @@ class $$TeamsTableTableAnnotationComposer
 
   GeneratedColumn<String> get sport =>
       $composableBuilder(column: $table.sport, builder: (column) => column);
+
+  GeneratedColumn<String> get colorHex =>
+      $composableBuilder(column: $table.colorHex, builder: (column) => column);
 
   GeneratedColumn<bool> get hidden =>
       $composableBuilder(column: $table.hidden, builder: (column) => column);
@@ -3841,6 +3896,7 @@ class $$TeamsTableTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<String> shortName = const Value.absent(),
                 Value<String> sport = const Value.absent(),
+                Value<String?> colorHex = const Value.absent(),
                 Value<bool> hidden = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TeamsTableCompanion(
@@ -3849,6 +3905,7 @@ class $$TeamsTableTableTableManager
                 name: name,
                 shortName: shortName,
                 sport: sport,
+                colorHex: colorHex,
                 hidden: hidden,
                 rowid: rowid,
               ),
@@ -3859,6 +3916,7 @@ class $$TeamsTableTableTableManager
                 required String name,
                 required String shortName,
                 required String sport,
+                Value<String?> colorHex = const Value.absent(),
                 Value<bool> hidden = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TeamsTableCompanion.insert(
@@ -3867,6 +3925,7 @@ class $$TeamsTableTableTableManager
                 name: name,
                 shortName: shortName,
                 sport: sport,
+                colorHex: colorHex,
                 hidden: hidden,
                 rowid: rowid,
               ),

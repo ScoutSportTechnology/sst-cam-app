@@ -18,6 +18,7 @@ class UpcomingMatch {
   const UpcomingMatch({required this.team, required this.match});
   final TeamRecord team;
   final TeamMatch match;
+  String? get homeColorHex => team.colorHex;
 }
 
 /// All upcoming matches across all non-hidden teams for the active user,
