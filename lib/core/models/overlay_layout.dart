@@ -118,8 +118,7 @@ class OverlayLayout {
 // Factory
 // ---------------------------------------------------------------------------
 
-/// Returns a canonical 1920×1080 scoreboard layout with persistent elements
-/// and four banner templates.
+/// Returns a canonical 1920×1080 scoreboard layout with persistent elements and four banner templates.
 OverlayLayout defaultScoreboardLayout({
   required String homeName,
   required String awayName,

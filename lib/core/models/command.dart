@@ -104,7 +104,7 @@ class PushSessionConfig {
 }
 
 // ---------------------------------------------------------------------------
-// New enums for control commands
+// Enums
 // ---------------------------------------------------------------------------
 
 enum RecordingControlAction { start, stop, pause, resume }
@@ -121,7 +121,7 @@ enum BleMatchControlAction {
 }
 
 // ---------------------------------------------------------------------------
-// New BleCommand subclasses (U4)
+// Control commands
 // ---------------------------------------------------------------------------
 
 class RecordingControlCommand extends BleCommand {

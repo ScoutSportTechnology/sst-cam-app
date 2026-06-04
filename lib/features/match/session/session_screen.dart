@@ -51,9 +51,7 @@ class SessionScreen extends ConsumerWidget {
             ? 'LIVE'
             : 'READY',
     };
-    final indicatorColor = state.rec == RecState.recording
-        ? T.accent
-        : (isEnded ? T.ink2 : T.ink2);
+    final indicatorColor = state.rec == RecState.recording ? T.accent : T.ink2;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(activeId));
 
@@ -321,7 +319,6 @@ class SessionScreen extends ConsumerWidget {
           ref
               .read(liveMatchProvider.notifier)
               .addEvent(type: type, teamLabel: team, jersey: jersey);
-          // BLE wiring for events
           if (type == 'Goal') {
             _sendIfConnected(
               ref,
@@ -624,9 +621,7 @@ class _PrimaryActionRow extends StatelessWidget {
         );
       case MatchPhase.period:
         phaseButton = WfButton(
-          label: state.isLastPeriod
-              ? 'End period ${state.currentPeriod}'
-              : 'End period ${state.currentPeriod}',
+          label: 'End period ${state.currentPeriod}',
           variant: WfButtonVariant.danger,
           size: WfButtonSize.lg,
           full: true,
@@ -896,6 +891,13 @@ class _TopBar extends StatelessWidget {
 // LIVE THUMB
 // ---------------------------------------------------------------------------
 
+const _emptyOverlayLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [],
+  templates: [],
+);
+
 class _LiveThumb extends ConsumerWidget {
   const _LiveThumb({
     required this.matchState,
@@ -917,13 +919,7 @@ class _LiveThumb extends ConsumerWidget {
         ),
         Positioned.fill(
           child: OverlayLayoutRenderer(
-            layout: matchState.overlayLayout ??
-                const OverlayLayout(
-                  canvasWidth: 1920,
-                  canvasHeight: 1080,
-                  elements: [],
-                  templates: [],
-                ),
+            layout: matchState.overlayLayout ?? _emptyOverlayLayout,
             matchState: matchState,
           ),
         ),

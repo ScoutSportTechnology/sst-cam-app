@@ -111,6 +111,7 @@ class BackupService {
         'name': team.name,
         'short_name': team.shortName,
         'sport': team.sport,
+        'color_hex': team.colorHex,
         'hidden': team.hidden,
         'roster': players
             .map(
@@ -356,6 +357,7 @@ class BackupService {
         name: m['name'] as String,
         shortName: m['short_name'] as String,
         sport: m['sport'] as String,
+        colorHex: Value(m['color_hex'] as String?),
         hidden: Value(m['hidden'] as bool? ?? false),
       );
     }).toList();

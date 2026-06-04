@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/overlay_layout.dart';
 import 'session_state.dart';
 
-/// Renders an [OverlayLayout] onto a scaled surface, substituting bindings
-/// from [LiveMatchState] and showing timed banner templates on events.
+/// Renders an [OverlayLayout] onto a scaled surface, substituting live match bindings and showing timed banner overlays on events.
 class OverlayLayoutRenderer extends StatefulWidget {
   const OverlayLayoutRenderer({
     super.key,
@@ -26,7 +25,6 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
   Timer? _bannerTimer;
   int _lastEventCount = 0;
 
-  // Maps the UI label prefix (from LiveEvent.label) to a template eventType.
   static const _labelToTemplateId = {
     'Goal': 'goal',
     'Yellow Card': 'yellow_card',
@@ -35,11 +33,23 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
   };
 
   @override
+  void initState() {
+    super.initState();
+    _lastEventCount = widget.matchState.events.length;
+  }
+
+  @override
   void didUpdateWidget(OverlayLayoutRenderer oldWidget) {
     super.didUpdateWidget(oldWidget);
     final events = widget.matchState.events;
+    if (events.length < _lastEventCount) {
+      // Event list shrank (e.g. LiveMatchController.reset()) — cancel any active banner.
+      _bannerTimer?.cancel();
+      _activeBannerTemplateId = null;
+      _lastEventCount = 0;
+      return;
+    }
     if (events.length > _lastEventCount) {
-      // Newest event is first
       final label = events.first.label;
       final labelPrefix = label.split(' · ').first;
       final templateId = _labelToTemplateId[labelPrefix];
@@ -48,16 +58,12 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
         final template = widget.layout.templates
             .where((t) => t.eventType == templateId)
             .firstOrNull;
-        setState(() {
-          _activeBannerTemplateId = templateId;
-        });
         if (template != null) {
+          setState(() => _activeBannerTemplateId = templateId);
           _bannerTimer = Timer(
             Duration(milliseconds: template.durationMs),
             () {
-              if (mounted) {
-                setState(() => _activeBannerTemplateId = null);
-              }
+              if (mounted) setState(() => _activeBannerTemplateId = null);
             },
           );
         }
@@ -171,8 +177,6 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
     }
   }
 
-  /// Parses a `'#RRGGBB'` hex string into a [Color].
-  /// Returns [Colors.transparent] for null or unparseable input.
   Color _parseHex(String? hex) {
     if (hex == null) return Colors.transparent;
     final cleaned = hex.replaceFirst('#', '');

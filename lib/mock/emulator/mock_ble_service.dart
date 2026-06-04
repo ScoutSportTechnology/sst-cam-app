@@ -999,7 +999,7 @@ class MockBleService implements BleService {
   }
 
   // ---------------------------------------------------------------------------
-  // Session push (U9)
+  // Session config push
   // ---------------------------------------------------------------------------
 
   /// The last config pushed via [pushSessionConfig]. Test code can inspect
@@ -1011,7 +1011,7 @@ class MockBleService implements BleService {
   bool failNextPushSessionConfig = false;
 
   // ---------------------------------------------------------------------------
-  // Overlay layout push (U4/U5)
+  // Overlay layout push
   // ---------------------------------------------------------------------------
 
   /// The last layout pushed via [pushOverlayLayout] or via
