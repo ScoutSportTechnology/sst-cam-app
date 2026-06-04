@@ -13,12 +13,14 @@ import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
+import '../../../core/models/overlay_layout.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
+import 'overlay_renderer.dart';
 import 'session_state.dart';
 
 class SessionScreen extends ConsumerWidget {
@@ -68,12 +70,7 @@ class SessionScreen extends ConsumerWidget {
                   (isEnded || state.phase == MatchPhase.idle) ? onLeave : null,
             ),
             _LiveThumb(
-              homeLabel: state.homeName,
-              awayLabel: state.awayName,
-              homeScore: state.scoreHome,
-              awayScore: state.scoreAway,
-              phaseLabel: state.phaseLabel,
-              clock: state.clockText,
+              matchState: state,
               isLive: isPeriodActive,
             ),
             // Preview toggle — sits below the feed surface, not overlaid on it.
@@ -901,20 +898,10 @@ class _TopBar extends StatelessWidget {
 
 class _LiveThumb extends ConsumerWidget {
   const _LiveThumb({
-    required this.homeLabel,
-    required this.awayLabel,
-    required this.homeScore,
-    required this.awayScore,
-    required this.phaseLabel,
-    required this.clock,
+    required this.matchState,
     required this.isLive,
   });
-  final String homeLabel;
-  final String awayLabel;
-  final int homeScore;
-  final int awayScore;
-  final String phaseLabel;
-  final String clock;
+  final LiveMatchState matchState;
   final bool isLive;
 
   @override
@@ -928,75 +915,16 @@ class _LiveThumb extends ConsumerWidget {
           label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
           showButtons: false,
         ),
-        Positioned(
-          left: 8,
-          right: 8,
-          bottom: 8,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: T.bg.withValues(alpha: 0.85),
-              border: Border.all(color: T.hair),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _ScoreBlock(label: homeLabel, score: homeScore),
+        Positioned.fill(
+          child: OverlayLayoutRenderer(
+            layout: matchState.overlayLayout ??
+                const OverlayLayout(
+                  canvasWidth: 1920,
+                  canvasHeight: 1080,
+                  elements: [],
+                  templates: [],
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text(
-                    '$phaseLabel · $clock',
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 10,
-                      color: T.ink2,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: _ScoreBlock(label: awayLabel, score: awayScore),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// SCORE BLOCK
-// ---------------------------------------------------------------------------
-
-class _ScoreBlock extends StatelessWidget {
-  const _ScoreBlock({required this.label, required this.score});
-  final String label;
-  final int score;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 9,
-            color: T.ink2,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          '$score',
-          style: const TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.w700,
-            fontFamily: T.mono,
-            color: T.ink,
-            height: 1,
+            matchState: matchState,
           ),
         ),
       ],
