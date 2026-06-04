@@ -343,7 +343,7 @@ void main() {
   });
 
   // Minimal overlay layout for testing
-  const _testLayout = OverlayLayout(
+  const testLayout = OverlayLayout(
     canvasWidth: 1920,
     canvasHeight: 1080,
     elements: [],
@@ -488,7 +488,7 @@ void main() {
     test('sendCommand returns ok', () async {
       final resp = await svc.sendCommand<void>(
         'SST-CAM-001',
-        PushOverlayLayoutCommand(layout: _testLayout),
+        PushOverlayLayoutCommand(layout: testLayout),
       );
       expect(resp.isOk, isTrue);
     });
@@ -496,7 +496,7 @@ void main() {
     test('records last pushed layout via sendCommand', () async {
       await svc.sendCommand<void>(
         'SST-CAM-001',
-        PushOverlayLayoutCommand(layout: _testLayout),
+        PushOverlayLayoutCommand(layout: testLayout),
       );
       expect(svc.lastPushedOverlayLayout, isNotNull);
       expect(svc.lastPushedOverlayLayout!.canvasWidth, 1920);
@@ -506,16 +506,16 @@ void main() {
   group('pushOverlayLayout (U5)', () {
     test('completes without throw and records layout', () async {
       await expectLater(
-        svc.pushOverlayLayout('SST-CAM-001', _testLayout),
+        svc.pushOverlayLayout('SST-CAM-001', testLayout),
         completes,
       );
-      expect(svc.lastPushedOverlayLayout, same(_testLayout));
+      expect(svc.lastPushedOverlayLayout, same(testLayout));
     });
 
     test('failNextPushOverlayLayout throws BleTimeoutException', () async {
       svc.failNextPushOverlayLayout = true;
       await expectLater(
-        svc.pushOverlayLayout('SST-CAM-001', _testLayout),
+        svc.pushOverlayLayout('SST-CAM-001', testLayout),
         throwsA(isA<BleTimeoutException>()),
       );
       expect(svc.failNextPushOverlayLayout, isFalse); // auto-reset
