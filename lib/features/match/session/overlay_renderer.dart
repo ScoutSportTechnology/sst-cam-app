@@ -22,7 +22,7 @@ class OverlayLayoutRenderer extends StatefulWidget {
 }
 
 class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
-  String? _activeBannerTemplateId;
+  OverlayTemplate? _activeBannerTemplate;
   Map<String, String> _activeBannerParams = const {};
   Timer? _bannerTimer;
   int _lastEventCount = 0;
@@ -48,7 +48,8 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
       // Event list shrank (e.g. LiveMatchController.reset()) — cancel any active banner.
       _bannerTimer?.cancel();
       setState(() {
-        _activeBannerTemplateId = null;
+        _activeBannerTemplate = null;
+        _activeBannerTemplate = null;
         _activeBannerParams = const {};
       });
       _lastEventCount = 0;
@@ -65,13 +66,14 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
             .firstOrNull;
         if (template != null) {
           setState(() {
-            _activeBannerTemplateId = templateId;
+            _activeBannerTemplate = template;
             _activeBannerParams = events.first.params;
           });
           _bannerTimer = Timer(Duration(milliseconds: template.durationMs), () {
             if (mounted) {
               setState(() {
-                _activeBannerTemplateId = null;
+                _activeBannerTemplate = null;
+                _activeBannerTemplate = null;
                 _activeBannerParams = const {};
               });
             }
@@ -102,15 +104,11 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
             .map((e) => _buildPositioned(e, s))
             .toList();
 
-        final bannerWidgets = _activeBannerTemplateId != null
-            ? (widget.layout.templates
-                      .where((t) => t.eventType == _activeBannerTemplateId)
-                      .firstOrNull
-                      ?.elements
-                      .where((e) => e.visible)
-                      .map((e) => _buildPositioned(e, s))
-                      .toList() ??
-                  <Widget>[])
+        final bannerWidgets = _activeBannerTemplate != null
+            ? (_activeBannerTemplate!.elements
+                  .where((e) => e.visible)
+                  .map((e) => _buildPositioned(e, s))
+                  .toList())
             : <Widget>[];
 
         return Stack(children: [...persistentWidgets, ...bannerWidgets]);
