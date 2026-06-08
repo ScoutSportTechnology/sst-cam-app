@@ -96,12 +96,24 @@ void main() {
         of: find.text('Coach Maria'),
         matching: find.byType(InkWell),
       );
-      expect(find.descendant(of: mariaRow, matching: find.byIcon(Icons.delete_outline)), findsOneWidget);
+      expect(
+        find.descendant(
+          of: mariaRow,
+          matching: find.byIcon(Icons.delete_outline),
+        ),
+        findsOneWidget,
+      );
       final diegoRow = find.ancestor(
         of: find.text('Diego'),
         matching: find.byType(InkWell),
       );
-      expect(find.descendant(of: diegoRow, matching: find.byIcon(Icons.delete_outline)), findsNothing);
+      expect(
+        find.descendant(
+          of: diegoRow,
+          matching: find.byIcon(Icons.delete_outline),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('active user row is not tappable (no switch for self)', (
@@ -121,30 +133,29 @@ void main() {
   });
 
   group('Switch dialog', () {
-    testWidgets(
-      'tapping a non-active user opens the switch dialog',
-      (tester) async {
-        final mock = _newMock();
-        addTearDown(mock.dispose);
+    testWidgets('tapping a non-active user opens the switch dialog', (
+      tester,
+    ) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
 
-        await tester.pumpWidget(buildHarness(service: mock));
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(buildHarness(service: mock));
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Coach Maria'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('Coach Maria'));
+      await tester.pumpAndSettle();
 
-        expect(find.text('Switch user?'), findsOneWidget);
-        expect(find.textContaining('Switch to Coach Maria?'), findsOneWidget);
-        expect(
-          find.textContaining(
-            'Your teams, matches, and streaming destinations will reload',
-          ),
-          findsOneWidget,
-        );
-        expect(find.text('Cancel'), findsOneWidget);
-        expect(find.text('Switch'), findsOneWidget);
-      },
-    );
+      expect(find.text('Switch user?'), findsOneWidget);
+      expect(find.textContaining('Switch to Coach Maria?'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Your teams, matches, and streaming destinations will reload',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Switch'), findsOneWidget);
+    });
 
     testWidgets('confirming the switch dialog updates activeUserProvider', (
       tester,
@@ -244,34 +255,35 @@ void main() {
   });
 
   group('No-active-user shape', () {
-    testWidgets('with null activeUser, all users show radio buttons (none active)', (
-      tester,
-    ) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
+    testWidgets(
+      'with null activeUser, all users show radio buttons (none active)',
+      (tester) async {
+        final mock = _newMock();
+        addTearDown(mock.dispose);
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            ...dbOverrides(db),
-            bleServiceProvider.overrideWithValue(mock),
-            activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
-            connectionStateProvider(_kFakeDeviceId).overrideWith(
-              (_) => Stream<CameraConnectionState>.value(
-                CameraConnectionState.connected,
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              ...dbOverrides(db),
+              bleServiceProvider.overrideWithValue(mock),
+              activeCameraIdProvider.overrideWith((_) => _kFakeDeviceId),
+              connectionStateProvider(_kFakeDeviceId).overrideWith(
+                (_) => Stream<CameraConnectionState>.value(
+                  CameraConnectionState.connected,
+                ),
               ),
-            ),
-          ],
-          child: const MaterialApp(home: UsersSettingsPage()),
-        ),
-      );
-      await tester.pumpAndSettle();
+            ],
+            child: const MaterialApp(home: UsersSettingsPage()),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // No checkmark — no active user.
-      expect(find.byIcon(Icons.check), findsNothing);
-      // Both users visible.
-      expect(find.text('Coach Diego'), findsOneWidget);
-      expect(find.text('Coach Maria'), findsOneWidget);
-    });
+        // No checkmark — no active user.
+        expect(find.byIcon(Icons.check), findsNothing);
+        // Both users visible.
+        expect(find.text('Coach Diego'), findsOneWidget);
+        expect(find.text('Coach Maria'), findsOneWidget);
+      },
+    );
   });
 }

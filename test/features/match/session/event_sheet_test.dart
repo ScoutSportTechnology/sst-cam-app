@@ -151,120 +151,117 @@ void main() {
       },
     );
 
-    testWidgets(
-      '2. Next button enabled after tapping a type chip',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(800, 1400));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets('2. Next button enabled after tapping a type chip', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final mock = _newMock();
-        addTearDown(mock.dispose);
+      final mock = _newMock();
+      addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(db, mock));
-        await _reachSessionScreen(tester);
-        await _startPeriodDirectly(tester);
-        await _openEventSheet(tester);
+      await tester.pumpWidget(_buildHarness(db, mock));
+      await _reachSessionScreen(tester);
+      await _startPeriodDirectly(tester);
+      await _openEventSheet(tester);
 
-        expect(find.text('What happened?'), findsOneWidget);
+      expect(find.text('What happened?'), findsOneWidget);
 
-        // Tap the "Goal" type chip.
-        await tester.tap(find.text('Goal'));
-        // Multiple pumps to let setState rebuild the button's onPressed.
+      // Tap the "Goal" type chip.
+      await tester.tap(find.text('Goal'));
+      // Multiple pumps to let setState rebuild the button's onPressed.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Now tap "Next" — should advance to step 2.
+      await tester.tap(find.text('Next'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Which team?'), findsOneWidget);
+    });
+
+    testWidgets('3. Away team shows number pad even when home roster exists', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+
+      await tester.pumpWidget(_buildHarness(db, mock));
+      await _reachSessionScreen(tester);
+      await _startPeriodDirectly(tester);
+      await _openEventSheet(tester);
+
+      await tester.tap(find.text('Goal'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Next'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Which team?'), findsOneWidget);
+
+      // Tap the AWAY card.
+      await tester.tap(find.text('AWAY'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // AWAY has no roster → number pad branch only.
+      // The number pad keys should be visible.
+      expect(find.text('1'), findsWidgets);
+      // No dropdown expand_more icon (which would appear with a roster).
+      expect(find.byIcon(Icons.expand_more), findsNothing);
+    });
+
+    testWidgets('4. Switching from one team to another resets jersey state', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+
+      await tester.pumpWidget(_buildHarness(db, mock));
+      await _reachSessionScreen(tester);
+      await _startPeriodDirectly(tester);
+      await _openEventSheet(tester);
+
+      await tester.tap(find.text('Goal'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Next'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Select AWAY first to get the number pad.
+      await tester.tap(find.text('AWAY'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // AWAY shows number pad. Tap digit '7'.
+      final sevens = find.text('7');
+      if (sevens.evaluate().isNotEmpty) {
+        await tester.tap(sevens.first);
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.pump(const Duration(milliseconds: 50));
+      }
 
-        // Now tap "Next" — should advance to step 2.
-        await tester.tap(find.text('Next'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
+      // Switch to HOME — jersey should reset (_jersey.clear() on team switch).
+      await tester.tap(find.text('HOME'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-        expect(find.text('Which team?'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      '3. Away team shows number pad even when home roster exists',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(800, 1400));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-
-        final mock = _newMock();
-        addTearDown(mock.dispose);
-
-        await tester.pumpWidget(_buildHarness(db, mock));
-        await _reachSessionScreen(tester);
-        await _startPeriodDirectly(tester);
-        await _openEventSheet(tester);
-
-        await tester.tap(find.text('Goal'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.tap(find.text('Next'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-
-        expect(find.text('Which team?'), findsOneWidget);
-
-        // Tap the AWAY card.
-        await tester.tap(find.text('AWAY'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
-
-        // AWAY has no roster → number pad branch only.
-        // The number pad keys should be visible.
-        expect(find.text('1'), findsWidgets);
-        // No dropdown expand_more icon (which would appear with a roster).
-        expect(find.byIcon(Icons.expand_more), findsNothing);
-      },
-    );
-
-    testWidgets(
-      '4. Switching from one team to another resets jersey state',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(800, 1400));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-
-        final mock = _newMock();
-        addTearDown(mock.dispose);
-
-        await tester.pumpWidget(_buildHarness(db, mock));
-        await _reachSessionScreen(tester);
-        await _startPeriodDirectly(tester);
-        await _openEventSheet(tester);
-
-        await tester.tap(find.text('Goal'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.tap(find.text('Next'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-
-        // Select AWAY first to get the number pad.
-        await tester.tap(find.text('AWAY'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
-
-        // AWAY shows number pad. Tap digit '7'.
-        final sevens = find.text('7');
-        if (sevens.evaluate().isNotEmpty) {
-          await tester.tap(sevens.first);
-          await tester.pump();
-        }
-
-        // Switch to HOME — jersey should reset (_jersey.clear() on team switch).
-        await tester.tap(find.text('HOME'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
-
-        // HOME has a roster → DropdownButton appears (expand_more icon present).
-        // And the jersey value was reset: no '7' remains in the display text.
-        expect(find.text('HOME'), findsOneWidget);
-        // The expand_more icon appears from the DropdownButton for home roster.
-        expect(find.byIcon(Icons.expand_more), findsWidgets);
-      },
-    );
+      // HOME has a roster → DropdownButton appears (expand_more icon present).
+      // And the jersey value was reset: no '7' remains in the display text.
+      expect(find.text('HOME'), findsOneWidget);
+      // The expand_more icon appears from the DropdownButton for home roster.
+      expect(find.byIcon(Icons.expand_more), findsWidgets);
+    });
   });
 }

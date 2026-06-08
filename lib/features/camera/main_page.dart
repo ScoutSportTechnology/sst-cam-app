@@ -33,8 +33,7 @@ class MainPage extends ConsumerWidget {
         ? null
         : ref.watch(connectionStateProvider(activeId)).valueOrNull;
     final discovered =
-        ref.watch(discoveredDevicesProvider).valueOrNull ??
-        const <SstDevice>[];
+        ref.watch(discoveredDevicesProvider).valueOrNull ?? const <SstDevice>[];
     final device = activeId == null
         ? null
         : discovered.where((d) => d.id == activeId).firstOrNull;
@@ -188,11 +187,13 @@ class _HeroCameraCard extends ConsumerWidget {
                                 ),
                           onPressed: () {
                             ref
-                                .read(
-                                  livePreviewEnabledProvider(deviceId)
-                                      .notifier,
-                                )
-                                .state = !previewOn;
+                                    .read(
+                                      livePreviewEnabledProvider(
+                                        deviceId,
+                                      ).notifier,
+                                    )
+                                    .state =
+                                !previewOn;
                           },
                         ),
                       ),

@@ -137,9 +137,7 @@ class _MatchSearchFieldState extends ConsumerState<_MatchSearchField> {
   @override
   void initState() {
     super.initState();
-    _ctl = TextEditingController(
-      text: ref.read(upcomingSearchQueryProvider),
-    );
+    _ctl = TextEditingController(text: ref.read(upcomingSearchQueryProvider));
   }
 
   @override
@@ -207,8 +205,8 @@ class _MatchFilterBar extends ConsumerWidget {
     final sportFiltered = sport == null
         ? matches
         : matches.where((m) => m.team.sport == sport).toList();
-    final teams =
-        sportFiltered.map((m) => m.team.name).toSet().toList()..sort();
+    final teams = sportFiltered.map((m) => m.team.name).toSet().toList()
+      ..sort();
 
     return WfFilterBar(
       filters: [

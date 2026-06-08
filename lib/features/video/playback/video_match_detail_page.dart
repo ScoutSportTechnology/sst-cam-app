@@ -123,7 +123,8 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     // Throttle to ~250 ms so we don't call setState on every video frame.
     final now = DateTime.now();
     if (_lastOverlayUpdate != null &&
-        now.difference(_lastOverlayUpdate!) < const Duration(milliseconds: 250)) {
+        now.difference(_lastOverlayUpdate!) <
+            const Duration(milliseconds: 250)) {
       return;
     }
     _lastOverlayUpdate = now;
@@ -135,7 +136,10 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     setState(() {
       _isPlaying = playing;
       _playheadFraction = fraction;
-      _currentOverlay = app_overlay.OverlayState.atTime(_overlayStates, posSecs);
+      _currentOverlay = app_overlay.OverlayState.atTime(
+        _overlayStates,
+        posSecs,
+      );
     });
   }
 
@@ -222,8 +226,10 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                 _playheadFraction = v;
                 if (_matchDurationSeconds > 0) {
                   final secs = (v * _matchDurationSeconds).round();
-                  _currentOverlay =
-                      app_overlay.OverlayState.atTime(_overlayStates, secs);
+                  _currentOverlay = app_overlay.OverlayState.atTime(
+                    _overlayStates,
+                    secs,
+                  );
                   _playerController?.seekTo(Duration(seconds: secs));
                 }
               });
@@ -284,8 +290,10 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                     final fraction = e.timeSeconds / _matchDurationSeconds;
                     setState(() {
                       _playheadFraction = fraction;
-                      _currentOverlay =
-                          app_overlay.OverlayState.atTime(_overlayStates, e.timeSeconds);
+                      _currentOverlay = app_overlay.OverlayState.atTime(
+                        _overlayStates,
+                        e.timeSeconds,
+                      );
                     });
                     _playerController?.seekTo(Duration(seconds: e.timeSeconds));
                   },
@@ -319,7 +327,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
       ),
     );
   }
-
 }
 
 int _parseDuration(String hms) {
@@ -366,6 +373,7 @@ class _Player extends StatelessWidget {
   final bool eventsOverlayOn;
   final double playheadFraction;
   final VideoPlayerController? playerController;
+
   /// True when the recording is not yet on this device.
   final bool notOnDevice;
   final app_overlay.OverlayState currentOverlay;
@@ -378,126 +386,129 @@ class _Player extends StatelessWidget {
     return GestureDetector(
       onTap: notOnDevice ? null : onPlayPauseTap,
       child: Stack(
-      children: [
-        _buildPlayerBody(),
-        // Play button — shown only when a player exists and is paused.
-        if (!notOnDevice && playerController != null && !isPlaying)
-          Positioned.fill(
-            child: Center(
+        children: [
+          _buildPlayerBody(),
+          // Play button — shown only when a player exists and is paused.
+          if (!notOnDevice && playerController != null && !isPlaying)
+            Positioned.fill(
+              child: Center(
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: T.bg.withValues(alpha: 0.85),
+                    border: Border.all(color: T.hair),
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: T.ink,
+                    size: 26,
+                  ),
+                ),
+              ),
+            ),
+          if (scoreOverlayOn)
+            Positioned(
+              top: 8,
+              left: 8,
               child: Container(
-                width: 48,
-                height: 48,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: T.bg.withValues(alpha: 0.85),
                   border: Border.all(color: T.hair),
                 ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: T.ink,
-                  size: 26,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      match.teamShortName,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: T.ink2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${currentOverlay.homeScore}',
+                      style: const TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: T.ink,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${currentOverlay.period}${_periodAbbr(match.sport)}',
+                      style: const TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 9,
+                        color: T.ink3,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      () {
+                        final t = currentOverlay.timeSeconds;
+                        final mm = (t ~/ 60).toString().padLeft(2, '0');
+                        final ss = (t % 60).toString().padLeft(2, '0');
+                        return '$mm:$ss';
+                      }(),
+                      style: const TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 9,
+                        color: T.ink3,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${currentOverlay.awayScore}',
+                      style: const TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: T.ink,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      match.opponent.split(' ').first,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: T.ink2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ),
-        if (scoreOverlayOn)
-          Positioned(
-            top: 8,
-            left: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: T.bg.withValues(alpha: 0.85),
-                border: Border.all(color: T.hair),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    match.teamShortName,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: T.ink2,
-                      fontWeight: FontWeight.w600,
-                    ),
+          if (eventsOverlayOn &&
+              currentOverlay.recentEventLabel != null &&
+              currentOverlay.recentEventLabel!.isNotEmpty)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                color: T.accent,
+                child: Text(
+                  currentOverlay.recentEventLabel!,
+                  style: const TextStyle(
+                    fontFamily: T.mono,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: T.accentInk,
+                    letterSpacing: 0.4,
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${currentOverlay.homeScore}',
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: T.ink,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${currentOverlay.period}${_periodAbbr(match.sport)}',
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 9,
-                      color: T.ink3,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    () {
-                      final t = currentOverlay.timeSeconds;
-                      final mm = (t ~/ 60).toString().padLeft(2, '0');
-                      final ss = (t % 60).toString().padLeft(2, '0');
-                      return '$mm:$ss';
-                    }(),
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 9,
-                      color: T.ink3,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${currentOverlay.awayScore}',
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: T.ink,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    match.opponent.split(' ').first,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: T.ink2,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        if (eventsOverlayOn &&
-            currentOverlay.recentEventLabel != null &&
-            currentOverlay.recentEventLabel!.isNotEmpty)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              color: T.accent,
-              child: Text(
-                currentOverlay.recentEventLabel!,
-                style: const TextStyle(
-                  fontFamily: T.mono,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: T.accentInk,
-                  letterSpacing: 0.4,
                 ),
               ),
             ),
-          ),
-      ],
+        ],
       ),
     );
   }
@@ -802,10 +813,7 @@ class _EventRow extends StatelessWidget {
 }
 
 class _Footer extends StatelessWidget {
-  const _Footer({
-    required this.selectedCount,
-    required this.onDownload,
-  });
+  const _Footer({required this.selectedCount, required this.onDownload});
   final int selectedCount;
   final VoidCallback onDownload;
 
@@ -823,10 +831,7 @@ class _Footer extends StatelessWidget {
         variant: WfButtonVariant.primary,
         leading: const Text(
           '↓',
-          style: TextStyle(
-            color: T.accentInk,
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(color: T.accentInk, fontWeight: FontWeight.w700),
         ),
         onPressed: onDownload,
       ),

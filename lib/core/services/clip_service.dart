@@ -40,7 +40,8 @@ class ClipService {
     final outputPath = await videoPathService.clipPath(matchId, clipId);
 
     // -ss before -i for fast seek; -c copy for no re-encode.
-    final cmd = '-y -ss $startSeconds -t $durationSeconds '
+    final cmd =
+        '-y -ss $startSeconds -t $durationSeconds '
         '-i "$sourcePath" -c copy "$outputPath"';
 
     final session = await FFmpegKit.execute(cmd);

@@ -207,32 +207,26 @@ void main() {
       expect(find.text('Match setup'), findsNothing);
     });
 
-    testWidgets(
-      'error path: pushSessionConfig throws BleTimeoutException → '
-      'setup screen stays, error text shown, no navigation',
-      (tester) async {
-        final mock = _newMock();
-        mock.failNextPushSessionConfig = true;
+    testWidgets('error path: pushSessionConfig throws BleTimeoutException → '
+        'setup screen stays, error text shown, no navigation', (tester) async {
+      final mock = _newMock();
+      mock.failNextPushSessionConfig = true;
 
-        await tester.pumpWidget(_buildHarness(service: mock, db: db));
-        await _navigateToSetup(tester);
+      await tester.pumpWidget(_buildHarness(service: mock, db: db));
+      await _navigateToSetup(tester);
 
-        await _tapSetupButton(tester, 'Start match');
-        await _pumpAfterTap(tester);
+      await _tapSetupButton(tester, 'Start match');
+      await _pumpAfterTap(tester);
 
-        // Still on setup screen.
-        expect(find.text('Match setup'), findsOneWidget);
-        // Inline error message.
-        expect(
-          find.textContaining('Failed to configure camera'),
-          findsOneWidget,
-        );
-        // Retry affordance.
-        expect(find.text('Retry'), findsOneWidget);
-        // Config was NOT stored (error path in mock doesn't store it).
-        expect(mock.lastPushedConfig, isNull);
-      },
-    );
+      // Still on setup screen.
+      expect(find.text('Match setup'), findsOneWidget);
+      // Inline error message.
+      expect(find.textContaining('Failed to configure camera'), findsOneWidget);
+      // Retry affordance.
+      expect(find.text('Retry'), findsOneWidget);
+      // Config was NOT stored (error path in mock doesn't store it).
+      expect(mock.lastPushedConfig, isNull);
+    });
 
     testWidgets(
       'BleTimeoutException → setup screen stays, error message shown',
@@ -302,44 +296,49 @@ void main() {
       },
     );
 
-    testWidgets(
-      'Start match button is disabled when camera is disconnected',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(800, 1400));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets('Start match button is disabled when camera is disconnected', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final mock = _newMock();
-        await tester.pumpWidget(
-          _buildHarness(
-            service: mock,
-            db: db,
-            connectionState: CameraConnectionState.disconnected,
-          ),
-        );
-        await _navigateToSetup(tester);
+      final mock = _newMock();
+      await tester.pumpWidget(
+        _buildHarness(
+          service: mock,
+          db: db,
+          connectionState: CameraConnectionState.disconnected,
+        ),
+      );
+      await _navigateToSetup(tester);
 
-        // Scroll to the button so the finder can locate it.
-        final buttonFinder = find.text('Start match');
-        await tester.scrollUntilVisible(buttonFinder, 200);
-        await tester.pump();
+      // Scroll to the button so the finder can locate it.
+      final buttonFinder = find.text('Start match');
+      await tester.scrollUntilVisible(buttonFinder, 200);
+      await tester.pump();
 
-        // Button must be disabled (no onPressed) — tapping it must NOT
-        // call pushSessionConfig.
-        await tester.tap(buttonFinder, warnIfMissed: false);
-        await _pumpAfterTap(tester);
+      // Button must be disabled (no onPressed) — tapping it must NOT
+      // call pushSessionConfig.
+      await tester.tap(buttonFinder, warnIfMissed: false);
+      await _pumpAfterTap(tester);
 
-        expect(mock.lastPushedConfig, isNull,
-            reason:
-                'pushSessionConfig must not be called when camera is disconnected');
-        expect(find.text('Match setup'), findsOneWidget,
-            reason: 'Setup screen must remain visible — session must not start');
-        expect(
-          find.text('Connect a camera to start the match.'),
-          findsOneWidget,
-          reason: 'Hint text must appear when disconnected',
-        );
-      },
-    );
+      expect(
+        mock.lastPushedConfig,
+        isNull,
+        reason:
+            'pushSessionConfig must not be called when camera is disconnected',
+      );
+      expect(
+        find.text('Match setup'),
+        findsOneWidget,
+        reason: 'Setup screen must remain visible — session must not start',
+      );
+      expect(
+        find.text('Connect a camera to start the match.'),
+        findsOneWidget,
+        reason: 'Hint text must appear when disconnected',
+      );
+    });
 
     testWidgets('matchUuid is a valid UUID v4', (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 1400));

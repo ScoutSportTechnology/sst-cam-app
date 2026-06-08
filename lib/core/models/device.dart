@@ -16,8 +16,10 @@ class SstDevice {
   final String firmwareVersion;
   final String model;
   final int protocolVersion;
+
   /// Battery level 0–100, or null when not yet reported.
   final int? batteryPercent;
+
   /// RSSI in dBm (negative), or null when not available.
   final int? rssi;
 

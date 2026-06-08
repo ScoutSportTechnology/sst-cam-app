@@ -84,10 +84,7 @@ class _StubBleService implements BleService {
     PushSessionConfig config,
   ) async {}
   @override
-  Future<void> pushOverlayLayout(
-    String deviceId,
-    OverlayLayout layout,
-  ) async {}
+  Future<void> pushOverlayLayout(String deviceId, OverlayLayout layout) async {}
   @override
   Future<void> dispose() async {}
 }
@@ -359,55 +356,52 @@ void main() {
   // 9. Team matches serialized in top-level matches list (inline removed — #19)
   // ---------------------------------------------------------------------------
 
-  test(
-    'team matches appear in top-level matches list',
-    () async {
-      final userId = _uuid.v4();
-      final teamId = _uuid.v4();
-      final matchId = _uuid.v4();
+  test('team matches appear in top-level matches list', () async {
+    final userId = _uuid.v4();
+    final teamId = _uuid.v4();
+    final matchId = _uuid.v4();
 
-      await db.usersDao.insertUser(
-        UsersTableCompanion.insert(id: userId, name: 'Coach Alex'),
-      );
-      await db.teamsDao.insertTeam(
-        TeamsTableCompanion.insert(
-          id: teamId,
-          userId: userId,
-          name: 'Lions',
-          shortName: 'LIO',
-          sport: 'Soccer',
-        ),
-      );
-      await db.teamsDao.insertTeamMatch(
-        TeamMatchesTableCompanion.insert(
-          id: matchId,
-          teamId: teamId,
-          opponent: 'Bears',
-          date: '2026-04-01',
-          result: 'W 2-1',
-          kind: 'past',
-          numPeriods: 2,
-          periodLengthSeconds: 2700,
-        ),
-      );
+    await db.usersDao.insertUser(
+      UsersTableCompanion.insert(id: userId, name: 'Coach Alex'),
+    );
+    await db.teamsDao.insertTeam(
+      TeamsTableCompanion.insert(
+        id: teamId,
+        userId: userId,
+        name: 'Lions',
+        shortName: 'LIO',
+        sport: 'Soccer',
+      ),
+    );
+    await db.teamsDao.insertTeamMatch(
+      TeamMatchesTableCompanion.insert(
+        id: matchId,
+        teamId: teamId,
+        opponent: 'Bears',
+        date: '2026-04-01',
+        result: 'W 2-1',
+        kind: 'past',
+        numPeriods: 2,
+        periodLengthSeconds: 2700,
+      ),
+    );
 
-      final service = BackupService(db);
-      final path = await service.export(outputDir: tempDir);
+    final service = BackupService(db);
+    final path = await service.export(outputDir: tempDir);
 
-      final json =
-          jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+    final json =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
 
-      // Matches only in top-level list (inline per-team matches removed)
-      final matches = json['matches'] as List;
-      expect(matches, hasLength(1));
-      expect(matches.first['id'], matchId);
-      expect(matches.first['opponent'], 'Bears');
+    // Matches only in top-level list (inline per-team matches removed)
+    final matches = json['matches'] as List;
+    expect(matches, hasLength(1));
+    expect(matches.first['id'], matchId);
+    expect(matches.first['opponent'], 'Bears');
 
-      // Teams do NOT have inline matches
-      final teamMap = (json['teams'] as List).first as Map<String, dynamic>;
-      expect(teamMap.containsKey('matches'), isFalse);
-    },
-  );
+    // Teams do NOT have inline matches
+    final teamMap = (json['teams'] as List).first as Map<String, dynamic>;
+    expect(teamMap.containsKey('matches'), isFalse);
+  });
 
   // ===========================================================================
   // Import tests

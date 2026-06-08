@@ -132,7 +132,10 @@ void main() {
 
         // Now build a fresh container with no activeUserId override and empty prefs.
         final fresh = ProviderContainer(
-          overrides: [...dbOverrides(db), bleServiceProvider.overrideWithValue(_newMock())],
+          overrides: [
+            ...dbOverrides(db),
+            bleServiceProvider.overrideWithValue(_newMock()),
+          ],
         );
         addTearDown(fresh.dispose);
 
@@ -350,12 +353,9 @@ void main() {
 
       // Collect emissions into a list.
       final emissions = <List<UpcomingMatch>>[];
-      final sub = container.listen(
-        upcomingMatchesProvider,
-        (_, next) {
-          if (next.hasValue) emissions.add(next.value!);
-        },
-      );
+      final sub = container.listen(upcomingMatchesProvider, (_, next) {
+        if (next.hasValue) emissions.add(next.value!);
+      });
 
       // Consume the initial emission (2 upcoming matches in seed data).
       final initial = await container.read(upcomingMatchesProvider.future);

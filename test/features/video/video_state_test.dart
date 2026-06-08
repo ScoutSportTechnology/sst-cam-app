@@ -24,13 +24,16 @@ import 'package:sst_cam_app/features/video/video_state.dart';
 import '../../test_helpers.dart';
 
 MockBleService _newMock() => MockBleService(
-      scanDeviceAppearDelays: const [Duration.zero],
-      connectionDelay: Duration.zero,
-      failureRate: 0.0,
-      randomSeed: 42,
-    );
+  scanDeviceAppearDelays: const [Duration.zero],
+  connectionDelay: Duration.zero,
+  failureRate: 0.0,
+  randomSeed: 42,
+);
 
-ProviderContainer _makeContainer(AppDatabase db, {List<Override> extra = const []}) {
+ProviderContainer _makeContainer(
+  AppDatabase db, {
+  List<Override> extra = const [],
+}) {
   final c = ProviderContainer(
     overrides: [
       ...dbOverrides(db),
@@ -349,32 +352,34 @@ void main() {
       await _awaitLibrary(c, db.value, count: 2);
 
       // Set team filter to full name (case-insensitive).
-      c.read(libraryTeamFilterProvider.notifier).state =
-          'northside rovers u14';
+      c.read(libraryTeamFilterProvider.notifier).state = 'northside rovers u14';
       final results = c.read(filteredLibraryMatchesProvider);
       expect(results.any((m) => m.id == 'fmf-tf-nra'), isTrue);
       expect(results.any((m) => m.id == 'fmf-tf-nrb'), isFalse);
     });
 
-    test('team filter: matches where opponent contains filter (NR in opponent)', () async {
-      final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, _) {});
+    test(
+      'team filter: matches where opponent contains filter (NR in opponent)',
+      () async {
+        final c = _makeContainer(db.value);
+        c.listen(libraryProvider, (_, _) {});
 
-      // efc-r shortName is 'EFC'; match has opponent 'vs NR United' (contains 'NR').
-      await insertLocalMatch(
-        db.value,
-        id: 'fmf-tf-opp',
-        teamId: 'efc-r',
-        opponent: 'vs NR United',
-        date: 'May 06',
-      );
+        // efc-r shortName is 'EFC'; match has opponent 'vs NR United' (contains 'NR').
+        await insertLocalMatch(
+          db.value,
+          id: 'fmf-tf-opp',
+          teamId: 'efc-r',
+          opponent: 'vs NR United',
+          date: 'May 06',
+        );
 
-      await _awaitLibrary(c, db.value);
+        await _awaitLibrary(c, db.value);
 
-      c.read(libraryTeamFilterProvider.notifier).state = 'NR';
-      final results = c.read(filteredLibraryMatchesProvider);
-      expect(results.any((m) => m.id == 'fmf-tf-opp'), isTrue);
-    });
+        c.read(libraryTeamFilterProvider.notifier).state = 'NR';
+        final results = c.read(filteredLibraryMatchesProvider);
+        expect(results.any((m) => m.id == 'fmf-tf-opp'), isTrue);
+      },
+    );
 
     test('text search: NR matches teamShortName NRA', () async {
       final c = _makeContainer(db.value);
@@ -414,24 +419,27 @@ void main() {
       expect(results.any((m) => m.id == 'fmf-search-opp'), isTrue);
     });
 
-    test('text search: teamName match — Northside returns nr-u14 matches', () async {
-      final c = _makeContainer(db.value);
-      c.listen(libraryProvider, (_, _) {});
+    test(
+      'text search: teamName match — Northside returns nr-u14 matches',
+      () async {
+        final c = _makeContainer(db.value);
+        c.listen(libraryProvider, (_, _) {});
 
-      await insertLocalMatch(
-        db.value,
-        id: 'fmf-search-tname',
-        teamId: 'nr-u14',
-        opponent: 'vs Eta',
-        date: 'May 09',
-      );
+        await insertLocalMatch(
+          db.value,
+          id: 'fmf-search-tname',
+          teamId: 'nr-u14',
+          opponent: 'vs Eta',
+          date: 'May 09',
+        );
 
-      await _awaitLibrary(c, db.value);
+        await _awaitLibrary(c, db.value);
 
-      c.read(librarySearchQueryProvider.notifier).state = 'Northside';
-      final results = c.read(filteredLibraryMatchesProvider);
-      expect(results.any((m) => m.id == 'fmf-search-tname'), isTrue);
-    });
+        c.read(librarySearchQueryProvider.notifier).state = 'Northside';
+        final results = c.read(filteredLibraryMatchesProvider);
+        expect(results.any((m) => m.id == 'fmf-search-tname'), isTrue);
+      },
+    );
 
     test('text search: no match on unrelated query', () async {
       final c = _makeContainer(db.value);
@@ -481,35 +489,41 @@ void main() {
     }
 
     // Wait until both libraryProvider and teamsControllerProvider have data.
-    Future<void> awaitProviders(ProviderContainer c, {int minLibrary = 1}) async {
+    Future<void> awaitProviders(
+      ProviderContainer c, {
+      int minLibrary = 1,
+    }) async {
       c.listen(libraryProvider, (_, _) {});
       c.listen(teamsControllerProvider, (_, _) {});
       for (var i = 0; i < 50; i++) {
         await Future<void>.delayed(Duration.zero);
         final lib = c.read(libraryProvider).valueOrNull ?? const [];
         final teams = c.read(teamsControllerProvider).valueOrNull;
-        if (lib.length >= minLibrary && teams != null && teams.isNotEmpty) break;
+        if (lib.length >= minLibrary && teams != null && teams.isNotEmpty)
+          break;
       }
     }
 
-    test('includes team that appears only as opponent (not a recording team)',
-        () async {
-      final c = _makeContainer(db.value);
+    test(
+      'includes team that appears only as opponent (not a recording team)',
+      () async {
+        final c = _makeContainer(db.value);
 
-      // nr-u12 has no recordings; insert a match by nr-u14 where nr-u12 is the opponent.
-      await insertMatch(
-        db.value,
-        id: 'flt-opp-nr12',
-        teamId: 'nr-u14',
-        opponent: 'Northside Rovers U12',
-      );
+        // nr-u12 has no recordings; insert a match by nr-u14 where nr-u12 is the opponent.
+        await insertMatch(
+          db.value,
+          id: 'flt-opp-nr12',
+          teamId: 'nr-u14',
+          opponent: 'Northside Rovers U12',
+        );
 
-      await awaitProviders(c);
+        await awaitProviders(c);
 
-      final teams = c.read(filteredLibraryTeamsProvider);
-      final names = teams.map((t) => t.name).toSet();
-      expect(names, contains('Northside Rovers U12'));
-    });
+        final teams = c.read(filteredLibraryTeamsProvider);
+        final names = teams.map((t) => t.name).toSet();
+        expect(names, contains('Northside Rovers U12'));
+      },
+    );
 
     test('recording-team-only teams still appear', () async {
       final c = _makeContainer(db.value);
@@ -528,24 +542,26 @@ void main() {
       expect(names, contains('Northside Rovers U14'));
     });
 
-    test('teams with no library presence (neither recording nor opponent) are excluded',
-        () async {
-      final c = _makeContainer(db.value);
+    test(
+      'teams with no library presence (neither recording nor opponent) are excluded',
+      () async {
+        final c = _makeContainer(db.value);
 
-      // nr-u14 records vs some unknown team; rd-utd appears neither as recording nor opponent.
-      await insertMatch(
-        db.value,
-        id: 'flt-exc-rdu',
-        teamId: 'nr-u14',
-        opponent: 'Unknown Team',
-      );
+        // nr-u14 records vs some unknown team; rd-utd appears neither as recording nor opponent.
+        await insertMatch(
+          db.value,
+          id: 'flt-exc-rdu',
+          teamId: 'nr-u14',
+          opponent: 'Unknown Team',
+        );
 
-      await awaitProviders(c);
+        await awaitProviders(c);
 
-      final teams = c.read(filteredLibraryTeamsProvider);
-      final names = teams.map((t) => t.name).toSet();
-      expect(names, isNot(contains('Riverdale United')));
-    });
+        final teams = c.read(filteredLibraryTeamsProvider);
+        final names = teams.map((t) => t.name).toSet();
+        expect(names, isNot(contains('Riverdale United')));
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -554,7 +570,9 @@ void main() {
 
   group('isOnDeviceProvider', () {
     test('returns false when file does not exist', () async {
-      final tempDir = await Directory.systemTemp.createTemp('isOnDevice_absent_a_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'isOnDevice_absent_a_',
+      );
       addTearDown(() => tempDir.delete(recursive: true));
 
       final stubSvc = _TempDirVideoPathService(tempDir.path);
@@ -563,7 +581,9 @@ void main() {
         extra: [videoPathServiceProvider.overrideWithValue(stubSvc)],
       );
 
-      final result = await c.read(isOnDeviceProvider('nonexistent-match-id').future);
+      final result = await c.read(
+        isOnDeviceProvider('nonexistent-match-id').future,
+      );
       expect(result, isFalse);
     });
 
@@ -589,7 +609,9 @@ void main() {
     });
 
     test('returns false when file does not exist in temp dir', () async {
-      final tempDir = await Directory.systemTemp.createTemp('isOnDevice_absent_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'isOnDevice_absent_',
+      );
       addTearDown(() => tempDir.delete(recursive: true));
 
       final stubSvc = _TempDirVideoPathService(tempDir.path);
@@ -599,8 +621,7 @@ void main() {
         extra: [videoPathServiceProvider.overrideWithValue(stubSvc)],
       );
 
-      final result =
-          await c.read(isOnDeviceProvider('absent-match-id').future);
+      final result = await c.read(isOnDeviceProvider('absent-match-id').future);
       expect(result, isFalse);
     });
   });

@@ -36,7 +36,8 @@ class SessionScreen extends ConsumerWidget {
     final ctl = ref.read(liveMatchProvider.notifier);
 
     final activeId = ref.watch(activeCameraIdProvider);
-    final connected = activeId != null &&
+    final connected =
+        activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
 
@@ -66,13 +67,11 @@ class SessionScreen extends ConsumerWidget {
               indicator: indicator,
               indicatorColor: indicatorColor,
               clock: state.clockText,
-              onBack:
-                  (isEnded || state.phase == MatchPhase.idle) ? onLeave : null,
+              onBack: (isEnded || state.phase == MatchPhase.idle)
+                  ? onLeave
+                  : null,
             ),
-            _LiveThumb(
-              matchState: state,
-              isLive: isPeriodActive,
-            ),
+            _LiveThumb(matchState: state, isLive: isPeriodActive),
             // Preview toggle — sits below the feed surface, not overlaid on it.
             // Only shown when a camera is connected.
             if (activeId != null)
@@ -92,8 +91,9 @@ class SessionScreen extends ConsumerWidget {
                         ),
                   onPressed: () {
                     ref
-                        .read(livePreviewEnabledProvider(activeId).notifier)
-                        .state = !previewOn;
+                            .read(livePreviewEnabledProvider(activeId).notifier)
+                            .state =
+                        !previewOn;
                   },
                 ),
               ),
@@ -131,9 +131,7 @@ class SessionScreen extends ConsumerWidget {
               'Event log',
               padding: EdgeInsets.fromLTRB(14, 10, 14, 4),
             ),
-            Expanded(
-              child: _buildEventLog(state),
-            ),
+            Expanded(child: _buildEventLog(state)),
             _BottomControls(
               state: state,
               onTimerTap: () {
@@ -322,10 +320,7 @@ class SessionScreen extends ConsumerWidget {
               .read(liveMatchProvider.notifier)
               .addEvent(type: type, teamLabel: team, jersey: jersey);
           if (type == 'Goal') {
-            _sendIfConnected(
-              ref,
-              ScoreUpdateCommand(teamId: team, delta: 1),
-            );
+            _sendIfConnected(ref, ScoreUpdateCommand(teamId: team, delta: 1));
             _sendIfConnected(
               ref,
               BannerEventCommand(templateId: 'goal', durationSeconds: 5),
@@ -333,18 +328,12 @@ class SessionScreen extends ConsumerWidget {
           } else if (type == 'Yellow Card') {
             _sendIfConnected(
               ref,
-              BannerEventCommand(
-                templateId: 'yellow_card',
-                durationSeconds: 4,
-              ),
+              BannerEventCommand(templateId: 'yellow_card', durationSeconds: 4),
             );
           } else if (type == 'Red Card') {
             _sendIfConnected(
               ref,
-              BannerEventCommand(
-                templateId: 'red_card',
-                durationSeconds: 4,
-              ),
+              BannerEventCommand(templateId: 'red_card', durationSeconds: 4),
             );
           } else if (type == 'Sub') {
             _sendIfConnected(
@@ -901,10 +890,7 @@ const _emptyOverlayLayout = OverlayLayout(
 );
 
 class _LiveThumb extends ConsumerWidget {
-  const _LiveThumb({
-    required this.matchState,
-    required this.isLive,
-  });
+  const _LiveThumb({required this.matchState, required this.isLive});
   final LiveMatchState matchState;
   final bool isLive;
 
@@ -922,10 +908,7 @@ class _LiveThumb extends ConsumerWidget {
     return Stack(
       children: [
         if (wifiFailed)
-          _PreviewUnavailablePlaceholder(
-            matchState: matchState,
-            isLive: isLive,
-          )
+          _PreviewUnavailablePlaceholder(matchState: matchState, isLive: isLive)
         else ...[
           // No buttons inside the surface — Preview/Stop is in the parent layout.
           LivePreviewView(

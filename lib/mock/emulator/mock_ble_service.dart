@@ -628,125 +628,118 @@ class MockBleService implements BleService {
     return _mapResponse<T>(command, decodedResp);
   }
 
-  proto.Command _encodeCommand(BleCommand cmd, String correlationId) =>
-      switch (cmd) {
-        GetDeviceInfoCommand() => proto.Command(
-          correlationId: correlationId,
-          getDeviceInfo: proto.GetDeviceInfoCommand(),
+  proto.Command _encodeCommand(
+    BleCommand cmd,
+    String correlationId,
+  ) => switch (cmd) {
+    GetDeviceInfoCommand() => proto.Command(
+      correlationId: correlationId,
+      getDeviceInfo: proto.GetDeviceInfoCommand(),
+    ),
+    GetTelemetryCommand() => proto.Command(
+      correlationId: correlationId,
+      getTelemetry: proto.GetTelemetryCommand(),
+    ),
+    GetMatchStateCommand() => proto.Command(
+      correlationId: correlationId,
+      getMatchState: proto.GetMatchStateCommand(),
+    ),
+    ListRecordingsCommand() => proto.Command(
+      correlationId: correlationId,
+      listRecordings: proto.ListRecordingsCommand(),
+    ),
+    DownloadRequestCommand(:final recordingId) => proto.Command(
+      correlationId: correlationId,
+      downloadRequest: proto.DownloadRequestCommand(recordingId: recordingId),
+    ),
+    RequestThumbnailCommand(:final width, :final height, :final quality) =>
+      proto.Command(
+        correlationId: correlationId,
+        thumbnail: proto.ThumbnailRequest(
+          width: width,
+          height: height,
+          quality: quality,
         ),
-        GetTelemetryCommand() => proto.Command(
-          correlationId: correlationId,
-          getTelemetry: proto.GetTelemetryCommand(),
+      ),
+    RecordingControlCommand(:final action) => proto.Command(
+      correlationId: correlationId,
+      recordingControl: proto.RecordingControlCommand(
+        action: switch (action) {
+          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
+          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
+          RecordingControlAction.resume =>
+            proto.RecordingAction.RECORDING_RESUME,
+        },
+      ),
+    ),
+    StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
+      correlationId: correlationId,
+      streamingControl: proto.StreamingControlCommand(
+        action: switch (action) {
+          StreamingControlAction.start => proto.StreamingAction.STREAMING_START,
+          StreamingControlAction.stop => proto.StreamingAction.STREAMING_STOP,
+        },
+        destination: rtmpUrl ?? '',
+      ),
+    ),
+    MatchControlCommand(:final action, :final period) => proto.Command(
+      correlationId: correlationId,
+      matchControl: proto.MatchControlCommand(
+        action: switch (action) {
+          BleMatchControlAction.kickoff =>
+            proto.MatchControlAction.MATCH_KICKOFF,
+          BleMatchControlAction.periodEnd =>
+            proto.MatchControlAction.MATCH_PERIOD_END,
+          BleMatchControlAction.periodStart =>
+            proto.MatchControlAction.MATCH_PERIOD_START,
+          BleMatchControlAction.finalWhistle =>
+            proto.MatchControlAction.MATCH_FINAL_WHISTLE,
+          BleMatchControlAction.clockPause =>
+            proto.MatchControlAction.MATCH_CLOCK_PAUSE,
+          BleMatchControlAction.clockResume =>
+            proto.MatchControlAction.MATCH_CLOCK_RESUME,
+        },
+        period: period,
+      ),
+    ),
+    ScoreUpdateCommand(:final teamId, :final delta) => proto.Command(
+      correlationId: correlationId,
+      scoreUpdate: proto.ScoreUpdateCommand(teamId: teamId, delta: delta),
+    ),
+    BannerEventCommand(
+      :final templateId,
+      :final params,
+      :final durationSeconds,
+      :final playerId,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        bannerEvent: proto.BannerEventCommand(
+          templateId: templateId,
+          params: params,
+          durationS: durationSeconds,
+          playerId: playerId ?? '',
         ),
-        GetMatchStateCommand() => proto.Command(
-          correlationId: correlationId,
-          getMatchState: proto.GetMatchStateCommand(),
-        ),
-        ListRecordingsCommand() => proto.Command(
-          correlationId: correlationId,
-          listRecordings: proto.ListRecordingsCommand(),
-        ),
-        DownloadRequestCommand(:final recordingId) => proto.Command(
-          correlationId: correlationId,
-          downloadRequest: proto.DownloadRequestCommand(
-            recordingId: recordingId,
-          ),
-        ),
-        RequestThumbnailCommand(:final width, :final height, :final quality) =>
-          proto.Command(
-            correlationId: correlationId,
-            thumbnail: proto.ThumbnailRequest(
-              width: width,
-              height: height,
-              quality: quality,
-            ),
-          ),
-        RecordingControlCommand(:final action) => proto.Command(
-          correlationId: correlationId,
-          recordingControl: proto.RecordingControlCommand(
-            action: switch (action) {
-              RecordingControlAction.start =>
-                proto.RecordingAction.RECORDING_START,
-              RecordingControlAction.stop =>
-                proto.RecordingAction.RECORDING_STOP,
-              RecordingControlAction.pause =>
-                proto.RecordingAction.RECORDING_PAUSE,
-              RecordingControlAction.resume =>
-                proto.RecordingAction.RECORDING_RESUME,
-            },
-          ),
-        ),
-        StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
-          correlationId: correlationId,
-          streamingControl: proto.StreamingControlCommand(
-            action: switch (action) {
-              StreamingControlAction.start =>
-                proto.StreamingAction.STREAMING_START,
-              StreamingControlAction.stop =>
-                proto.StreamingAction.STREAMING_STOP,
-            },
-            destination: rtmpUrl ?? '',
-          ),
-        ),
-        MatchControlCommand(:final action, :final period) => proto.Command(
-          correlationId: correlationId,
-          matchControl: proto.MatchControlCommand(
-            action: switch (action) {
-              BleMatchControlAction.kickoff =>
-                proto.MatchControlAction.MATCH_KICKOFF,
-              BleMatchControlAction.periodEnd =>
-                proto.MatchControlAction.MATCH_PERIOD_END,
-              BleMatchControlAction.periodStart =>
-                proto.MatchControlAction.MATCH_PERIOD_START,
-              BleMatchControlAction.finalWhistle =>
-                proto.MatchControlAction.MATCH_FINAL_WHISTLE,
-              BleMatchControlAction.clockPause =>
-                proto.MatchControlAction.MATCH_CLOCK_PAUSE,
-              BleMatchControlAction.clockResume =>
-                proto.MatchControlAction.MATCH_CLOCK_RESUME,
-            },
-            period: period,
-          ),
-        ),
-        ScoreUpdateCommand(:final teamId, :final delta) => proto.Command(
-          correlationId: correlationId,
-          scoreUpdate: proto.ScoreUpdateCommand(
-            teamId: teamId,
-            delta: delta,
-          ),
-        ),
-        BannerEventCommand(
-          :final templateId,
-          :final params,
-          :final durationSeconds,
-          :final playerId,
-        ) =>
-          proto.Command(
-            correlationId: correlationId,
-            bannerEvent: proto.BannerEventCommand(
-              templateId: templateId,
-              params: params,
-              durationS: durationSeconds,
-              playerId: playerId ?? '',
-            ),
-          ),
-        PushOverlayLayoutCommand(:final layout) => proto.Command(
-          correlationId: correlationId,
-          pushOverlayLayout: proto.PushOverlayLayoutCommand(
-            layout: _dartLayoutToProto(layout),
-          ),
-        ),
-        StartWifiDirectCommand() => proto.Command(
-          correlationId: correlationId,
-          startWifiDirect: proto.StartWifiDirectCommand(),
-        ),
-      };
+      ),
+    PushOverlayLayoutCommand(:final layout) => proto.Command(
+      correlationId: correlationId,
+      pushOverlayLayout: proto.PushOverlayLayoutCommand(
+        layout: _dartLayoutToProto(layout),
+      ),
+    ),
+    StartWifiDirectCommand() => proto.Command(
+      correlationId: correlationId,
+      startWifiDirect: proto.StartWifiDirectCommand(),
+    ),
+  };
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
     // Apply side effects for stateful commands before building the response.
     switch (cmd) {
       case RecordingControlCommand(:final action):
-        isRecordingActive = action == RecordingControlAction.start ||
+        isRecordingActive =
+            action == RecordingControlAction.start ||
             action == RecordingControlAction.resume;
         lastRecordingAction = action;
       case StreamingControlCommand(:final action):

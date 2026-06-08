@@ -68,17 +68,14 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
             _activeBannerTemplateId = templateId;
             _activeBannerParams = events.first.params;
           });
-          _bannerTimer = Timer(
-            Duration(milliseconds: template.durationMs),
-            () {
-              if (mounted) {
-                setState(() {
-                  _activeBannerTemplateId = null;
-                  _activeBannerParams = const {};
-                });
-              }
-            },
-          );
+          _bannerTimer = Timer(Duration(milliseconds: template.durationMs), () {
+            if (mounted) {
+              setState(() {
+                _activeBannerTemplateId = null;
+                _activeBannerParams = const {};
+              });
+            }
+          });
         }
       }
     }
@@ -107,13 +104,13 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
 
         final bannerWidgets = _activeBannerTemplateId != null
             ? (widget.layout.templates
-                    .where((t) => t.eventType == _activeBannerTemplateId)
-                    .firstOrNull
-                    ?.elements
-                    .where((e) => e.visible)
-                    .map((e) => _buildPositioned(e, s))
-                    .toList() ??
-                <Widget>[])
+                      .where((t) => t.eventType == _activeBannerTemplateId)
+                      .firstOrNull
+                      ?.elements
+                      .where((e) => e.visible)
+                      .map((e) => _buildPositioned(e, s))
+                      .toList() ??
+                  <Widget>[])
             : <Widget>[];
 
         return Stack(children: [...persistentWidgets, ...bannerWidgets]);

@@ -44,10 +44,12 @@ UpcomingMatch _rowToUpcomingMatch(UpcomingMatchRow row) => UpcomingMatch(
 // ---------------------------------------------------------------------------
 
 final upcomingSearchQueryProvider = StateProvider<String>((_) => '');
-final upcomingMatchSportFilterProvider =
-    StateProvider<String?>((_) => null); // null = All
-final upcomingMatchTeamFilterProvider =
-    StateProvider<String?>((_) => null); // null = All teams
+final upcomingMatchSportFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
+final upcomingMatchTeamFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All teams
 
 final filteredUpcomingMatchesProvider = Provider<List<UpcomingMatch>>((ref) {
   final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];

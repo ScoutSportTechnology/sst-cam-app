@@ -46,7 +46,9 @@ Widget _buildHarness({
         wifiConnectionStateProvider(
           deviceId,
         ).overrideWith((_) => Stream.value(connectionState)),
-        livePreviewEnabledProvider(deviceId).overrideWith((_) => previewEnabled),
+        livePreviewEnabledProvider(
+          deviceId,
+        ).overrideWith((_) => previewEnabled),
       ],
     ],
     child: MaterialApp(

@@ -69,9 +69,7 @@ class WifiServiceImpl implements WifiService {
     // iOS guard — P2P group negotiation is not supported on iOS.
     if (Platform.isIOS) {
       _emitState(deviceId, WifiDirectState.failed);
-      throw const WifiDirectException(
-        'local preview not supported on iOS',
-      );
+      throw const WifiDirectException('local preview not supported on iOS');
     }
 
     _emitState(deviceId, WifiDirectState.starting);
@@ -190,17 +188,16 @@ class WifiServiceImpl implements WifiService {
   }
 
   @override
-  Stream<OverlayState> overlayStateStream(String deviceId) =>
-      Stream.periodic(
-        const Duration(seconds: 1),
-        (i) => const OverlayState(
-          timeSeconds: 0,
-          homeScore: 0,
-          awayScore: 0,
-          period: 1,
-          recentEventLabel: null,
-        ),
-      );
+  Stream<OverlayState> overlayStateStream(String deviceId) => Stream.periodic(
+    const Duration(seconds: 1),
+    (i) => const OverlayState(
+      timeSeconds: 0,
+      homeScore: 0,
+      awayScore: 0,
+      period: 1,
+      recentEventLabel: null,
+    ),
+  );
 
   // ---------------------------------------------------------------------------
   // Shared tick-loop download helper

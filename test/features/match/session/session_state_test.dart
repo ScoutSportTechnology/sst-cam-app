@@ -38,17 +38,20 @@ void main() {
       expect(container.read(liveMatchProvider).homeColorHex, '#FF0000');
     });
 
-    test('loadFromUpcoming with homeColorHex null leaves state.homeColorHex null', () {
-      ctrl.loadFromUpcoming(
-        teamShortName: 'NR',
-        teamName: 'Norton Rangers',
-        opponent: 'vs EFC',
-        numPeriods: 2,
-        periodLengthSeconds: 2100,
-        homeColorHex: null,
-      );
-      expect(container.read(liveMatchProvider).homeColorHex, isNull);
-    });
+    test(
+      'loadFromUpcoming with homeColorHex null leaves state.homeColorHex null',
+      () {
+        ctrl.loadFromUpcoming(
+          teamShortName: 'NR',
+          teamName: 'Norton Rangers',
+          opponent: 'vs EFC',
+          numPeriods: 2,
+          periodLengthSeconds: 2100,
+          homeColorHex: null,
+        );
+        expect(container.read(liveMatchProvider).homeColorHex, isNull);
+      },
+    );
 
     // ---- setOverlayLayout --------------------------------------------------
 
@@ -89,38 +92,44 @@ void main() {
       expect(s.periodLabelForOverlay, 'P1');
     });
 
-    test('periodLabelForOverlay is HT when phase=periodBreak and not last period', () {
-      // 2-period match; advance to end of period 1 → periodBreak (not last)
-      ctrl.startPeriod(); // period 1
-      ctrl.endPeriod();   // → periodBreak, currentPeriod=1, numPeriods=2
-      final s = container.read(liveMatchProvider);
-      expect(s.phase, MatchPhase.periodBreak);
-      expect(s.isLastPeriod, isFalse);
-      expect(s.periodLabelForOverlay, 'HT');
-    });
+    test(
+      'periodLabelForOverlay is HT when phase=periodBreak and not last period',
+      () {
+        // 2-period match; advance to end of period 1 → periodBreak (not last)
+        ctrl.startPeriod(); // period 1
+        ctrl.endPeriod(); // → periodBreak, currentPeriod=1, numPeriods=2
+        final s = container.read(liveMatchProvider);
+        expect(s.phase, MatchPhase.periodBreak);
+        expect(s.isLastPeriod, isFalse);
+        expect(s.periodLabelForOverlay, 'HT');
+      },
+    );
 
     test('periodLabelForOverlay is FT when phase=ended', () {
       ctrl.startPeriod(); // period 1
-      ctrl.endPeriod();   // periodBreak after period 1
+      ctrl.endPeriod(); // periodBreak after period 1
       ctrl.startPeriod(); // period 2
-      ctrl.endPeriod();   // periodBreak, isLastPeriod=true
-      ctrl.endMatch();    // → ended
+      ctrl.endPeriod(); // periodBreak, isLastPeriod=true
+      ctrl.endMatch(); // → ended
       final s = container.read(liveMatchProvider);
       expect(s.phase, MatchPhase.ended);
       expect(s.periodLabelForOverlay, 'FT');
     });
 
-    test('periodLabelForOverlay is FT when phase=periodBreak and isLastPeriod', () {
-      // 2-period match; end of period 2 → periodBreak with isLastPeriod=true
-      ctrl.startPeriod(); // period 1
-      ctrl.endPeriod();
-      ctrl.startPeriod(); // period 2
-      ctrl.endPeriod();   // → periodBreak, currentPeriod=2, numPeriods=2
-      final s = container.read(liveMatchProvider);
-      expect(s.phase, MatchPhase.periodBreak);
-      expect(s.isLastPeriod, isTrue);
-      expect(s.periodLabelForOverlay, 'FT');
-    });
+    test(
+      'periodLabelForOverlay is FT when phase=periodBreak and isLastPeriod',
+      () {
+        // 2-period match; end of period 2 → periodBreak with isLastPeriod=true
+        ctrl.startPeriod(); // period 1
+        ctrl.endPeriod();
+        ctrl.startPeriod(); // period 2
+        ctrl.endPeriod(); // → periodBreak, currentPeriod=2, numPeriods=2
+        final s = container.read(liveMatchProvider);
+        expect(s.phase, MatchPhase.periodBreak);
+        expect(s.isLastPeriod, isTrue);
+        expect(s.periodLabelForOverlay, 'FT');
+      },
+    );
 
     // ---- copyWith preserves new fields when omitted -----------------------
 
@@ -141,7 +150,7 @@ void main() {
 
     test('phaseLabel for periodBreak non-last period returns BRK (not HT)', () {
       ctrl.startPeriod(); // period 1
-      ctrl.endPeriod();   // periodBreak, not last
+      ctrl.endPeriod(); // periodBreak, not last
       final s = container.read(liveMatchProvider);
       expect(s.phase, MatchPhase.periodBreak);
       expect(s.isLastPeriod, isFalse);

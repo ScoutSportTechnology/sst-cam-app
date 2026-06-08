@@ -75,18 +75,21 @@ void main() {
   // deleteById + FK cascade
   // ---------------------------------------------------------------------------
 
-  test('deleteById removes a specific user, leaving default user intact', () async {
-    final id = const Uuid().v4();
-    await db.usersDao.insertUser(
-      UsersTableCompanion.insert(id: id, name: 'Temp User'),
-    );
+  test(
+    'deleteById removes a specific user, leaving default user intact',
+    () async {
+      final id = const Uuid().v4();
+      await db.usersDao.insertUser(
+        UsersTableCompanion.insert(id: id, name: 'Temp User'),
+      );
 
-    await db.usersDao.deleteById(id);
+      await db.usersDao.deleteById(id);
 
-    final users = await db.usersDao.getAll();
-    expect(users, hasLength(1));
-    expect(users.first.id, 'default-user');
-  });
+      final users = await db.usersDao.getAll();
+      expect(users, hasLength(1));
+      expect(users.first.id, 'default-user');
+    },
+  );
 
   test('deleteById cascades to teams', () async {
     final userId = const Uuid().v4();

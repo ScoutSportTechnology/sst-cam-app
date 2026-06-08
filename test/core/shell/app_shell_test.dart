@@ -45,9 +45,7 @@ Widget _buildHarness(DbRef db, MockBleService service) {
       // SharedPreferences before the mock is set.
       activeUserProvider.overrideWith((_) => 'user-1'),
     ],
-    child: const MaterialApp(
-      home: AppShell(),
-    ),
+    child: const MaterialApp(home: AppShell()),
   );
 }
 
@@ -84,37 +82,36 @@ void main() {
     },
   );
 
-  testWidgets(
-    'tapping NavigationBar tab 0 sets activeTabProvider to 0',
-    (tester) async {
-      final mock = _newMock();
-      addTearDown(mock.dispose);
+  testWidgets('tapping NavigationBar tab 0 sets activeTabProvider to 0', (
+    tester,
+  ) async {
+    final mock = _newMock();
+    addTearDown(mock.dispose);
 
-      await tester.pumpWidget(_buildHarness(db, mock));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpWidget(_buildHarness(db, mock));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(AppShell)),
-      );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AppShell)),
+    );
 
-      // Start on tab 2 so a tap on tab 0 is a real navigation change.
-      container.read(activeTabProvider.notifier).state = 2;
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+    // Start on tab 2 so a tap on tab 0 is a real navigation change.
+    container.read(activeTabProvider.notifier).state = 2;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
 
-      // Tap the first NavigationDestination (index 0, 'Main').
-      // NavigationBar renders NavigationDestination widgets inside an
-      // internal layout. We tap the icon at the leftmost position.
-      final destinations = find.byType(NavigationDestination);
-      await tester.tap(destinations.first);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+    // Tap the first NavigationDestination (index 0, 'Main').
+    // NavigationBar renders NavigationDestination widgets inside an
+    // internal layout. We tap the icon at the leftmost position.
+    final destinations = find.byType(NavigationDestination);
+    await tester.tap(destinations.first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
 
-      expect(container.read(activeTabProvider), 0);
+    expect(container.read(activeTabProvider), 0);
 
-      final navBar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-      expect(navBar.selectedIndex, 0);
-    },
-  );
+    final navBar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+    expect(navBar.selectedIndex, 0);
+  });
 }

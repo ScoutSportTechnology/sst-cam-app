@@ -144,7 +144,11 @@ class _PickerSheet extends StatelessWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({required this.label, required this.checked, required this.onTap});
+  const _Tile({
+    required this.label,
+    required this.checked,
+    required this.onTap,
+  });
 
   final String label;
   final bool checked;

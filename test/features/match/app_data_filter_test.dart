@@ -261,31 +261,34 @@ void main() {
       expect(c.read(filteredLibraryTeamsProvider), isEmpty);
     });
 
-    test('excludes teams where all entries have downloadState remote', () async {
-      final c = _makeContainer(db.value);
+    test(
+      'excludes teams where all entries have downloadState remote',
+      () async {
+        final c = _makeContainer(db.value);
 
-      // Insert a remote-only match for nr-u14.
-      await db.value.teamsDao.insertTeamMatch(
-        TeamMatchesTableCompanion.insert(
-          id: 'lib-remote-only-2',
-          teamId: 'nr-u14',
-          opponent: 'vs Remote',
-          date: 'Apr 03',
-          result: 'L 0-1',
-          kind: 'past',
-          numPeriods: 2,
-          periodLengthSeconds: 35 * 60,
-          // sizeMb == 0 → remote
-        ),
-      );
+        // Insert a remote-only match for nr-u14.
+        await db.value.teamsDao.insertTeamMatch(
+          TeamMatchesTableCompanion.insert(
+            id: 'lib-remote-only-2',
+            teamId: 'nr-u14',
+            opponent: 'vs Remote',
+            date: 'Apr 03',
+            result: 'L 0-1',
+            kind: 'past',
+            numPeriods: 2,
+            periodLengthSeconds: 35 * 60,
+            // sizeMb == 0 → remote
+          ),
+        );
 
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
-      await c.read(libraryProvider.future);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        await c.read(libraryProvider.future);
 
-      // With only a remote entry, the team should not appear.
-      expect(c.read(filteredLibraryTeamsProvider), isEmpty);
-    });
+        // With only a remote entry, the team should not appear.
+        expect(c.read(filteredLibraryTeamsProvider), isEmpty);
+      },
+    );
 
     test('teams with local entries appear in filtered list', () async {
       final c = _makeContainer(db.value);
@@ -317,11 +320,17 @@ void main() {
       // new row. Allow up to ~20 iterations.
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(Duration.zero);
-        final hasLocal = c.read(libraryProvider).valueOrNull?.any(
-              (m) => m.teamId == 'nr-u14' && m.downloadState != 'remote',
-            ) ??
+        final hasLocal =
+            c
+                .read(libraryProvider)
+                .valueOrNull
+                ?.any(
+                  (m) => m.teamId == 'nr-u14' && m.downloadState != 'remote',
+                ) ??
             false;
-        if (hasLocal) { break; }
+        if (hasLocal) {
+          break;
+        }
       }
       sub.close();
 
@@ -368,16 +377,24 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         final lib = c.read(libraryProvider).valueOrNull ?? const [];
         final localCount = lib.where((m) => m.downloadState != 'remote').length;
-        if (localCount >= 2) { break; }
+        if (localCount >= 2) {
+          break;
+        }
       }
       sub.close();
 
       // Both Soccer teams visible with no filter.
-      expect(c.read(filteredLibraryTeamsProvider).length, greaterThanOrEqualTo(2));
+      expect(
+        c.read(filteredLibraryTeamsProvider).length,
+        greaterThanOrEqualTo(2),
+      );
 
       // Soccer filter keeps both.
       c.read(librarySportFilterProvider.notifier).state = 'Soccer';
-      expect(c.read(filteredLibraryTeamsProvider).length, greaterThanOrEqualTo(2));
+      expect(
+        c.read(filteredLibraryTeamsProvider).length,
+        greaterThanOrEqualTo(2),
+      );
 
       // Basketball filter removes all.
       c.read(librarySportFilterProvider.notifier).state = 'Basketball';
@@ -407,12 +424,17 @@ void main() {
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(Duration.zero);
         final lib = c.read(libraryProvider).valueOrNull ?? const [];
-        if (lib.any((m) => m.teamId == 'nr-u14' && m.downloadState != 'remote')) break;
+        if (lib.any((m) => m.teamId == 'nr-u14' && m.downloadState != 'remote'))
+          break;
       }
       sub.close();
 
-      c.read(librarySearchQueryProvider.notifier).state = 'Northside Rovers U14';
-      expect(c.read(filteredLibraryTeamsProvider).map((t) => t.id), contains('nr-u14'));
+      c.read(librarySearchQueryProvider.notifier).state =
+          'Northside Rovers U14';
+      expect(
+        c.read(filteredLibraryTeamsProvider).map((t) => t.id),
+        contains('nr-u14'),
+      );
 
       c.read(librarySearchQueryProvider.notifier).state = 'ZZZNOMATCH';
       expect(c.read(filteredLibraryTeamsProvider), isEmpty);
@@ -441,13 +463,17 @@ void main() {
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(Duration.zero);
         final lib = c.read(libraryProvider).valueOrNull ?? const [];
-        if (lib.any((m) => m.teamId == 'nr-u14' && m.downloadState != 'remote')) break;
+        if (lib.any((m) => m.teamId == 'nr-u14' && m.downloadState != 'remote'))
+          break;
       }
       sub.close();
 
       // nr-u14 has shortName 'NRA'.
       c.read(librarySearchQueryProvider.notifier).state = 'NRA';
-      expect(c.read(filteredLibraryTeamsProvider).map((t) => t.id), contains('nr-u14'));
+      expect(
+        c.read(filteredLibraryTeamsProvider).map((t) => t.id),
+        contains('nr-u14'),
+      );
     });
   });
 }

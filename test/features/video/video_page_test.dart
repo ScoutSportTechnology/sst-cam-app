@@ -54,11 +54,11 @@ class _AbsentVideoPathService extends VideoPathService {
 // ---------------------------------------------------------------------------
 
 MockBleService _newMock() => MockBleService(
-      scanDeviceAppearDelays: const [Duration.zero],
-      connectionDelay: Duration.zero,
-      failureRate: 0.0,
-      randomSeed: 42,
-    );
+  scanDeviceAppearDelays: const [Duration.zero],
+  connectionDelay: Duration.zero,
+  failureRate: 0.0,
+  randomSeed: 42,
+);
 
 Widget _buildPage(AppDatabase db) {
   return ProviderScope(
@@ -75,9 +75,7 @@ Widget _buildPage(AppDatabase db) {
 /// Returns a ProviderContainer by looking up the tree from a VideoPage element.
 /// containerOf walks UPWARD so we need a descendant of ProviderScope.
 ProviderContainer _container(WidgetTester tester) {
-  return ProviderScope.containerOf(
-    tester.element(find.byType(VideoPage)),
-  );
+  return ProviderScope.containerOf(tester.element(find.byType(VideoPage)));
 }
 
 /// Insert a past match with a clean opponent name (no "vs " prefix) and a
@@ -134,10 +132,10 @@ void main() {
   // AE1 + AE2: badge and title rendering ----------------------------------------
 
   group('AE1 + AE2: match card badge and title', () {
-    testWidgets(
-        'badge shows teamShortName (NRA); '
-        'title shows "Northside Rovers U14 vs Eastfield FC" (no double vs)',
-        (tester) async {
+    testWidgets('badge shows teamShortName (NRA); '
+        'title shows "Northside Rovers U14 vs Eastfield FC" (no double vs)', (
+      tester,
+    ) async {
       // Insert a match with a unique opponent that doesn't exist in seed data.
       await _insertMatch(
         db.value,
@@ -172,73 +170,74 @@ void main() {
 
   group('Sport filter', () {
     testWidgets(
-        '"All sports" picker button shown; no standalone All chip; Soccer not inline',
-        (tester) async {
-      await _insertMatch(
-        db.value,
-        id: 'sport-m1',
-        teamId: 'nr-u14',
-        opponent: 'Generic Opponent',
-        date: 'May 01',
-      );
+      '"All sports" picker button shown; no standalone All chip; Soccer not inline',
+      (tester) async {
+        await _insertMatch(
+          db.value,
+          id: 'sport-m1',
+          teamId: 'nr-u14',
+          opponent: 'Generic Opponent',
+          date: 'May 01',
+        );
 
-      await tester.pumpWidget(_buildPage(db.value));
-      final container = _container(tester);
-      await _awaitLibrary(tester, container);
+        await tester.pumpWidget(_buildPage(db.value));
+        final container = _container(tester);
+        await _awaitLibrary(tester, container);
 
-      // Filter bar shows "All sports" picker button when no filter is active.
-      expect(find.text('All sports'), findsOneWidget);
-      // "All teams" picker for the team filter.
-      expect(find.text('All teams'), findsOneWidget);
-      // No standalone "All" chips — "All" only lives inside the sheet.
-      expect(find.text('All'), findsNothing);
-      // Individual sport names are NOT rendered inline.
-      expect(find.text('Soccer'), findsNothing);
-    });
+        // Filter bar shows "All sports" picker button when no filter is active.
+        expect(find.text('All sports'), findsOneWidget);
+        // "All teams" picker for the team filter.
+        expect(find.text('All teams'), findsOneWidget);
+        // No standalone "All" chips — "All" only lives inside the sheet.
+        expect(find.text('All'), findsNothing);
+        // Individual sport names are NOT rendered inline.
+        expect(find.text('Soccer'), findsNothing);
+      },
+    );
   });
 
   // Team filter -----------------------------------------------------------------
 
   group('Team filter', () {
     testWidgets(
-        'shows "All teams" picker button; bottom sheet lists only teams with matches',
-        (tester) async {
-      await tester.binding.setSurfaceSize(const Size(800, 1400));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+      'shows "All teams" picker button; bottom sheet lists only teams with matches',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 1400));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(_buildPage(db.value));
-      final container = _container(tester);
-      await _awaitLibrary(tester, container, count: 1);
+        await tester.pumpWidget(_buildPage(db.value));
+        final container = _container(tester);
+        await _awaitLibrary(tester, container, count: 1);
 
-      // Team picker button shows category label — no team names inline.
-      expect(find.text('All teams'), findsOneWidget);
-      expect(find.text('Northside Rovers U14'), findsNothing);
-      expect(find.text('Northside Rovers U12'), findsNothing);
-      expect(find.text('Eastfield FC Reserves'), findsNothing);
-      expect(find.text('Riverdale United'), findsNothing);
-      // Short names must not appear.
-      expect(find.text('NRB'), findsNothing);
-      expect(find.text('EFC'), findsNothing);
-      expect(find.text('RDU'), findsNothing);
+        // Team picker button shows category label — no team names inline.
+        expect(find.text('All teams'), findsOneWidget);
+        expect(find.text('Northside Rovers U14'), findsNothing);
+        expect(find.text('Northside Rovers U12'), findsNothing);
+        expect(find.text('Eastfield FC Reserves'), findsNothing);
+        expect(find.text('Riverdale United'), findsNothing);
+        // Short names must not appear.
+        expect(find.text('NRB'), findsNothing);
+        expect(find.text('EFC'), findsNothing);
+        expect(find.text('RDU'), findsNothing);
 
-      // Open the picker sheet.
-      await tester.tap(find.text('All teams'));
-      await tester.pumpAndSettle();
+        // Open the picker sheet.
+        await tester.tap(find.text('All teams'));
+        await tester.pumpAndSettle();
 
-      // Only "Northside Rovers U14" has library matches → it appears in the sheet.
-      expect(find.text('Northside Rovers U14'), findsOneWidget);
-      // Teams with no matches must not appear in the sheet.
-      expect(find.text('Northside Rovers U12'), findsNothing);
-      expect(find.text('Eastfield FC Reserves'), findsNothing);
-      expect(find.text('Riverdale United'), findsNothing);
-    });
+        // Only "Northside Rovers U14" has library matches → it appears in the sheet.
+        expect(find.text('Northside Rovers U14'), findsOneWidget);
+        // Teams with no matches must not appear in the sheet.
+        expect(find.text('Northside Rovers U12'), findsNothing);
+        expect(find.text('Eastfield FC Reserves'), findsNothing);
+        expect(find.text('Riverdale United'), findsNothing);
+      },
+    );
   });
 
   // Empty filtered state --------------------------------------------------------
 
   group('Empty filter state', () {
-    testWidgets(
-        'shows "No matches for this filter" and Clear filters button '
+    testWidgets('shows "No matches for this filter" and Clear filters button '
         'when filter returns no results', (tester) async {
       await _insertMatch(
         db.value,
@@ -260,8 +259,9 @@ void main() {
       expect(find.text('Clear filters'), findsOneWidget);
     });
 
-    testWidgets('tapping "Clear filters" resets sport and team filters',
-        (tester) async {
+    testWidgets('tapping "Clear filters" resets sport and team filters', (
+      tester,
+    ) async {
       await _insertMatch(
         db.value,
         id: 'ef-m2',
@@ -292,8 +292,9 @@ void main() {
   // Navigation ------------------------------------------------------------------
 
   group('Match card navigation', () {
-    testWidgets('tapping a match card pushes VideoMatchDetailPage',
-        (tester) async {
+    testWidgets('tapping a match card pushes VideoMatchDetailPage', (
+      tester,
+    ) async {
       // Use a tall surface so VideoMatchDetailPage (a Column with fixed
       // children) does not overflow and cause a spurious rendering error.
       await tester.binding.setSurfaceSize(const Size(800, 1400));

@@ -9,6 +9,7 @@ class ClipsTable extends Table {
   TextColumn get id => text()();
   TextColumn get matchId =>
       text().references(TeamMatchesTable, #id, onDelete: KeyAction.cascade)();
+
   /// Start offset in seconds from the beginning of the source video.
   IntColumn get startSeconds => integer().withDefault(const Constant(0))();
   IntColumn get durationSeconds => integer()();

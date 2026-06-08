@@ -76,7 +76,8 @@ class TeamsPage extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(heroTag: null,
+      floatingActionButton: FloatingActionButton(
+        heroTag: null,
         onPressed: () => _showAddTeamSheet(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,

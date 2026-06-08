@@ -96,7 +96,10 @@ void main() {
         expect(find.text('Users'), findsAtLeastNWidgets(1));
         await tester.scrollUntilVisible(find.text('Sport setups'), 200);
         expect(find.text('Sport setups'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
+        await tester.scrollUntilVisible(
+          find.text('Streaming destinations'),
+          200,
+        );
         expect(find.text('Streaming destinations'), findsOneWidget);
         await tester.scrollUntilVisible(find.text('Theme'), 200);
         expect(find.text('Theme'), findsOneWidget);
@@ -143,7 +146,10 @@ void main() {
         // Nav rows are grouped in a single card; no separate WfSection headers.
         await tester.scrollUntilVisible(find.text('Sport setups'), 200);
         expect(find.text('Sport setups'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('Streaming destinations'), 200);
+        await tester.scrollUntilVisible(
+          find.text('Streaming destinations'),
+          200,
+        );
         expect(find.text('Streaming destinations'), findsOneWidget);
         // App section rows are inline at the bottom.
         await tester.scrollUntilVisible(find.text('Theme'), 200);
@@ -172,9 +178,7 @@ void main() {
         );
         final cameraPos = tester.getTopLeft(find.text('Connected camera')).dy;
         // 'Users' appears twice (WfSection + nav row label); use the first.
-        final userHeaderPos = tester
-            .getTopLeft(find.text('Users').first)
-            .dy;
+        final userHeaderPos = tester.getTopLeft(find.text('Users').first).dy;
         expect(cameraPos < userHeaderPos, isTrue);
       },
     );
@@ -265,15 +269,17 @@ void main() {
       );
     }
 
-    testWidgets('Developer row absent when developerSettings is null',
-        (tester) async {
+    testWidgets('Developer row absent when developerSettings is null', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildWithDevNav());
       await tester.pumpAndSettle();
       expect(find.text('Developer'), findsNothing);
     });
 
-    testWidgets('Developer row visible when developerSettings is non-null',
-        (tester) async {
+    testWidgets('Developer row visible when developerSettings is non-null', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         buildWithDevNav(
           devNav: DevNavigation(

@@ -426,10 +426,7 @@ void main() {
     test('kickoff returns ok and records action', () async {
       final resp = await svc.sendCommand<void>(
         'SST-CAM-001',
-        MatchControlCommand(
-          action: BleMatchControlAction.kickoff,
-          period: 1,
-        ),
+        MatchControlCommand(action: BleMatchControlAction.kickoff, period: 1),
       );
       expect(resp.isOk, isTrue);
       expect(svc.lastMatchControlAction, BleMatchControlAction.kickoff);
@@ -438,10 +435,7 @@ void main() {
     test('periodEnd records correct action', () async {
       await svc.sendCommand<void>(
         'SST-CAM-001',
-        MatchControlCommand(
-          action: BleMatchControlAction.periodEnd,
-          period: 1,
-        ),
+        MatchControlCommand(action: BleMatchControlAction.periodEnd, period: 1),
       );
       expect(svc.lastMatchControlAction, BleMatchControlAction.periodEnd);
     });

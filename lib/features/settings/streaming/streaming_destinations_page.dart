@@ -66,7 +66,8 @@ class StreamingDestinationsPage extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(heroTag: null,
+      floatingActionButton: FloatingActionButton(
+        heroTag: null,
         onPressed: () => _onAdd(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,

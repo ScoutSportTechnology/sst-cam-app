@@ -57,15 +57,18 @@ void main() {
       expect(mock.lastRecordingAction, RecordingControlAction.pause);
     });
 
-    test('resume → isOk + isRecordingActive=true + lastAction=resume', () async {
-      final resp = await mock.sendCommand<void>(
-        'dev-1',
-        RecordingControlCommand(action: RecordingControlAction.resume),
-      );
-      expect(resp.isOk, isTrue);
-      expect(mock.isRecordingActive, isTrue);
-      expect(mock.lastRecordingAction, RecordingControlAction.resume);
-    });
+    test(
+      'resume → isOk + isRecordingActive=true + lastAction=resume',
+      () async {
+        final resp = await mock.sendCommand<void>(
+          'dev-1',
+          RecordingControlCommand(action: RecordingControlAction.resume),
+        );
+        expect(resp.isOk, isTrue);
+        expect(mock.isRecordingActive, isTrue);
+        expect(mock.lastRecordingAction, RecordingControlAction.resume);
+      },
+    );
 
     test('stop → isOk + isRecordingActive=false + lastAction=stop', () async {
       final resp = await mock.sendCommand<void>(
@@ -95,10 +98,7 @@ void main() {
     test('periodEnd period=1 → isOk + lastAction=periodEnd', () async {
       final resp = await mock.sendCommand<void>(
         'dev-1',
-        MatchControlCommand(
-          action: BleMatchControlAction.periodEnd,
-          period: 1,
-        ),
+        MatchControlCommand(action: BleMatchControlAction.periodEnd, period: 1),
       );
       expect(resp.isOk, isTrue);
       expect(mock.lastMatchControlAction, BleMatchControlAction.periodEnd);

@@ -62,7 +62,10 @@ void main() {
       );
 
       final eventTypes = layout.templates.map((t) => t.eventType).toList();
-      expect(eventTypes, containsAll(['goal', 'yellow_card', 'red_card', 'substitution']));
+      expect(
+        eventTypes,
+        containsAll(['goal', 'yellow_card', 'red_card', 'substitution']),
+      );
     });
 
     test('goal template has durationMs == 5000', () {
@@ -81,7 +84,9 @@ void main() {
         awayName: 'Away',
       );
 
-      final t = layout.templates.firstWhere((t) => t.eventType == 'yellow_card');
+      final t = layout.templates.firstWhere(
+        (t) => t.eventType == 'yellow_card',
+      );
       expect(t.durationMs, equals(4000));
     });
 
@@ -101,24 +106,29 @@ void main() {
         awayName: 'Away',
       );
 
-      final t = layout.templates.firstWhere((t) => t.eventType == 'substitution');
+      final t = layout.templates.firstWhere(
+        (t) => t.eventType == 'substitution',
+      );
       expect(t.durationMs, equals(4000));
     });
 
-    test('null colors fall back to #808080 — no null textColor on named elements', () {
-      final layout = defaultScoreboardLayout(
-        homeName: 'Home',
-        awayName: 'Away',
-        homeColorHex: null,
-        awayColorHex: null,
-      );
+    test(
+      'null colors fall back to #808080 — no null textColor on named elements',
+      () {
+        final layout = defaultScoreboardLayout(
+          homeName: 'Home',
+          awayName: 'Away',
+          homeColorHex: null,
+          awayColorHex: null,
+        );
 
-      final homeEl = layout.elements.firstWhere((e) => e.id == 'home_name');
-      final awayEl = layout.elements.firstWhere((e) => e.id == 'away_name');
+        final homeEl = layout.elements.firstWhere((e) => e.id == 'home_name');
+        final awayEl = layout.elements.firstWhere((e) => e.id == 'away_name');
 
-      expect(homeEl.style.textColor, equals('#808080'));
-      expect(awayEl.style.textColor, equals('#808080'));
-    });
+        expect(homeEl.style.textColor, equals('#808080'));
+        expect(awayEl.style.textColor, equals('#808080'));
+      },
+    );
 
     test('provided colors are applied to home and away elements', () {
       final layout = defaultScoreboardLayout(

@@ -116,23 +116,26 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
   /// Watch all past matches joined with their team, for the library screen.
   /// Emits on any mutation to teamMatchesTable or teamsTable.
   Stream<List<LibraryMatchRow>> watchPastMatchesForLibrary() {
-    final query = select(teamMatchesTable).join([
-      innerJoin(
-        teamsTable,
-        teamsTable.id.equalsExp(teamMatchesTable.teamId),
-      ),
-    ])
-      ..where(teamMatchesTable.kind.equals('past'))
-      ..orderBy([OrderingTerm.desc(teamMatchesTable.date)]);
+    final query =
+        select(teamMatchesTable).join([
+            innerJoin(
+              teamsTable,
+              teamsTable.id.equalsExp(teamMatchesTable.teamId),
+            ),
+          ])
+          ..where(teamMatchesTable.kind.equals('past'))
+          ..orderBy([OrderingTerm.desc(teamMatchesTable.date)]);
 
-    return query.watch().map((rows) => rows
-        .map(
-          (r) => LibraryMatchRow(
-            match: r.readTable(teamMatchesTable),
-            team: r.readTable(teamsTable),
-          ),
-        )
-        .toList());
+    return query.watch().map(
+      (rows) => rows
+          .map(
+            (r) => LibraryMatchRow(
+              match: r.readTable(teamMatchesTable),
+              team: r.readTable(teamsTable),
+            ),
+          )
+          .toList(),
+    );
   }
 
   /// Watch all upcoming matches for a user across all visible teams.

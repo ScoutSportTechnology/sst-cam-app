@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'sport_presets_state.dart';
-import '../../teams/teams_state.dart'
-    show sportPresetsFilterProvider, kSports;
+import '../../teams/teams_state.dart' show sportPresetsFilterProvider, kSports;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/widgets/wf_chip.dart';
@@ -52,7 +51,8 @@ class SportPresetsPage extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(heroTag: null,
+      floatingActionButton: FloatingActionButton(
+        heroTag: null,
         onPressed: () => _onAdd(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,

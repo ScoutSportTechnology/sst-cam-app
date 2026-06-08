@@ -57,7 +57,7 @@ class _FakeWifi extends MockWifiService {
 
 class _FakeClipSvc extends ClipService {
   _FakeClipSvc(AppDatabase db)
-      : super(clipsDao: db.clipsDao, videoPathService: VideoPathService());
+    : super(clipsDao: db.clipsDao, videoPathService: VideoPathService());
 
   final List<Map<String, Object?>> calls = [];
   Exception? _throwNext;
@@ -236,8 +236,11 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        expect(clipSvc.calls.length, 2,
-            reason: 'trim should be called once per event');
+        expect(
+          clipSvc.calls.length,
+          2,
+          reason: 'trim should be called once per event',
+        );
         expect(clipSvc.calls[0]['label'], 'Goal');
         expect(clipSvc.calls[1]['label'], 'Foul');
       },
@@ -306,43 +309,35 @@ void main() {
       },
     );
 
-    testWidgets(
-      'ClipTrimException surfaces as error text',
-      (tester) async {
-        await largeScreen(tester);
+    testWidgets('ClipTrimException surfaces as error text', (tester) async {
+      await largeScreen(tester);
 
-        const events = [
-          LibraryEvent(
-            timeSeconds: 60,
-            label: 'Goal',
-            team: 'NRA',
-            kind: 'goal',
-          ),
-        ];
+      const events = [
+        LibraryEvent(timeSeconds: 60, label: 'Goal', team: 'NRA', kind: 'goal'),
+      ];
 
-        final clipSvc = _FakeClipSvc(db.value);
-        clipSvc.throwOnNextTrim(const ClipTrimException('FFmpeg failed'));
+      final clipSvc = _FakeClipSvc(db.value);
+      clipSvc.throwOnNextTrim(const ClipTrimException('FFmpeg failed'));
 
-        await tester.pumpWidget(
-          _buildSheet(
-            db: db.value,
-            clipSvc: clipSvc,
-            allEvents: events,
-            isOnDevice: true,
-          ),
-        );
-        await tester.pump();
+      await tester.pumpWidget(
+        _buildSheet(
+          db: db.value,
+          clipSvc: clipSvc,
+          allEvents: events,
+          isOnDevice: true,
+        ),
+      );
+      await tester.pump();
 
-        await tester.tap(find.text('All highlights'));
-        await tester.pump();
+      await tester.tap(find.text('All highlights'));
+      await tester.pump();
 
-        await tester.tap(find.text('Start download'));
-        await tester.pump();
-        await tester.pump();
+      await tester.tap(find.text('Start download'));
+      await tester.pump();
+      await tester.pump();
 
-        expect(find.textContaining('Clip failed'), findsOneWidget);
-        expect(find.textContaining('FFmpeg failed'), findsOneWidget);
-      },
-    );
+      expect(find.textContaining('Clip failed'), findsOneWidget);
+      expect(find.textContaining('FFmpeg failed'), findsOneWidget);
+    });
   });
 }

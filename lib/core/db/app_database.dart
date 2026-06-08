@@ -34,7 +34,13 @@ const _kDefaultUserId = 'default-user';
     ClipsTable,
     ThumbnailsTable,
   ],
-  daos: [UsersDao, TeamsDao, SportPresetsDao, StreamingDestinationsDao, ClipsDao],
+  daos: [
+    UsersDao,
+    TeamsDao,
+    SportPresetsDao,
+    StreamingDestinationsDao,
+    ClipsDao,
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   /// Production constructor: opens or creates the SQLite file on disk.
@@ -57,7 +63,9 @@ class AppDatabase extends _$AppDatabase {
       await transaction(() async {
         await m.createAll();
         // Add indexes on FK columns used as primary query filters.
-        await customStatement('CREATE INDEX idx_teams_user_id ON teams(user_id)');
+        await customStatement(
+          'CREATE INDEX idx_teams_user_id ON teams(user_id)',
+        );
         await customStatement(
           'CREATE INDEX idx_sport_presets_user_id ON sport_presets(user_id)',
         );
@@ -97,9 +105,7 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 3) {
           // v2→v3: add color_hex to teams.
-          await customStatement(
-            'ALTER TABLE teams ADD COLUMN color_hex TEXT',
-          );
+          await customStatement('ALTER TABLE teams ADD COLUMN color_hex TEXT');
         }
       });
     },

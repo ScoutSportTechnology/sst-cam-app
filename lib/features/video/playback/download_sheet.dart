@@ -12,7 +12,8 @@ import '../../../core/widgets/wf_button.dart';
 import '../../../core/state/db_providers.dart'
     show clipServiceProvider, videoPathServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
-import '../video_state.dart' show isOnDeviceProvider, LibraryMatch, LibraryEvent;
+import '../video_state.dart'
+    show isOnDeviceProvider, LibraryMatch, LibraryEvent;
 
 class DownloadSheet extends ConsumerStatefulWidget {
   const DownloadSheet({
@@ -22,8 +23,10 @@ class DownloadSheet extends ConsumerStatefulWidget {
     required this.allEvents,
   });
   final LibraryMatch match;
+
   /// Events the user has checked (for "Selected highlights" option).
   final List<LibraryEvent> selectedEvents;
+
   /// All events in the match (for "All highlights" option).
   final List<LibraryEvent> allEvents;
 
@@ -73,10 +76,9 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     final container = ProviderScope.containerOf(context);
 
     try {
-      final handle = await ref.read(wifiServiceProvider).downloadRecording(
-        deviceId,
-        matchId,
-      );
+      final handle = await ref
+          .read(wifiServiceProvider)
+          .downloadRecording(deviceId, matchId);
       setState(() => _handle = handle);
       _subscription = handle.progress.listen(
         (p) {
@@ -123,7 +125,9 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     int created = 0;
     for (final event in events) {
       try {
-        final startSeconds = (event.timeSeconds - 15).clamp(0, double.infinity).toInt();
+        final startSeconds = (event.timeSeconds - 15)
+            .clamp(0, double.infinity)
+            .toInt();
         await clipSvc.trim(
           matchId: widget.match.id,
           sourcePath: sourcePath,
@@ -143,7 +147,9 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     if (mounted) {
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$created clip${created == 1 ? '' : 's'} saved')),
+        SnackBar(
+          content: Text('$created clip${created == 1 ? '' : 's'} saved'),
+        ),
       );
     }
   }
@@ -156,14 +162,25 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     final selectedCount = widget.selectedEvents.length;
     final allCount = widget.allEvents.length;
     final opts = <_Opt>[
-      _Opt(key: _DownloadMode.full, label: 'Full game',
-          sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi'),
+      _Opt(
+        key: _DownloadMode.full,
+        label: 'Full game',
+        sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi',
+      ),
       if (allCount > 0)
-        _Opt(key: _DownloadMode.all, label: 'All highlights',
-            sub: '$allCount event${allCount == 1 ? '' : 's'} · requires full game on device'),
+        _Opt(
+          key: _DownloadMode.all,
+          label: 'All highlights',
+          sub:
+              '$allCount event${allCount == 1 ? '' : 's'} · requires full game on device',
+        ),
       if (selectedCount > 0)
-        _Opt(key: _DownloadMode.selected, label: 'Selected highlights',
-            sub: '$selectedCount event${selectedCount == 1 ? '' : 's'} selected · requires full game on device'),
+        _Opt(
+          key: _DownloadMode.selected,
+          label: 'Selected highlights',
+          sub:
+              '$selectedCount event${selectedCount == 1 ? '' : 's'} selected · requires full game on device',
+        ),
     ];
 
     return Padding(
@@ -198,57 +215,55 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
             style: const TextStyle(fontSize: 12, color: T.ink2),
           ),
           const SizedBox(height: 14),
-          ...opts.map(
-            (o) {
-              final selected = _mode == o.key;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: GestureDetector(
-                  onTap: () => setState(() => _mode = o.key),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: selected ? T.accentSoft : T.fillSoft,
-                      border: Border.all(
-                        color: selected ? T.accent : T.hair,
-                        width: selected ? 1.4 : 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        _Radio(on: selected),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                o.label,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: T.ink,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                o.sub,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: T.ink2,
-                                  fontFamily: T.mono,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+          ...opts.map((o) {
+            final selected = _mode == o.key;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GestureDetector(
+                onTap: () => setState(() => _mode = o.key),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: selected ? T.accentSoft : T.fillSoft,
+                    border: Border.all(
+                      color: selected ? T.accent : T.hair,
+                      width: selected ? 1.4 : 1,
                     ),
                   ),
+                  child: Row(
+                    children: [
+                      _Radio(on: selected),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              o.label,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: T.ink,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              o.sub,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: T.ink2,
+                                fontFamily: T.mono,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              );
-            },
-          ),
+              ),
+            );
+          }),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -414,11 +429,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
 }
 
 class _Opt {
-  const _Opt({
-    required this.key,
-    required this.label,
-    required this.sub,
-  });
+  const _Opt({required this.key, required this.label, required this.sub});
   final _DownloadMode key;
   final String label;
   final String sub;

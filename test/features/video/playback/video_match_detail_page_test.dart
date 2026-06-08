@@ -58,11 +58,11 @@ class _FailingWifiService extends MockWifiService {
 // ---------------------------------------------------------------------------
 
 MockBleService _newMock() => MockBleService(
-      scanDeviceAppearDelays: const [Duration.zero],
-      connectionDelay: Duration.zero,
-      failureRate: 0.0,
-      randomSeed: 42,
-    );
+  scanDeviceAppearDelays: const [Duration.zero],
+  connectionDelay: Duration.zero,
+  failureRate: 0.0,
+  randomSeed: 42,
+);
 
 List<Override> _baseOverrides(
   AppDatabase db, {
@@ -84,9 +84,7 @@ List<Override> _baseOverrides(
     if (activeCameraId != null)
       activeCameraIdProvider.overrideWith((_) => activeCameraId),
     if (forceIsOnDevice != null)
-      isOnDeviceProvider.overrideWith(
-        (ref, matchId) async => forceIsOnDevice,
-      ),
+      isOnDeviceProvider.overrideWith((ref, matchId) async => forceIsOnDevice),
   ];
 }
 
@@ -106,9 +104,7 @@ Widget _buildPage({
       activeCameraId: activeCameraId,
       forceIsOnDevice: forceIsOnDevice,
     ),
-    child: MaterialApp(
-      home: VideoMatchDetailPage(matchId: matchId),
-    ),
+    child: MaterialApp(home: VideoMatchDetailPage(matchId: matchId)),
   );
 }
 
@@ -217,30 +213,29 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('camera-only match', () {
-    testWidgets(
-      '"Download to watch" prompt shown when match not on device',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(db.value, id: 'co-no-cam', teamId: 'nr-u14');
+    testWidgets('"Download to watch" prompt shown when match not on device', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(db.value, id: 'co-no-cam', teamId: 'nr-u14');
 
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'co-no-cam',
-            videoPathService: _AbsentVideoPathService(),
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'co-no-cam');
-        await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpWidget(
+        _buildPage(
+          db: db.value,
+          matchId: 'co-no-cam',
+          videoPathService: _AbsentVideoPathService(),
+        ),
+      );
+      final container = _container(tester);
+      await _awaitMatch(tester, container, 'co-no-cam');
+      await tester.pump(const Duration(milliseconds: 100));
 
-        // New behavior: single WfButton CTA, not WiFi error.
-        expect(find.textContaining('Download to watch'), findsOneWidget);
-        expect(find.text('Connecting…'), findsNothing);
-        expect(find.text('Retry'), findsNothing);
-        expect(find.byType(VideoPlayer), findsNothing);
-      },
-    );
+      // New behavior: single WfButton CTA, not WiFi error.
+      expect(find.textContaining('Download to watch'), findsOneWidget);
+      expect(find.text('Connecting…'), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.byType(VideoPlayer), findsNothing);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -248,33 +243,32 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('camera-only always shows download prompt', () {
-    testWidgets(
-      'no WiFi connect attempted; "Download to watch" always shown',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(db.value, id: 'ce-1', teamId: 'nr-u14');
+    testWidgets('no WiFi connect attempted; "Download to watch" always shown', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(db.value, id: 'ce-1', teamId: 'nr-u14');
 
-        // Even with a connected camera, the page shows "Download to watch"
-        // rather than auto-streaming.
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'ce-1',
-            videoPathService: _AbsentVideoPathService(),
-            wifiService: _FailingWifiService(),
-            activeCameraId: 'cam-001',
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'ce-1');
-        await tester.pump(const Duration(milliseconds: 100));
+      // Even with a connected camera, the page shows "Download to watch"
+      // rather than auto-streaming.
+      await tester.pumpWidget(
+        _buildPage(
+          db: db.value,
+          matchId: 'ce-1',
+          videoPathService: _AbsentVideoPathService(),
+          wifiService: _FailingWifiService(),
+          activeCameraId: 'cam-001',
+        ),
+      );
+      final container = _container(tester);
+      await _awaitMatch(tester, container, 'ce-1');
+      await tester.pump(const Duration(milliseconds: 100));
 
-        expect(find.textContaining('Download to watch'), findsOneWidget);
-        expect(find.textContaining('Could not connect'), findsNothing);
-        expect(find.text('Connecting…'), findsNothing);
-        expect(find.byType(VideoPlayer), findsNothing);
-      },
-    );
+      expect(find.textContaining('Download to watch'), findsOneWidget);
+      expect(find.textContaining('Could not connect'), findsNothing);
+      expect(find.text('Connecting…'), findsNothing);
+      expect(find.byType(VideoPlayer), findsNothing);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -359,37 +353,36 @@ void main() {
       return container;
     }
 
-    testWidgets(
-      'initial state: both Score and Events overlays are ON',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'ae3-init',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
+    testWidgets('initial state: both Score and Events overlays are ON', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(
+        db.value,
+        id: 'ae3-init',
+        teamId: 'nr-u14',
+        eventsJson: eventsJson,
+      );
 
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'ae3-init',
-            videoPathService: _AbsentVideoPathService(),
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'ae3-init');
-        await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpWidget(
+        _buildPage(
+          db: db.value,
+          matchId: 'ae3-init',
+          videoPathService: _AbsentVideoPathService(),
+        ),
+      );
+      final container = _container(tester);
+      await _awaitMatch(tester, container, 'ae3-init');
+      await tester.pump(const Duration(milliseconds: 100));
 
-        // Score chip and Events chip both render active (they are rendered
-        // as WfChip widgets with label text in the toggle row regardless of
-        // overlay visibility — presence in the Stack is what matters).
-        expect(find.text('Score'), findsOneWidget);
-        expect(find.text('Events'), findsOneWidget);
-        // Score overlay visible: period indicator '1H' is rendered in Stack.
-        expect(find.text('1H'), findsOneWidget);
-      },
-    );
+      // Score chip and Events chip both render active (they are rendered
+      // as WfChip widgets with label text in the toggle row regardless of
+      // overlay visibility — presence in the Stack is what matters).
+      expect(find.text('Score'), findsOneWidget);
+      expect(find.text('Events'), findsOneWidget);
+      // Score overlay visible: period indicator '1H' is rendered in Stack.
+      expect(find.text('1H'), findsOneWidget);
+    });
 
     testWidgets(
       'AE3: tap Events chip OFF → events ticker hidden; score overlay still visible',
@@ -444,31 +437,30 @@ void main() {
       },
     );
 
-    testWidgets(
-      'AE3: both OFF → score and events overlays both hidden',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'ae3-both-off',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
+    testWidgets('AE3: both OFF → score and events overlays both hidden', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(
+        db.value,
+        id: 'ae3-both-off',
+        teamId: 'nr-u14',
+        eventsJson: eventsJson,
+      );
 
-        await pumpAndJumpToGoal(tester, 'ae3-both-off');
+      await pumpAndJumpToGoal(tester, 'ae3-both-off');
 
-        // Turn Score off.
-        await tester.tap(find.text('Score'));
-        await tester.pump();
+      // Turn Score off.
+      await tester.tap(find.text('Score'));
+      await tester.pump();
 
-        // Turn Events off.
-        await tester.tap(find.text('Events'));
-        await tester.pump();
+      // Turn Events off.
+      await tester.tap(find.text('Events'));
+      await tester.pump();
 
-        // Both overlays hidden.
-        expect(find.text('1H'), findsNothing);
-      },
-    );
+      // Both overlays hidden.
+      expect(find.text('1H'), findsNothing);
+    });
 
     testWidgets(
       'master switch OFF → both overlays hidden; master switch ON → both restored',
@@ -502,76 +494,74 @@ void main() {
       },
     );
 
-    testWidgets(
-      'master switch restores individual states set before turning OFF',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'ae3-master-restore',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
+    testWidgets('master switch restores individual states set before turning OFF', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(
+        db.value,
+        id: 'ae3-master-restore',
+        teamId: 'nr-u14',
+        eventsJson: eventsJson,
+      );
 
-        await pumpAndJumpToGoal(tester, 'ae3-master-restore');
+      await pumpAndJumpToGoal(tester, 'ae3-master-restore');
 
-        // Turn Score OFF individually (Events stays ON).
-        await tester.tap(find.text('Score'));
-        await tester.pump();
+      // Turn Score OFF individually (Events stays ON).
+      await tester.tap(find.text('Score'));
+      await tester.pump();
 
-        // Score overlay gone; master is still "on" (eventsOn=true).
-        expect(find.text('1H'), findsNothing);
+      // Score overlay gone; master is still "on" (eventsOn=true).
+      expect(find.text('1H'), findsNothing);
 
-        // Tap master switch OFF (eventsOn was true → master=true, turns both off).
-        await tester.tap(find.byType(WfSwitch));
-        await tester.pump();
+      // Tap master switch OFF (eventsOn was true → master=true, turns both off).
+      await tester.tap(find.byType(WfSwitch));
+      await tester.pump();
 
-        // Tap master switch ON → restores _lastScoreOn=false, _lastEventsOn=true.
-        await tester.tap(find.byType(WfSwitch));
-        await tester.pump();
+      // Tap master switch ON → restores _lastScoreOn=false, _lastEventsOn=true.
+      await tester.tap(find.byType(WfSwitch));
+      await tester.pump();
 
-        // Score is still OFF (lastScoreOn was false), Events is ON.
-        expect(find.text('1H'), findsNothing);
-      },
-    );
+      // Score is still OFF (lastScoreOn was false), Events is ON.
+      expect(find.text('1H'), findsNothing);
+    });
 
-    testWidgets(
-      'Score toggle does not affect Events state and vice versa',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'ae3-independent',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
+    testWidgets('Score toggle does not affect Events state and vice versa', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(
+        db.value,
+        id: 'ae3-independent',
+        teamId: 'nr-u14',
+        eventsJson: eventsJson,
+      );
 
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'ae3-independent',
-            videoPathService: _AbsentVideoPathService(),
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'ae3-independent');
-        await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpWidget(
+        _buildPage(
+          db: db.value,
+          matchId: 'ae3-independent',
+          videoPathService: _AbsentVideoPathService(),
+        ),
+      );
+      final container = _container(tester);
+      await _awaitMatch(tester, container, 'ae3-independent');
+      await tester.pump(const Duration(milliseconds: 100));
 
-        // Toggle Score OFF.
-        await tester.tap(find.text('Score'));
-        await tester.pump();
-        // Score overlay gone.
-        expect(find.text('1H'), findsNothing);
-        // Events chip still present and events toggle state is independent.
-        expect(find.text('Events'), findsOneWidget);
+      // Toggle Score OFF.
+      await tester.tap(find.text('Score'));
+      await tester.pump();
+      // Score overlay gone.
+      expect(find.text('1H'), findsNothing);
+      // Events chip still present and events toggle state is independent.
+      expect(find.text('Events'), findsOneWidget);
 
-        // Toggle Score back ON.
-        await tester.tap(find.text('Score'));
-        await tester.pump();
-        // Score overlay restored.
-        expect(find.text('1H'), findsOneWidget);
-      },
-    );
+      // Toggle Score back ON.
+      await tester.tap(find.text('Score'));
+      await tester.pump();
+      // Score overlay restored.
+      expect(find.text('1H'), findsOneWidget);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -707,62 +697,58 @@ void main() {
       },
     );
 
-    testWidgets(
-      'match title shows "TeamName vs Opponent", not just date',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'title-1',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
+    testWidgets('match title shows "TeamName vs Opponent", not just date', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(
+        db.value,
+        id: 'title-1',
+        teamId: 'nr-u14',
+        eventsJson: eventsJson,
+      );
 
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'title-1',
-            videoPathService: _AbsentVideoPathService(),
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'title-1');
-        await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpWidget(
+        _buildPage(
+          db: db.value,
+          matchId: 'title-1',
+          videoPathService: _AbsentVideoPathService(),
+        ),
+      );
+      final container = _container(tester);
+      await _awaitMatch(tester, container, 'title-1');
+      await tester.pump(const Duration(milliseconds: 100));
 
-        // Title uses full team name and opponent.
-        expect(find.textContaining('vs'), findsWidgets);
-        // Date is not the primary/only title element.
-        expect(find.text('2026-03-12'), findsNothing);
-      },
-    );
+      // Title uses full team name and opponent.
+      expect(find.textContaining('vs'), findsWidgets);
+      // Date is not the primary/only title element.
+      expect(find.text('2026-03-12'), findsNothing);
+    });
 
-    testWidgets(
-      'event row has checkbox and shows event label',
-      (tester) async {
-        await largeScreen(tester);
-        await _insertMatch(
-          db.value,
-          id: 'row-1',
-          teamId: 'nr-u14',
-          eventsJson: eventsJson,
-        );
+    testWidgets('event row has checkbox and shows event label', (tester) async {
+      await largeScreen(tester);
+      await _insertMatch(
+        db.value,
+        id: 'row-1',
+        teamId: 'nr-u14',
+        eventsJson: eventsJson,
+      );
 
-        await tester.pumpWidget(
-          _buildPage(
-            db: db.value,
-            matchId: 'row-1',
-            videoPathService: _AbsentVideoPathService(),
-          ),
-        );
-        final container = _container(tester);
-        await _awaitMatch(tester, container, 'row-1');
-        await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpWidget(
+        _buildPage(
+          db: db.value,
+          matchId: 'row-1',
+          videoPathService: _AbsentVideoPathService(),
+        ),
+      );
+      final container = _container(tester);
+      await _awaitMatch(tester, container, 'row-1');
+      await tester.pump(const Duration(milliseconds: 100));
 
-        // Event label is shown.
-        expect(find.text('GOAL · #7'), findsOneWidget);
-        // No Clip button.
-        expect(find.text('Clip'), findsNothing);
-      },
-    );
+      // Event label is shown.
+      expect(find.text('GOAL · #7'), findsOneWidget);
+      // No Clip button.
+      expect(find.text('Clip'), findsNothing);
+    });
   });
 }

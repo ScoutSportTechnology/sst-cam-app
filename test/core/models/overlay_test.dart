@@ -12,13 +12,12 @@ void main() {
     required int timeSeconds,
     required String team,
     String label = 'Goal',
-  }) =>
-      LibraryEvent(
-        timeSeconds: timeSeconds,
-        label: label,
-        team: team,
-        kind: 'goal',
-      );
+  }) => LibraryEvent(
+    timeSeconds: timeSeconds,
+    label: label,
+    team: team,
+    kind: 'goal',
+  );
 
   LibraryEvent foulEvent({required int timeSeconds, required String team}) =>
       LibraryEvent(
@@ -33,47 +32,44 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('OverlayState.fromEvents', () {
-    test(
-      'happy path: 3 goals at 10s (home), 25s (away), 40s (home) → '
-      '4 states with expected scores',
-      () {
-        final events = [
-          goalEvent(timeSeconds: 10, team: 'HOME'),
-          goalEvent(timeSeconds: 25, team: 'AWAY'),
-          goalEvent(timeSeconds: 40, team: 'HOME'),
-        ];
+    test('happy path: 3 goals at 10s (home), 25s (away), 40s (home) → '
+        '4 states with expected scores', () {
+      final events = [
+        goalEvent(timeSeconds: 10, team: 'HOME'),
+        goalEvent(timeSeconds: 25, team: 'AWAY'),
+        goalEvent(timeSeconds: 40, team: 'HOME'),
+      ];
 
-        final states = buildOverlayStates(
-          events,
-          periodLengthSeconds: 60,
-          homeShortName: 'HOME',
-        );
+      final states = buildOverlayStates(
+        events,
+        periodLengthSeconds: 60,
+        homeShortName: 'HOME',
+      );
 
-        expect(states.length, 4); // baseline + 3 events
+      expect(states.length, 4); // baseline + 3 events
 
-        // Baseline.
-        expect(states[0].timeSeconds, 0);
-        expect(states[0].homeScore, 0);
-        expect(states[0].awayScore, 0);
-        expect(states[0].period, 1);
-        expect(states[0].recentEventLabel, isNull);
+      // Baseline.
+      expect(states[0].timeSeconds, 0);
+      expect(states[0].homeScore, 0);
+      expect(states[0].awayScore, 0);
+      expect(states[0].period, 1);
+      expect(states[0].recentEventLabel, isNull);
 
-        // After first goal (HOME, 10s → 1-0).
-        expect(states[1].timeSeconds, 10);
-        expect(states[1].homeScore, 1);
-        expect(states[1].awayScore, 0);
+      // After first goal (HOME, 10s → 1-0).
+      expect(states[1].timeSeconds, 10);
+      expect(states[1].homeScore, 1);
+      expect(states[1].awayScore, 0);
 
-        // After second goal (AWAY, 25s → 1-1).
-        expect(states[2].timeSeconds, 25);
-        expect(states[2].homeScore, 1);
-        expect(states[2].awayScore, 1);
+      // After second goal (AWAY, 25s → 1-1).
+      expect(states[2].timeSeconds, 25);
+      expect(states[2].homeScore, 1);
+      expect(states[2].awayScore, 1);
 
-        // After third goal (HOME, 40s → 2-1).
-        expect(states[3].timeSeconds, 40);
-        expect(states[3].homeScore, 2);
-        expect(states[3].awayScore, 1);
-      },
-    );
+      // After third goal (HOME, 40s → 2-1).
+      expect(states[3].timeSeconds, 40);
+      expect(states[3].homeScore, 2);
+      expect(states[3].awayScore, 1);
+    });
 
     test('empty event list → single baseline state', () {
       final states = buildOverlayStates(
@@ -90,29 +86,27 @@ void main() {
       expect(states[0].recentEventLabel, isNull);
     });
 
-    test('goal by team whose shortName != homeShortName → increments awayScore',
-        () {
-      final events = [
-        goalEvent(timeSeconds: 30, team: 'VISITOR'),
-      ];
+    test(
+      'goal by team whose shortName != homeShortName → increments awayScore',
+      () {
+        final events = [goalEvent(timeSeconds: 30, team: 'VISITOR')];
 
-      final states = buildOverlayStates(
-        events,
-        periodLengthSeconds: 900,
-        homeShortName: 'HOME',
-      );
+        final states = buildOverlayStates(
+          events,
+          periodLengthSeconds: 900,
+          homeShortName: 'HOME',
+        );
 
-      expect(states.length, 2);
-      expect(states[1].homeScore, 0);
-      expect(states[1].awayScore, 1);
-    });
+        expect(states.length, 2);
+        expect(states[1].homeScore, 0);
+        expect(states[1].awayScore, 1);
+      },
+    );
 
     test(
       'non-goal event (foul) → recentEventLabel updated, scores unchanged',
       () {
-        final events = [
-          foulEvent(timeSeconds: 15, team: 'HOME'),
-        ];
+        final events = [foulEvent(timeSeconds: 15, team: 'HOME')];
 
         final states = buildOverlayStates(
           events,
@@ -285,8 +279,11 @@ void main() {
         ),
       ];
       final result = OverlayState.atTime(stateAt10, 40);
-      expect(result.recentEventLabel, 'Goal',
-          reason: 'gap == 30 is not > 30, so label should be present');
+      expect(
+        result.recentEventLabel,
+        'Goal',
+        reason: 'gap == 30 is not > 30, so label should be present',
+      );
     });
 
     test('30s expiry: label stripped when gap > 30s', () {
@@ -308,8 +305,11 @@ void main() {
         ),
       ];
       final result = OverlayState.atTime(stateAt10, 41);
-      expect(result.recentEventLabel, isNull,
-          reason: 'gap == 31 > 30, so label should be stripped');
+      expect(
+        result.recentEventLabel,
+        isNull,
+        reason: 'gap == 31 > 30, so label should be stripped',
+      );
       // Scores and period are preserved.
       expect(result.homeScore, 1);
       expect(result.awayScore, 0);
@@ -333,8 +333,11 @@ void main() {
         ),
       ];
       final result = OverlayState.atTime(stateAt10, 10);
-      expect(result.recentEventLabel, 'Goal',
-          reason: 'gap == 0, label should be present');
+      expect(
+        result.recentEventLabel,
+        'Goal',
+        reason: 'gap == 0, label should be present',
+      );
     });
 
     test('timeSeconds before any event in a list with no t=0 baseline → '

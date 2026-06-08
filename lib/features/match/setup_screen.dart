@@ -272,7 +272,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     onPressed: connected
                         ? () => _startMatch(
                             periods,
-                            _preset?.periodLengthSeconds ?? _customPeriodSeconds,
+                            _preset?.periodLengthSeconds ??
+                                _customPeriodSeconds,
                           )
                         : null,
                   ),
@@ -348,8 +349,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
       // Step 2: build and push overlay layout.
       final opponent = widget.match.match.opponent;
-      final awayName =
-          opponent.startsWith('vs ') ? opponent.substring(3) : opponent;
+      final awayName = opponent.startsWith('vs ')
+          ? opponent.substring(3)
+          : opponent;
       final layout = defaultScoreboardLayout(
         homeName: widget.match.team.name,
         awayName: awayName,

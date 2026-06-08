@@ -30,13 +30,11 @@ import 'package:sst_cam_app/features/match/session/session_state.dart';
 // ---------------------------------------------------------------------------
 
 Widget _wrap(Widget child) => MaterialApp(
-      home: Scaffold(body: SizedBox(width: 400, height: 200, child: child)),
-    );
+  home: Scaffold(body: SizedBox(width: 400, height: 200, child: child)),
+);
 
-OverlayLayout _defaultLayout() => defaultScoreboardLayout(
-      homeName: 'NR',
-      awayName: 'EFC',
-    );
+OverlayLayout _defaultLayout() =>
+    defaultScoreboardLayout(homeName: 'NR', awayName: 'EFC');
 
 // A minimal layout with a single visible text element bound to scoreVs.
 const _scoreVsLayout = OverlayLayout(
@@ -213,8 +211,9 @@ void main() {
 
   // ---- 4. periodLabel binding ----------------------------------------------
 
-  testWidgets('periodLabel binding renders "PRE" in initial state',
-      (tester) async {
+  testWidgets('periodLabel binding renders "PRE" in initial state', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _wrap(
         OverlayLayoutRenderer(
@@ -231,12 +230,7 @@ void main() {
   testWidgets('matchClock binding renders initial clock text', (tester) async {
     final state = LiveMatchState.initial;
     await tester.pumpWidget(
-      _wrap(
-        OverlayLayoutRenderer(
-          layout: _defaultLayout(),
-          matchState: state,
-        ),
-      ),
+      _wrap(OverlayLayoutRenderer(layout: _defaultLayout(), matchState: state)),
     );
     expect(find.text(state.clockText), findsAtLeast(1));
   });
@@ -277,8 +271,9 @@ void main() {
 
   // ---- 8. RECT element renders with non-transparent color ------------------
 
-  testWidgets('RECT element renders a Container with non-transparent color',
-      (tester) async {
+  testWidgets('RECT element renders a Container with non-transparent color', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _wrap(
         OverlayLayoutRenderer(
@@ -319,8 +314,9 @@ void main() {
 
   // ---- 10. Banner timer — goal shows then hides ----------------------------
 
-  testWidgets('goal event shows banner then hides after durationMs',
-      (tester) async {
+  testWidgets('goal event shows banner then hides after durationMs', (
+    tester,
+  ) async {
     // Goal template durationMs is 5000 in defaultScoreboardLayout.
     final layout = _defaultLayout();
 
@@ -338,17 +334,10 @@ void main() {
 
     // Pump updated widget with a new Goal event prepended.
     final stateWithGoal = LiveMatchState.initial.copyWith(
-      events: const [
-        LiveEvent(clock: '00:01', label: 'Goal · NR'),
-      ],
+      events: const [LiveEvent(clock: '00:01', label: 'Goal · NR')],
     );
     await tester.pumpWidget(
-      _wrap(
-        OverlayLayoutRenderer(
-          layout: layout,
-          matchState: stateWithGoal,
-        ),
-      ),
+      _wrap(OverlayLayoutRenderer(layout: layout, matchState: stateWithGoal)),
     );
     await tester.pump(); // Allow setState from didUpdateWidget to settle.
 
@@ -364,8 +353,9 @@ void main() {
 
   // ---- 11. Banner timer — second banner cancels first ----------------------
 
-  testWidgets('second banner cancels first timer and shows new banner',
-      (tester) async {
+  testWidgets('second banner cancels first timer and shows new banner', (
+    tester,
+  ) async {
     final layout = _defaultLayout();
 
     await tester.pumpWidget(
@@ -379,17 +369,10 @@ void main() {
 
     // Pump a Goal event.
     final stateWithGoal = LiveMatchState.initial.copyWith(
-      events: const [
-        LiveEvent(clock: '00:01', label: 'Goal · NR'),
-      ],
+      events: const [LiveEvent(clock: '00:01', label: 'Goal · NR')],
     );
     await tester.pumpWidget(
-      _wrap(
-        OverlayLayoutRenderer(
-          layout: layout,
-          matchState: stateWithGoal,
-        ),
-      ),
+      _wrap(OverlayLayoutRenderer(layout: layout, matchState: stateWithGoal)),
     );
     await tester.pump();
     expect(find.text('GOAL!'), findsOneWidget);
@@ -407,10 +390,7 @@ void main() {
     );
     await tester.pumpWidget(
       _wrap(
-        OverlayLayoutRenderer(
-          layout: layout,
-          matchState: stateWithYellowCard,
-        ),
+        OverlayLayoutRenderer(layout: layout, matchState: stateWithYellowCard),
       ),
     );
     await tester.pump();
@@ -447,15 +427,15 @@ void main() {
       ),
     );
 
-    final positioned =
-        tester.widget<Positioned>(find.byType(Positioned).first);
+    final positioned = tester.widget<Positioned>(find.byType(Positioned).first);
     expect(positioned.left, closeTo(expectedLeft, 0.1));
   });
 
   // ---- 13. Inter fontFamily applied to TextStyle ---------------------------
 
-  testWidgets('Inter fontFamily produces TextStyle.fontFamily == "Inter"',
-      (tester) async {
+  testWidgets('Inter fontFamily produces TextStyle.fontFamily == "Inter"', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _wrap(
         OverlayLayoutRenderer(
@@ -471,8 +451,9 @@ void main() {
 
   // ---- 14. Null fontFamily produces TextStyle.fontFamily == null ------------
 
-  testWidgets('null fontFamily produces TextStyle.fontFamily == null',
-      (tester) async {
+  testWidgets('null fontFamily produces TextStyle.fontFamily == null', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _wrap(
         OverlayLayoutRenderer(
@@ -535,9 +516,7 @@ void main() {
 
     // Fire a Goal event with no params — {{player}} has no matching key.
     final stateWithGoal = LiveMatchState.initial.copyWith(
-      events: const [
-        LiveEvent(clock: '01:00', label: 'Goal · NR'),
-      ],
+      events: const [LiveEvent(clock: '01:00', label: 'Goal · NR')],
     );
     await tester.pumpWidget(
       _wrap(
@@ -555,8 +534,9 @@ void main() {
 
   // ---- 17. Params cleared after banner timer expiry ------------------------
 
-  testWidgets('substituted text disappears after banner timer expires',
-      (tester) async {
+  testWidgets('substituted text disappears after banner timer expires', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _wrap(
         OverlayLayoutRenderer(
