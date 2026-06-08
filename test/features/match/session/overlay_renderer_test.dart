@@ -1,4 +1,4 @@
-// Tests for OverlayLayoutRenderer (U9).
+// Tests for OverlayLayoutRenderer (U9 + U4).
 //
 // Covers:
 //  1. Smoke test — pumps without throw
@@ -12,6 +12,12 @@
 //  9. Invisible element not rendered
 // 10. Banner timer — goal event shows then hides after durationMs
 // 11. Banner timer — second banner cancels first
+// 12. Uniform min(sx,sy) scale — Positioned.left matches el.x1 * min(sx,sy)
+// 13. Inter fontFamily applied to TextStyle when OverlayStyle.fontFamily='Inter'
+// 14. Null fontFamily produces TextStyle.fontFamily == null
+// 15. {{param}} substitution — GOAL — Messi rendered with matching params
+// 16. Missing param key replaced with empty string — GOAL —  rendered
+// 17. Params cleared after banner timer expiry — substituted text disappears
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -88,6 +94,76 @@ const _invisibleLayout = OverlayLayout(
     ),
   ],
   templates: [],
+);
+
+// A layout with one text element that has fontFamily: 'Inter'.
+const _interFontLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [
+    OverlayElement(
+      id: 'label',
+      shape: OverlayShape.text,
+      bounds: OverlayRect(x1: 100, y1: 100, x2: 500, y2: 200, z: 1),
+      style: OverlayStyle(
+        staticText: 'FONT TEST',
+        textColor: '#FFFFFF',
+        fontSize: 24,
+        fontFamily: 'Inter',
+      ),
+      binding: OverlayBinding.static,
+    ),
+  ],
+  templates: [],
+);
+
+// A layout with one text element that has fontFamily: null (default).
+const _nullFontLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [
+    OverlayElement(
+      id: 'label',
+      shape: OverlayShape.text,
+      bounds: OverlayRect(x1: 100, y1: 100, x2: 500, y2: 200, z: 1),
+      style: OverlayStyle(
+        staticText: 'NULL FONT',
+        textColor: '#FFFFFF',
+        fontSize: 24,
+      ),
+      binding: OverlayBinding.static,
+    ),
+  ],
+  templates: [],
+);
+
+// A layout with a goal template whose text uses a {{player}} token.
+// The template eventType 'goal' is matched by _labelToTemplateId for 'Goal' prefix.
+const _paramBannerLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [],
+  templates: [
+    OverlayTemplate(
+      eventType: 'goal',
+      durationMs: 3000,
+      elements: [
+        OverlayElement(
+          id: 'goal_text',
+          shape: OverlayShape.text,
+          bounds: OverlayRect(x1: 560, y1: 400, x2: 1360, y2: 550, z: 10),
+          style: OverlayStyle(
+            staticText: 'GOAL — {{player}}',
+            textColor: '#000000',
+            fontSize: 48,
+            fontWeight: OverlayFontWeight.bold,
+            textAlign: OverlayTextAlign.center,
+          ),
+          binding: OverlayBinding.static,
+        ),
+      ],
+    ),
+  ],
 );
 
 void main() {
@@ -349,5 +425,174 @@ void main() {
     // No banner should be shown.
     expect(find.text('YELLOW CARD'), findsNothing);
     expect(find.text('GOAL!'), findsNothing);
+  });
+
+  // ---- 12. Uniform min(sx,sy) scale ----------------------------------------
+
+  testWidgets('Positioned.left matches el.x1 * min(sx, sy)', (tester) async {
+    // _scoreVsLayout: canvasWidth=1920, canvasHeight=1080.
+    // _wrap gives SizedBox(400, 200).
+    // sx = 400/1920 ≈ 0.2083, sy = 200/1080 ≈ 0.1852 → s = min = 0.1852...
+    // Element x1 = 760 → left = 760 * 0.1852 ≈ 140.74
+    const expectedS = 200.0 / 1080.0; // min(400/1920, 200/1080)
+    const elementX1 = 760.0;
+    const expectedLeft = elementX1 * expectedS;
+
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _scoreVsLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    final positioned =
+        tester.widget<Positioned>(find.byType(Positioned).first);
+    expect(positioned.left, closeTo(expectedLeft, 0.1));
+  });
+
+  // ---- 13. Inter fontFamily applied to TextStyle ---------------------------
+
+  testWidgets('Inter fontFamily produces TextStyle.fontFamily == "Inter"',
+      (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _interFontLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    final text = tester.widget<Text>(find.text('FONT TEST'));
+    expect(text.style?.fontFamily, equals('Inter'));
+  });
+
+  // ---- 14. Null fontFamily produces TextStyle.fontFamily == null ------------
+
+  testWidgets('null fontFamily produces TextStyle.fontFamily == null',
+      (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _nullFontLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    final text = tester.widget<Text>(find.text('NULL FONT'));
+    expect(text.style?.fontFamily, isNull);
+  });
+
+  // ---- 15. {{param}} substitution — happy path -----------------------------
+
+  testWidgets('param substitution renders "GOAL — Messi"', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _paramBannerLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    // Fire a Goal event with player param.
+    final stateWithGoal = LiveMatchState.initial.copyWith(
+      events: const [
+        LiveEvent(
+          clock: '01:00',
+          label: 'Goal · NR',
+          params: {'player': 'Messi'},
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _paramBannerLayout,
+          matchState: stateWithGoal,
+        ),
+      ),
+    );
+    await tester.pump(); // settle didUpdateWidget setState
+
+    expect(find.text('GOAL — Messi'), findsOneWidget);
+  });
+
+  // ---- 16. Missing param key replaced with empty string --------------------
+
+  testWidgets('missing param key replaced with empty string', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _paramBannerLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    // Fire a Goal event with no params — {{player}} has no matching key.
+    final stateWithGoal = LiveMatchState.initial.copyWith(
+      events: const [
+        LiveEvent(clock: '01:00', label: 'Goal · NR'),
+      ],
+    );
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _paramBannerLayout,
+          matchState: stateWithGoal,
+        ),
+      ),
+    );
+    await tester.pump(); // settle didUpdateWidget setState
+
+    // {{player}} with no key → empty string → 'GOAL — '
+    expect(find.text('GOAL — '), findsOneWidget);
+  });
+
+  // ---- 17. Params cleared after banner timer expiry ------------------------
+
+  testWidgets('substituted text disappears after banner timer expires',
+      (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _paramBannerLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    // Fire a Goal event with player param.
+    final stateWithGoal = LiveMatchState.initial.copyWith(
+      events: const [
+        LiveEvent(
+          clock: '01:00',
+          label: 'Goal · NR',
+          params: {'player': 'Ronaldo'},
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _paramBannerLayout,
+          matchState: stateWithGoal,
+        ),
+      ),
+    );
+    await tester.pump(); // settle
+
+    // Substituted text is visible during durationMs (3000ms).
+    expect(find.text('GOAL — Ronaldo'), findsOneWidget);
+
+    // Advance past durationMs (3000ms).
+    await tester.pump(const Duration(milliseconds: 3001));
+
+    // Banner is gone — substituted text no longer visible.
+    expect(find.text('GOAL — Ronaldo'), findsNothing);
   });
 }
