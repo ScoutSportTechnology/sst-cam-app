@@ -41,6 +41,11 @@ class RequestThumbnailCommand extends BleCommand {
   final int quality;
 }
 
+// WiFi Direct — app requests firmware to start a WiFi Direct group and return
+// the group credentials (SSID, PSK, IPs, ports). No fields — firmware derives
+// the group parameters itself.
+class StartWifiDirectCommand extends BleCommand {}
+
 // Recording / file transfer
 class ListRecordingsCommand extends BleCommand {}
 

@@ -13,6 +13,7 @@ import '../../core/models/match.dart';
 import '../../core/models/overlay_layout.dart';
 import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
+import '../../core/models/wifi.dart';
 import '../../core/ble/ble_service.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../mock_video_fetcher.dart';
@@ -735,6 +736,10 @@ class MockBleService implements BleService {
             layout: _dartLayoutToProto(layout),
           ),
         ),
+        StartWifiDirectCommand() => proto.Command(
+          correlationId: correlationId,
+          startWifiDirect: proto.StartWifiDirectCommand(),
+        ),
       };
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
@@ -822,6 +827,18 @@ class MockBleService implements BleService {
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
       ),
+      StartWifiDirectCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        wifiDirectGroup: proto.WifiDirectGroupResponse(
+          ssid: 'DIRECT-mock-sst-cam',
+          psk: 'dev-psk',
+          groupOwnerIp: '192.168.49.1',
+          previewPort: 8554,
+          downloadPort: 8080,
+          role: 'GO',
+        ),
+      ),
     };
   }
 
@@ -902,6 +919,17 @@ class MockBleService implements BleService {
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
       BannerEventCommand() => BleCommandResponse.ok(null as T?),
       PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
+      StartWifiDirectCommand() => BleCommandResponse.ok(
+        WifiDirectGroup(
+              ssid: resp.wifiDirectGroup.ssid,
+              psk: resp.wifiDirectGroup.psk,
+              groupOwnerIp: resp.wifiDirectGroup.groupOwnerIp,
+              previewPort: resp.wifiDirectGroup.previewPort,
+              downloadPort: resp.wifiDirectGroup.downloadPort,
+              role: resp.wifiDirectGroup.role,
+            )
+            as T?,
+      ),
     };
   }
 

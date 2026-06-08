@@ -8,6 +8,7 @@ import '../models/match.dart';
 import '../models/overlay_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
+import '../models/wifi.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
 
 const _uuid = Uuid();
@@ -184,6 +185,10 @@ class BleProtocol {
             layout: _dartLayoutToProto(layout),
           ),
         ),
+        StartWifiDirectCommand() => proto.Command(
+          correlationId: correlationId,
+          startWifiDirect: proto.StartWifiDirectCommand(),
+        ),
       };
 
   static BleCommandResponse<T> _mapOkResponse<T>(
@@ -242,6 +247,16 @@ class BleProtocol {
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
       BannerEventCommand() => BleCommandResponse.ok(null as T?),
       PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
+      StartWifiDirectCommand() => BleCommandResponse.ok(
+        WifiDirectGroup(
+          ssid: resp.wifiDirectGroup.ssid,
+          psk: resp.wifiDirectGroup.psk,
+          groupOwnerIp: resp.wifiDirectGroup.groupOwnerIp,
+          previewPort: resp.wifiDirectGroup.previewPort,
+          downloadPort: resp.wifiDirectGroup.downloadPort,
+          role: resp.wifiDirectGroup.role,
+        ) as T?,
+      ),
     };
   }
 
