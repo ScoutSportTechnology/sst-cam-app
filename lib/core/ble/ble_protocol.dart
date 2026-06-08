@@ -305,7 +305,7 @@ class BleProtocol {
         textColor: el.style.textColor ?? '',
         opacity: el.style.opacity,
         cornerRadius: el.style.cornerRadius,
-        fontFamily: el.style.fontFamily,
+        fontFamily: el.style.fontFamily ?? '',
         fontSize: el.style.fontSize,
         textAlign: _dartTextAlignToProto(el.style.textAlign),
         fontWeight: _dartFontWeightToProto(el.style.fontWeight),

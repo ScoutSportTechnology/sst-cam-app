@@ -25,10 +25,12 @@ class LiveEvent {
     required this.clock,
     required this.label,
     this.kind = 'event',
+    this.params = const {},
   });
   final String clock;
   final String label;
   final String kind; // event | phase
+  final Map<String, String> params;
 }
 
 @immutable

@@ -49,7 +49,7 @@ class OverlayStyle {
     this.textColor,
     this.opacity = 1.0,
     this.cornerRadius = 0.0,
-    this.fontFamily = '',
+    this.fontFamily,
     this.fontSize = 24.0,
     this.textAlign = OverlayTextAlign.center,
     this.fontWeight = OverlayFontWeight.normal,
@@ -60,7 +60,7 @@ class OverlayStyle {
   final String? textColor;
   final double opacity;
   final double cornerRadius;
-  final String fontFamily;
+  final String? fontFamily;
   final double fontSize;
   final OverlayTextAlign textAlign;
   final OverlayFontWeight fontWeight;
@@ -146,6 +146,7 @@ OverlayLayout defaultScoreboardLayout({
       textAlign: OverlayTextAlign.left,
       fontSize: 36,
       fontWeight: OverlayFontWeight.bold,
+      fontFamily: 'Inter',
     ),
     binding: OverlayBinding.teamAName,
   );
@@ -159,6 +160,7 @@ OverlayLayout defaultScoreboardLayout({
       textAlign: OverlayTextAlign.right,
       fontSize: 36,
       fontWeight: OverlayFontWeight.bold,
+      fontFamily: 'Inter',
     ),
     binding: OverlayBinding.teamBName,
   );
@@ -172,6 +174,7 @@ OverlayLayout defaultScoreboardLayout({
       textAlign: OverlayTextAlign.center,
       fontSize: 48,
       fontWeight: OverlayFontWeight.bold,
+      fontFamily: 'Inter',
     ),
     binding: OverlayBinding.scoreVs,
   );
@@ -184,6 +187,7 @@ OverlayLayout defaultScoreboardLayout({
       textColor: '#AAAAAA',
       textAlign: OverlayTextAlign.center,
       fontSize: 24,
+      fontFamily: 'Inter',
     ),
     binding: OverlayBinding.periodLabel,
   );
@@ -196,6 +200,7 @@ OverlayLayout defaultScoreboardLayout({
       textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.center,
       fontSize: 30,
+      fontFamily: 'Inter',
     ),
     binding: OverlayBinding.matchClock,
   );
@@ -222,6 +227,7 @@ OverlayLayout defaultScoreboardLayout({
           fontSize: 72,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
+          fontFamily: 'Inter',
         ),
         binding: OverlayBinding.static,
       ),
@@ -249,6 +255,7 @@ OverlayLayout defaultScoreboardLayout({
           fontSize: 48,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
+          fontFamily: 'Inter',
         ),
         binding: OverlayBinding.static,
       ),
@@ -276,6 +283,7 @@ OverlayLayout defaultScoreboardLayout({
           fontSize: 48,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
+          fontFamily: 'Inter',
         ),
         binding: OverlayBinding.static,
       ),
@@ -303,6 +311,7 @@ OverlayLayout defaultScoreboardLayout({
           fontSize: 48,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
+          fontFamily: 'Inter',
         ),
         binding: OverlayBinding.static,
       ),
