@@ -16,7 +16,9 @@ import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/models/overlay_layout.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
-import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
+import '../../../core/models/wifi.dart' show WifiDirectState;
+import '../../../core/wifi/wifi_providers.dart'
+    show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
@@ -909,18 +911,157 @@ class _LiveThumb extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
+
+    // When WiFi Direct fails (e.g. iOS does not support local preview),
+    // show a static placeholder instead of the live preview surface.
+    final wifiState = activeId == null
+        ? null
+        : ref.watch(wifiConnectionStateProvider(activeId)).valueOrNull;
+    final wifiFailed = wifiState == WifiDirectState.failed;
+
     return Stack(
       children: [
-        // No buttons inside the surface — Preview/Stop is in the parent layout.
-        LivePreviewView(
-          deviceId: activeId,
-          label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
-          showButtons: false,
-        ),
-        Positioned.fill(
-          child: OverlayLayoutRenderer(
-            layout: matchState.overlayLayout ?? _emptyOverlayLayout,
+        if (wifiFailed)
+          _PreviewUnavailablePlaceholder(
             matchState: matchState,
+            isLive: isLive,
+          )
+        else ...[
+          // No buttons inside the surface — Preview/Stop is in the parent layout.
+          LivePreviewView(
+            deviceId: activeId,
+            label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
+            showButtons: false,
+          ),
+          Positioned.fill(
+            child: OverlayLayoutRenderer(
+              layout: matchState.overlayLayout ?? _emptyOverlayLayout,
+              matchState: matchState,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PREVIEW UNAVAILABLE PLACEHOLDER
+// ---------------------------------------------------------------------------
+
+/// Shown in [_LiveThumb] when the WiFi Direct connection has failed
+/// (e.g. iOS does not support WiFi Direct local preview). Displays a
+/// static scoreboard so the session UI stays fully functional.
+class _PreviewUnavailablePlaceholder extends StatelessWidget {
+  const _PreviewUnavailablePlaceholder({
+    required this.matchState,
+    required this.isLive,
+  });
+
+  final LiveMatchState matchState;
+  final bool isLive;
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: T.panel),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.videocam_off, size: 28, color: T.ink3),
+                const SizedBox(height: 8),
+                const Text(
+                  'Preview not available',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: T.ink2,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: T.bg.withValues(alpha: 0.85),
+                border: Border.all(color: T.hair),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _ScoreBlock(
+                      label: matchState.homeName,
+                      score: matchState.scoreHome,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      '${matchState.phaseLabel} · ${matchState.clockText}',
+                      style: const TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 10,
+                        color: T.ink2,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _ScoreBlock(
+                      label: matchState.awayName,
+                      score: matchState.scoreAway,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SCORE BLOCK
+// ---------------------------------------------------------------------------
+
+class _ScoreBlock extends StatelessWidget {
+  const _ScoreBlock({required this.label, required this.score});
+  final String label;
+  final int score;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9,
+            color: T.ink2,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '$score',
+          style: const TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w700,
+            fontFamily: T.mono,
+            color: T.ink,
+            height: 1,
           ),
         ),
       ],
