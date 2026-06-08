@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -22,6 +23,7 @@ class OverlayLayoutRenderer extends StatefulWidget {
 
 class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
   String? _activeBannerTemplateId;
+  Map<String, String> _activeBannerParams = const {};
   Timer? _bannerTimer;
   int _lastEventCount = 0;
 
@@ -45,7 +47,10 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
     if (events.length < _lastEventCount) {
       // Event list shrank (e.g. LiveMatchController.reset()) — cancel any active banner.
       _bannerTimer?.cancel();
-      _activeBannerTemplateId = null;
+      setState(() {
+        _activeBannerTemplateId = null;
+        _activeBannerParams = const {};
+      });
       _lastEventCount = 0;
       return;
     }
@@ -59,11 +64,19 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
             .where((t) => t.eventType == templateId)
             .firstOrNull;
         if (template != null) {
-          setState(() => _activeBannerTemplateId = templateId);
+          setState(() {
+            _activeBannerTemplateId = templateId;
+            _activeBannerParams = events.first.params;
+          });
           _bannerTimer = Timer(
             Duration(milliseconds: template.durationMs),
             () {
-              if (mounted) setState(() => _activeBannerTemplateId = null);
+              if (mounted) {
+                setState(() {
+                  _activeBannerTemplateId = null;
+                  _activeBannerParams = const {};
+                });
+              }
             },
           );
         }
@@ -82,12 +95,14 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final sx = constraints.maxWidth / widget.layout.canvasWidth;
-        final sy = constraints.maxHeight / widget.layout.canvasHeight;
+        final s = math.min(
+          constraints.maxWidth / widget.layout.canvasWidth,
+          constraints.maxHeight / widget.layout.canvasHeight,
+        );
 
         final persistentWidgets = widget.layout.elements
             .where((e) => e.visible)
-            .map((e) => _buildPositioned(e, sx, sy))
+            .map((e) => _buildPositioned(e, s))
             .toList();
 
         final bannerWidgets = _activeBannerTemplateId != null
@@ -96,7 +111,7 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
                     .firstOrNull
                     ?.elements
                     .where((e) => e.visible)
-                    .map((e) => _buildPositioned(e, sx, sy))
+                    .map((e) => _buildPositioned(e, s))
                     .toList() ??
                 <Widget>[])
             : <Widget>[];
@@ -106,17 +121,17 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
     );
   }
 
-  Widget _buildPositioned(OverlayElement el, double sx, double sy) {
+  Widget _buildPositioned(OverlayElement el, double s) {
     return Positioned(
-      left: el.bounds.x1 * sx,
-      top: el.bounds.y1 * sy,
-      width: (el.bounds.x2 - el.bounds.x1) * sx,
-      height: (el.bounds.y2 - el.bounds.y1) * sy,
-      child: _buildElement(el, sy),
+      left: el.bounds.x1 * s,
+      top: el.bounds.y1 * s,
+      width: (el.bounds.x2 - el.bounds.x1) * s,
+      height: (el.bounds.y2 - el.bounds.y1) * s,
+      child: _buildElement(el, s),
     );
   }
 
-  Widget _buildElement(OverlayElement el, double sy) {
+  Widget _buildElement(OverlayElement el, double s) {
     switch (el.shape) {
       case OverlayShape.rect:
         return Opacity(
@@ -136,7 +151,7 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
             _resolveBinding(el.binding, el.style.staticText),
             style: TextStyle(
               color: _parseHex(el.style.textColor),
-              fontSize: el.style.fontSize * sy,
+              fontSize: el.style.fontSize * s,
               fontWeight: el.style.fontWeight == OverlayFontWeight.bold
                   ? FontWeight.bold
                   : FontWeight.normal,
@@ -158,7 +173,12 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
     final s = widget.matchState;
     switch (binding) {
       case OverlayBinding.static:
-        return staticText ?? '';
+        var text = staticText ?? '';
+        for (final entry in _activeBannerParams.entries) {
+          text = text.replaceAll('{{${entry.key}}}', entry.value);
+        }
+        text = text.replaceAll(RegExp(r'\{\{[^}]+\}\}'), '');
+        return text;
       case OverlayBinding.scoreA:
         return '${s.scoreHome}';
       case OverlayBinding.scoreB:
