@@ -140,8 +140,7 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
               fontWeight: el.style.fontWeight == OverlayFontWeight.bold
                   ? FontWeight.bold
                   : FontWeight.normal,
-              fontFamily:
-                  el.style.fontFamily.isNotEmpty ? el.style.fontFamily : null,
+              fontFamily: el.style.fontFamily,
             ),
           ),
         );
