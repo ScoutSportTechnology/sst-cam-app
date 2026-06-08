@@ -78,9 +78,13 @@ class WifiServiceImpl implements WifiService {
     // WifiDirectState.connected event from the Kotlin BroadcastReceiver is
     // never dropped.
     await _stateSubscriptions[deviceId]?.cancel();
-    _stateSubscriptions[deviceId] = _channel.stateStream.listen((code) {
-      _emitState(deviceId, _codeToState(code));
-    });
+    _stateSubscriptions[deviceId] = _channel.stateStream.listen(
+      (code) => _emitState(deviceId, _codeToState(code)),
+      onError: (Object e) {
+        _stateSubscriptions.remove(deviceId);
+        _emitState(deviceId, WifiDirectState.failed);
+      },
+    );
 
     // BLE round-trip — ask the camera for group credentials.
     final BleCommandResponse<WifiDirectGroup> response;
@@ -105,6 +109,12 @@ class WifiServiceImpl implements WifiService {
 
     final group = response.payload!;
 
+    if (group.ssid.isEmpty || group.psk.isEmpty) {
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      _emitState(deviceId, WifiDirectState.failed);
+      throw const WifiDirectException('BLE credential fetch returned empty ssid/psk');
+    }
+
     // Platform channel — join the P2P group on Android.
     try {
       await _channel.connect(ssid: group.ssid, psk: group.psk);
@@ -122,10 +132,12 @@ class WifiServiceImpl implements WifiService {
   Future<void> disconnectGroup(String deviceId) async {
     await _stateSubscriptions.remove(deviceId)?.cancel();
     _emitState(deviceId, WifiDirectState.stopping);
-    try {
-      await _channel.disconnect();
-    } catch (_) {
-      // Best-effort — ignore native-side errors on disconnect.
+    if (!Platform.isIOS) {
+      try {
+        await _channel.disconnect();
+      } catch (_) {
+        // Best-effort — ignore native-side errors on disconnect.
+      }
     }
     _currentGroups.remove(deviceId);
     _emitState(deviceId, WifiDirectState.idle);

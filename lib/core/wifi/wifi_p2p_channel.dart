@@ -34,5 +34,7 @@ class WifiP2pChannel {
   ///   4 = stopping
   ///
   /// Hot-broadcast — new listeners get the next event, not historical ones.
-  Stream<int> get stateStream => _event.receiveBroadcastStream().cast<int>();
+  // Must be a final field, not a getter — EventChannel.receiveBroadcastStream()
+  // registers a new native handler on every call, evicting the previous sink.
+  final Stream<int> stateStream = _event.receiveBroadcastStream().cast<int>();
 }

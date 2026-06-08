@@ -119,6 +119,7 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
     }
 
     private fun registerReceiver() {
+        unregisterReceiver()
         val filter = IntentFilter().apply {
             addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
         }
