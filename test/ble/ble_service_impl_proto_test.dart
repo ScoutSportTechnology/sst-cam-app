@@ -4,6 +4,7 @@ import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_protocol.dart';
 import 'package:sst_cam_app/core/models/command.dart';
+import 'package:sst_cam_app/core/models/match.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/models/proto/bluetooth.pb.dart' as proto;
@@ -31,7 +32,7 @@ void main() {
       'GetTelemetryCommand produces non-empty bytes decodable as Command',
       () {
         const corrId = 'test-corr-id-001';
-        final bytes = BleProtocol.encodeCommand(GetTelemetryCommand(), corrId);
+        final bytes = BleProtocol.encodeCommandFrames(GetTelemetryCommand(), corrId).first;
         expect(bytes, isNotEmpty);
 
         final chunk = proto.ChunkedPayload.fromBuffer(bytes);
@@ -45,7 +46,10 @@ void main() {
     );
 
     test('GetMatchStateCommand sets getMatchState oneof field', () {
-      final bytes = BleProtocol.encodeCommand(GetMatchStateCommand(), 'cid');
+      final bytes = BleProtocol.encodeCommandFrames(
+        GetMatchStateCommand(),
+        'cid',
+      ).first;
       final chunk = proto.ChunkedPayload.fromBuffer(bytes);
       final cmd = proto.Command.fromBuffer(chunk.data);
       expect(cmd.hasGetMatchState(), isTrue);
@@ -53,7 +57,7 @@ void main() {
 
     test('correlationId is preserved through the ChunkedPayload wrapper', () {
       const corrId = 'unique-corr-id-abc123';
-      final bytes = BleProtocol.encodeCommand(GetTelemetryCommand(), corrId);
+      final bytes = BleProtocol.encodeCommandFrames(GetTelemetryCommand(), corrId).first;
       final chunk = proto.ChunkedPayload.fromBuffer(bytes);
       expect(chunk.correlationId, corrId);
     });
@@ -180,7 +184,10 @@ void main() {
 
     test('happy path — every contract field is present on the wire', () {
       const corrId = 'sc-1';
-      final bytes = BleProtocol.encodeSessionConfig(fullConfig(), corrId);
+      final bytes = BleProtocol.encodeSessionConfigFrames(
+        fullConfig(),
+        corrId,
+      ).first;
       final chunk = proto.ChunkedPayload.fromBuffer(bytes);
       expect(chunk.correlationId, corrId);
       final cmd = proto.Command.fromBuffer(chunk.data);
@@ -203,7 +210,10 @@ void main() {
     });
 
     test('edge — absent rtmp_url/stream_key encode as unset (not empty)', () {
-      final bytes = BleProtocol.encodeSessionConfig(fullConfig(), 'sc-2');
+      final bytes = BleProtocol.encodeSessionConfigFrames(
+        fullConfig(),
+        'sc-2',
+      ).first;
       final cmd = proto.Command.fromBuffer(
         proto.ChunkedPayload.fromBuffer(bytes).data,
       );
@@ -213,10 +223,10 @@ void main() {
     });
 
     test('present rtmp_url/stream_key are set on the wire', () {
-      final bytes = BleProtocol.encodeSessionConfig(
+      final bytes = BleProtocol.encodeSessionConfigFrames(
         fullConfig(rtmpUrl: 'rtmp://x/y', streamKey: 'key-123'),
         'sc-3',
-      );
+      ).first;
       final cmd = proto.Command.fromBuffer(
         proto.ChunkedPayload.fromBuffer(bytes).data,
       );
@@ -604,6 +614,27 @@ void main() {
       expect(r.received, 2);
     });
 
+    test('rejects a total_chunks beyond the cap (no unbounded buffer)', () {
+      final r = ChunkReassembler();
+      expect(r.add(frame(0, ChunkReassembler.maxTotalChunks + 1, [1])), isNull);
+      expect(r.received, 0);
+      expect(r.total, isNull);
+    });
+
+    test('ignores an out-of-range chunk index', () {
+      final r = ChunkReassembler();
+      expect(r.add(frame(5, 3, [9])), isNull); // index >= total
+      expect(r.received, 0);
+    });
+
+    test('pins total to the first frame; a disagreeing frame is dropped', () {
+      final r = ChunkReassembler();
+      expect(r.add(frame(0, 2, [1, 2])), isNull);
+      expect(r.add(frame(1, 3, [3, 4])), isNull); // total disagrees → dropped
+      expect(r.received, 1);
+      expect(r.total, 2);
+    });
+
     test('integration — multi-chunk response decodes end-to-end', () {
       // Build a large recording_list response, split it the way the firmware
       // would, then reassemble via ChunkReassembler and decode.
@@ -645,6 +676,31 @@ void main() {
       final decoded = proto.CommandResponse.fromBuffer(assembled!);
       expect(decoded.recordingList.recordings.length, 40);
       expect(decoded.recordingList.recordings.first.id, 'rec-0');
+    });
+  });
+
+  group('match_state timestamp decode (review #2)', () {
+    test('updated_at decodes as epoch ms, not seconds*1000', () {
+      const corrId = 'ms-ts';
+      const epochMs = 1700000000000;
+      final inner = proto.CommandResponse(
+        correlationId: corrId,
+        status: proto.ResponseStatus.OK,
+        matchState: proto.MatchState(updatedAt: Int64(epochMs)),
+      ).writeToBuffer();
+      final bytes = proto.ChunkedPayload(
+        correlationId: corrId,
+        chunkIndex: 0,
+        totalChunks: 1,
+        data: inner,
+      ).writeToBuffer();
+
+      final resp = BleProtocol.decodeResponse<MatchState>(bytes, corrId);
+      expect(resp.isOk, isTrue);
+      expect(
+        resp.payload!.updatedAt,
+        DateTime.fromMillisecondsSinceEpoch(epochMs),
+      );
     });
   });
 }

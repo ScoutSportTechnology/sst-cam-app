@@ -48,15 +48,6 @@ class BleProtocol {
     return _splitIntoFrames(protoCmd.writeToBuffer(), correlationId);
   }
 
-  /// Encodes [cmd] into a single ChunkedPayload-wrapped [proto.Command] and
-  /// returns the serialized bytes of that frame.
-  ///
-  /// Retained for callers/tests that assert the single-frame envelope shape.
-  /// Transport code should use [encodeCommandFrames] so large commands chunk.
-  static Uint8List encodeCommand(BleCommand cmd, String correlationId) {
-    return encodeCommandFrames(cmd, correlationId).first;
-  }
-
   /// Splits serialized command [data] into ordered ChunkedPayload frames,
   /// each carrying at most [maxChunkDataBytes] of `data`.
   static List<Uint8List> _splitIntoFrames(
@@ -114,15 +105,6 @@ class BleProtocol {
     return _splitIntoFrames(protoCmd.writeToBuffer(), correlationId);
   }
 
-  /// Encodes [config] into a single ChunkedPayload frame's bytes. Retained for
-  /// tests asserting the envelope shape; transport uses
-  /// [encodeSessionConfigFrames].
-  static Uint8List encodeSessionConfig(
-    PushSessionConfig config,
-    String correlationId,
-  ) {
-    return encodeSessionConfigFrames(config, correlationId).first;
-  }
 
   static proto.Command _sessionConfigToProtoCommand(
     PushSessionConfig config,
@@ -572,6 +554,10 @@ class BleProtocol {
 /// One instance per correlation id. The transport ([_ConnectedDevice]) holds a
 /// map of these keyed by correlation id and clears them on completion/timeout.
 class ChunkReassembler {
+  /// Hard cap on chunks for one response, mirroring the firmware assembler so a
+  /// malformed or hostile stream cannot grow the buffer without bound.
+  static const maxTotalChunks = 8192;
+
   final Map<int, List<int>> _byIndex = {};
   int? _total;
 
@@ -584,7 +570,14 @@ class ChunkReassembler {
   /// Adds [chunk]. Duplicate indices overwrite (not double-count). Returns the
   /// fully reassembled byte sequence once all indices are present, else null.
   List<int>? add(proto.ChunkedPayload chunk) {
-    _total = chunk.totalChunks;
+    final total = chunk.totalChunks;
+    // Reject absurd counts; pin total to the first frame and ignore frames that
+    // disagree or carry an out-of-range index. A malformed frame is dropped (the
+    // pending request times out) rather than corrupting reassembly.
+    if (total == 0 || total > maxTotalChunks) return null;
+    _total ??= total;
+    if (total != _total) return null;
+    if (chunk.chunkIndex >= total) return null;
     _byIndex[chunk.chunkIndex] = chunk.data;
     return _tryAssemble();
   }
