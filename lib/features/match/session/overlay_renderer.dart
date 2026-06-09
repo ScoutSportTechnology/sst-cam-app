@@ -141,13 +141,18 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           ),
         );
       case OverlayShape.text:
+        // Spec (overlay-rendering.md §Text): word-wrap at bounds width,
+        // top-aligned vertically, clipped to bounds height. No shrink-to-fit.
+        // The Positioned parent gives this child a tight bounds-sized box, so
+        // the Text wraps at the bounds width and lays out from the top.
         return Opacity(
           opacity: el.style.opacity,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: _resolveAlign(el.style.textAlign),
+          child: ClipRect(
             child: Text(
               _resolveBinding(el.binding, el.style.staticText),
+              textAlign: _resolveTextAlign(el.style.textAlign),
+              softWrap: true,
+              overflow: TextOverflow.clip,
               style: TextStyle(
                 color: _parseHex(el.style.textColor),
                 fontSize: el.style.fontSize * s,
@@ -205,14 +210,14 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
     return Color(value);
   }
 
-  Alignment _resolveAlign(OverlayTextAlign align) {
+  TextAlign _resolveTextAlign(OverlayTextAlign align) {
     switch (align) {
       case OverlayTextAlign.left:
-        return Alignment.centerLeft;
+        return TextAlign.left;
       case OverlayTextAlign.center:
-        return Alignment.center;
+        return TextAlign.center;
       case OverlayTextAlign.right:
-        return Alignment.centerRight;
+        return TextAlign.right;
     }
   }
 }
