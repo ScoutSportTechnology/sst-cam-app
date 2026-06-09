@@ -1,7 +1,7 @@
 ---
 title: "feat: overlay renderer conformance + firmware-spec carve-out"
 type: feat
-status: active
+status: completed
 date: 2026-06-09
 branch: feat/overlay-rendering-conformance
 ---
