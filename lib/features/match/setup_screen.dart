@@ -316,6 +316,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         ? _customRtmpUrl
         : null;
 
+    final opponentName = widget.match.match.opponent.startsWith('vs ')
+        ? widget.match.match.opponent.substring(3)
+        : widget.match.match.opponent;
+
     final config = PushSessionConfig(
       matchUuid: matchUuid,
       userUuid: userUuid,
@@ -325,6 +329,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       rtmpUrl: rtmpUrl,
       videoOutputPath: '/data/video/$userUuid/$matchUuid/',
       thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
+      teamAId: widget.match.team.id,
+      // The opponent has no team record/UUID, so its display name doubles as the
+      // stable team B identifier. ScoreUpdateCommand for the away team sends the
+      // same value (see session_screen) so the firmware routes goals correctly.
+      teamBId: opponentName,
+      teamAName: widget.match.team.name,
+      teamBName: opponentName,
       teamAColorHex: widget.match.team.colorHex,
     );
 

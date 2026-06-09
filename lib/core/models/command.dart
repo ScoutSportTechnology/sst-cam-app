@@ -16,9 +16,28 @@ sealed class BleCommand {}
 /// ID instead, the restore UUID-check in BackupService.import() will need
 /// updating. See U10/U11 plan notes.
 class DeviceInfoResponse {
-  const DeviceInfoResponse({required this.deviceId});
+  const DeviceInfoResponse({
+    required this.deviceId,
+    this.name = '',
+    this.firmwareVersion = '',
+    this.model = '',
+    this.protocolVersion = 0,
+  });
   final String deviceId;
+  final String name;
+  final String firmwareVersion;
+  final String model;
+
+  /// Firmware's reported wire-contract version. The app compares this against
+  /// [kAppProtocolVersion]; a mismatch is a version-skew error.
+  final int protocolVersion;
 }
+
+/// The wire-contract version this app build implements. Compared against
+/// [DeviceInfoResponse.protocolVersion] on connect; a mismatch must surface a
+/// clean version-skew signal and refuse the session (see proto contract
+/// DeviceInfoResponse.protocol_version comment).
+const int kAppProtocolVersion = 1;
 
 // Device
 class GetDeviceInfoCommand extends BleCommand {}
@@ -76,6 +95,10 @@ class PushSessionConfig {
     this.streamKey,
     required this.videoOutputPath,
     required this.thumbnailOutputPath,
+    this.teamAId,
+    this.teamBId,
+    this.teamAName,
+    this.teamBName,
     this.teamAColorHex,
     this.teamBColorHex,
   });
@@ -103,6 +126,21 @@ class PushSessionConfig {
   /// Absolute path on the camera where thumbnail files will be written, e.g.
   /// `/data/thumbnail/{userUuid}/{matchUuid}/`.
   final String thumbnailOutputPath;
+
+  /// Stable id of team A (home), e.g. the local DB team UUID. Optional —
+  /// null when no team record is associated.
+  final String? teamAId;
+
+  /// Stable id of team B (away/opponent). Optional — opponents are often a
+  /// free-text label with no associated team record, in which case this is null.
+  final String? teamBId;
+
+  /// Display name of team A (home), used for overlay BINDING_TEAM_A_NAME.
+  final String? teamAName;
+
+  /// Display name of team B (away/opponent), used for overlay
+  /// BINDING_TEAM_B_NAME.
+  final String? teamBName;
 
   /// Hex colour for team A overlay elements, e.g. '#FF5733'.
   final String? teamAColorHex;

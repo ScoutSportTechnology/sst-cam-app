@@ -57,6 +57,19 @@ class WifiServiceImpl implements WifiService {
     if (!ctrl.isClosed) ctrl.add(state);
   }
 
+  /// Whether [role] designates the camera as the WiFi Direct group owner.
+  /// Accepts the common spellings firmware may use, plus an empty value
+  /// (firmware that predates the role field).
+  static bool _isGroupOwnerRole(String role) {
+    final r = role.trim().toLowerCase();
+    return r.isEmpty ||
+        r == 'go' ||
+        r == 'group_owner' ||
+        r == 'group-owner' ||
+        r == 'groupowner' ||
+        r == 'owner';
+  }
+
   WifiDirectState _codeToState(int code) => switch (code) {
     0 => WifiDirectState.idle,
     1 => WifiDirectState.starting,
@@ -75,6 +88,12 @@ class WifiServiceImpl implements WifiService {
 
     final completer = Completer<WifiDirectGroup>();
     _inflightConnects[deviceId] = completer;
+    // The completer exists only so a concurrent second caller can await the
+    // same connect. The primary caller gets its result via the return below /
+    // the rethrow, so the completer's own future may have no listener; mark it
+    // ignored so an error completion is not reported as an unhandled async
+    // error. A real second awaiter still receives the value/error.
+    completer.future.ignore();
 
     try {
       final group = await _connectGroupInternal(deviceId);
@@ -136,6 +155,20 @@ class WifiServiceImpl implements WifiService {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       _emitState(deviceId, WifiDirectState.failed);
       throw const WifiDirectException('BLE credential fetch returned empty ssid/psk');
+    }
+
+    // Honor WifiDirectGroupResponse.role. The camera must be the WiFi Direct
+    // group owner (GO) so the phone joins as a client at group.groupOwnerIp;
+    // joining a group where the camera is itself a client would point the
+    // preview/download URLs at the wrong host. An empty role is tolerated for
+    // backward compatibility with firmware that does not report it yet.
+    if (!_isGroupOwnerRole(group.role)) {
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      _emitState(deviceId, WifiDirectState.failed);
+      throw WifiDirectException(
+        'camera reported unexpected WiFi Direct role "${group.role}"; '
+        'expected group owner',
+      );
     }
 
     // Platform channel — join the P2P group on Android.

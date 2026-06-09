@@ -792,4 +792,168 @@ void main() {
     // Width should be wider than height — confirming the oval uses full bounds.
     expect(positioned.width!, greaterThan(positioned.height!));
   });
+
+  // ---- 22. U6 — text fill_color renders a background box -------------------
+
+  testWidgets('text element with fill_color renders a background box + text', (
+    tester,
+  ) async {
+    const layout = OverlayLayout(
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      elements: [
+        OverlayElement(
+          id: 'labelled',
+          shape: OverlayShape.text,
+          bounds: OverlayRect(x1: 100, y1: 100, x2: 500, y2: 200, z: 1),
+          style: OverlayStyle(
+            staticText: 'BG BOX',
+            fillColor: '#222222',
+            textColor: '#FFFFFF',
+            fontSize: 24,
+          ),
+          binding: OverlayBinding.static,
+        ),
+      ],
+      templates: [],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: layout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    // The text still renders.
+    expect(find.text('BG BOX'), findsOneWidget);
+
+    // A DecoratedBox with the non-transparent fill color must back the glyphs.
+    final decoratedBoxes = tester.widgetList<DecoratedBox>(
+      find.byType(DecoratedBox),
+    );
+    final filled = decoratedBoxes.where((d) {
+      final dec = d.decoration;
+      return dec is BoxDecoration &&
+          dec.color != null &&
+          dec.color != Colors.transparent;
+    });
+    expect(filled, isNotEmpty);
+  });
+
+  // ---- 23. U6 — text without fill_color renders no background box ----------
+
+  testWidgets('text element without fill_color paints no background box', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _interFontLayout, // no fillColor
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+    expect(find.text('FONT TEST'), findsOneWidget);
+    // No DecoratedBox with a non-transparent color from the text element.
+    final decoratedBoxes = tester.widgetList<DecoratedBox>(
+      find.byType(DecoratedBox),
+    );
+    final filled = decoratedBoxes.where((d) {
+      final dec = d.decoration;
+      return dec is BoxDecoration &&
+          dec.color != null &&
+          dec.color != Colors.transparent;
+    });
+    expect(filled, isEmpty);
+  });
+
+  // ---- 24. U6 — corner_radius clamped to half the smaller side ------------
+
+  testWidgets('corner_radius larger than half smaller side is clamped', (
+    tester,
+  ) async {
+    // bounds 100x40 → smaller side 40 → max radius 20 (canvas px).
+    // cornerRadius 999 must clamp to 20, then scale by s.
+    const s = 200.0 / 1080.0;
+    const expectedRadius = 20.0 * s;
+    const layout = OverlayLayout(
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      elements: [
+        OverlayElement(
+          id: 'capsule',
+          shape: OverlayShape.rect,
+          bounds: OverlayRect(x1: 0, y1: 0, x2: 100, y2: 40, z: 1),
+          style: OverlayStyle(fillColor: '#FF0000', cornerRadius: 999),
+          binding: OverlayBinding.static,
+        ),
+      ],
+      templates: [],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: layout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    final container = tester.widgetList<Container>(find.byType(Container)).where(
+      (c) {
+        final dec = c.decoration;
+        return dec is BoxDecoration && dec.borderRadius != null;
+      },
+    ).first;
+    final dec = container.decoration as BoxDecoration;
+    final radius = (dec.borderRadius as BorderRadius).topLeft.x;
+    expect(radius, closeTo(expectedRadius, 0.5));
+  });
+
+  // ---- 25. U6 — corner_radius within bounds is not clamped -----------------
+
+  testWidgets('corner_radius within half smaller side is preserved', (
+    tester,
+  ) async {
+    // bounds 200x200 → max radius 100. cornerRadius 10 stays 10 (scaled).
+    const s = 200.0 / 1080.0;
+    const expectedRadius = 10.0 * s;
+    const layout = OverlayLayout(
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      elements: [
+        OverlayElement(
+          id: 'rounded',
+          shape: OverlayShape.rect,
+          bounds: OverlayRect(x1: 0, y1: 0, x2: 200, y2: 200, z: 1),
+          style: OverlayStyle(fillColor: '#00FF00', cornerRadius: 10),
+          binding: OverlayBinding.static,
+        ),
+      ],
+      templates: [],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: layout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    final container = tester.widgetList<Container>(find.byType(Container)).where(
+      (c) {
+        final dec = c.decoration;
+        return dec is BoxDecoration && dec.borderRadius != null;
+      },
+    ).first;
+    final dec = container.decoration as BoxDecoration;
+    final radius = (dec.borderRadius as BorderRadius).topLeft.x;
+    expect(radius, closeTo(expectedRadius, 0.5));
+  });
 }

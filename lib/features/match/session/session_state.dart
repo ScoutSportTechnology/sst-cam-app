@@ -307,6 +307,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     required String type,
     required String teamLabel,
     String? jersey,
+    Map<String, String> params = const {},
   }) {
     final clock = _fmt(state.elapsedSeconds);
     final jerseyPart = jersey == null || jersey.isEmpty ? '' : ' · #$jersey';
@@ -321,7 +322,11 @@ class LiveMatchController extends Notifier<LiveMatchState> {
       scoreHome: newScoreH,
       scoreAway: newScoreA,
       events: [
-        LiveEvent(clock: clock, label: '$type · $teamLabel$jerseyPart'),
+        LiveEvent(
+          clock: clock,
+          label: '$type · $teamLabel$jerseyPart',
+          params: params,
+        ),
         ...state.events,
       ],
     );

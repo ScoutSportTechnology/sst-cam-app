@@ -316,24 +316,60 @@ class SessionScreen extends ConsumerWidget {
       builder: (_) => EventSheet(
         homeTeamId: match.team.id,
         onSave: (type, team, jersey) {
+          // Build the param map the firmware uses for {{param}} substitution.
+          // The local preview substitutes the same keys from LiveEvent.params,
+          // so both stacks render identical banner text. Keep these keys in
+          // sync with overlay_renderer's _resolveBinding substitution.
+          final params = <String, String>{
+            if (jersey != null && jersey.isNotEmpty) 'jersey': jersey,
+          };
+          // player_id carries the jersey number as the player identifier
+          // available on the wire (no roster id is selected in this flow).
+          final playerId = jersey != null && jersey.isNotEmpty ? jersey : null;
+
           ref
               .read(liveMatchProvider.notifier)
-              .addEvent(type: type, teamLabel: team, jersey: jersey);
+              .addEvent(
+                type: type,
+                teamLabel: team,
+                jersey: jersey,
+                params: params,
+              );
           if (type == 'Goal') {
-            _sendIfConnected(ref, ScoreUpdateCommand(teamId: team, delta: 1));
+            // Firmware routes score by the session-config team_a_id (home UUID)
+            // / team_b_id (away display name), NOT the display label — sending
+            // the label makes the camera drop the goal as an unknown team.
+            final live = ref.read(liveMatchProvider);
+            final teamId = team == live.homeName ? match.team.id : live.awayName;
+            _sendIfConnected(ref, ScoreUpdateCommand(teamId: teamId, delta: 1));
             _sendIfConnected(
               ref,
-              BannerEventCommand(templateId: 'goal', durationSeconds: 5),
+              BannerEventCommand(
+                templateId: 'goal',
+                durationSeconds: 5,
+                params: params,
+                playerId: playerId,
+              ),
             );
           } else if (type == 'Yellow Card') {
             _sendIfConnected(
               ref,
-              BannerEventCommand(templateId: 'yellow_card', durationSeconds: 4),
+              BannerEventCommand(
+                templateId: 'yellow_card',
+                durationSeconds: 4,
+                params: params,
+                playerId: playerId,
+              ),
             );
           } else if (type == 'Red Card') {
             _sendIfConnected(
               ref,
-              BannerEventCommand(templateId: 'red_card', durationSeconds: 4),
+              BannerEventCommand(
+                templateId: 'red_card',
+                durationSeconds: 4,
+                params: params,
+                playerId: playerId,
+              ),
             );
           } else if (type == 'Sub') {
             _sendIfConnected(
@@ -341,6 +377,8 @@ class SessionScreen extends ConsumerWidget {
               BannerEventCommand(
                 templateId: 'substitution',
                 durationSeconds: 4,
+                params: params,
+                playerId: playerId,
               ),
             );
           }
