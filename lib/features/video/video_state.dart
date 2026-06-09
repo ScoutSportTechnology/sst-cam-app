@@ -69,9 +69,9 @@ class LibraryMatch {
 
 final libraryProvider = StreamProvider<List<LibraryMatch>>((ref) {
   final dao = ref.watch(teamsDaoProvider);
-  return dao
-      .watchPastMatchesForLibrary()
-      .map((rows) => rows.map(_rowToLibraryMatch).toList());
+  return dao.watchPastMatchesForLibrary().map(
+    (rows) => rows.map(_rowToLibraryMatch).toList(),
+  );
 });
 
 LibraryMatch _rowToLibraryMatch(LibraryMatchRow row) {
@@ -135,7 +135,9 @@ final libraryMatchProvider = Provider.family<LibraryMatch?, String>((ref, id) {
 // ---------------------------------------------------------------------------
 
 final librarySearchQueryProvider = StateProvider<String>((_) => '');
-final librarySportFilterProvider = StateProvider<String?>((_) => null); // null = All
+final librarySportFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
 
 /// Team name filter for the library page. Null = no team filter.
 /// When set to a team's full name, returns any match where the teamName

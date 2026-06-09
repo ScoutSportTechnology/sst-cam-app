@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../ble/ble_providers.dart';
 import '../models/wifi.dart';
 import 'wifi_service.dart';
 import 'wifi_service_impl.dart';
@@ -11,7 +12,7 @@ import 'wifi_service_impl.dart';
 // ---------------------------------------------------------------------------
 
 final wifiServiceProvider = Provider<WifiService>((ref) {
-  final svc = WifiServiceImpl();
+  final svc = WifiServiceImpl(ble: ref.watch(bleServiceProvider));
   ref.onDispose(svc.dispose);
   return svc;
 });

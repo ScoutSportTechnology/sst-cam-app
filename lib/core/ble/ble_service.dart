@@ -1,6 +1,7 @@
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/overlay_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 
@@ -94,10 +95,10 @@ abstract class BleService {
   /// Must be called and awaited successfully before calling any recording /
   /// period-control commands. On failure the camera has no session context
   /// and the UI must stay on the setup screen.
-  Future<void> pushSessionConfig(
-    String deviceId,
-    PushSessionConfig config,
-  );
+  Future<void> pushSessionConfig(String deviceId, PushSessionConfig config);
+
+  /// Push overlay layout to the camera at session start.
+  Future<void> pushOverlayLayout(String deviceId, OverlayLayout layout);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

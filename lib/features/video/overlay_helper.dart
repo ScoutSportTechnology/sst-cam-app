@@ -37,8 +37,9 @@ List<OverlayState> buildOverlayStates(
   var awayScore = 0;
 
   for (final event in sorted) {
-    final period =
-        periodLengthSeconds > 0 ? event.timeSeconds ~/ periodLengthSeconds + 1 : 1;
+    final period = periodLengthSeconds > 0
+        ? event.timeSeconds ~/ periodLengthSeconds + 1
+        : 1;
 
     if (event.kind == 'goal') {
       if (event.team == homeShortName) {
@@ -46,21 +47,25 @@ List<OverlayState> buildOverlayStates(
       } else {
         awayScore++;
       }
-      states.add(OverlayState(
-        timeSeconds: event.timeSeconds,
-        homeScore: homeScore,
-        awayScore: awayScore,
-        period: period,
-        recentEventLabel: event.label,
-      ));
+      states.add(
+        OverlayState(
+          timeSeconds: event.timeSeconds,
+          homeScore: homeScore,
+          awayScore: awayScore,
+          period: period,
+          recentEventLabel: event.label,
+        ),
+      );
     } else {
-      states.add(OverlayState(
-        timeSeconds: event.timeSeconds,
-        homeScore: homeScore,
-        awayScore: awayScore,
-        period: period,
-        recentEventLabel: event.label,
-      ));
+      states.add(
+        OverlayState(
+          timeSeconds: event.timeSeconds,
+          homeScore: homeScore,
+          awayScore: awayScore,
+          period: period,
+          recentEventLabel: event.label,
+        ),
+      );
     }
   }
 

@@ -64,10 +64,7 @@ class OverlayState {
 
 /// Simple configuration for which overlay elements are visible during playback.
 class OverlayConfig {
-  const OverlayConfig({
-    required this.showScore,
-    required this.showEvents,
-  });
+  const OverlayConfig({required this.showScore, required this.showEvents});
 
   final bool showScore;
   final bool showEvents;

@@ -22,17 +22,16 @@ const _uuid = Uuid();
 
 /// Convert a raw [TeamsTableData] row and its [PlayersTableData] list into the
 /// app-model [TeamRecord].
-TeamRecord rowToTeamRecord(
-  TeamsTableData t,
-  List<PlayersTableData> players,
-) => TeamRecord(
-  id: t.id,
-  name: t.name,
-  shortName: t.shortName,
-  sport: t.sport,
-  hidden: t.hidden,
-  roster: players.map(rowToPlayer).toList(),
-);
+TeamRecord rowToTeamRecord(TeamsTableData t, List<PlayersTableData> players) =>
+    TeamRecord(
+      id: t.id,
+      name: t.name,
+      shortName: t.shortName,
+      sport: t.sport,
+      hidden: t.hidden,
+      colorHex: t.colorHex,
+      roster: players.map(rowToPlayer).toList(),
+    );
 
 Player rowToPlayer(PlayersTableData p) => Player(
   number: p.number,
@@ -146,6 +145,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
         name: draft.name.trim(),
         shortName: draft.shortName.trim(),
         sport: draft.sport,
+        colorHex: Value(draft.colorHex),
       ),
     );
     return TeamRecord(
@@ -153,6 +153,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
       name: draft.name.trim(),
       shortName: draft.shortName.trim(),
       sport: draft.sport,
+      colorHex: draft.colorHex,
       roster: const [],
     );
   }
@@ -167,6 +168,7 @@ class TeamsController extends AsyncNotifier<List<TeamRecord>> {
         name: draft.name.trim(),
         shortName: draft.shortName.trim(),
         sport: draft.sport,
+        colorHex: Value(draft.colorHex),
       ),
     );
   }

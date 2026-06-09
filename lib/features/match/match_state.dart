@@ -18,6 +18,7 @@ class UpcomingMatch {
   const UpcomingMatch({required this.team, required this.match});
   final TeamRecord team;
   final TeamMatch match;
+  String? get homeColorHex => team.colorHex;
 }
 
 /// All upcoming matches across all non-hidden teams for the active user,
@@ -43,10 +44,12 @@ UpcomingMatch _rowToUpcomingMatch(UpcomingMatchRow row) => UpcomingMatch(
 // ---------------------------------------------------------------------------
 
 final upcomingSearchQueryProvider = StateProvider<String>((_) => '');
-final upcomingMatchSportFilterProvider =
-    StateProvider<String?>((_) => null); // null = All
-final upcomingMatchTeamFilterProvider =
-    StateProvider<String?>((_) => null); // null = All teams
+final upcomingMatchSportFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All
+final upcomingMatchTeamFilterProvider = StateProvider<String?>(
+  (_) => null,
+); // null = All teams
 
 final filteredUpcomingMatchesProvider = Provider<List<UpcomingMatch>>((ref) {
   final matches = ref.watch(upcomingMatchesProvider).valueOrNull ?? const [];

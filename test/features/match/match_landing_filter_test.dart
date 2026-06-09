@@ -92,49 +92,47 @@ void main() {
   });
 
   group('Match landing filter chips', () {
-    testWidgets(
-      '1. All matches from different sports visible initially',
-      (tester) async {
-        final mock = _newMock();
-        addTearDown(mock.dispose);
+    testWidgets('1. All matches from different sports visible initially', (
+      tester,
+    ) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(db, mock));
-        await _pumpLanding(tester);
+      await tester.pumpWidget(_buildHarness(db, mock));
+      await _pumpLanding(tester);
 
-        // Should see both matches: soccer and basketball.
-        expect(find.textContaining('vs Eastfield FC'), findsWidgets);
-        expect(find.textContaining('vs Hoopsters'), findsWidgets);
-      },
-    );
+      // Should see both matches: soccer and basketball.
+      expect(find.textContaining('vs Eastfield FC'), findsWidgets);
+      expect(find.textContaining('vs Hoopsters'), findsWidgets);
+    });
 
-    testWidgets(
-      '2. Selecting Soccer via picker hides Basketball match',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(800, 1400));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets('2. Selecting Soccer via picker hides Basketball match', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final mock = _newMock();
-        addTearDown(mock.dispose);
+      final mock = _newMock();
+      addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(db, mock));
-        await _pumpLanding(tester);
+      await tester.pumpWidget(_buildHarness(db, mock));
+      await _pumpLanding(tester);
 
-        // Open the sport picker.
-        await tester.tap(find.text('All sports'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
+      // Open the sport picker.
+      await tester.tap(find.text('All sports'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-        // Select "Soccer" in the sheet.
-        await tester.tap(find.text('Soccer'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
+      // Select "Soccer" in the sheet.
+      await tester.tap(find.text('Soccer'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-        // Soccer matches still visible.
-        expect(find.textContaining('vs Eastfield FC'), findsWidgets);
-        // Basketball match gone.
-        expect(find.textContaining('vs Hoopsters'), findsNothing);
-      },
-    );
+      // Soccer matches still visible.
+      expect(find.textContaining('vs Eastfield FC'), findsWidgets);
+      // Basketball match gone.
+      expect(find.textContaining('vs Hoopsters'), findsNothing);
+    });
 
     testWidgets(
       '3. Selecting "All" from picker after sport filter restores all matches',
@@ -174,39 +172,38 @@ void main() {
       },
     );
 
-    testWidgets(
-      '4. Text search by opponent name filters correctly',
-      (tester) async {
-        final mock = _newMock();
-        addTearDown(mock.dispose);
+    testWidgets('4. Text search by opponent name filters correctly', (
+      tester,
+    ) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
 
-        await tester.pumpWidget(_buildHarness(db, mock));
-        await _pumpLanding(tester);
+      await tester.pumpWidget(_buildHarness(db, mock));
+      await _pumpLanding(tester);
 
-        // Both visible initially.
-        expect(find.textContaining('vs Eastfield FC'), findsWidgets);
-        expect(find.textContaining('vs Hoopsters'), findsWidgets);
+      // Both visible initially.
+      expect(find.textContaining('vs Eastfield FC'), findsWidgets);
+      expect(find.textContaining('vs Hoopsters'), findsWidgets);
 
-        // Type in the search field.
-        final searchField = find.byType(TextField).first;
-        await tester.tap(searchField);
-        await tester.enterText(searchField, 'Hoopsters');
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+      // Type in the search field.
+      final searchField = find.byType(TextField).first;
+      await tester.tap(searchField);
+      await tester.enterText(searchField, 'Hoopsters');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-        // Only basketball match visible.
-        expect(find.textContaining('vs Hoopsters'), findsWidgets);
-        expect(find.textContaining('vs Eastfield FC'), findsNothing);
+      // Only basketball match visible.
+      expect(find.textContaining('vs Hoopsters'), findsWidgets);
+      expect(find.textContaining('vs Eastfield FC'), findsNothing);
 
-        // Clear query.
-        await tester.enterText(searchField, '');
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+      // Clear query.
+      await tester.enterText(searchField, '');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-        // Both back.
-        expect(find.textContaining('vs Eastfield FC'), findsWidgets);
-        expect(find.textContaining('vs Hoopsters'), findsWidgets);
-      },
-    );
+      // Both back.
+      expect(find.textContaining('vs Eastfield FC'), findsWidgets);
+      expect(find.textContaining('vs Hoopsters'), findsWidgets);
+    });
   });
 }

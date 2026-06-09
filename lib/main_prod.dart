@@ -11,10 +11,7 @@ Future<void> main() async {
   final container = ProviderContainer();
 
   runApp(
-    UncontrolledProviderScope(
-      container: container,
-      child: const SstCamApp(),
-    ),
+    UncontrolledProviderScope(container: container, child: const SstCamApp()),
   );
 
   FlutterNativeSplash.remove();

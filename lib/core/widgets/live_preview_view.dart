@@ -39,6 +39,7 @@ class LivePreviewView extends ConsumerStatefulWidget {
   final double? height;
   final double? aspect;
   final bool autoStart;
+
   /// Whether to render Preview / Stop toggle buttons inside this surface.
   /// Set false when the parent provides external controls.
   final bool showButtons;
@@ -58,9 +59,8 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   }
 
   void _disablePreview() {
-    ref
-        .read(livePreviewEnabledProvider(widget.deviceId).notifier)
-        .state = false;
+    ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state =
+        false;
   }
 
   /// Disposes [controller], swallowing the LateError that
@@ -182,10 +182,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
           child: offBody,
         );
       }
-      return AspectRatio(
-        aspectRatio: widget.aspect ?? 16 / 9,
-        child: offBody,
-      );
+      return AspectRatio(aspectRatio: widget.aspect ?? 16 / 9, child: offBody);
     }
 
     // Preview is on — read WiFi/frame state.

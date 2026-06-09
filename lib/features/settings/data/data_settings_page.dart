@@ -12,8 +12,7 @@ import '../sport_presets/sport_presets_state.dart'
     show sportPresetsControllerProvider;
 import '../streaming/streaming_state.dart'
     show streamingDestinationsControllerProvider;
-import '../users/users_state.dart'
-    show usersControllerProvider;
+import '../users/users_state.dart' show usersControllerProvider;
 import '../../teams/teams_state.dart' show teamsControllerProvider;
 import '../../../core/state/db_providers.dart' show backupServiceProvider;
 import '../../../core/theme/tokens.dart';
@@ -29,9 +28,7 @@ class DataSettingsPage extends ConsumerWidget {
       appBar: AppBar(title: const Text('Backup & restore')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-        children: const [
-          _DataSection(),
-        ],
+        children: const [_DataSection()],
       ),
     );
   }
@@ -174,7 +171,9 @@ class _DataSection extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not determine safe storage path. Restore cancelled.'),
+          content: Text(
+            'Could not determine safe storage path. Restore cancelled.',
+          ),
           backgroundColor: T.danger,
         ),
       );

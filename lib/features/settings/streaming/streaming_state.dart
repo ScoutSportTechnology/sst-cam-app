@@ -132,9 +132,7 @@ class StreamingDestinationsController
   }
 
   Future<void> delete(String destinationId) async {
-    await ref
-        .read(streamingDestinationsDaoProvider)
-        .deleteById(destinationId);
+    await ref.read(streamingDestinationsDaoProvider).deleteById(destinationId);
   }
 }
 

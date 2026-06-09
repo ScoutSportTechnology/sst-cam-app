@@ -61,23 +61,27 @@ class SettingsPage extends ConsumerWidget {
             padding: EdgeInsets.zero,
             child: Column(
               children: [
-                Builder(builder: (ctx) {
-                  final activeUserId = ref.watch(activeUserProvider);
-                  final usersAsync = ref.watch(usersControllerProvider);
-                  final activeName = usersAsync.valueOrNull
-                      ?.where((u) => u.id == activeUserId)
-                      .firstOrNull
-                      ?.name;
-                  return _NavRow(
-                    leading: const Icon(Icons.person_outline),
-                    label: 'Users',
-                    sub: 'Manage operator profiles',
-                    badge: activeName,
-                    onTap: () => Navigator.of(ctx).push(
-                      MaterialPageRoute(builder: (_) => const UsersSettingsPage()),
-                    ),
-                  );
-                }),
+                Builder(
+                  builder: (ctx) {
+                    final activeUserId = ref.watch(activeUserProvider);
+                    final usersAsync = ref.watch(usersControllerProvider);
+                    final activeName = usersAsync.valueOrNull
+                        ?.where((u) => u.id == activeUserId)
+                        .firstOrNull
+                        ?.name;
+                    return _NavRow(
+                      leading: const Icon(Icons.person_outline),
+                      label: 'Users',
+                      sub: 'Manage operator profiles',
+                      badge: activeName,
+                      onTap: () => Navigator.of(ctx).push(
+                        MaterialPageRoute(
+                          builder: (_) => const UsersSettingsPage(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 const Divider(height: 1, color: T.rule),
                 _NavRow(
                   leading: const Icon(Icons.sports_soccer_outlined),
@@ -98,25 +102,28 @@ class SettingsPage extends ConsumerWidget {
                     MaterialPageRoute(builder: (_) => const DataSettingsPage()),
                   ),
                 ),
-                Builder(builder: (ctx) {
-                  final devNav = ref.watch(devNavigationProvider);
-                  if (devNav.developerSettings == null) return const SizedBox.shrink();
-                  return Column(
-                    children: [
-                      const Divider(height: 1, color: T.rule),
-                      _NavRow(
-                        leading: const Icon(Icons.code),
-                        label: 'Developer',
-                        sub: 'Dev tools & data mode',
-                        onTap: () => Navigator.of(ctx).push(
-                          MaterialPageRoute(
-                            builder: (_) => devNav.developerSettings!(),
+                Builder(
+                  builder: (ctx) {
+                    final devNav = ref.watch(devNavigationProvider);
+                    if (devNav.developerSettings == null)
+                      return const SizedBox.shrink();
+                    return Column(
+                      children: [
+                        const Divider(height: 1, color: T.rule),
+                        _NavRow(
+                          leading: const Icon(Icons.code),
+                          label: 'Developer',
+                          sub: 'Dev tools & data mode',
+                          onTap: () => Navigator.of(ctx).push(
+                            MaterialPageRoute(
+                              builder: (_) => devNav.developerSettings!(),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                }),
+                      ],
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -129,36 +136,44 @@ class SettingsPage extends ConsumerWidget {
                 const _RowItem(
                   leading: Icon(Icons.palette_outlined),
                   label: 'Theme',
-                  trailing: Text('Dark', style: TextStyle(color: T.ink2, fontSize: 12)),
+                  trailing: Text(
+                    'Dark',
+                    style: TextStyle(color: T.ink2, fontSize: 12),
+                  ),
                 ),
                 const Divider(height: 1, color: T.rule),
                 const _RowItem(
                   leading: Icon(Icons.lock_outline),
                   label: 'Permissions',
-                  trailing: Text('3 granted', style: TextStyle(color: T.ink2, fontSize: 12)),
+                  trailing: Text(
+                    '3 granted',
+                    style: TextStyle(color: T.ink2, fontSize: 12),
+                  ),
                 ),
                 const Divider(height: 1, color: T.rule),
-                Builder(builder: (ctx) {
-                  final devNav = ref.watch(devNavigationProvider);
-                  return GestureDetector(
-                    onLongPress: devNav.debugPage != null
-                        ? () => Navigator.push(
+                Builder(
+                  builder: (ctx) {
+                    final devNav = ref.watch(devNavigationProvider);
+                    return GestureDetector(
+                      onLongPress: devNav.debugPage != null
+                          ? () => Navigator.push(
                               ctx,
                               MaterialPageRoute<void>(
                                 builder: (_) => devNav.debugPage!(),
                               ),
                             )
-                        : null,
-                    child: const _RowItem(
-                      leading: Icon(Icons.info_outline),
-                      label: 'About',
-                      trailing: Text(
-                        '0.3.2',
-                        style: TextStyle(color: T.ink2, fontSize: 12),
+                          : null,
+                      child: const _RowItem(
+                        leading: Icon(Icons.info_outline),
+                        label: 'About',
+                        trailing: Text(
+                          '0.3.2',
+                          style: TextStyle(color: T.ink2, fontSize: 12),
+                        ),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -178,12 +193,18 @@ class _StreamingRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final count =
-        ref.watch(streamingDestinationsControllerProvider).valueOrNull?.length ?? 0;
+        ref
+            .watch(streamingDestinationsControllerProvider)
+            .valueOrNull
+            ?.length ??
+        0;
     return _NavRow(
       leading: const Icon(Icons.cast_outlined),
       label: 'Streaming destinations',
       sub: 'Live stream endpoints',
-      badge: count > 0 ? '$count ${count == 1 ? 'destination' : 'destinations'}' : null,
+      badge: count > 0
+          ? '$count ${count == 1 ? 'destination' : 'destinations'}'
+          : null,
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const StreamingDestinationsPage()),
       ),

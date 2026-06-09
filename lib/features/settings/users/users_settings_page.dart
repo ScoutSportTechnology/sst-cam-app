@@ -6,7 +6,6 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_chip.dart';
 import 'user_form_sheet.dart';
 
-
 class UsersSettingsPage extends ConsumerWidget {
   const UsersSettingsPage({super.key});
 
@@ -53,7 +52,11 @@ class UsersSettingsPage extends ConsumerWidget {
                     const Text(
                       'Add your first operator profile to start organising data.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: T.ink2,
+                        height: 1.4,
+                      ),
                     ),
                   ],
                 ),
@@ -90,8 +93,9 @@ class UsersSettingsPage extends ConsumerWidget {
       await ref.read(usersControllerProvider.notifier).create(draft.name);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not create user: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not create user: $e')));
     }
   }
 
@@ -131,11 +135,14 @@ class UsersSettingsPage extends ConsumerWidget {
       await ref.read(usersControllerProvider.notifier).delete(target.id);
     } on UsersControllerException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not delete user: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not delete user: $e')));
     }
   }
 
@@ -234,12 +241,20 @@ class _UserRow extends StatelessWidget {
               if (isActive)
                 const Icon(Icons.check, color: T.accent, size: 18)
               else
-                const Icon(Icons.radio_button_unchecked, color: T.ink3, size: 18),
+                const Icon(
+                  Icons.radio_button_unchecked,
+                  color: T.ink3,
+                  size: 18,
+                ),
               if (canDelete) ...[
                 const SizedBox(width: 12),
                 GestureDetector(
                   onTap: onDelete,
-                  child: const Icon(Icons.delete_outline, color: T.ink3, size: 18),
+                  child: const Icon(
+                    Icons.delete_outline,
+                    color: T.ink3,
+                    size: 18,
+                  ),
                 ),
               ],
             ],

@@ -2,55 +2,190 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import '../ble/ble_service.dart';
+import '../models/command.dart';
 import '../models/overlay.dart';
 import '../models/recording.dart';
 import '../models/wifi.dart';
 import '../services/video_path_service.dart';
+import 'wifi_p2p_channel.dart';
 import 'wifi_service.dart';
 
 /// Real WiFi Direct implementation.
 ///
 /// Pending firmware wiring:
-///   * platform channels for WiFi Direct group negotiation
-///     (Android: WifiP2pManager; iOS: NEHotspotConfiguration + Multipeer).
-///     Group credentials are received over BLE in `WifiDirectGroupResponse`
-///     (see proto/wifi.proto) — the handshake is not duplicated here.
 ///   * RTSP H.264 playback via `flutter_vlc_player` driven by
 ///     [previewDescriptor]; the heartbeat stream is generated locally on
 ///     keyframe arrival so the UI's liveness badge has a tick source.
 ///   * a chunked HTTP download client for `startDownload`, with byte-range
 ///     resume support against the Jetson's recording HTTP server.
 class WifiServiceImpl implements WifiService {
+  WifiServiceImpl({required BleService ble}) : _ble = ble;
+
+  final BleService _ble;
+  final WifiP2pChannel _channel = WifiP2pChannel();
+
   final _rng = Random();
   final _videoPathService = VideoPathService();
   final Map<String, _DownloadState> _downloads = {};
   final _allProgressController =
       StreamController<VideoDownloadProgress>.broadcast();
 
+  // Per-device state stream controllers — created on demand.
+  final Map<String, StreamController<WifiDirectState>> _stateControllers = {};
+
+  // Per-device EventChannel subscriptions — one per active connectGroup call.
+  final Map<String, StreamSubscription<int>> _stateSubscriptions = {};
+
+  // Per-device current group (null when disconnected).
+  final Map<String, WifiDirectGroup> _currentGroups = {};
+
+  // In-flight connectGroup calls — second caller awaits the same Completer
+  // rather than racing with an already-running connect sequence.
+  final Map<String, Completer<WifiDirectGroup>> _inflightConnects = {};
+
+  /// Returns (creating if absent) the broadcast controller for [deviceId].
+  StreamController<WifiDirectState> _stateController(String deviceId) {
+    return _stateControllers.putIfAbsent(
+      deviceId,
+      () => StreamController<WifiDirectState>.broadcast(),
+    );
+  }
+
+  void _emitState(String deviceId, WifiDirectState state) {
+    final ctrl = _stateController(deviceId);
+    if (!ctrl.isClosed) ctrl.add(state);
+  }
+
+  WifiDirectState _codeToState(int code) => switch (code) {
+    0 => WifiDirectState.idle,
+    1 => WifiDirectState.starting,
+    2 => WifiDirectState.connected,
+    3 => WifiDirectState.failed,
+    4 => WifiDirectState.stopping,
+    _ => WifiDirectState.failed,
+  };
+
   @override
   Future<WifiDirectGroup> connectGroup(String deviceId) async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-    return const WifiDirectGroup(
-      ssid: 'DIRECT-MOCK-SST',
-      psk: 'mock-psk-1234',
-      groupOwnerIp: '192.168.49.1',
-      previewPort: 8554,
-      downloadPort: 8080,
-      role: 'GROUP_OWNER',
+    // Serialize concurrent calls for the same device — second caller awaits the
+    // already-running connect sequence instead of starting a duplicate.
+    final existing = _inflightConnects[deviceId];
+    if (existing != null) return existing.future;
+
+    final completer = Completer<WifiDirectGroup>();
+    _inflightConnects[deviceId] = completer;
+
+    try {
+      final group = await _connectGroupInternal(deviceId);
+      completer.complete(group);
+      return group;
+    } catch (e) {
+      completer.completeError(e);
+      rethrow;
+    } finally {
+      _inflightConnects.remove(deviceId);
+    }
+  }
+
+  Future<WifiDirectGroup> _connectGroupInternal(String deviceId) async {
+    // iOS guard — P2P group negotiation is not supported on iOS.
+    if (Platform.isIOS) {
+      _emitState(deviceId, WifiDirectState.failed);
+      throw const WifiDirectException('local preview not supported on iOS');
+    }
+
+    _emitState(deviceId, WifiDirectState.starting);
+
+    // Subscribe to the EventChannel BEFORE invoking connect so that the first
+    // WifiDirectState.connected event from the Kotlin BroadcastReceiver is
+    // never dropped.
+    await _stateSubscriptions[deviceId]?.cancel();
+    _stateSubscriptions[deviceId] = _channel.stateStream.listen(
+      (code) => _emitState(deviceId, _codeToState(code)),
+      onError: (Object e) {
+        _stateSubscriptions.remove(deviceId)?.cancel();
+        _emitState(deviceId, WifiDirectState.failed);
+      },
     );
+
+    // BLE round-trip — ask the camera for group credentials.
+    final BleCommandResponse<WifiDirectGroup> response;
+    try {
+      response = await _ble.sendCommand<WifiDirectGroup>(
+        deviceId,
+        StartWifiDirectCommand(),
+      );
+    } catch (e) {
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      _emitState(deviceId, WifiDirectState.failed);
+      throw WifiDirectException('BLE credential fetch failed: $e');
+    }
+
+    if (!response.isOk || response.payload == null) {
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      _emitState(deviceId, WifiDirectState.failed);
+      throw WifiDirectException(
+        'BLE credential fetch failed: ${response.errorMessage}',
+      );
+    }
+
+    final group = response.payload!;
+
+    if (group.ssid.isEmpty || group.psk.isEmpty) {
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      _emitState(deviceId, WifiDirectState.failed);
+      throw const WifiDirectException('BLE credential fetch returned empty ssid/psk');
+    }
+
+    // Platform channel — join the P2P group on Android.
+    try {
+      await _channel.connect(ssid: group.ssid, psk: group.psk);
+    } on Exception catch (e) {
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      _emitState(deviceId, WifiDirectState.failed);
+      throw WifiDirectException('P2P connect failed: $e');
+    }
+
+    _currentGroups[deviceId] = group;
+    return group;
   }
 
   @override
   Future<void> disconnectGroup(String deviceId) async {
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    // Nothing to tear down if we never connected and nothing is in flight.
+    if (_currentGroups[deviceId] == null &&
+        _inflightConnects[deviceId] == null) {
+      return;
+    }
+
+    await _stateSubscriptions.remove(deviceId)?.cancel();
+    _emitState(deviceId, WifiDirectState.stopping);
+
+    if (!Platform.isIOS) {
+      // Tell firmware to release its P2P group before tearing down the Android side.
+      try {
+        await _ble.sendCommand<void>(deviceId, StopWifiDirectCommand());
+      } catch (_) {
+        // Best-effort — firmware may already be idle.
+      }
+      try {
+        await _channel.disconnect();
+      } catch (_) {
+        // Best-effort — ignore native-side errors on disconnect.
+      }
+    }
+
+    _currentGroups.remove(deviceId);
+    _emitState(deviceId, WifiDirectState.idle);
   }
 
   @override
-  WifiDirectGroup? currentGroup(String deviceId) => null;
+  WifiDirectGroup? currentGroup(String deviceId) => _currentGroups[deviceId];
 
   @override
   Stream<WifiDirectState> connectionStateStream(String deviceId) =>
-      const Stream.empty();
+      _stateController(deviceId).stream;
 
   @override
   PreviewStreamDescriptor? previewDescriptor(String deviceId) => null;
@@ -69,7 +204,8 @@ class WifiServiceImpl implements WifiService {
   }) async {
     return _runDownload(
       uuid: token.recordingId,
-      savePath: saveAs ?? await _videoPathService.recordingPath(token.recordingId),
+      savePath:
+          saveAs ?? await _videoPathService.recordingPath(token.recordingId),
     );
   }
 
@@ -101,17 +237,16 @@ class WifiServiceImpl implements WifiService {
   }
 
   @override
-  Stream<OverlayState> overlayStateStream(String deviceId) =>
-      Stream.periodic(
-        const Duration(seconds: 1),
-        (i) => const OverlayState(
-          timeSeconds: 0,
-          homeScore: 0,
-          awayScore: 0,
-          period: 1,
-          recentEventLabel: null,
-        ),
-      );
+  Stream<OverlayState> overlayStateStream(String deviceId) => Stream.periodic(
+    const Duration(seconds: 1),
+    (i) => const OverlayState(
+      timeSeconds: 0,
+      homeScore: 0,
+      awayScore: 0,
+      period: 1,
+      recentEventLabel: null,
+    ),
+  );
 
   // ---------------------------------------------------------------------------
   // Shared tick-loop download helper
@@ -251,6 +386,19 @@ class WifiServiceImpl implements WifiService {
 
   @override
   Future<void> dispose() async {
+    // Cancel all EventChannel subscriptions.
+    for (final sub in _stateSubscriptions.values) {
+      await sub.cancel();
+    }
+    _stateSubscriptions.clear();
+
+    // Close per-device state controllers.
+    for (final ctrl in _stateControllers.values) {
+      if (!ctrl.isClosed) await ctrl.close();
+    }
+    _stateControllers.clear();
+    _currentGroups.clear();
+
     for (final d in _downloads.values) {
       d.timer?.cancel();
       if (!d.controller.isClosed) await d.controller.close();

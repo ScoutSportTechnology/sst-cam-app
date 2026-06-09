@@ -2,20 +2,27 @@
 // phases. Recording / streaming controls are independent of the period timer
 // so the user can record before kickoff or after the final whistle.
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/ble/ble_providers.dart';
+import '../../../core/models/command.dart';
 import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
+import '../../../core/models/overlay_layout.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
-import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
+import '../../../core/models/wifi.dart' show WifiDirectState;
+import '../../../core/wifi/wifi_providers.dart'
+    show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
+import 'overlay_renderer.dart';
 import 'session_state.dart';
 
 class SessionScreen extends ConsumerWidget {
@@ -29,7 +36,8 @@ class SessionScreen extends ConsumerWidget {
     final ctl = ref.read(liveMatchProvider.notifier);
 
     final activeId = ref.watch(activeCameraIdProvider);
-    final connected = activeId != null &&
+    final connected =
+        activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
 
@@ -46,9 +54,7 @@ class SessionScreen extends ConsumerWidget {
             ? 'LIVE'
             : 'READY',
     };
-    final indicatorColor = state.rec == RecState.recording
-        ? T.accent
-        : (isEnded ? T.ink2 : T.ink2);
+    final indicatorColor = state.rec == RecState.recording ? T.accent : T.ink2;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(activeId));
 
@@ -61,18 +67,11 @@ class SessionScreen extends ConsumerWidget {
               indicator: indicator,
               indicatorColor: indicatorColor,
               clock: state.clockText,
-              onBack:
-                  (isEnded || state.phase == MatchPhase.idle) ? onLeave : null,
+              onBack: (isEnded || state.phase == MatchPhase.idle)
+                  ? onLeave
+                  : null,
             ),
-            _LiveThumb(
-              homeLabel: state.homeName,
-              awayLabel: state.awayName,
-              homeScore: state.scoreHome,
-              awayScore: state.scoreAway,
-              phaseLabel: state.phaseLabel,
-              clock: state.clockText,
-              isLive: isPeriodActive,
-            ),
+            _LiveThumb(matchState: state, isLive: isPeriodActive),
             // Preview toggle — sits below the feed surface, not overlaid on it.
             // Only shown when a camera is connected.
             if (activeId != null)
@@ -92,8 +91,9 @@ class SessionScreen extends ConsumerWidget {
                         ),
                   onPressed: () {
                     ref
-                        .read(livePreviewEnabledProvider(activeId).notifier)
-                        .state = !previewOn;
+                            .read(livePreviewEnabledProvider(activeId).notifier)
+                            .state =
+                        !previewOn;
                   },
                 ),
               ),
@@ -102,10 +102,28 @@ class SessionScreen extends ConsumerWidget {
               onMarkEvent: isPeriodActive
                   ? () => _showEventSheet(context, ref)
                   : null,
-              onKickoff: () => _kickoff(context, ctl, state),
-              onEndPeriod: ctl.endPeriod,
-              onStartNextPeriod: () => ctl.startPeriod(),
-              onEndMatch: () => _confirmEnd(context, ctl, state),
+              onKickoff: () => _kickoff(context, ref, ctl, state),
+              onEndPeriod: () {
+                _sendIfConnected(
+                  ref,
+                  MatchControlCommand(
+                    action: BleMatchControlAction.periodEnd,
+                    period: state.currentPeriod,
+                  ),
+                );
+                ctl.endPeriod();
+              },
+              onStartNextPeriod: () {
+                _sendIfConnected(
+                  ref,
+                  MatchControlCommand(
+                    action: BleMatchControlAction.periodStart,
+                    period: state.currentPeriod + 1,
+                  ),
+                );
+                ctl.startPeriod();
+              },
+              onEndMatch: () => _confirmEnd(context, ref, ctl, state),
             ),
             if (isEnded) const _EndedBanner(),
             const Divider(height: 1, color: T.rule),
@@ -113,16 +131,76 @@ class SessionScreen extends ConsumerWidget {
               'Event log',
               padding: EdgeInsets.fromLTRB(14, 10, 14, 4),
             ),
-            Expanded(
-              child: _buildEventLog(state),
-            ),
+            Expanded(child: _buildEventLog(state)),
             _BottomControls(
               state: state,
-              onTimerTap: ctl.toggleTimer,
-              onRecToggle: connected ? ctl.toggleRecPause : null,
-              onRecStop: connected ? ctl.stopRecording : null,
-              onStreamToggle:
-                  connected ? () => ctl.setStreaming(!state.streaming) : null,
+              onTimerTap: () {
+                final isRunning = state.timer == MatchTimer.running;
+                _sendIfConnected(
+                  ref,
+                  MatchControlCommand(
+                    action: isRunning
+                        ? BleMatchControlAction.clockPause
+                        : BleMatchControlAction.clockResume,
+                    period: state.currentPeriod,
+                  ),
+                );
+                ctl.toggleTimer();
+              },
+              onRecToggle: connected
+                  ? () {
+                      final currentRec = state.rec;
+                      ctl.toggleRecPause();
+                      if (currentRec == RecState.idle) {
+                        _sendIfConnected(
+                          ref,
+                          RecordingControlCommand(
+                            action: RecordingControlAction.start,
+                          ),
+                        );
+                      } else if (currentRec == RecState.recording) {
+                        _sendIfConnected(
+                          ref,
+                          RecordingControlCommand(
+                            action: RecordingControlAction.pause,
+                          ),
+                        );
+                      } else if (currentRec == RecState.paused) {
+                        _sendIfConnected(
+                          ref,
+                          RecordingControlCommand(
+                            action: RecordingControlAction.resume,
+                          ),
+                        );
+                      }
+                    }
+                  : null,
+              onRecStop: connected
+                  ? () {
+                      _sendIfConnected(
+                        ref,
+                        RecordingControlCommand(
+                          action: RecordingControlAction.stop,
+                        ),
+                      );
+                      ctl.stopRecording();
+                    }
+                  : null,
+              onStreamToggle: connected
+                  ? () {
+                      final newStreaming = !state.streaming;
+                      _sendIfConnected(
+                        ref,
+                        StreamingControlCommand(
+                          action: newStreaming
+                              ? StreamingControlAction.start
+                              : StreamingControlAction.stop,
+                          rtmpUrl: null,
+                        ),
+                      );
+                      ctl.setStreaming(newStreaming);
+                    }
+                  : null,
             ),
           ],
         ),
@@ -143,12 +221,20 @@ class SessionScreen extends ConsumerWidget {
 
   Future<void> _kickoff(
     BuildContext context,
+    WidgetRef ref,
     LiveMatchController ctl,
     LiveMatchState state,
   ) async {
     // Kickoff prompt — only on the very first period. Subsequent periods
     // continue with whatever recording / streaming state is active.
     if (state.currentPeriod != 0) {
+      _sendIfConnected(
+        ref,
+        MatchControlCommand(
+          action: BleMatchControlAction.kickoff,
+          period: state.currentPeriod + 1,
+        ),
+      );
       ctl.startPeriod();
       return;
     }
@@ -156,6 +242,13 @@ class SessionScreen extends ConsumerWidget {
     final streamAlreadyOn = state.streaming;
     if (recAlreadyOn && streamAlreadyOn) {
       // Both are already running — nothing to ask, just start the period.
+      _sendIfConnected(
+        ref,
+        MatchControlCommand(
+          action: BleMatchControlAction.kickoff,
+          period: state.currentPeriod + 1,
+        ),
+      );
       ctl.startPeriod();
       return;
     }
@@ -165,11 +258,19 @@ class SessionScreen extends ConsumerWidget {
       askStream: !streamAlreadyOn,
     );
     if (choice == null) return;
+    _sendIfConnected(
+      ref,
+      MatchControlCommand(
+        action: BleMatchControlAction.kickoff,
+        period: state.currentPeriod + 1,
+      ),
+    );
     ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);
   }
 
   Future<void> _confirmEnd(
     BuildContext context,
+    WidgetRef ref,
     LiveMatchController ctl,
     LiveMatchState state,
   ) async {
@@ -177,6 +278,13 @@ class SessionScreen extends ConsumerWidget {
     final streamOn = state.streaming;
     if (!recOn && !streamOn) {
       // Nothing is running — no toggles to ask about, just end.
+      _sendIfConnected(
+        ref,
+        MatchControlCommand(
+          action: BleMatchControlAction.finalWhistle,
+          period: state.currentPeriod,
+        ),
+      );
       ctl.endMatch(stopRecording: false, stopStreaming: false);
       return;
     }
@@ -186,6 +294,13 @@ class SessionScreen extends ConsumerWidget {
       askStopStream: streamOn,
     );
     if (choice == null) return;
+    _sendIfConnected(
+      ref,
+      MatchControlCommand(
+        action: BleMatchControlAction.finalWhistle,
+        period: state.currentPeriod,
+      ),
+    );
     ctl.endMatch(
       stopRecording: choice.$1 ?? false,
       stopStreaming: choice.$2 ?? false,
@@ -204,6 +319,31 @@ class SessionScreen extends ConsumerWidget {
           ref
               .read(liveMatchProvider.notifier)
               .addEvent(type: type, teamLabel: team, jersey: jersey);
+          if (type == 'Goal') {
+            _sendIfConnected(ref, ScoreUpdateCommand(teamId: team, delta: 1));
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(templateId: 'goal', durationSeconds: 5),
+            );
+          } else if (type == 'Yellow Card') {
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(templateId: 'yellow_card', durationSeconds: 4),
+            );
+          } else if (type == 'Red Card') {
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(templateId: 'red_card', durationSeconds: 4),
+            );
+          } else if (type == 'Sub') {
+            _sendIfConnected(
+              ref,
+              BannerEventCommand(
+                templateId: 'substitution',
+                durationSeconds: 4,
+              ),
+            );
+          }
         },
       ),
     );
@@ -472,9 +612,7 @@ class _PrimaryActionRow extends StatelessWidget {
         );
       case MatchPhase.period:
         phaseButton = WfButton(
-          label: state.isLastPeriod
-              ? 'End period ${state.currentPeriod}'
-              : 'End period ${state.currentPeriod}',
+          label: 'End period ${state.currentPeriod}',
           variant: WfButtonVariant.danger,
           size: WfButtonSize.lg,
           full: true,
@@ -744,69 +882,134 @@ class _TopBar extends StatelessWidget {
 // LIVE THUMB
 // ---------------------------------------------------------------------------
 
+const _emptyOverlayLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [],
+  templates: [],
+);
+
 class _LiveThumb extends ConsumerWidget {
-  const _LiveThumb({
-    required this.homeLabel,
-    required this.awayLabel,
-    required this.homeScore,
-    required this.awayScore,
-    required this.phaseLabel,
-    required this.clock,
-    required this.isLive,
-  });
-  final String homeLabel;
-  final String awayLabel;
-  final int homeScore;
-  final int awayScore;
-  final String phaseLabel;
-  final String clock;
+  const _LiveThumb({required this.matchState, required this.isLive});
+  final LiveMatchState matchState;
   final bool isLive;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
+
+    // When WiFi Direct fails (e.g. iOS does not support local preview),
+    // show a static placeholder instead of the live preview surface.
+    final wifiState = activeId == null
+        ? null
+        : ref.watch(wifiConnectionStateProvider(activeId)).valueOrNull;
+    final wifiFailed = wifiState == WifiDirectState.failed;
+
     return Stack(
       children: [
-        // No buttons inside the surface — Preview/Stop is in the parent layout.
-        LivePreviewView(
-          deviceId: activeId,
-          label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
-          showButtons: false,
-        ),
-        Positioned(
-          left: 8,
-          right: 8,
-          bottom: 8,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: T.bg.withValues(alpha: 0.85),
-              border: Border.all(color: T.hair),
+        if (wifiFailed)
+          _PreviewUnavailablePlaceholder(matchState: matchState, isLive: isLive)
+        else ...[
+          // No buttons inside the surface — Preview/Stop is in the parent layout.
+          LivePreviewView(
+            deviceId: activeId,
+            label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
+            showButtons: false,
+          ),
+          Positioned.fill(
+            child: OverlayLayoutRenderer(
+              layout: matchState.overlayLayout ?? _emptyOverlayLayout,
+              matchState: matchState,
             ),
-            child: Row(
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PREVIEW UNAVAILABLE PLACEHOLDER
+// ---------------------------------------------------------------------------
+
+/// Shown in [_LiveThumb] when the WiFi Direct connection has failed
+/// (e.g. iOS does not support WiFi Direct local preview). Displays a
+/// static scoreboard so the session UI stays fully functional.
+class _PreviewUnavailablePlaceholder extends StatelessWidget {
+  const _PreviewUnavailablePlaceholder({
+    required this.matchState,
+    required this.isLive,
+  });
+
+  final LiveMatchState matchState;
+  final bool isLive;
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: T.panel),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: _ScoreBlock(label: homeLabel, score: homeScore),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text(
-                    '$phaseLabel · $clock',
-                    style: const TextStyle(
-                      fontFamily: T.mono,
-                      fontSize: 10,
-                      color: T.ink2,
-                    ),
+                const Icon(Icons.videocam_off, size: 28, color: T.ink3),
+                const SizedBox(height: 8),
+                const Text(
+                  'Preview not available',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: T.ink2,
+                    fontWeight: FontWeight.w500,
                   ),
-                ),
-                Expanded(
-                  child: _ScoreBlock(label: awayLabel, score: awayScore),
                 ),
               ],
             ),
           ),
-        ),
-      ],
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: T.bg.withValues(alpha: 0.85),
+                border: Border.all(color: T.hair),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _ScoreBlock(
+                      label: matchState.homeName,
+                      score: matchState.scoreHome,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      '${matchState.phaseLabel} · ${matchState.clockText}',
+                      style: const TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 10,
+                        color: T.ink2,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _ScoreBlock(
+                      label: matchState.awayName,
+                      score: matchState.scoreAway,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1068,4 +1271,16 @@ class _ToggleRow extends StatelessWidget {
 
 extension on Border {
   BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
+}
+
+// ---------------------------------------------------------------------------
+// BLE HELPER — fire-and-forget command when a camera is connected
+// ---------------------------------------------------------------------------
+
+void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
+  final id = ref.read(activeCameraIdProvider);
+  if (id == null) return;
+  final connState = ref.read(connectionStateProvider(id)).valueOrNull;
+  if (connState != CameraConnectionState.connected) return;
+  unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
 }

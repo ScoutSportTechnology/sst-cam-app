@@ -7,19 +7,22 @@ import 'package:sst_cam_app/models/proto/bluetooth.pb.dart' as proto;
 
 void main() {
   group('BleProtocol.encodeCommand', () {
-    test('GetTelemetryCommand produces non-empty bytes decodable as Command', () {
-      const corrId = 'test-corr-id-001';
-      final bytes = BleProtocol.encodeCommand(GetTelemetryCommand(), corrId);
-      expect(bytes, isNotEmpty);
+    test(
+      'GetTelemetryCommand produces non-empty bytes decodable as Command',
+      () {
+        const corrId = 'test-corr-id-001';
+        final bytes = BleProtocol.encodeCommand(GetTelemetryCommand(), corrId);
+        expect(bytes, isNotEmpty);
 
-      final chunk = proto.ChunkedPayload.fromBuffer(bytes);
-      expect(chunk.correlationId, corrId);
-      expect(chunk.chunkIndex, 0);
-      expect(chunk.totalChunks, 1);
+        final chunk = proto.ChunkedPayload.fromBuffer(bytes);
+        expect(chunk.correlationId, corrId);
+        expect(chunk.chunkIndex, 0);
+        expect(chunk.totalChunks, 1);
 
-      final cmd = proto.Command.fromBuffer(chunk.data);
-      expect(cmd.hasGetTelemetry(), isTrue);
-    });
+        final cmd = proto.Command.fromBuffer(chunk.data);
+        expect(cmd.hasGetTelemetry(), isTrue);
+      },
+    );
 
     test('GetMatchStateCommand sets getMatchState oneof field', () {
       final bytes = BleProtocol.encodeCommand(GetMatchStateCommand(), 'cid');
@@ -37,43 +40,46 @@ void main() {
   });
 
   group('BleProtocol.decodeResponse', () {
-    test('valid telemetry response decodes to BleCommandResponse<DeviceTelemetry>', () {
-      const corrId = 'test-corr-id';
-      final protoResp = proto.CommandResponse(
-        correlationId: corrId,
-        status: proto.ResponseStatus.OK,
-        telemetry: proto.DeviceTelemetry(
-          storageFreeBytes: Int64(100 * 1024 * 1024),
-          storageTotalBytes: Int64(256 * 1024 * 1024),
-          wifiState: proto.WifiState.WIFI_CONNECTED,
-          tempCelsius: 48.5,
-          ramUsedPct: 0.5,
-          cpuUsedPct: 0.3,
-          uptimeSeconds: Int64(3600),
-          internetReachable: true,
-          isRecording: false,
-          isStreaming: false,
-        ),
-      );
-      final chunk = proto.ChunkedPayload(
-        correlationId: corrId,
-        chunkIndex: 0,
-        totalChunks: 1,
-        data: protoResp.writeToBuffer(),
-      );
-      final bytes = chunk.writeToBuffer();
+    test(
+      'valid telemetry response decodes to BleCommandResponse<DeviceTelemetry>',
+      () {
+        const corrId = 'test-corr-id';
+        final protoResp = proto.CommandResponse(
+          correlationId: corrId,
+          status: proto.ResponseStatus.OK,
+          telemetry: proto.DeviceTelemetry(
+            storageFreeBytes: Int64(100 * 1024 * 1024),
+            storageTotalBytes: Int64(256 * 1024 * 1024),
+            wifiState: proto.WifiState.WIFI_CONNECTED,
+            tempCelsius: 48.5,
+            ramUsedPct: 0.5,
+            cpuUsedPct: 0.3,
+            uptimeSeconds: Int64(3600),
+            internetReachable: true,
+            isRecording: false,
+            isStreaming: false,
+          ),
+        );
+        final chunk = proto.ChunkedPayload(
+          correlationId: corrId,
+          chunkIndex: 0,
+          totalChunks: 1,
+          data: protoResp.writeToBuffer(),
+        );
+        final bytes = chunk.writeToBuffer();
 
-      final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
-        bytes,
-        GetTelemetryCommand(),
-        corrId,
-      );
-      expect(resp.isOk, isTrue);
-      final t = resp.payload!;
-      expect(t.storageTotalBytes, 256 * 1024 * 1024);
-      expect(t.tempCelsius, closeTo(48.5, 0.1));
-      expect(t.wifiState, WifiState.connected);
-    });
+        final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
+          bytes,
+          GetTelemetryCommand(),
+          corrId,
+        );
+        expect(resp.isOk, isTrue);
+        final t = resp.payload!;
+        expect(t.storageTotalBytes, 256 * 1024 * 1024);
+        expect(t.tempCelsius, closeTo(48.5, 0.1));
+        expect(t.wifiState, WifiState.connected);
+      },
+    );
 
     test('malformed bytes produce a BleCommandResponse with error status', () {
       final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
@@ -90,9 +96,7 @@ void main() {
       final protoResp = proto.CommandResponse(
         correlationId: 'original-id',
         status: proto.ResponseStatus.OK,
-        telemetry: proto.DeviceTelemetry(
-          storageTotalBytes: Int64(1024),
-        ),
+        telemetry: proto.DeviceTelemetry(storageTotalBytes: Int64(1024)),
       );
       final chunk = proto.ChunkedPayload(
         correlationId: 'original-id',

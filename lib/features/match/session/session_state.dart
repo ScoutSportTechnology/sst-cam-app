@@ -11,6 +11,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/overlay_layout.dart';
+
 enum MatchPhase { idle, period, periodBreak, ended }
 
 enum MatchTimer { running, paused }
@@ -23,10 +25,12 @@ class LiveEvent {
     required this.clock,
     required this.label,
     this.kind = 'event',
+    this.params = const {},
   });
   final String clock;
   final String label;
   final String kind; // event | phase
+  final Map<String, String> params;
 }
 
 @immutable
@@ -45,6 +49,9 @@ class LiveMatchState {
     required this.homeName,
     required this.awayName,
     required this.events,
+    this.homeColorHex,
+    this.awayColorHex,
+    this.overlayLayout,
   });
 
   final MatchPhase phase;
@@ -65,6 +72,9 @@ class LiveMatchState {
   final String homeName;
   final String awayName;
   final List<LiveEvent> events;
+  final String? homeColorHex;
+  final String? awayColorHex;
+  final OverlayLayout? overlayLayout;
 
   bool get isPeriodActive => phase == MatchPhase.period;
   bool get isLastPeriod => currentPeriod == numPeriods && numPeriods > 0;
@@ -89,6 +99,15 @@ class LiveMatchState {
     MatchPhase.ended => 'FT',
   };
 
+  String get periodLabelForOverlay => switch (phase) {
+    MatchPhase.idle => 'PRE',
+    MatchPhase.period => 'P$currentPeriod',
+    MatchPhase.periodBreak => isLastPeriod ? 'FT' : 'HT',
+    MatchPhase.ended => 'FT',
+  };
+
+  static const _sentinel = Object();
+
   LiveMatchState copyWith({
     MatchPhase? phase,
     MatchTimer? timer,
@@ -103,6 +122,9 @@ class LiveMatchState {
     String? homeName,
     String? awayName,
     List<LiveEvent>? events,
+    String? homeColorHex,
+    String? awayColorHex,
+    Object? overlayLayout = _sentinel,
   }) {
     return LiveMatchState(
       phase: phase ?? this.phase,
@@ -118,6 +140,11 @@ class LiveMatchState {
       homeName: homeName ?? this.homeName,
       awayName: awayName ?? this.awayName,
       events: events ?? this.events,
+      homeColorHex: homeColorHex ?? this.homeColorHex,
+      awayColorHex: awayColorHex ?? this.awayColorHex,
+      overlayLayout: identical(overlayLayout, _sentinel)
+          ? this.overlayLayout
+          : overlayLayout as OverlayLayout?,
     );
   }
 
@@ -315,6 +342,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     required String opponent,
     required int numPeriods,
     required int periodLengthSeconds,
+    String? homeColorHex,
   }) {
     final home = teamShortName.isNotEmpty ? teamShortName : teamName;
     final away = opponent.startsWith('vs ') ? opponent.substring(3) : opponent;
@@ -325,7 +353,16 @@ class LiveMatchController extends Notifier<LiveMatchState> {
       awayName: away,
       numPeriods: periods,
       periodLengthSeconds: periodLen,
+      homeColorHex: homeColorHex,
     );
+  }
+
+  void setOverlayLayout(OverlayLayout layout) {
+    state = state.copyWith(overlayLayout: layout);
+  }
+
+  void setTeamColors(String? home, String? away) {
+    state = state.copyWith(homeColorHex: home, awayColorHex: away);
   }
 
   void reset() {

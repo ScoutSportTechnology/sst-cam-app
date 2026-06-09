@@ -43,8 +43,10 @@ class _DebugPageState extends ConsumerState<DebugPage>
       // connection open — this keeps the Riverpod provider valid and avoids
       // WAL/SHM file inconsistencies from manual file deletion.
       await db.transaction(() async {
-        await db.delete(db.clipsTable).go();       // cascade-deletes thumbnails
-        await db.delete(db.teamMatchesTable).go();  // cascade-deletes (already empty) clips
+        await db.delete(db.clipsTable).go(); // cascade-deletes thumbnails
+        await db
+            .delete(db.teamMatchesTable)
+            .go(); // cascade-deletes (already empty) clips
         await db.delete(db.playersTable).go();
         await db.delete(db.teamsTable).go();
         await db.delete(db.streamingDestinationsTable).go();
@@ -61,14 +63,14 @@ class _DebugPageState extends ConsumerState<DebugPage>
       ref.read(activeUserProvider.notifier).state = 'default-user';
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Database reset.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Database reset.')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Reset failed: $e')));
     } finally {
       if (mounted) setState(() => _resetting = false);
     }
@@ -123,10 +125,10 @@ class _UsersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _StreamTab(
-        stream: db.usersDao.watchAll(),
-        empty: 'No users',
-        rowBuilder: (u) => _Row(primary: u.id, secondary: u.name),
-      );
+    stream: db.usersDao.watchAll(),
+    empty: 'No users',
+    rowBuilder: (u) => _Row(primary: u.id, secondary: u.name),
+  );
 }
 
 class _TeamsTab extends ConsumerWidget {
@@ -139,10 +141,8 @@ class _TeamsTab extends ConsumerWidget {
     return _StreamTab(
       stream: db.teamsDao.watchForUser(userId),
       empty: 'No teams',
-      rowBuilder: (t) => _Row(
-        primary: t.name,
-        secondary: '${t.sport} · ${t.id}',
-      ),
+      rowBuilder: (t) =>
+          _Row(primary: t.name, secondary: '${t.sport} · ${t.id}'),
     );
   }
 }
@@ -153,13 +153,13 @@ class _MatchesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _StreamTab(
-        stream: db.select(db.teamMatchesTable).watch(),
-        empty: 'No matches',
-        rowBuilder: (m) => _Row(
-          primary: '${m.opponent} (${m.kind})',
-          secondary: '${m.date} · ${m.result}',
-        ),
-      );
+    stream: db.select(db.teamMatchesTable).watch(),
+    empty: 'No matches',
+    rowBuilder: (m) => _Row(
+      primary: '${m.opponent} (${m.kind})',
+      secondary: '${m.date} · ${m.result}',
+    ),
+  );
 }
 
 class _ClipsTab extends StatelessWidget {
@@ -168,13 +168,13 @@ class _ClipsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _StreamTab(
-        stream: db.select(db.clipsTable).watch(),
-        empty: 'No clips',
-        rowBuilder: (c) => _Row(
-          primary: c.label ?? c.id,
-          secondary: 'start=${c.startSeconds}s dur=${c.durationSeconds}s',
-        ),
-      );
+    stream: db.select(db.clipsTable).watch(),
+    empty: 'No clips',
+    rowBuilder: (c) => _Row(
+      primary: c.label ?? c.id,
+      secondary: 'start=${c.startSeconds}s dur=${c.durationSeconds}s',
+    ),
+  );
 }
 
 class _StreamTab<R> extends StatelessWidget {
@@ -215,7 +215,10 @@ class _Row extends StatelessWidget {
     return ListTile(
       dense: true,
       title: Text(primary, style: const TextStyle(color: T.ink, fontSize: 13)),
-      subtitle: Text(secondary, style: const TextStyle(color: T.ink2, fontSize: 11)),
+      subtitle: Text(
+        secondary,
+        style: const TextStyle(color: T.ink2, fontSize: 11),
+      ),
     );
   }
 }
@@ -253,7 +256,10 @@ class _ResetBar extends StatelessWidget {
                 ? const SizedBox(
                     height: 16,
                     width: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Text('Reset Database'),
           ),

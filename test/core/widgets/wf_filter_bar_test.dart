@@ -12,8 +12,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/widgets/wf_filter_bar.dart';
 
-Widget _wrap(Widget child) =>
-    MaterialApp(home: Scaffold(body: Center(child: child)));
+Widget _wrap(Widget child) => MaterialApp(
+  home: Scaffold(body: Center(child: child)),
+);
 
 void main() {
   group('WfFilterBar', () {
@@ -43,8 +44,9 @@ void main() {
       expect(find.text('All teams'), findsOneWidget);
     });
 
-    testWidgets('inactive button shows label; active shows selected value',
-        (tester) async {
+    testWidgets('inactive button shows label; active shows selected value', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           WfFilterBar(
@@ -65,8 +67,9 @@ void main() {
       expect(find.text('All sports'), findsNothing);
     });
 
-    testWidgets('tapping button opens sheet with options + "All"',
-        (tester) async {
+    testWidgets('tapping button opens sheet with options + "All"', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(800, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -94,8 +97,9 @@ void main() {
       expect(find.text('Basketball'), findsOneWidget);
     });
 
-    testWidgets('selecting an option calls onSelect with that value',
-        (tester) async {
+    testWidgets('selecting an option calls onSelect with that value', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(800, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 

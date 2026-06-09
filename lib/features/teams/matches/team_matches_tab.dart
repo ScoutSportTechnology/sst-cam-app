@@ -5,7 +5,8 @@ import '../teams_state.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/widgets/wf_chip.dart';
-import '../../../features/camera/camera_state.dart' show activeTabProvider, AppTab;
+import '../../../features/camera/camera_state.dart'
+    show activeTabProvider, AppTab;
 
 class TeamMatchesTab extends ConsumerWidget {
   const TeamMatchesTab({
@@ -94,7 +95,11 @@ class _MatchRow extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: isUpcoming
-                      ? const Icon(Icons.event_outlined, color: T.accent, size: 18)
+                      ? const Icon(
+                          Icons.event_outlined,
+                          color: T.accent,
+                          size: 18,
+                        )
                       : Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [

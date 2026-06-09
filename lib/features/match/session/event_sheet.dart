@@ -20,7 +20,15 @@ class EventSheet extends ConsumerStatefulWidget {
 }
 
 class _EventSheetState extends ConsumerState<EventSheet> {
-  static const _types = ['Goal', 'Foul', 'Card', 'Sub', 'Save', 'Other'];
+  static const _types = [
+    'Goal',
+    'Foul',
+    'Yellow Card',
+    'Red Card',
+    'Sub',
+    'Save',
+    'Other',
+  ];
 
   int _step = 0;
   String _type = '';
@@ -33,8 +41,9 @@ class _EventSheetState extends ConsumerState<EventSheet> {
   Widget build(BuildContext context) {
     final live = ref.watch(liveMatchProvider);
     final allTeams = ref.watch(teamsControllerProvider).valueOrNull ?? const [];
-    final homeTeam =
-        allTeams.where((t) => t.id == widget.homeTeamId).firstOrNull;
+    final homeTeam = allTeams
+        .where((t) => t.id == widget.homeTeamId)
+        .firstOrNull;
     final homeRoster = homeTeam?.roster ?? const <Player>[];
 
     return Padding(
@@ -88,18 +97,18 @@ class _EventSheetState extends ConsumerState<EventSheet> {
                               ? null
                               : () => setState(() => _step = 1))
                         : (_team == null ||
-                              (_jerseyDropdownValue == 'other' &&
-                                  _jersey.isEmpty)
-                          ? null
-                          : () {
-                              final jersey =
-                                  (_jerseyDropdownValue != null &&
+                                  (_jerseyDropdownValue == 'other' &&
+                                      _jersey.isEmpty)
+                              ? null
+                              : () {
+                                  final jersey =
+                                      (_jerseyDropdownValue != null &&
                                           _jerseyDropdownValue != 'other')
                                       ? _jerseyDropdownValue!
                                       : _jersey.toString();
-                              widget.onSave(_type, _team!, jersey);
-                              Navigator.of(context).pop();
-                            }),
+                                  widget.onSave(_type, _team!, jersey);
+                                  Navigator.of(context).pop();
+                                }),
                   ),
                 ),
               ],
@@ -137,10 +146,7 @@ class _EventSheetState extends ConsumerState<EventSheet> {
               onTap: () => setState(() => _type = t),
               child: Container(
                 decoration: BoxDecoration(
-                  border: Border.all(
-                    color: on ? T.accent : T.hair,
-                    width: 1.4,
-                  ),
+                  border: Border.all(color: on ? T.accent : T.hair, width: 1.4),
                   color: on ? T.accentSoft : T.surface,
                 ),
                 alignment: Alignment.center,
@@ -481,4 +487,3 @@ class _NumberPad extends StatelessWidget {
     );
   }
 }
-

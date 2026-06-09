@@ -3,6 +3,7 @@ import 'package:sst_cam_app/core/ble/ble_service.dart';
 import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
+import 'package:sst_cam_app/core/models/overlay_layout.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/models/match.dart';
@@ -338,6 +339,196 @@ void main() {
         () => failSvc.connect('SST-CAM-001'),
         throwsA(isA<BleConnectionException>()),
       );
+    });
+  });
+
+  // Minimal overlay layout for testing
+  const testLayout = OverlayLayout(
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+    elements: [],
+    templates: [],
+  );
+
+  group('RecordingControlCommand (U4)', () {
+    test('start action returns ok and sets side effects', () async {
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        RecordingControlCommand(action: RecordingControlAction.start),
+      );
+      expect(resp.isOk, isTrue);
+      expect(svc.lastRecordingAction, RecordingControlAction.start);
+      expect(svc.isRecordingActive, isTrue);
+    });
+
+    test('stop action clears isRecordingActive', () async {
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        RecordingControlCommand(action: RecordingControlAction.start),
+      );
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        RecordingControlCommand(action: RecordingControlAction.stop),
+      );
+      expect(svc.isRecordingActive, isFalse);
+      expect(svc.lastRecordingAction, RecordingControlAction.stop);
+    });
+
+    test('resume sets isRecordingActive', () async {
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        RecordingControlCommand(action: RecordingControlAction.resume),
+      );
+      expect(resp.isOk, isTrue);
+      expect(svc.isRecordingActive, isTrue);
+    });
+
+    test('pause clears isRecordingActive', () async {
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        RecordingControlCommand(action: RecordingControlAction.resume),
+      );
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        RecordingControlCommand(action: RecordingControlAction.pause),
+      );
+      expect(svc.isRecordingActive, isFalse);
+    });
+  });
+
+  group('StreamingControlCommand (U4)', () {
+    test('start returns ok and sets isStreamingActive', () async {
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        StreamingControlCommand(
+          action: StreamingControlAction.start,
+          rtmpUrl: 'rtmp://example.com/live/key',
+        ),
+      );
+      expect(resp.isOk, isTrue);
+      expect(svc.isStreamingActive, isTrue);
+    });
+
+    test('stop clears isStreamingActive', () async {
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        StreamingControlCommand(action: StreamingControlAction.start),
+      );
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        StreamingControlCommand(action: StreamingControlAction.stop),
+      );
+      expect(svc.isStreamingActive, isFalse);
+    });
+  });
+
+  group('MatchControlCommand (U4)', () {
+    test('kickoff returns ok and records action', () async {
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        MatchControlCommand(action: BleMatchControlAction.kickoff, period: 1),
+      );
+      expect(resp.isOk, isTrue);
+      expect(svc.lastMatchControlAction, BleMatchControlAction.kickoff);
+    });
+
+    test('periodEnd records correct action', () async {
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        MatchControlCommand(action: BleMatchControlAction.periodEnd, period: 1),
+      );
+      expect(svc.lastMatchControlAction, BleMatchControlAction.periodEnd);
+    });
+  });
+
+  group('ScoreUpdateCommand (U4)', () {
+    test('returns ok response', () async {
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        ScoreUpdateCommand(teamId: 'team-a', delta: 1),
+      );
+      expect(resp.isOk, isTrue);
+    });
+  });
+
+  group('BannerEventCommand (U4)', () {
+    test('returns ok and records last banner event', () async {
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        BannerEventCommand(templateId: 'goal', durationSeconds: 5),
+      );
+      expect(resp.isOk, isTrue);
+      expect(svc.lastBannerEvent, isNotNull);
+      expect(svc.lastBannerEvent!.templateId, 'goal');
+      expect(svc.lastBannerEvent!.durationSeconds, 5);
+    });
+
+    test('records params and playerId', () async {
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        BannerEventCommand(
+          templateId: 'yellow_card',
+          params: {'player': 'John Doe'},
+          durationSeconds: 4,
+          playerId: 'player-123',
+        ),
+      );
+      expect(svc.lastBannerEvent!.params['player'], 'John Doe');
+      expect(svc.lastBannerEvent!.playerId, 'player-123');
+    });
+  });
+
+  group('PushOverlayLayoutCommand (U4)', () {
+    test('sendCommand returns ok', () async {
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        PushOverlayLayoutCommand(layout: testLayout),
+      );
+      expect(resp.isOk, isTrue);
+    });
+
+    test('records last pushed layout via sendCommand', () async {
+      await svc.sendCommand<void>(
+        'SST-CAM-001',
+        PushOverlayLayoutCommand(layout: testLayout),
+      );
+      expect(svc.lastPushedOverlayLayout, isNotNull);
+      expect(svc.lastPushedOverlayLayout!.canvasWidth, 1920);
+    });
+  });
+
+  group('pushOverlayLayout (U5)', () {
+    test('completes without throw and records layout', () async {
+      await expectLater(
+        svc.pushOverlayLayout('SST-CAM-001', testLayout),
+        completes,
+      );
+      expect(svc.lastPushedOverlayLayout, same(testLayout));
+    });
+
+    test('failNextPushOverlayLayout throws BleTimeoutException', () async {
+      svc.failNextPushOverlayLayout = true;
+      await expectLater(
+        svc.pushOverlayLayout('SST-CAM-001', testLayout),
+        throwsA(isA<BleTimeoutException>()),
+      );
+      expect(svc.failNextPushOverlayLayout, isFalse); // auto-reset
+    });
+
+    test('proto round-trip via sendCommand with real layout', () async {
+      final layout = defaultScoreboardLayout(
+        homeName: 'Reds',
+        awayName: 'Blues',
+        homeColorHex: '#FF0000',
+        awayColorHex: '#0000FF',
+      );
+      final resp = await svc.sendCommand<void>(
+        'SST-CAM-001',
+        PushOverlayLayoutCommand(layout: layout),
+      );
+      expect(resp.isOk, isTrue);
+      expect(svc.lastPushedOverlayLayout!.elements, isNotEmpty);
+      expect(svc.lastPushedOverlayLayout!.templates, isNotEmpty);
     });
   });
 }

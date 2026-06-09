@@ -19,10 +19,10 @@ class TeamMatchesTable extends Table {
   IntColumn get periodLengthSeconds => integer()();
   IntColumn get clips => integer().withDefault(const Constant(0))();
   IntColumn get sizeMb => integer().withDefault(const Constant(0))();
+
   /// JSON-encoded list of match events: [{timeSeconds, label, team, kind}].
   /// Empty array '[]' when no events recorded.
-  TextColumn get eventsJson =>
-      text().withDefault(const Constant('[]'))();
+  TextColumn get eventsJson => text().withDefault(const Constant('[]'))();
 
   @override
   Set<Column> get primaryKey => {id};

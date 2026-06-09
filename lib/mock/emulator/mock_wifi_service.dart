@@ -65,6 +65,8 @@ class MockWifiService implements WifiService {
     this.previewFps = 15,
     this.downloadDuration = const Duration(seconds: 6),
     this.downloadFailureRate = 0.0,
+    this.mockSsid = 'DIRECT-mock-sst-cam',
+    this.mockPsk = 'mock-psk-1234',
     int? randomSeed,
     VideoPathService? videoPathService,
     Dio? httpClient,
@@ -88,6 +90,14 @@ class MockWifiService implements WifiService {
   final int previewFps;
   final Duration downloadDuration;
   final double downloadFailureRate;
+
+  /// SSID used when building the fake [WifiDirectGroup]. Override in tests to
+  /// avoid compile-time credential constants in production paths.
+  final String mockSsid;
+
+  /// PSK used when building the fake [WifiDirectGroup]. Override in tests to
+  /// avoid compile-time credential constants in production paths.
+  final String mockPsk;
 
   final Random _rng;
   final VideoPathService _videoPathService;
@@ -131,8 +141,8 @@ class MockWifiService implements WifiService {
     // base so diagnostics stay meaningful; keep the contract ports as defaults.
     final host = Uri.tryParse(previewBaseUrl)?.host;
     final group = WifiDirectGroup(
-      ssid: 'DIRECT-mock-sst-cam',
-      psk: 'dev-psk',
+      ssid: mockSsid,
+      psk: mockPsk,
       groupOwnerIp: (host == null || host.isEmpty) ? 'localhost' : host,
       previewPort: 8554,
       downloadPort: 8080,

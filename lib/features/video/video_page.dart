@@ -38,8 +38,7 @@ class VideoPage extends ConsumerWidget {
           const SizedBox(height: 4),
           Expanded(
             child: libraryAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               // ignore: avoid_types_on_closure_parameters
               error: (Object err, StackTrace st) => const Center(
                 child: Text(
@@ -56,8 +55,7 @@ class VideoPage extends ConsumerWidget {
                     onClear: () {
                       ref.read(librarySportFilterProvider.notifier).state =
                           null;
-                      ref.read(libraryTeamFilterProvider.notifier).state =
-                          null;
+                      ref.read(libraryTeamFilterProvider.notifier).state = null;
                       ref.read(librarySearchQueryProvider.notifier).state = '';
                     },
                   );
@@ -292,10 +290,7 @@ class _EmptyFilterState extends StatelessWidget {
               style: TextStyle(fontSize: 15, color: T.ink2),
             ),
             const SizedBox(height: 12),
-            TextButton(
-              onPressed: onClear,
-              child: const Text('Clear filters'),
-            ),
+            TextButton(onPressed: onClear, child: const Text('Clear filters')),
           ],
         ),
       ),

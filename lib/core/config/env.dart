@@ -15,10 +15,7 @@
 
 enum AppEnv { dev, stage, prod }
 
-const String _envName = String.fromEnvironment(
-  'APP_ENV',
-  defaultValue: 'dev',
-);
+const String _envName = String.fromEnvironment('APP_ENV', defaultValue: 'dev');
 
 const AppEnv kAppEnv = _envName == 'prod'
     ? AppEnv.prod

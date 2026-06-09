@@ -11,11 +11,13 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
+import '../../core/models/overlay_layout.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../settings/sport_presets/sport_presets_state.dart'
     show sportPresetsForSportProvider, SportPreset;
 import '../settings/users/users_state.dart' show activeUserProvider;
 import 'match_state.dart' show UpcomingMatch;
+import 'session/session_state.dart' show liveMatchProvider;
 
 enum _Quality {
   hd720p30('720p · 30 fps'),
@@ -270,7 +272,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     onPressed: connected
                         ? () => _startMatch(
                             periods,
-                            _preset?.periodLengthSeconds ?? _customPeriodSeconds,
+                            _preset?.periodLengthSeconds ??
+                                _customPeriodSeconds,
                           )
                         : null,
                   ),
@@ -322,6 +325,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       rtmpUrl: rtmpUrl,
       videoOutputPath: '/data/video/$userUuid/$matchUuid/',
       thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
+      teamAColorHex: widget.match.team.colorHex,
     );
 
     setState(() {
@@ -338,8 +342,30 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       _validateUuid(matchUuid, 'matchUuid');
 
       final ble = ref.read(bleServiceProvider);
+
+      // Step 1: push session config.
       await ble.pushSessionConfig(deviceId, config);
       if (!mounted) return;
+
+      // Step 2: build and push overlay layout.
+      final opponent = widget.match.match.opponent;
+      final awayName = opponent.startsWith('vs ')
+          ? opponent.substring(3)
+          : opponent;
+      final layout = defaultScoreboardLayout(
+        homeName: widget.match.team.name,
+        awayName: awayName,
+        homeColorHex: widget.match.team.colorHex,
+        awayColorHex: null,
+      );
+      await ble.pushOverlayLayout(deviceId, layout);
+      if (!mounted) return;
+
+      // Store layout + colors in live session state.
+      final ctl = ref.read(liveMatchProvider.notifier);
+      ctl.setOverlayLayout(layout);
+      ctl.setTeamColors(widget.match.team.colorHex, null);
+
       setState(() {
         _pushing = false;
       });

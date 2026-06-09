@@ -499,24 +499,7 @@ This section specifies how the app sends a visual design spec to the camera and 
 
 The app is the single source of overlay design. The camera never hard-codes layouts, fonts, colors, or animation. The firmware is a **generic compositor**: it receives a layout spec, stores it, and renders it — nothing more. When the app's designer changes the scoreboard, only the app changes; no firmware update is needed.
 
-Both the app (Flutter widget) and the camera (GStreamer compositor) render the **same layout spec** from the same data. Sync is guaranteed by construction.
-
-### 9.2 Coordinate system
-
-```
-(0, 0) ────────────────────────────────── (canvas_width, 0)
-  │                                               │
-  │     All coordinates in logical canvas pixels  │
-  │     Default canvas: 1920 × 1080               │
-  │     x increases right; y increases down       │
-  │                                               │
-(0, canvas_height) ────────────── (canvas_width, canvas_height)
-```
-
-The camera maps canvas pixels 1:1 to its output resolution (records at 1920×1080).
-The app scales canvas coordinates to fit its preview surface (phone screen).
-
-**Z-order** — z=0 is always the video frame background. Every overlay element has z ≥ 1. Higher z is drawn on top.
+Both the app (Flutter/Skia) and the camera (Cairo/Pango) render the same layout spec from the same data. Rendering semantics — coordinate system, z-order, shape definitions, text layout, color/opacity, and conformance tolerances — are the shared contract and live in **`proto/overlay-rendering.md`** in the pinned `proto/` submodule. Both stacks must conform to that document.
 
 ### 9.3 Element types and bindings
 

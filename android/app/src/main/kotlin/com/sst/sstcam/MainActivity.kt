@@ -12,9 +12,19 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val mediaChannel = "com.sst.sstcam/media"
+    private lateinit var wifiDirectChannel: WifiDirectChannel
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        wifiDirectChannel = WifiDirectChannel(applicationContext)
+        wifiDirectChannel.register(flutterEngine)
+        try {
+            wifiDirectChannel.initialize(this)
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "WifiDirectChannel.initialize failed: $e")
+        }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mediaChannel)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

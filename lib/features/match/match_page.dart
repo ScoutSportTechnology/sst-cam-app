@@ -49,13 +49,15 @@ class _MatchPageState extends ConsumerState<MatchPage> {
   }
 
   void _select(UpcomingMatch up) {
-    ref.read(liveMatchProvider.notifier).loadFromUpcoming(
-      teamShortName: up.team.shortName,
-      teamName: up.team.name,
-      opponent: up.match.opponent,
-      numPeriods: up.match.numPeriods,
-      periodLengthSeconds: up.match.periodLengthSeconds,
-    );
+    ref
+        .read(liveMatchProvider.notifier)
+        .loadFromUpcoming(
+          teamShortName: up.team.shortName,
+          teamName: up.team.name,
+          opponent: up.match.opponent,
+          numPeriods: up.match.numPeriods,
+          periodLengthSeconds: up.match.periodLengthSeconds,
+        );
     setState(() {
       _selected = up;
       _setupConfirmed = false;

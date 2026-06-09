@@ -7,6 +7,7 @@ import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/overlay_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 import 'ble_protocol.dart';
@@ -33,8 +34,7 @@ class BleServiceImpl implements BleService {
   bool get isScanning => _isScanning;
 
   @override
-  Stream<List<SstDevice>> get discoveredDevices =>
-      _discoveryController.stream;
+  Stream<List<SstDevice>> get discoveredDevices => _discoveryController.stream;
 
   // ---------------------------------------------------------------------------
   // Discovery — filter by advertised service UUID (primary) + name prefix
@@ -259,12 +259,22 @@ class BleServiceImpl implements BleService {
   // ---------------------------------------------------------------------------
 
   @override
-  Future<void> pushSessionConfig(
-    String deviceId,
-    PushSessionConfig config,
-  ) {
+  Future<void> pushSessionConfig(String deviceId, PushSessionConfig config) {
     // Noop until firmware wiring is complete.
     return Future<void>.value();
+  }
+
+  @override
+  Future<void> pushOverlayLayout(String deviceId, OverlayLayout layout) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      PushOverlayLayoutCommand(layout: layout),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'pushOverlayLayout failed: ${resp.errorMessage}',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
