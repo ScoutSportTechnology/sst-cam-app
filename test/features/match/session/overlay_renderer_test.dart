@@ -750,9 +750,10 @@ void main() {
     );
     expect(tester.takeException(), isNull);
 
-    // The Positioned child for the circle element must be a CustomPaint.
+    // The Positioned child for the circle element must be Opacity wrapping CustomPaint.
     final positioned = tester.widget<Positioned>(find.byType(Positioned).first);
-    expect(positioned.child, isA<CustomPaint>());
+    expect(positioned.child, isA<Opacity>());
+    expect((positioned.child as Opacity).child, isA<CustomPaint>());
 
     // Must NOT be a Container with BoxShape.circle (old incorrect implementation).
     final containers = tester.widgetList<Container>(find.byType(Container));

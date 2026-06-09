@@ -49,7 +49,6 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
       _bannerTimer?.cancel();
       setState(() {
         _activeBannerTemplate = null;
-        _activeBannerTemplate = null;
         _activeBannerParams = const {};
       });
       _lastEventCount = 0;
@@ -60,11 +59,11 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
       final labelPrefix = label.split(' · ').first;
       final templateId = _labelToTemplateId[labelPrefix];
       if (templateId != null) {
-        _bannerTimer?.cancel();
         final template = widget.layout.templates
             .where((t) => t.eventType == templateId)
             .firstOrNull;
         if (template != null) {
+          _bannerTimer?.cancel();
           setState(() {
             _activeBannerTemplate = template;
             _activeBannerParams = events.first.params;
@@ -72,7 +71,6 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           _bannerTimer = Timer(Duration(milliseconds: template.durationMs), () {
             if (mounted) {
               setState(() {
-                _activeBannerTemplate = null;
                 _activeBannerTemplate = null;
                 _activeBannerParams = const {};
               });
@@ -143,24 +141,30 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           ),
         );
       case OverlayShape.text:
-        return FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: _resolveAlign(el.style.textAlign),
-          child: Text(
-            _resolveBinding(el.binding, el.style.staticText),
-            style: TextStyle(
-              color: _parseHex(el.style.textColor),
-              fontSize: el.style.fontSize * s,
-              fontWeight: el.style.fontWeight == OverlayFontWeight.bold
-                  ? FontWeight.bold
-                  : FontWeight.normal,
-              fontFamily: el.style.fontFamily,
+        return Opacity(
+          opacity: el.style.opacity,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: _resolveAlign(el.style.textAlign),
+            child: Text(
+              _resolveBinding(el.binding, el.style.staticText),
+              style: TextStyle(
+                color: _parseHex(el.style.textColor),
+                fontSize: el.style.fontSize * s,
+                fontWeight: el.style.fontWeight == OverlayFontWeight.bold
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+                fontFamily: el.style.fontFamily,
+              ),
             ),
           ),
         );
       case OverlayShape.circle:
-        return CustomPaint(
-          painter: _OvalPainter(_parseHex(el.style.fillColor)),
+        return Opacity(
+          opacity: el.style.opacity,
+          child: CustomPaint(
+            painter: _OvalPainter(_parseHex(el.style.fillColor)),
+          ),
         );
     }
   }

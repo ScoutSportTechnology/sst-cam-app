@@ -5,8 +5,8 @@ status: completed
 date: 2026-06-08
 origin_a: docs/brainstorms/2026-06-08-overlay-pixel-parity-app-requirements.md
 origin_b: docs/brainstorms/2026-06-08-wifi-direct-dynamic-credentials-app-requirements.md
-cross_repo_a: docs/cross-repo/firmware/external/2026-06-08-overlay-pixel-parity-contract.md
-cross_repo_b: docs/cross-repo/firmware/external/2026-06-08-wifi-direct-dynamic-credentials.md
+cross_repo_a: docs/cross-repo/firmware/inbound/2026-06-08-overlay-pixel-parity-contract.md
+cross_repo_b: docs/cross-repo/firmware/inbound/2026-06-08-wifi-direct-dynamic-credentials.md
 ---
 
 # feat: Overlay pixel-parity and WiFi Direct dynamic credentials
@@ -481,8 +481,8 @@ WifiServiceImpl.connectGroup(deviceId)
 
 - **Origin A:** [docs/brainstorms/2026-06-08-overlay-pixel-parity-app-requirements.md](docs/brainstorms/2026-06-08-overlay-pixel-parity-app-requirements.md)
 - **Origin B:** [docs/brainstorms/2026-06-08-wifi-direct-dynamic-credentials-app-requirements.md](docs/brainstorms/2026-06-08-wifi-direct-dynamic-credentials-app-requirements.md)
-- **Cross-repo A:** [docs/cross-repo/firmware/external/2026-06-08-overlay-pixel-parity-contract.md](docs/cross-repo/firmware/external/2026-06-08-overlay-pixel-parity-contract.md)
-- **Cross-repo B:** [docs/cross-repo/firmware/external/2026-06-08-wifi-direct-dynamic-credentials.md](docs/cross-repo/firmware/external/2026-06-08-wifi-direct-dynamic-credentials.md)
+- **Cross-repo A:** [docs/cross-repo/firmware/inbound/2026-06-08-overlay-pixel-parity-contract.md](docs/cross-repo/firmware/inbound/2026-06-08-overlay-pixel-parity-contract.md)
+- **Cross-repo B:** [docs/cross-repo/firmware/inbound/2026-06-08-wifi-direct-dynamic-credentials.md](docs/cross-repo/firmware/inbound/2026-06-08-wifi-direct-dynamic-credentials.md)
 - Related plan: [docs/plans/2026-06-03-013-feat-overlay-layout-session-ble-wiring-plan.md](docs/plans/2026-06-03-013-feat-overlay-layout-session-ble-wiring-plan.md)
 - Solutions: [docs/solutions/logic-errors/core-importing-feature-layer-inversion-2026-05-26.md](docs/solutions/logic-errors/core-importing-feature-layer-inversion-2026-05-26.md)
 - Solutions: [docs/solutions/integration-issues/ffmpegkit-android16-plugin-registration-abort-2026-05-27.md](docs/solutions/integration-issues/ffmpegkit-android16-plugin-registration-abort-2026-05-27.md)

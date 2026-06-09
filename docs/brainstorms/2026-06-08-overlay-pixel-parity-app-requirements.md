@@ -2,13 +2,13 @@
 date: 2026-06-08
 status: ready-for-planning
 tags: [overlay, rendering, fonts, pixel-parity, firmware-response]
-related_cross_repo: docs/cross-repo/firmware/external/2026-06-08-overlay-pixel-parity-contract.md
+related_cross_repo: docs/cross-repo/firmware/inbound/2026-06-08-overlay-pixel-parity-contract.md
 ---
 
 # Overlay pixel-parity — app-side requirements
 
 Response to the firmware team's co-development request
-(`docs/cross-repo/firmware/external/2026-06-08-overlay-pixel-parity-contract.md`).
+(`docs/cross-repo/firmware/inbound/2026-06-08-overlay-pixel-parity-contract.md`).
 
 ## Background
 

@@ -81,7 +81,7 @@ class WifiServiceImpl implements WifiService {
     _stateSubscriptions[deviceId] = _channel.stateStream.listen(
       (code) => _emitState(deviceId, _codeToState(code)),
       onError: (Object e) {
-        _stateSubscriptions.remove(deviceId);
+        _stateSubscriptions.remove(deviceId)?.cancel();
         _emitState(deviceId, WifiDirectState.failed);
       },
     );

@@ -2,13 +2,13 @@
 date: 2026-06-08
 status: ready-for-planning
 tags: [wifi-direct, p2p, android, ios, credentials, firmware-response]
-related_cross_repo: docs/cross-repo/firmware/external/2026-06-08-wifi-direct-dynamic-credentials.md
+related_cross_repo: docs/cross-repo/firmware/inbound/2026-06-08-wifi-direct-dynamic-credentials.md
 ---
 
 # WiFi Direct dynamic credentials — app-side requirements
 
 Response to the firmware team's co-development request
-(`docs/cross-repo/firmware/external/2026-06-08-wifi-direct-dynamic-credentials.md`).
+(`docs/cross-repo/firmware/inbound/2026-06-08-wifi-direct-dynamic-credentials.md`).
 
 ## Background
 
