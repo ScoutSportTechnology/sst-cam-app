@@ -293,9 +293,10 @@ class _TelemetryGrid extends StatelessWidget {
   }
 
   ({String value, double level}) _battery(DeviceTelemetry? t) {
-    // Telemetry doesn't expose battery directly yet — use a stand-in.
-    if (t == null) return (value: '—', level: 0.0);
-    final pct = (1 - t.cpuUsedPct).clamp(0.0, 1.0);
+    // Firmware reports battery via DeviceTelemetry.batteryLevelPct (0–100),
+    // null when the device has no battery.
+    if (t == null || t.batteryLevelPct == null) return (value: '—', level: 0.0);
+    final pct = (t.batteryLevelPct! / 100.0).clamp(0.0, 1.0);
     return (value: '${(pct * 100).round()}%', level: pct);
   }
 
