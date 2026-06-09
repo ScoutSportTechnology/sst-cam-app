@@ -136,7 +136,9 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           child: Container(
             decoration: BoxDecoration(
               color: _parseHex(el.style.fillColor),
-              borderRadius: BorderRadius.circular(el.style.cornerRadius),
+              borderRadius: BorderRadius.circular(
+                _clampCornerRadius(el) * s,
+              ),
             ),
           ),
         );
@@ -145,23 +147,44 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
         // top-aligned vertically, clipped to bounds height. No shrink-to-fit.
         // The Positioned parent gives this child a tight bounds-sized box, so
         // the Text wraps at the bounds width and lays out from the top.
+        //
+        // §Shapes: a non-empty fill_color on a TEXT element MUST paint the
+        // bounds as a background box behind the glyphs (text_color paints the
+        // glyphs). The fill sits inside the same Opacity so the element's alpha
+        // multiplies fill + text together (per §Color & opacity).
+        final textColor = _parseHex(el.style.textColor);
+        final fillColor = _parseHex(el.style.fillColor);
+        final hasFill = fillColor != Colors.transparent;
+        final text = Text(
+          _resolveBinding(el.binding, el.style.staticText),
+          textAlign: _resolveTextAlign(el.style.textAlign),
+          softWrap: true,
+          overflow: TextOverflow.clip,
+          style: TextStyle(
+            color: textColor,
+            fontSize: el.style.fontSize * s,
+            height: 1.0, // natural single line height; no extra leading.
+            fontWeight: el.style.fontWeight == OverlayFontWeight.bold
+                ? FontWeight.bold
+                : FontWeight.normal,
+            fontFamily: _resolveFontFamily(el.style.fontFamily),
+          ),
+        );
         return Opacity(
           opacity: el.style.opacity,
           child: ClipRect(
-            child: Text(
-              _resolveBinding(el.binding, el.style.staticText),
-              textAlign: _resolveTextAlign(el.style.textAlign),
-              softWrap: true,
-              overflow: TextOverflow.clip,
-              style: TextStyle(
-                color: _parseHex(el.style.textColor),
-                fontSize: el.style.fontSize * s,
-                fontWeight: el.style.fontWeight == OverlayFontWeight.bold
-                    ? FontWeight.bold
-                    : FontWeight.normal,
-                fontFamily: el.style.fontFamily,
-              ),
-            ),
+            child: hasFill
+                ? DecoratedBox(
+                    decoration: BoxDecoration(color: fillColor),
+                    // Fill the full bounds box; the text aligns within it.
+                    child: SizedBox.expand(
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: text,
+                      ),
+                    ),
+                  )
+                : text,
           ),
         );
       case OverlayShape.circle:
@@ -171,6 +194,33 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
             painter: _OvalPainter(_parseHex(el.style.fillColor)),
           ),
         );
+    }
+  }
+
+  /// Clamps `corner_radius` to half the smaller side of `bounds`
+  /// (overlay-rendering.md §Color & opacity — capsule/circle limit). Returned
+  /// in canvas pixels; the caller scales it by [s].
+  double _clampCornerRadius(OverlayElement el) {
+    final w = (el.bounds.x2 - el.bounds.x1).abs();
+    final h = (el.bounds.y2 - el.bounds.y1).abs();
+    final maxRadius = math.min(w, h) / 2;
+    return el.style.cornerRadius.clamp(0.0, maxRadius);
+  }
+
+  /// Maps the contract's logical font families to a metrically-comparable
+  /// face available to Flutter, so the preview stays within tolerance of the
+  /// firmware's Pango rendering (overlay-rendering.md §Text). Non-logical
+  /// families pass through unchanged (best-effort); null stays null.
+  String? _resolveFontFamily(String? family) {
+    switch (family) {
+      case 'monospace':
+        return 'monospace';
+      case 'sans-serif':
+        return 'sans-serif';
+      case 'serif':
+        return 'serif';
+      default:
+        return family;
     }
   }
 
