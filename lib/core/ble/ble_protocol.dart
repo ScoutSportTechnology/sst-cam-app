@@ -353,19 +353,17 @@ class BleProtocol {
   /// data (they OK with a null payload); for payload-bearing variants the
   /// firmware's chosen oneof determines the decode.
   ///
-  /// For DeviceInfo, the firmware's `protocol_version` is checked against
-  /// [kAppProtocolVersion]; a mismatch returns an error response carrying the
-  /// version-skew message so callers can refuse the session.
+  /// For DeviceInfo, the firmware's `protocol_version` is carried through in the
+  /// payload; the version gate that refuses a skewed session lives at connect
+  /// time (see BleServiceImpl.connect), not here.
   static BleCommandResponse<T> _mapOkResponse<T>(proto.CommandResponse resp) {
     switch (resp.whichPayload()) {
       case proto.CommandResponse_Payload.deviceInfo:
+        // Decode stays pure and reports the firmware's protocol_version in the
+        // payload. The version gate lives at connect time
+        // (BleServiceImpl.connect), which throws BleProtocolVersionException and
+        // refuses the session on skew — see kAppProtocolVersion.
         final info = resp.deviceInfo;
-        if (info.protocolVersion != kAppProtocolVersion) {
-          return BleCommandResponse.error(
-            'Protocol version mismatch: firmware ${info.protocolVersion}, '
-            'app $kAppProtocolVersion',
-          );
-        }
         return BleCommandResponse.ok(
           DeviceInfoResponse(
                 deviceId: info.deviceId,
@@ -560,7 +558,7 @@ class BleProtocol {
     teamAId: s.teamAId,
     teamBId: s.teamBId,
     updatedAt: s.hasUpdatedAt()
-        ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt() * 1000)
+        ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt())
         : DateTime.now(),
   );
 }

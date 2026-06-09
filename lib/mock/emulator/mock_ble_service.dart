@@ -1000,7 +1000,7 @@ class MockBleService implements BleService {
     teamAId: s.teamAId,
     teamBId: s.teamBId,
     updatedAt: s.hasUpdatedAt()
-        ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt() * 1000)
+        ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt())
         : DateTime.now(),
   );
 

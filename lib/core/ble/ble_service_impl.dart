@@ -25,6 +25,16 @@ final _cmdResponseUuid = Guid('A1B2C3D401200000800000805F9B34FB');
 // Device name prefix — secondary filter after UUID filter
 const _kNamePrefix = 'sst-cam-';
 
+// Overall budget for one command round-trip (ack-gated frame writes + response).
+const _kCommandTimeout = Duration(seconds: 10);
+
+// Time remaining until [deadline], clamped at zero so Future.timeout never gets a
+// negative Duration.
+Duration _remainingUntil(DateTime deadline) {
+  final remaining = deadline.difference(DateTime.now());
+  return remaining.isNegative ? Duration.zero : remaining;
+}
+
 class BleServiceImpl implements BleService {
   final _discoveryController = StreamController<List<SstDevice>>.broadcast();
   final Map<String, _ConnectedDevice> _connected = {};
@@ -125,6 +135,30 @@ class BleServiceImpl implements BleService {
 
       await conn._cmdResponse!.setNotifyValue(true);
       conn._startResponseListener();
+
+      // Contract handshake: read DeviceInfo and refuse the session on a
+      // protocol_version skew before exposing the connection as usable
+      // (bluetooth.proto: consumers MUST refuse on mismatch, not silently
+      // proceed).
+      final info = await sendCommand<DeviceInfoResponse>(
+        deviceId,
+        GetDeviceInfoCommand(),
+      );
+      if (!info.isOk || info.payload == null) {
+        await device.disconnect();
+        throw BleConnectionException(
+          'Device info handshake failed: ${info.errorMessage ?? 'no response'}',
+        );
+      }
+      if (info.payload!.protocolVersion != kAppProtocolVersion) {
+        final actual = info.payload!.protocolVersion;
+        await device.disconnect();
+        throw BleProtocolVersionException(
+          expected: kAppProtocolVersion,
+          actual: actual,
+        );
+      }
+
       conn._connController.add(CameraConnectionState.connected);
 
       // Listen for unexpected disconnection
@@ -138,7 +172,9 @@ class BleServiceImpl implements BleService {
     } catch (e) {
       conn._connController.add(CameraConnectionState.disconnected);
       _connected.remove(deviceId);
-      if (e is BleConnectionException) rethrow;
+      if (e is BleConnectionException || e is BleProtocolVersionException) {
+        rethrow;
+      }
       throw BleConnectionException('Connect failed: $e');
     }
   }
@@ -232,10 +268,14 @@ class BleServiceImpl implements BleService {
 
     try {
       final frames = BleProtocol.encodeCommandFrames(command, corrId);
-      await conn._writeFrames(corrId, frames);
+      // One shared deadline spans the ack-gated frame writes AND the response
+      // wait, so a multi-chunk command cannot stack per-chunk timeouts past the
+      // overall budget.
+      final deadline = DateTime.now().add(_kCommandTimeout);
+      await conn._writeFrames(corrId, frames, deadline);
 
       final responseBytes = await completer.future.timeout(
-        const Duration(seconds: 10),
+        _remainingUntil(deadline),
         onTimeout: () {
           conn._pendingRequests.remove(corrId);
           throw BleTimeoutException(
@@ -279,10 +319,11 @@ class BleServiceImpl implements BleService {
 
     try {
       final frames = BleProtocol.encodeSessionConfigFrames(config, corrId);
-      await conn._writeFrames(corrId, frames);
+      final deadline = DateTime.now().add(_kCommandTimeout);
+      await conn._writeFrames(corrId, frames, deadline);
 
       final responseBytes = await completer.future.timeout(
-        const Duration(seconds: 10),
+        _remainingUntil(deadline),
         onTimeout: () {
           conn._pendingRequests.remove(corrId);
           throw BleTimeoutException(
@@ -399,7 +440,11 @@ class _ConnectedDevice {
   /// frame it awaits the inbound [proto.ChunkAck] for that `chunk_index` before
   /// sending the next, so a missing/late ack stalls (and the caller's overall
   /// timeout fires) rather than racing ahead.
-  Future<void> _writeFrames(String corrId, List<Uint8List> frames) async {
+  Future<void> _writeFrames(
+    String corrId,
+    List<Uint8List> frames,
+    DateTime deadline,
+  ) async {
     final write = _cmdWrite;
     if (write == null) {
       throw const BleConnectionException('command-write characteristic absent');
@@ -413,7 +458,15 @@ class _ConnectedDevice {
       (_pendingAcks[corrId] ??= {})[i] = ackCompleter;
       await write.write(frames[i], withoutResponse: false);
       try {
-        await ackCompleter.future.timeout(const Duration(seconds: 10));
+        // Share the caller's overall deadline; a missing/late ack surfaces as a
+        // BleTimeoutException (so sendCommand maps it to a clean timeout result)
+        // rather than a raw TimeoutException or an unbounded stall.
+        await ackCompleter.future.timeout(
+          _remainingUntil(deadline),
+          onTimeout: () => throw BleTimeoutException(
+            'ChunkAck timeout (chunk $i) for $corrId',
+          ),
+        );
       } finally {
         _pendingAcks[corrId]?.remove(i);
         if (_pendingAcks[corrId]?.isEmpty ?? false) {

@@ -376,7 +376,8 @@ void main() {
       expect(info.protocolVersion, kAppProtocolVersion);
     });
 
-    test('protocol_version mismatch raises a version-skew error', () {
+    test('decode surfaces a skewed protocol_version in the payload '
+        '(the gate lives at connect, not in decode)', () {
       const corrId = 'd-2';
       final bytes = wrap(
         proto.CommandResponse(
@@ -392,9 +393,11 @@ void main() {
         bytes,
         corrId,
       );
-      expect(resp.isOk, isFalse);
-      expect(resp.status, BleResponseStatus.error);
-      expect(resp.errorMessage, contains('Protocol version mismatch'));
+      // Decode is pure: it reports what the firmware sent. BleServiceImpl.connect
+      // compares protocol_version against kAppProtocolVersion and throws
+      // BleProtocolVersionException to refuse the session.
+      expect(resp.isOk, isTrue);
+      expect(resp.payload!.protocolVersion, kAppProtocolVersion + 99);
     });
 
     test('telemetry decode includes battery_level_pct', () {
