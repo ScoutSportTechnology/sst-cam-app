@@ -330,9 +330,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       videoOutputPath: '/data/video/$userUuid/$matchUuid/',
       thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
       teamAId: widget.match.team.id,
-      // The opponent is stored as a free-text label with no team record, so
-      // there is no team B id to send.
-      teamBId: null,
+      // The opponent has no team record/UUID, so its display name doubles as the
+      // stable team B identifier. ScoreUpdateCommand for the away team sends the
+      // same value (see session_screen) so the firmware routes goals correctly.
+      teamBId: opponentName,
       teamAName: widget.match.team.name,
       teamBName: opponentName,
       teamAColorHex: widget.match.team.colorHex,

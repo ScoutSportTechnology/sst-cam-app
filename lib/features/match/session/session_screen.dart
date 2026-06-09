@@ -336,7 +336,12 @@ class SessionScreen extends ConsumerWidget {
                 params: params,
               );
           if (type == 'Goal') {
-            _sendIfConnected(ref, ScoreUpdateCommand(teamId: team, delta: 1));
+            // Firmware routes score by the session-config team_a_id (home UUID)
+            // / team_b_id (away display name), NOT the display label — sending
+            // the label makes the camera drop the goal as an unknown team.
+            final live = ref.read(liveMatchProvider);
+            final teamId = team == live.homeName ? match.team.id : live.awayName;
+            _sendIfConnected(ref, ScoreUpdateCommand(teamId: teamId, delta: 1));
             _sendIfConnected(
               ref,
               BannerEventCommand(
