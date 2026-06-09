@@ -90,7 +90,6 @@ void main() {
 
         final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
           bytes,
-          GetTelemetryCommand(),
           corrId,
         );
         expect(resp.isOk, isTrue);
@@ -104,7 +103,6 @@ void main() {
     test('malformed bytes produce a BleCommandResponse with error status', () {
       final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
         [0x00, 0xFF, 0xAB, 0xCD], // garbage bytes
-        GetTelemetryCommand(),
         'any-id',
       );
       expect(resp.isOk, isFalse);
@@ -128,7 +126,6 @@ void main() {
 
       final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
         bytes,
-        GetTelemetryCommand(),
         'different-id', // mismatch
       );
       expect(resp.isOk, isFalse);
@@ -151,7 +148,6 @@ void main() {
 
       final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
         bytes,
-        GetTelemetryCommand(),
         corrId,
       );
       expect(resp.isOk, isFalse);
@@ -369,7 +365,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<DeviceInfoResponse>(
         bytes,
-        GetDeviceInfoCommand(),
         corrId,
       );
       expect(resp.isOk, isTrue);
@@ -395,7 +390,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<DeviceInfoResponse>(
         bytes,
-        GetDeviceInfoCommand(),
         corrId,
       );
       expect(resp.isOk, isFalse);
@@ -417,7 +411,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
         bytes,
-        GetTelemetryCommand(),
         corrId,
       );
       expect(resp.isOk, isTrue);
@@ -435,7 +428,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
         bytes,
-        GetTelemetryCommand(),
         corrId,
       );
       expect(resp.payload!.batteryLevelPct, isNull);
@@ -459,7 +451,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<WifiDirectGroup>(
         bytes,
-        StartWifiDirectCommand(),
         corrId,
       );
       expect(resp.isOk, isTrue);
@@ -483,7 +474,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<DeviceInfoResponse>(
         bytes,
-        GetTelemetryCommand(), // wrong-on-purpose
         corrId,
       );
       expect(resp.isOk, isTrue);
@@ -502,7 +492,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<void>(
         bytes,
-        GetTelemetryCommand(),
         corrId,
       );
       expect(resp.status, BleResponseStatus.unsupported);
@@ -521,7 +510,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<void>(
         bytes,
-        GetTelemetryCommand(),
         corrId,
       );
       expect(resp.status, BleResponseStatus.error);
@@ -538,7 +526,6 @@ void main() {
       );
       final resp = BleProtocol.decodeResponse<Object>(
         bytes,
-        GetTelemetryCommand(),
         corrId,
       );
       expect(resp.isOk, isTrue);

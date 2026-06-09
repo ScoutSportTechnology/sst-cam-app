@@ -167,7 +167,7 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
             fontWeight: el.style.fontWeight == OverlayFontWeight.bold
                 ? FontWeight.bold
                 : FontWeight.normal,
-            fontFamily: _resolveFontFamily(el.style.fontFamily),
+            fontFamily: el.style.fontFamily,
           ),
         );
         return Opacity(
@@ -205,23 +205,6 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
     final h = (el.bounds.y2 - el.bounds.y1).abs();
     final maxRadius = math.min(w, h) / 2;
     return el.style.cornerRadius.clamp(0.0, maxRadius);
-  }
-
-  /// Maps the contract's logical font families to a metrically-comparable
-  /// face available to Flutter, so the preview stays within tolerance of the
-  /// firmware's Pango rendering (overlay-rendering.md §Text). Non-logical
-  /// families pass through unchanged (best-effort); null stays null.
-  String? _resolveFontFamily(String? family) {
-    switch (family) {
-      case 'monospace':
-        return 'monospace';
-      case 'sans-serif':
-        return 'sans-serif';
-      case 'serif':
-        return 'serif';
-      default:
-        return family;
-    }
   }
 
   String _resolveBinding(OverlayBinding binding, String? staticText) {

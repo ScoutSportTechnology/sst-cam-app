@@ -188,7 +188,6 @@ class BleProtocol {
   /// Never throws — all errors are returned as error responses.
   static BleCommandResponse<T> decodeResponse<T>(
     List<int> chunkPayloadBytes,
-    BleCommand originalCommand,
     String expectedCorrelationId,
   ) {
     try {

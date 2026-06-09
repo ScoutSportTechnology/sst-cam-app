@@ -244,7 +244,7 @@ class BleServiceImpl implements BleService {
         },
       );
 
-      return BleProtocol.decodeResponse<T>(responseBytes, command, corrId);
+      return BleProtocol.decodeResponse<T>(responseBytes, corrId);
     } on BleTimeoutException {
       return BleCommandResponse<T>.timeout();
     } catch (e) {
