@@ -122,3 +122,20 @@ class BleConnectionException implements Exception {
   @override
   String toString() => 'BleConnectionException: $message';
 }
+
+/// Raised when the firmware's reported `protocol_version` does not match the
+/// version this app build was compiled against. The session must be refused —
+/// the wire contract may have diverged in incompatible ways.
+class BleProtocolVersionException implements Exception {
+  const BleProtocolVersionException({
+    required this.expected,
+    required this.actual,
+  });
+  final int expected;
+  final int actual;
+
+  @override
+  String toString() =>
+      'BleProtocolVersionException: firmware protocol_version $actual does not '
+      'match app version $expected';
+}

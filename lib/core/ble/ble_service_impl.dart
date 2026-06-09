@@ -231,8 +231,8 @@ class BleServiceImpl implements BleService {
     conn._pendingRequests[corrId] = completer;
 
     try {
-      final bytes = BleProtocol.encodeCommand(command, corrId);
-      await conn._cmdWrite!.write(bytes, withoutResponse: false);
+      final frames = BleProtocol.encodeCommandFrames(command, corrId);
+      await conn._writeFrames(corrId, frames);
 
       final responseBytes = await completer.future.timeout(
         const Duration(seconds: 10),
@@ -251,6 +251,7 @@ class BleServiceImpl implements BleService {
       return BleCommandResponse.error('sendCommand failed: $e');
     } finally {
       conn._pendingRequests.remove(corrId);
+      conn._cleanupCorrelation(corrId);
     }
   }
 
@@ -259,9 +260,50 @@ class BleServiceImpl implements BleService {
   // ---------------------------------------------------------------------------
 
   @override
-  Future<void> pushSessionConfig(String deviceId, PushSessionConfig config) {
-    // Noop until firmware wiring is complete.
-    return Future<void>.value();
+  Future<void> pushSessionConfig(
+    String deviceId,
+    PushSessionConfig config,
+  ) async {
+    final conn = _connected[deviceId];
+    if (conn == null || conn._cmdWrite == null) {
+      throw BleConnectionException('Device $deviceId not connected');
+    }
+
+    // Fix 14: PushSessionConfig is not a BleCommand and never routes through
+    // sendCommand/_toProtoCommand. We reuse the same completer/timeout/
+    // correlation-id machinery here, encoding via the dedicated
+    // BleProtocol.encodeSessionConfigFrames helper.
+    final corrId = BleProtocol.newCorrelationId();
+    final completer = Completer<List<int>>();
+    conn._pendingRequests[corrId] = completer;
+
+    try {
+      final frames = BleProtocol.encodeSessionConfigFrames(config, corrId);
+      await conn._writeFrames(corrId, frames);
+
+      final responseBytes = await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          conn._pendingRequests.remove(corrId);
+          throw BleTimeoutException(
+            'pushSessionConfig timed out for $deviceId',
+          );
+        },
+      );
+
+      final resp = BleProtocol.decodeSessionConfigResponse(
+        responseBytes,
+        corrId,
+      );
+      if (!resp.isOk) {
+        throw BleConnectionException(
+          'pushSessionConfig failed: ${resp.errorMessage}',
+        );
+      }
+    } finally {
+      conn._pendingRequests.remove(corrId);
+      conn._cleanupCorrelation(corrId);
+    }
   }
 
   @override
@@ -342,10 +384,51 @@ class _ConnectedDevice {
   Timer? _telemetryTimer;
   Timer? _matchStateTimer;
 
-  // Accumulates chunks; keyed by correlation_id.
-  final _chunkBuffers = <String, Uint8List>{};
-  final _chunkCounts = <String, int>{};
-  final _chunkTotals = <String, int>{};
+  // Inbound response reassembly — index-addressed (NOT arrival-order), one
+  // ChunkReassembler per correlation_id. Completes once every index [0, total)
+  // is present.
+  final _reassemblers = <String, ChunkReassembler>{};
+
+  // Outbound chunk flow-control — completers awaiting an inbound ChunkAck for a
+  // given correlation_id + chunk_index (see [_writeFrames]).
+  final _pendingAcks = <String, Map<int, Completer<void>>>{};
+
+  /// Writes [frames] (one or more ChunkedPayload frames sharing [corrId]) to the
+  /// command-write characteristic. The single-frame fast path writes once and
+  /// returns. For multi-frame commands the write loop is ack-gated: after each
+  /// frame it awaits the inbound [proto.ChunkAck] for that `chunk_index` before
+  /// sending the next, so a missing/late ack stalls (and the caller's overall
+  /// timeout fires) rather than racing ahead.
+  Future<void> _writeFrames(String corrId, List<Uint8List> frames) async {
+    final write = _cmdWrite;
+    if (write == null) {
+      throw const BleConnectionException('command-write characteristic absent');
+    }
+    if (frames.length == 1) {
+      await write.write(frames.first, withoutResponse: false);
+      return;
+    }
+    for (var i = 0; i < frames.length; i++) {
+      final ackCompleter = Completer<void>();
+      (_pendingAcks[corrId] ??= {})[i] = ackCompleter;
+      await write.write(frames[i], withoutResponse: false);
+      try {
+        await ackCompleter.future.timeout(const Duration(seconds: 10));
+      } finally {
+        _pendingAcks[corrId]?.remove(i);
+        if (_pendingAcks[corrId]?.isEmpty ?? false) {
+          _pendingAcks.remove(corrId);
+        }
+      }
+    }
+  }
+
+  /// Clears any reassembly / ack-flow state for [corrId]. Called when a request
+  /// completes or times out so buffers do not leak.
+  void _cleanupCorrelation(String corrId) {
+    _reassemblers.remove(corrId);
+    _pendingAcks.remove(corrId);
+  }
 
   void _startResponseListener() {
     _responseSub = _cmdResponse?.onValueReceived.listen((rawBytes) {
@@ -354,31 +437,39 @@ class _ConnectedDevice {
         final corrId = chunk.correlationId;
         final total = chunk.totalChunks;
 
+        // Disambiguate an inbound ChunkAck (outbound flow-control) from an
+        // inbound ChunkedPayload response. Convention (mirrors firmware):
+        // total_chunks == 0 marks an ack frame; a real payload has total >= 1.
+        if (total == 0) {
+          _pendingAcks[corrId]?.remove(chunk.chunkIndex)?.complete();
+          return;
+        }
+
         if (total == 1) {
           // Single-chunk fast path: deliver immediately.
           _pendingRequests.remove(corrId)?.complete(rawBytes);
           return;
         }
 
-        // Multi-chunk: accumulate and deliver when all chunks arrive.
-        // This simple implementation concatenates data bytes in order.
-        final buf = _chunkBuffers.putIfAbsent(corrId, () => Uint8List(0));
-        _chunkBuffers[corrId] = Uint8List.fromList(buf + chunk.data);
-        _chunkCounts[corrId] = (_chunkCounts[corrId] ?? 0) + 1;
-        _chunkTotals[corrId] = total;
+        // Multi-chunk: ack this chunk, then place its data at chunk_index
+        // (index-addressed — ignores arrival order; duplicates overwrite).
+        _sendAck(corrId, chunk.chunkIndex);
 
-        if (_chunkCounts[corrId] == total) {
-          // All chunks received — wrap reassembled data in a final ChunkedPayload
-          // so decodeResponse() can strip the envelope uniformly.
+        final reassembler = _reassemblers.putIfAbsent(
+          corrId,
+          ChunkReassembler.new,
+        );
+        final assembled = reassembler.add(chunk);
+        if (assembled != null) {
+          // Re-wrap reassembled data in a single ChunkedPayload so
+          // decodeResponse() can strip the envelope uniformly.
           final full = proto.ChunkedPayload(
             correlationId: corrId,
             chunkIndex: 0,
             totalChunks: 1,
-            data: _chunkBuffers[corrId]!,
+            data: assembled,
           ).writeToBuffer();
-          _chunkBuffers.remove(corrId);
-          _chunkCounts.remove(corrId);
-          _chunkTotals.remove(corrId);
+          _reassemblers.remove(corrId);
           _pendingRequests.remove(corrId)?.complete(full);
         }
       } catch (_) {
@@ -386,6 +477,22 @@ class _ConnectedDevice {
         // eventually time out and surface as BleResponseStatus.timeout.
       }
     });
+  }
+
+  /// Writes a ChunkAck for ([corrId], [chunkIndex]) back to the camera.
+  /// Best-effort — failures are swallowed; the camera's own retransmit/timeout
+  /// handling covers a dropped ack.
+  void _sendAck(String corrId, int chunkIndex) {
+    final write = _cmdWrite;
+    if (write == null) return;
+    unawaited(
+      write
+          .write(
+            BleProtocol.encodeChunkAck(corrId, chunkIndex),
+            withoutResponse: true,
+          )
+          .catchError((_) {}),
+    );
   }
 
   void _startTelemetryPolling(

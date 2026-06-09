@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
@@ -22,20 +23,158 @@ const _uuid = Uuid();
 class BleProtocol {
   BleProtocol._();
 
+  /// Maximum number of serialized-[proto.Command] bytes carried in a single
+  /// [proto.ChunkedPayload] frame's `data` field. Commands whose serialized
+  /// form exceeds this are split across multiple ordered frames.
+  ///
+  /// The BLE link negotiates a 512-byte ATT MTU (see [BleServiceImpl.connect]).
+  /// We keep a conservative payload budget below that to leave room for the
+  /// ChunkedPayload envelope overhead (correlation_id, indices, field tags).
+  static const int maxChunkDataBytes = 400;
+
   /// Generates a new correlation ID (UUID v4).
   static String newCorrelationId() => _uuid.v4();
 
-  /// Encodes [cmd] into a ChunkedPayload-wrapped [proto.Command] and returns
-  /// the serialized bytes. Uses [correlationId] as the envelope ID.
-  static Uint8List encodeCommand(BleCommand cmd, String correlationId) {
+  /// Encodes [cmd] into one or more ChunkedPayload frames. A command whose
+  /// serialized form fits within [maxChunkDataBytes] yields exactly one frame
+  /// `{chunk_index: 0, total_chunks: 1}` (the single-chunk fast path); a larger
+  /// command is split into N ordered frames sharing [correlationId], each with
+  /// sequential `chunk_index` and `total_chunks = N`.
+  static List<Uint8List> encodeCommandFrames(
+    BleCommand cmd,
+    String correlationId,
+  ) {
     final protoCmd = _toProtoCommand(cmd, correlationId);
-    final chunk = proto.ChunkedPayload(
+    return _splitIntoFrames(protoCmd.writeToBuffer(), correlationId);
+  }
+
+  /// Encodes [cmd] into a single ChunkedPayload-wrapped [proto.Command] and
+  /// returns the serialized bytes of that frame.
+  ///
+  /// Retained for callers/tests that assert the single-frame envelope shape.
+  /// Transport code should use [encodeCommandFrames] so large commands chunk.
+  static Uint8List encodeCommand(BleCommand cmd, String correlationId) {
+    return encodeCommandFrames(cmd, correlationId).first;
+  }
+
+  /// Splits serialized command [data] into ordered ChunkedPayload frames,
+  /// each carrying at most [maxChunkDataBytes] of `data`.
+  static List<Uint8List> _splitIntoFrames(
+    List<int> data,
+    String correlationId,
+  ) {
+    final total = data.isEmpty
+        ? 1
+        : (data.length + maxChunkDataBytes - 1) ~/ maxChunkDataBytes;
+    final frames = <Uint8List>[];
+    for (var i = 0; i < total; i++) {
+      final start = i * maxChunkDataBytes;
+      final end = math.min(start + maxChunkDataBytes, data.length);
+      final chunk = proto.ChunkedPayload(
+        correlationId: correlationId,
+        chunkIndex: i,
+        totalChunks: total,
+        data: data.sublist(start, end),
+      );
+      frames.add(Uint8List.fromList(chunk.writeToBuffer()));
+    }
+    return frames;
+  }
+
+  /// Builds a [proto.ChunkAck] frame for the given [correlationId] and
+  /// [chunkIndex], serialized for writing back to the peer. A ChunkAck is
+  /// distinguished from a ChunkedPayload response on the wire by
+  /// `total_chunks == 0` (a ChunkedPayload always carries `total_chunks >= 1`).
+  static Uint8List encodeChunkAck(String correlationId, int chunkIndex) {
+    final ack = proto.ChunkedPayload(
       correlationId: correlationId,
-      chunkIndex: 0,
-      totalChunks: 1,
-      data: protoCmd.writeToBuffer(),
+      chunkIndex: chunkIndex,
+      totalChunks: 0,
+      data: const [],
     );
-    return Uint8List.fromList(chunk.writeToBuffer());
+    return Uint8List.fromList(ack.writeToBuffer());
+  }
+
+  /// Encodes a [PushSessionConfig] into a ChunkedPayload-wrapped
+  /// [proto.Command] (with the `push_session_config` oneof set) and returns the
+  /// serialized bytes.
+  ///
+  /// Deliberately bypasses [_toProtoCommand]: per "Fix 14", [PushSessionConfig]
+  /// is NOT part of the [BleCommand] sealed hierarchy — it is sent via the
+  /// dedicated [BleService.pushSessionConfig] API. This helper is the single
+  /// place that translates the session config to the wire.
+  ///
+  /// Optional fields (`rtmp_url` / `stream_key`) are only set when present;
+  /// when null they are left unset on the wire (not encoded as empty strings).
+  static List<Uint8List> encodeSessionConfigFrames(
+    PushSessionConfig config,
+    String correlationId,
+  ) {
+    final protoCmd = _sessionConfigToProtoCommand(config, correlationId);
+    return _splitIntoFrames(protoCmd.writeToBuffer(), correlationId);
+  }
+
+  /// Encodes [config] into a single ChunkedPayload frame's bytes. Retained for
+  /// tests asserting the envelope shape; transport uses
+  /// [encodeSessionConfigFrames].
+  static Uint8List encodeSessionConfig(
+    PushSessionConfig config,
+    String correlationId,
+  ) {
+    return encodeSessionConfigFrames(config, correlationId).first;
+  }
+
+  static proto.Command _sessionConfigToProtoCommand(
+    PushSessionConfig config,
+    String correlationId,
+  ) {
+    final pb = proto.PushSessionConfigCommand(
+      matchUuid: config.matchUuid,
+      userUuid: config.userUuid,
+      sport: config.sport,
+      numPeriods: config.numPeriods,
+      periodLengthSeconds: config.periodLengthSeconds,
+      videoOutputPath: config.videoOutputPath,
+      thumbnailOutputPath: config.thumbnailOutputPath,
+      teamAId: config.teamAId ?? '',
+      teamBId: config.teamBId ?? '',
+      teamAName: config.teamAName ?? '',
+      teamBName: config.teamBName ?? '',
+      teamAColorHex: config.teamAColorHex ?? '',
+      teamBColorHex: config.teamBColorHex ?? '',
+    );
+    // proto3 `optional` fields: leave unset when null so the receiver can
+    // distinguish "no streaming" from an empty-string destination.
+    if (config.rtmpUrl != null) pb.rtmpUrl = config.rtmpUrl!;
+    if (config.streamKey != null) pb.streamKey = config.streamKey!;
+
+    return proto.Command(
+      correlationId: correlationId,
+      pushSessionConfig: pb,
+    );
+  }
+
+  /// Decodes a CommandResponse for a [PushSessionConfig] push (which carries no
+  /// typed payload — only a status). Returns an OK response on
+  /// [proto.ResponseStatus.OK], a distinct unsupported response on
+  /// [proto.ResponseStatus.UNSUPPORTED], otherwise an error/timeout response.
+  static BleCommandResponse<void> decodeSessionConfigResponse(
+    List<int> chunkPayloadBytes,
+    String expectedCorrelationId,
+  ) {
+    try {
+      final chunk = proto.ChunkedPayload.fromBuffer(chunkPayloadBytes);
+      final resp = proto.CommandResponse.fromBuffer(chunk.data);
+      if (resp.correlationId != expectedCorrelationId) {
+        return BleCommandResponse.error(
+          'Correlation ID mismatch: expected $expectedCorrelationId, '
+          'got ${resp.correlationId}',
+        );
+      }
+      return _statusToResponse<void>(resp, () => BleCommandResponse.ok(null));
+    } catch (e) {
+      return BleCommandResponse.error('Proto decode error: $e');
+    }
   }
 
   /// Decodes [chunkPayloadBytes] (a serialized [proto.ChunkedPayload]) into a
@@ -63,17 +202,39 @@ class BleProtocol {
         );
       }
 
-      return switch (resp.status) {
-        proto.ResponseStatus.OK => _mapOkResponse<T>(resp, originalCommand),
-        proto.ResponseStatus.TIMEOUT => BleCommandResponse<T>.timeout(),
-        _ => BleCommandResponse.error(
+      // Parse by the actual response payload variant — not by the outbound
+      // command type — so the decode reflects what the firmware truly sent.
+      return _statusToResponse<T>(resp, () => _mapOkResponse<T>(resp));
+    } catch (e) {
+      return BleCommandResponse.error('Proto decode error: $e');
+    }
+  }
+
+  /// Maps a [proto.CommandResponse]'s status to a [BleCommandResponse], invoking
+  /// [onOk] to build the OK payload. UNSUPPORTED is surfaced distinctly from a
+  /// generic ERROR (preserving any `error_message`); TIMEOUT maps to timeout.
+  static BleCommandResponse<T> _statusToResponse<T>(
+    proto.CommandResponse resp,
+    BleCommandResponse<T> Function() onOk,
+  ) {
+    switch (resp.status) {
+      case proto.ResponseStatus.OK:
+        return onOk();
+      case proto.ResponseStatus.TIMEOUT:
+        return BleCommandResponse<T>.timeout();
+      case proto.ResponseStatus.UNSUPPORTED:
+        return BleCommandResponse<T>(
+          status: BleResponseStatus.unsupported,
+          errorMessage: resp.errorMessage.isNotEmpty
+              ? resp.errorMessage
+              : 'Command not supported by firmware',
+        );
+      default:
+        return BleCommandResponse.error(
           resp.errorMessage.isNotEmpty
               ? resp.errorMessage
               : 'Command failed with status ${resp.status}',
-        ),
-      };
-    } catch (e) {
-      return BleCommandResponse.error('Proto decode error: $e');
+        );
     }
   }
 
@@ -187,76 +348,98 @@ class BleProtocol {
     ),
   };
 
-  static BleCommandResponse<T> _mapOkResponse<T>(
-    proto.CommandResponse resp,
-    BleCommand cmd,
-  ) {
-    return switch (cmd) {
-      GetDeviceInfoCommand() => BleCommandResponse.ok(
-        DeviceInfoResponse(deviceId: resp.deviceInfo.deviceId) as T?,
-      ),
-      GetTelemetryCommand() => BleCommandResponse.ok(
-        _dartTelemetry(resp.telemetry) as T?,
-      ),
-      GetMatchStateCommand() => BleCommandResponse.ok(
-        _dartMatchState(resp.matchState) as T?,
-      ),
-      ListRecordingsCommand() => BleCommandResponse.ok(
-        resp.recordingList.recordings
-                .map(
-                  (r) => RecordingMetadata(
-                    id: r.id,
-                    durationSeconds: r.durationS.toInt(),
-                    sizeBytes: r.sizeBytes.toInt(),
-                    startedAt: DateTime.fromMillisecondsSinceEpoch(
-                      r.startedAt.toInt() * 1000,
+  /// Maps an OK [proto.CommandResponse] to a typed [BleCommandResponse] by
+  /// switching on the actual `whichPayload()` variant the firmware sent. A
+  /// `notSet` payload is a valid result for the control commands that carry no
+  /// data (they OK with a null payload); for payload-bearing variants the
+  /// firmware's chosen oneof determines the decode.
+  ///
+  /// For DeviceInfo, the firmware's `protocol_version` is checked against
+  /// [kAppProtocolVersion]; a mismatch returns an error response carrying the
+  /// version-skew message so callers can refuse the session.
+  static BleCommandResponse<T> _mapOkResponse<T>(proto.CommandResponse resp) {
+    switch (resp.whichPayload()) {
+      case proto.CommandResponse_Payload.deviceInfo:
+        final info = resp.deviceInfo;
+        if (info.protocolVersion != kAppProtocolVersion) {
+          return BleCommandResponse.error(
+            'Protocol version mismatch: firmware ${info.protocolVersion}, '
+            'app $kAppProtocolVersion',
+          );
+        }
+        return BleCommandResponse.ok(
+          DeviceInfoResponse(
+                deviceId: info.deviceId,
+                name: info.name,
+                firmwareVersion: info.firmwareVersion,
+                model: info.model,
+                protocolVersion: info.protocolVersion,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.telemetry:
+        return BleCommandResponse.ok(_dartTelemetry(resp.telemetry) as T?);
+      case proto.CommandResponse_Payload.matchState:
+        return BleCommandResponse.ok(_dartMatchState(resp.matchState) as T?);
+      case proto.CommandResponse_Payload.recordingList:
+        return BleCommandResponse.ok(
+          resp.recordingList.recordings
+                  .map(
+                    (r) => RecordingMetadata(
+                      id: r.id,
+                      durationSeconds: r.durationS.toInt(),
+                      sizeBytes: r.sizeBytes.toInt(),
+                      startedAt: DateTime.fromMillisecondsSinceEpoch(
+                        r.startedAt.toInt() * 1000,
+                      ),
+                      sport: r.sport,
+                      teams: r.teams,
                     ),
-                    sport: r.sport,
-                    teams: r.teams,
-                  ),
-                )
-                .toList()
-            as T?,
-      ),
-      DownloadRequestCommand() => BleCommandResponse.ok(
-        DownloadToken(
-              recordingId: resp.downloadToken.recordingId,
-              httpUrl: resp.downloadToken.httpUrl,
-              authToken: resp.downloadToken.authToken,
-              expiresAt: DateTime.fromMillisecondsSinceEpoch(
-                resp.downloadToken.expiresAt.toInt() * 1000,
-              ),
-            )
-            as T?,
-      ),
-      RequestThumbnailCommand() => BleCommandResponse.ok(
-        ThumbnailResult(
-              jpegBytes: Uint8List.fromList(resp.thumbnail.jpegBytes),
-              capturedAt: DateTime.fromMillisecondsSinceEpoch(
-                resp.thumbnail.captureTimestamp.toInt(),
-              ),
-            )
-            as T?,
-      ),
-      RecordingControlCommand() => BleCommandResponse.ok(null as T?),
-      StreamingControlCommand() => BleCommandResponse.ok(null as T?),
-      MatchControlCommand() => BleCommandResponse.ok(null as T?),
-      ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
-      BannerEventCommand() => BleCommandResponse.ok(null as T?),
-      PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
-      StartWifiDirectCommand() => BleCommandResponse.ok(
-        WifiDirectGroup(
-              ssid: resp.wifiDirectGroup.ssid,
-              psk: resp.wifiDirectGroup.psk,
-              groupOwnerIp: resp.wifiDirectGroup.groupOwnerIp,
-              previewPort: resp.wifiDirectGroup.previewPort,
-              downloadPort: resp.wifiDirectGroup.downloadPort,
-              role: resp.wifiDirectGroup.role,
-            )
-            as T?,
-      ),
-      StopWifiDirectCommand() => BleCommandResponse.ok(null as T?),
-    };
+                  )
+                  .toList()
+              as T?,
+        );
+      case proto.CommandResponse_Payload.downloadToken:
+        return BleCommandResponse.ok(
+          DownloadToken(
+                recordingId: resp.downloadToken.recordingId,
+                httpUrl: resp.downloadToken.httpUrl,
+                authToken: resp.downloadToken.authToken,
+                expiresAt: DateTime.fromMillisecondsSinceEpoch(
+                  resp.downloadToken.expiresAt.toInt() * 1000,
+                ),
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.thumbnail:
+        return BleCommandResponse.ok(
+          ThumbnailResult(
+                jpegBytes: Uint8List.fromList(resp.thumbnail.jpegBytes),
+                capturedAt: DateTime.fromMillisecondsSinceEpoch(
+                  resp.thumbnail.captureTimestamp.toInt(),
+                ),
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.wifiDirectGroup:
+        return BleCommandResponse.ok(
+          WifiDirectGroup(
+                ssid: resp.wifiDirectGroup.ssid,
+                psk: resp.wifiDirectGroup.psk,
+                groupOwnerIp: resp.wifiDirectGroup.groupOwnerIp,
+                previewPort: resp.wifiDirectGroup.previewPort,
+                downloadPort: resp.wifiDirectGroup.downloadPort,
+                role: resp.wifiDirectGroup.role,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.notSet:
+        // No typed payload — valid for control commands (recording/streaming/
+        // match control, score/banner events, overlay/session push). If T is a
+        // value type the caller expected a payload that the firmware omitted;
+        // we still OK with null and let the caller's null-check surface it.
+        return BleCommandResponse.ok(null as T?);
+    }
   }
 
   static DeviceTelemetry _dartTelemetry(proto.DeviceTelemetry p) =>
@@ -273,6 +456,7 @@ class BleProtocol {
         uptimeSeconds: p.uptimeSeconds.toInt(),
         isRecording: p.isRecording,
         isStreaming: p.isStreaming,
+        batteryLevelPct: p.hasBatteryLevelPct() ? p.batteryLevelPct : null,
       );
 
   static WifiState _dartWifiState(proto.WifiState s) => switch (s) {
@@ -380,4 +564,44 @@ class BleProtocol {
         ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt() * 1000)
         : DateTime.now(),
   );
+}
+
+/// Index-addressed reassembler for an inbound multi-chunk response on a single
+/// correlation id. Unlike a naive arrival-order concatenation, it places each
+/// chunk's `data` at its `chunk_index`, so out-of-order or duplicate frames
+/// reassemble correctly. Completes once every index in `[0, total_chunks)` is
+/// present.
+///
+/// One instance per correlation id. The transport ([_ConnectedDevice]) holds a
+/// map of these keyed by correlation id and clears them on completion/timeout.
+class ChunkReassembler {
+  final Map<int, List<int>> _byIndex = {};
+  int? _total;
+
+  /// Number of distinct chunk indices received so far.
+  int get received => _byIndex.length;
+
+  /// Total chunks expected (set from the first frame seen), or null if none yet.
+  int? get total => _total;
+
+  /// Adds [chunk]. Duplicate indices overwrite (not double-count). Returns the
+  /// fully reassembled byte sequence once all indices are present, else null.
+  List<int>? add(proto.ChunkedPayload chunk) {
+    _total = chunk.totalChunks;
+    _byIndex[chunk.chunkIndex] = chunk.data;
+    return _tryAssemble();
+  }
+
+  List<int>? _tryAssemble() {
+    final total = _total;
+    if (total == null || _byIndex.length < total) return null;
+    for (var i = 0; i < total; i++) {
+      if (!_byIndex.containsKey(i)) return null;
+    }
+    final out = <int>[];
+    for (var i = 0; i < total; i++) {
+      out.addAll(_byIndex[i]!);
+    }
+    return out;
+  }
 }

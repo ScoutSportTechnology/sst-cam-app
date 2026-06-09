@@ -316,6 +316,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         ? _customRtmpUrl
         : null;
 
+    final opponentName = widget.match.match.opponent.startsWith('vs ')
+        ? widget.match.match.opponent.substring(3)
+        : widget.match.match.opponent;
+
     final config = PushSessionConfig(
       matchUuid: matchUuid,
       userUuid: userUuid,
@@ -325,6 +329,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       rtmpUrl: rtmpUrl,
       videoOutputPath: '/data/video/$userUuid/$matchUuid/',
       thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
+      teamAId: widget.match.team.id,
+      // The opponent is stored as a free-text label with no team record, so
+      // there is no team B id to send.
+      teamBId: null,
+      teamAName: widget.match.team.name,
+      teamBName: opponentName,
       teamAColorHex: widget.match.team.colorHex,
     );
 

@@ -12,6 +12,7 @@ class DeviceTelemetry {
     required this.uptimeSeconds,
     required this.isRecording,
     required this.isStreaming,
+    this.batteryLevelPct,
   });
 
   final int storageFreeBytes;
@@ -26,6 +27,9 @@ class DeviceTelemetry {
   final int uptimeSeconds;
   final bool isRecording;
   final bool isStreaming;
+
+  /// Battery charge 0–100, or null when the device does not report a battery.
+  final int? batteryLevelPct;
 
   double get storageUsedPct =>
       storageTotalBytes == 0 ? 0 : 1 - (storageFreeBytes / storageTotalBytes);
