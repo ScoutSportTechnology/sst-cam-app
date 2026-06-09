@@ -263,35 +263,18 @@ class BleServiceImpl implements BleService {
     }
 
     final corrId = BleProtocol.newCorrelationId();
-    final completer = Completer<List<int>>();
-    conn._pendingRequests[corrId] = completer;
-
     try {
       final frames = BleProtocol.encodeCommandFrames(command, corrId);
-      // One shared deadline spans the ack-gated frame writes AND the response
-      // wait, so a multi-chunk command cannot stack per-chunk timeouts past the
-      // overall budget.
-      final deadline = DateTime.now().add(_kCommandTimeout);
-      await conn._writeFrames(corrId, frames, deadline);
-
-      final responseBytes = await completer.future.timeout(
-        _remainingUntil(deadline),
-        onTimeout: () {
-          conn._pendingRequests.remove(corrId);
-          throw BleTimeoutException(
-            'Command ${command.runtimeType} timed out for $deviceId',
-          );
-        },
+      final responseBytes = await conn._sendFramesAndAwait(
+        corrId,
+        frames,
+        'Command ${command.runtimeType} for $deviceId',
       );
-
       return BleProtocol.decodeResponse<T>(responseBytes, corrId);
     } on BleTimeoutException {
       return BleCommandResponse<T>.timeout();
     } catch (e) {
       return BleCommandResponse.error('sendCommand failed: $e');
-    } finally {
-      conn._pendingRequests.remove(corrId);
-      conn._cleanupCorrelation(corrId);
     }
   }
 
@@ -310,40 +293,21 @@ class BleServiceImpl implements BleService {
     }
 
     // Fix 14: PushSessionConfig is not a BleCommand and never routes through
-    // sendCommand/_toProtoCommand. We reuse the same completer/timeout/
-    // correlation-id machinery here, encoding via the dedicated
-    // BleProtocol.encodeSessionConfigFrames helper.
+    // sendCommand/_toProtoCommand. It encodes via the dedicated
+    // encodeSessionConfigFrames helper and shares the request lifecycle via
+    // _sendFramesAndAwait.
     final corrId = BleProtocol.newCorrelationId();
-    final completer = Completer<List<int>>();
-    conn._pendingRequests[corrId] = completer;
-
-    try {
-      final frames = BleProtocol.encodeSessionConfigFrames(config, corrId);
-      final deadline = DateTime.now().add(_kCommandTimeout);
-      await conn._writeFrames(corrId, frames, deadline);
-
-      final responseBytes = await completer.future.timeout(
-        _remainingUntil(deadline),
-        onTimeout: () {
-          conn._pendingRequests.remove(corrId);
-          throw BleTimeoutException(
-            'pushSessionConfig timed out for $deviceId',
-          );
-        },
+    final frames = BleProtocol.encodeSessionConfigFrames(config, corrId);
+    final responseBytes = await conn._sendFramesAndAwait(
+      corrId,
+      frames,
+      'pushSessionConfig for $deviceId',
+    );
+    final resp = BleProtocol.decodeSessionConfigResponse(responseBytes, corrId);
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'pushSessionConfig failed: ${resp.errorMessage}',
       );
-
-      final resp = BleProtocol.decodeSessionConfigResponse(
-        responseBytes,
-        corrId,
-      );
-      if (!resp.isOk) {
-        throw BleConnectionException(
-          'pushSessionConfig failed: ${resp.errorMessage}',
-        );
-      }
-    } finally {
-      conn._pendingRequests.remove(corrId);
-      conn._cleanupCorrelation(corrId);
     }
   }
 
@@ -440,6 +404,36 @@ class _ConnectedDevice {
   /// frame it awaits the inbound [proto.ChunkAck] for that `chunk_index` before
   /// sending the next, so a missing/late ack stalls (and the caller's overall
   /// timeout fires) rather than racing ahead.
+  /// Registers a pending request for [corrId], writes [frames] (ack-gated for
+  /// multi-frame), and awaits the response bytes — all under one shared timeout
+  /// budget. Shared verbatim by sendCommand and pushSessionConfig so the
+  /// flow-control lifecycle lives in exactly one place. [timeoutLabel] names the
+  /// operation in the timeout message.
+  Future<List<int>> _sendFramesAndAwait(
+    String corrId,
+    List<Uint8List> frames,
+    String timeoutLabel,
+  ) async {
+    final completer = Completer<List<int>>();
+    _pendingRequests[corrId] = completer;
+    try {
+      // One shared deadline spans the ack-gated writes AND the response wait, so
+      // a multi-chunk command cannot stack per-chunk timeouts past the budget.
+      final deadline = DateTime.now().add(_kCommandTimeout);
+      await _writeFrames(corrId, frames, deadline);
+      return await completer.future.timeout(
+        _remainingUntil(deadline),
+        onTimeout: () {
+          _pendingRequests.remove(corrId);
+          throw BleTimeoutException('$timeoutLabel timed out');
+        },
+      );
+    } finally {
+      _pendingRequests.remove(corrId);
+      _cleanupCorrelation(corrId);
+    }
+  }
+
   Future<void> _writeFrames(
     String corrId,
     List<Uint8List> frames,
@@ -499,7 +493,9 @@ class _ConnectedDevice {
         }
 
         if (total == 1) {
-          // Single-chunk fast path: deliver immediately.
+          // Single-chunk fast path: ack (flow control is symmetric per the
+          // contract) then deliver immediately.
+          _sendAck(corrId, chunk.chunkIndex);
           _pendingRequests.remove(corrId)?.complete(rawBytes);
           return;
         }
@@ -578,6 +574,23 @@ class _ConnectedDevice {
     _telemetryTimer?.cancel();
     _matchStateTimer?.cancel();
     _responseSub?.cancel();
+    // Fail any in-flight requests/acks so awaiting callers get a clean error
+    // immediately on disconnect instead of hanging until their timeout fires.
+    for (final c in _pendingRequests.values) {
+      if (!c.isCompleted) {
+        c.completeError(const BleConnectionException('Connection closed'));
+      }
+    }
+    _pendingRequests.clear();
+    for (final acks in _pendingAcks.values) {
+      for (final c in acks.values) {
+        if (!c.isCompleted) {
+          c.completeError(const BleConnectionException('Connection closed'));
+        }
+      }
+    }
+    _pendingAcks.clear();
+    _reassemblers.clear();
     _connController.close();
     _telemetryController.close();
     _matchStateController.close();
