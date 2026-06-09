@@ -180,3 +180,4 @@ The subscription leak was an ownership gap: `listen()` returns a `StreamSubscrip
 
 - Commit `d39d4ed` — `fix(review): apply code-review fixes across playback, download, and overlay` — all three fixes applied together in a single code-review pass.
 - `docs/solutions/architecture-patterns/app-source-of-truth-drift-sqlite-2026-05-06.md` — covers where business data lives (Drift vs BLE); mentions `ref.onDispose(sub.cancel)` in passing for Riverpod subscription teardown (different context, same lifecycle principle).
+- `docs/solutions/logic-errors/wifi-direct-dart-service-lifecycle-correctness-2026-06-09.md` — another `StreamSubscription` leak in `WifiServiceImpl.connectGroup`: `Map.remove()` called without `.cancel()` in `onError` handler (same pattern, different service).
