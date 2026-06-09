@@ -762,7 +762,12 @@ class MockBleService implements BleService {
       GetDeviceInfoCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
-        deviceInfo: proto.DeviceInfoResponse(deviceId: 'mock-device-uuid'),
+        deviceInfo: proto.DeviceInfoResponse(
+          deviceId: 'mock-device-uuid',
+          // Must match the app's expected version or decodeResponse rejects the
+          // session as a version skew (see kAppProtocolVersion).
+          protocolVersion: kAppProtocolVersion,
+        ),
       ),
       GetTelemetryCommand() => proto.CommandResponse(
         correlationId: correlationId,
