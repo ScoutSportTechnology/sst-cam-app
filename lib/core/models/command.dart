@@ -46,6 +46,9 @@ class RequestThumbnailCommand extends BleCommand {
 // the group parameters itself.
 class StartWifiDirectCommand extends BleCommand {}
 
+// WiFi Direct — app instructs firmware to tear down the active P2P group.
+class StopWifiDirectCommand extends BleCommand {}
+
 // Recording / file transfer
 class ListRecordingsCommand extends BleCommand {}
 

@@ -18,12 +18,16 @@ class WifiP2pChannel {
   /// (not when the group is fully established — group state arrives via
   /// [stateStream]).
   Future<void> connect({required String ssid, required String psk}) async {
-    await _method.invokeMethod<void>('connect', {'ssid': ssid, 'psk': psk});
+    await _method
+        .invokeMethod<void>('connect', {'ssid': ssid, 'psk': psk})
+        .timeout(const Duration(seconds: 15));
   }
 
   /// Tear down the active P2P group. Safe to call when no group is active.
   Future<void> disconnect() async {
-    await _method.invokeMethod<void>('disconnect');
+    await _method
+        .invokeMethod<void>('disconnect')
+        .timeout(const Duration(seconds: 15));
   }
 
   /// Integer state codes pushed by the native `BroadcastReceiver`:

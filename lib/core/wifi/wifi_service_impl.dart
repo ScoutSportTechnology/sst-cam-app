@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/services.dart';
-
 import '../ble/ble_service.dart';
 import '../models/command.dart';
 import '../models/overlay.dart';
@@ -42,6 +40,10 @@ class WifiServiceImpl implements WifiService {
   // Per-device current group (null when disconnected).
   final Map<String, WifiDirectGroup> _currentGroups = {};
 
+  // In-flight connectGroup calls — second caller awaits the same Completer
+  // rather than racing with an already-running connect sequence.
+  final Map<String, Completer<WifiDirectGroup>> _inflightConnects = {};
+
   /// Returns (creating if absent) the broadcast controller for [deviceId].
   StreamController<WifiDirectState> _stateController(String deviceId) {
     return _stateControllers.putIfAbsent(
@@ -66,6 +68,27 @@ class WifiServiceImpl implements WifiService {
 
   @override
   Future<WifiDirectGroup> connectGroup(String deviceId) async {
+    // Serialize concurrent calls for the same device — second caller awaits the
+    // already-running connect sequence instead of starting a duplicate.
+    final existing = _inflightConnects[deviceId];
+    if (existing != null) return existing.future;
+
+    final completer = Completer<WifiDirectGroup>();
+    _inflightConnects[deviceId] = completer;
+
+    try {
+      final group = await _connectGroupInternal(deviceId);
+      completer.complete(group);
+      return group;
+    } catch (e) {
+      completer.completeError(e);
+      rethrow;
+    } finally {
+      _inflightConnects.remove(deviceId);
+    }
+  }
+
+  Future<WifiDirectGroup> _connectGroupInternal(String deviceId) async {
     // iOS guard — P2P group negotiation is not supported on iOS.
     if (Platform.isIOS) {
       _emitState(deviceId, WifiDirectState.failed);
@@ -118,10 +141,10 @@ class WifiServiceImpl implements WifiService {
     // Platform channel — join the P2P group on Android.
     try {
       await _channel.connect(ssid: group.ssid, psk: group.psk);
-    } on PlatformException catch (e) {
+    } on Exception catch (e) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       _emitState(deviceId, WifiDirectState.failed);
-      throw WifiDirectException('P2P connect failed: ${e.message}');
+      throw WifiDirectException('P2P connect failed: $e');
     }
 
     _currentGroups[deviceId] = group;
@@ -130,15 +153,29 @@ class WifiServiceImpl implements WifiService {
 
   @override
   Future<void> disconnectGroup(String deviceId) async {
+    // Nothing to tear down if we never connected and nothing is in flight.
+    if (_currentGroups[deviceId] == null &&
+        _inflightConnects[deviceId] == null) {
+      return;
+    }
+
     await _stateSubscriptions.remove(deviceId)?.cancel();
     _emitState(deviceId, WifiDirectState.stopping);
+
     if (!Platform.isIOS) {
+      // Tell firmware to release its P2P group before tearing down the Android side.
+      try {
+        await _ble.sendCommand<void>(deviceId, StopWifiDirectCommand());
+      } catch (_) {
+        // Best-effort — firmware may already be idle.
+      }
       try {
         await _channel.disconnect();
       } catch (_) {
         // Best-effort — ignore native-side errors on disconnect.
       }
     }
+
     _currentGroups.remove(deviceId);
     _emitState(deviceId, WifiDirectState.idle);
   }

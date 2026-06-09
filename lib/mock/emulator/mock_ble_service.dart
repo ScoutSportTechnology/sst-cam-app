@@ -732,6 +732,10 @@ class MockBleService implements BleService {
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
     ),
+    StopWifiDirectCommand() => proto.Command(
+      correlationId: correlationId,
+      stopWifiDirect: proto.StopWifiDirectCommand(),
+    ),
   };
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
@@ -832,6 +836,10 @@ class MockBleService implements BleService {
           role: 'GO',
         ),
       ),
+      StopWifiDirectCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+      ),
     };
   }
 
@@ -923,6 +931,7 @@ class MockBleService implements BleService {
             )
             as T?,
       ),
+      StopWifiDirectCommand() => BleCommandResponse.ok(null as T?),
     };
   }
 

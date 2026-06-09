@@ -69,21 +69,24 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
     }
 
     private fun connect(ssid: String, psk: String, result: Result) {
+        // SSID/PSK-based join via WifiP2pConfig.Builder requires API 29 (Android 10+).
+        // The pre-Q WifiP2pConfig API requires a peer MAC address from prior discovery,
+        // which we do not perform — attempting it with an empty address always fails.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            eventSink?.success(STATE_FAILED)
+            result.error("UNSUPPORTED", "WiFi Direct credential-based join requires Android 10+", null)
+            return
+        }
+
         val mgr = wifiP2pManager
             ?: return result.error("UNAVAILABLE", "WifiP2pManager not initialized", null)
         val ch = channel
             ?: return result.error("UNAVAILABLE", "WifiP2pManager channel not available", null)
 
-        val config = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            WifiP2pConfig.Builder()
-                .setNetworkName(ssid)
-                .setPassphrase(psk)
-                .build()
-        } else {
-            WifiP2pConfig().also { cfg ->
-                cfg.deviceAddress = ""  // Will be resolved by ssid
-            }
-        }
+        val config = WifiP2pConfig.Builder()
+            .setNetworkName(ssid)
+            .setPassphrase(psk)
+            .build()
 
         // Register broadcast receiver to get connection state
         registerReceiver()
@@ -93,6 +96,7 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
                 result.success(null)
             }
             override fun onFailure(reason: Int) {
+                unregisterReceiver()
                 eventSink?.success(STATE_FAILED)
                 result.error("CONNECT_FAILED", "WifiP2p connect failed: $reason", null)
             }
@@ -138,6 +142,10 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
                         }
                         if (info?.isGroupOwner == false && info.groupFormed) {
                             eventSink?.success(STATE_CONNECTED)
+                        } else if (info?.isGroupOwner == true && info.groupFormed) {
+                            // Device became group owner unexpectedly; we only join as client.
+                            Log.w(TAG, "Device became GO unexpectedly; emitting STATE_FAILED")
+                            eventSink?.success(STATE_FAILED)
                         } else if (info?.groupFormed == false) {
                             eventSink?.success(STATE_IDLE)
                         }

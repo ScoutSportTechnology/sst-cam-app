@@ -181,6 +181,10 @@ class BleProtocol {
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
     ),
+    StopWifiDirectCommand() => proto.Command(
+      correlationId: correlationId,
+      stopWifiDirect: proto.StopWifiDirectCommand(),
+    ),
   };
 
   static BleCommandResponse<T> _mapOkResponse<T>(
@@ -251,6 +255,7 @@ class BleProtocol {
             )
             as T?,
       ),
+      StopWifiDirectCommand() => BleCommandResponse.ok(null as T?),
     };
   }
 
