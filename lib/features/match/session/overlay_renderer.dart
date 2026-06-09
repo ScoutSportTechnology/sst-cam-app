@@ -99,14 +99,18 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           constraints.maxHeight / widget.layout.canvasHeight,
         );
 
-        final persistentWidgets = widget.layout.elements
-            .where((e) => e.visible)
+        final persistentWidgets = (widget.layout.elements
+                .where((e) => e.visible)
+                .toList()
+              ..sort((a, b) => a.bounds.z.compareTo(b.bounds.z)))
             .map((e) => _buildPositioned(e, s))
             .toList();
 
         final bannerWidgets = _activeBannerTemplate != null
-            ? (_activeBannerTemplate!.elements
-                  .where((e) => e.visible)
+            ? ((_activeBannerTemplate!.elements
+                      .where((e) => e.visible)
+                      .toList()
+                    ..sort((a, b) => a.bounds.z.compareTo(b.bounds.z)))
                   .map((e) => _buildPositioned(e, s))
                   .toList())
             : <Widget>[];
@@ -155,11 +159,8 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           ),
         );
       case OverlayShape.circle:
-        return Container(
-          decoration: BoxDecoration(
-            color: _parseHex(el.style.fillColor),
-            shape: BoxShape.circle,
-          ),
+        return CustomPaint(
+          painter: _OvalPainter(_parseHex(el.style.fillColor)),
         );
     }
   }
@@ -210,4 +211,23 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
         return Alignment.centerRight;
     }
   }
+}
+
+// Draws an ellipse inscribed in the full paint bounds, matching the spec's
+// definition of SHAPE_CIRCLE ("ellipse inscribed in bounds").
+class _OvalPainter extends CustomPainter {
+  const _OvalPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawOval(
+      Offset.zero & size,
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_OvalPainter old) => old.color != color;
 }

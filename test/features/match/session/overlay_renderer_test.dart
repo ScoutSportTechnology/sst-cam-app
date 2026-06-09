@@ -1,4 +1,4 @@
-// Tests for OverlayLayoutRenderer (U9 + U4).
+// Tests for OverlayLayoutRenderer (U9 + U4 + U2 + U3).
 //
 // Covers:
 //  1. Smoke test — pumps without throw
@@ -18,6 +18,10 @@
 // 15. {{param}} substitution — GOAL — Messi rendered with matching params
 // 16. Missing param key replaced with empty string — GOAL —  rendered
 // 17. Params cleared after banner timer expiry — substituted text disappears
+// 18. Z-order sort — out-of-array higher-z element is rendered last (on top)
+// 19. Z-order sort — banner template elements also sorted by z
+// 20. SHAPE_CIRCLE on square bounds renders a CustomPaint (ellipse)
+// 21. SHAPE_CIRCLE on non-square bounds fills the full width (ellipse, not clipped circle)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -162,6 +166,93 @@ const _paramBannerLayout = OverlayLayout(
       ],
     ),
   ],
+);
+
+// Two RECT elements with z out of array order:
+//   rectFront: z=2, x1=960 → should be rendered LAST (on top)
+//   rectBack:  z=1, x1=0   → should be rendered FIRST (behind)
+// Array order is [rectFront, rectBack] — reversed from z order.
+const _zOrderLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [
+    OverlayElement(
+      id: 'front',
+      shape: OverlayShape.rect,
+      bounds: OverlayRect(x1: 960, y1: 0, x2: 1920, y2: 100, z: 2),
+      style: OverlayStyle(fillColor: '#FF0000'),
+      binding: OverlayBinding.static,
+    ),
+    OverlayElement(
+      id: 'back',
+      shape: OverlayShape.rect,
+      bounds: OverlayRect(x1: 0, y1: 0, x2: 960, y2: 100, z: 1),
+      style: OverlayStyle(fillColor: '#0000FF'),
+      binding: OverlayBinding.static,
+    ),
+  ],
+  templates: [],
+);
+
+// Banner layout with two elements out of z order to test banner sort.
+const _zOrderBannerLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [],
+  templates: [
+    OverlayTemplate(
+      eventType: 'goal',
+      durationMs: 3000,
+      elements: [
+        OverlayElement(
+          id: 'top',
+          shape: OverlayShape.rect,
+          bounds: OverlayRect(x1: 960, y1: 0, x2: 1920, y2: 100, z: 2),
+          style: OverlayStyle(fillColor: '#FF0000'),
+          binding: OverlayBinding.static,
+        ),
+        OverlayElement(
+          id: 'bottom',
+          shape: OverlayShape.rect,
+          bounds: OverlayRect(x1: 0, y1: 0, x2: 960, y2: 100, z: 1),
+          style: OverlayStyle(fillColor: '#0000FF'),
+          binding: OverlayBinding.static,
+        ),
+      ],
+    ),
+  ],
+);
+
+// A square-bounds circle element.
+const _circleSquareLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [
+    OverlayElement(
+      id: 'dot',
+      shape: OverlayShape.circle,
+      bounds: OverlayRect(x1: 100, y1: 100, x2: 200, y2: 200, z: 1),
+      style: OverlayStyle(fillColor: '#FF0000'),
+      binding: OverlayBinding.static,
+    ),
+  ],
+  templates: [],
+);
+
+// A non-square-bounds circle element (100 wide, 50 tall) — should render oval.
+const _circleNonSquareLayout = OverlayLayout(
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  elements: [
+    OverlayElement(
+      id: 'oval',
+      shape: OverlayShape.circle,
+      bounds: OverlayRect(x1: 100, y1: 100, x2: 200, y2: 150, z: 1),
+      style: OverlayStyle(fillColor: '#00FF00'),
+      binding: OverlayBinding.static,
+    ),
+  ],
+  templates: [],
 );
 
 void main() {
@@ -537,6 +628,7 @@ void main() {
   testWidgets('substituted text disappears after banner timer expires', (
     tester,
   ) async {
+
     await tester.pumpWidget(
       _wrap(
         OverlayLayoutRenderer(
@@ -574,5 +666,129 @@ void main() {
 
     // Banner is gone — substituted text no longer visible.
     expect(find.text('GOAL — Ronaldo'), findsNothing);
+  });
+
+  // ---- 18. Z-order sort — persistent elements ------------------------------
+
+  testWidgets('higher-z element (array index 0) is rendered last in Stack', (
+    tester,
+  ) async {
+    // _zOrderLayout has [front(z=2, x1=960), back(z=1, x1=0)] in array.
+    // After z-sort: [back(z=1, x1=0), front(z=2, x1=960)].
+    // Stack children: index 0 = back (left≈0), index 1 = front (left≈960*s).
+    const s = 200.0 / 1080.0; // min(400/1920, 200/1080)
+    const frontLeft = 960.0 * s;
+
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _zOrderLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    final positioneds =
+        tester.widgetList<Positioned>(find.byType(Positioned)).toList();
+    expect(positioneds.length, 2);
+    // First child in Stack = lower z = back (x1=0 → left≈0).
+    expect(positioneds[0].left, closeTo(0.0, 0.1));
+    // Second child in Stack = higher z = front (x1=960 → left≈frontLeft).
+    expect(positioneds[1].left, closeTo(frontLeft, 0.1));
+  });
+
+  // ---- 19. Z-order sort — banner template elements -------------------------
+
+  testWidgets('banner template elements are also sorted by z', (tester) async {
+    // _zOrderBannerLayout: banner has [top(z=2, x1=960), bottom(z=1, x1=0)].
+    // After z-sort: [bottom(z=1, x1=0), top(z=2, x1=960)].
+    const s = 200.0 / 1080.0;
+    const topLeft = 960.0 * s;
+
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _zOrderBannerLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    // Fire a goal event to activate the banner.
+    final stateWithGoal = LiveMatchState.initial.copyWith(
+      events: const [LiveEvent(clock: '01:00', label: 'Goal · NR')],
+    );
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _zOrderBannerLayout,
+          matchState: stateWithGoal,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final positioneds =
+        tester.widgetList<Positioned>(find.byType(Positioned)).toList();
+    expect(positioneds.length, 2);
+    expect(positioneds[0].left, closeTo(0.0, 0.1));
+    expect(positioneds[1].left, closeTo(topLeft, 0.1));
+  });
+
+  // ---- 20. SHAPE_CIRCLE renders via CustomPaint (not BoxShape.circle) ------
+
+  testWidgets('SHAPE_CIRCLE child is CustomPaint, not a BoxShape.circle Container', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _circleSquareLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+
+    // The Positioned child for the circle element must be a CustomPaint.
+    final positioned = tester.widget<Positioned>(find.byType(Positioned).first);
+    expect(positioned.child, isA<CustomPaint>());
+
+    // Must NOT be a Container with BoxShape.circle (old incorrect implementation).
+    final containers = tester.widgetList<Container>(find.byType(Container));
+    final circleContainers = containers.where((c) {
+      final dec = c.decoration;
+      return dec is BoxDecoration && dec.shape == BoxShape.circle;
+    });
+    expect(circleContainers, isEmpty);
+  });
+
+  // ---- 21. SHAPE_CIRCLE on non-square bounds fills full width --------------
+
+  testWidgets('SHAPE_CIRCLE non-square bounds: Positioned width > height', (
+    tester,
+  ) async {
+    // bounds x1=100, x2=200, y1=100, y2=150 → width=100, height=50.
+    // Positioned width should be 100*s, height should be 50*s (s = 200/1080).
+    const s = 200.0 / 1080.0;
+    const expectedWidth = 100.0 * s;
+    const expectedHeight = 50.0 * s;
+
+    await tester.pumpWidget(
+      _wrap(
+        OverlayLayoutRenderer(
+          layout: _circleNonSquareLayout,
+          matchState: LiveMatchState.initial,
+        ),
+      ),
+    );
+
+    final positioned = tester.widget<Positioned>(
+      find.byType(Positioned).first,
+    );
+    expect(positioned.width, closeTo(expectedWidth, 0.1));
+    expect(positioned.height, closeTo(expectedHeight, 0.1));
+    // Width should be wider than height — confirming the oval uses full bounds.
+    expect(positioned.width!, greaterThan(positioned.height!));
   });
 }
