@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:dio/dio.dart';
+
 import '../ble/ble_service.dart';
 import '../models/command.dart';
 import '../models/overlay.dart';
@@ -20,9 +22,12 @@ import 'wifi_service.dart';
 ///   * a chunked HTTP download client for `startDownload`, with byte-range
 ///     resume support against the Jetson's recording HTTP server.
 class WifiServiceImpl implements WifiService {
-  WifiServiceImpl({required BleService ble}) : _ble = ble;
+  WifiServiceImpl({required BleService ble, Dio? dio})
+      : _ble = ble,
+        _dio = dio ?? Dio();
 
   final BleService _ble;
+  final Dio _dio;
   final WifiP2pChannel _channel = WifiP2pChannel();
 
   final _rng = Random();
@@ -252,7 +257,7 @@ class WifiServiceImpl implements WifiService {
     String? saveAs,
   }) async {
     return _runDownload(
-      uuid: token.recordingId,
+      token: token,
       savePath:
           saveAs ?? await _videoPathService.recordingPath(token.recordingId),
     );
@@ -271,7 +276,18 @@ class WifiServiceImpl implements WifiService {
     String uuid,
   ) async {
     final savePath = await _videoPathService.recordingPath(uuid);
-    return _runDownload(uuid: uuid, savePath: savePath);
+    // Mint a fresh download token over BLE, then stream the file over WiFi.
+    final tokenResp = await _ble.sendCommand<DownloadToken>(
+      deviceId,
+      DownloadRequestCommand(recordingId: uuid),
+    );
+    final token = tokenResp.payload;
+    if (!tokenResp.isOk || token == null) {
+      throw WifiDirectException(
+        'could not obtain a download token for $uuid: ${tokenResp.errorMessage ?? 'unknown error'}',
+      );
+    }
+    return _runDownload(token: token, savePath: savePath);
   }
 
   @override
@@ -298,126 +314,160 @@ class WifiServiceImpl implements WifiService {
   );
 
   // ---------------------------------------------------------------------------
-  // Shared tick-loop download helper
+  // Real streamed-to-disk HTTP download (Bearer + Content-Length progress)
   // ---------------------------------------------------------------------------
 
   Future<VideoDownloadHandle> _runDownload({
-    required String uuid,
+    required DownloadToken token,
     required String savePath,
-    Duration downloadDuration = const Duration(seconds: 6),
   }) async {
     final downloadId =
         'dl-${DateTime.now().millisecondsSinceEpoch}-${_rng.nextInt(0xFFFF)}';
-    final totalBytes = 60 * 1024 * 1024;
     final controller = StreamController<VideoDownloadProgress>.broadcast();
+    final cancelToken = CancelToken();
 
-    var initial = VideoDownloadProgress(
+    final initial = VideoDownloadProgress(
       downloadId: downloadId,
-      recordingId: uuid,
+      recordingId: token.recordingId,
       status: DownloadStatus.queued,
       bytesReceived: 0,
-      bytesTotal: totalBytes,
+      bytesTotal: 0,
       kbps: 0,
     );
     final entry = _DownloadState(
       progress: initial,
       controller: controller,
       timer: null,
+      cancelToken: cancelToken,
     );
     _downloads[downloadId] = entry;
     _publishProgress(entry, initial);
 
-    final ticks = downloadDuration.inMilliseconds ~/ 50;
-    var tick = 0;
-    entry.timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      tick++;
-      if (entry.progress.status == DownloadStatus.cancelled ||
-          entry.progress.status == DownloadStatus.failed) {
-        timer.cancel();
-        return;
-      }
-      final fraction = (tick / ticks).clamp(0.0, 1.0);
-      final bytes = (totalBytes * fraction).toInt();
-      final isDone = fraction >= 1.0;
-      if (!isDone) {
-        final next = VideoDownloadProgress(
-          downloadId: downloadId,
-          recordingId: uuid,
-          status: DownloadStatus.running,
-          bytesReceived: bytes,
-          bytesTotal: totalBytes,
-          kbps: 8000 + sin(tick * 0.3) * 1500,
-        );
-        _publishProgress(entry, next);
-      } else {
-        // Publish running-at-100% while we write the file.
-        _publishProgress(
-          entry,
-          VideoDownloadProgress(
-            downloadId: downloadId,
-            recordingId: uuid,
-            status: DownloadStatus.running,
-            bytesReceived: totalBytes,
-            bytesTotal: totalBytes,
-            kbps: 0,
-          ),
-        );
-        timer.cancel();
-        try {
-          File(savePath).writeAsBytesSync([0x00], flush: true);
-        } catch (e) {
-          _publishProgress(
-            entry,
-            VideoDownloadProgress(
-              downloadId: downloadId,
-              recordingId: uuid,
-              status: DownloadStatus.failed,
-              bytesReceived: totalBytes,
-              bytesTotal: totalBytes,
-              kbps: 0,
-              errorMessage: e.toString(),
-            ),
-          );
-          controller.close();
-          return;
-        }
-        // File written — now emit completed.
-        _publishProgress(
-          entry,
-          VideoDownloadProgress(
-            downloadId: downloadId,
-            recordingId: uuid,
-            status: DownloadStatus.completed,
-            bytesReceived: totalBytes,
-            bytesTotal: totalBytes,
-            kbps: 0,
-          ),
-        );
-        controller.close();
-      }
-    });
+    // Stream in the background; progress flows through the controller.
+    unawaited(_streamToDisk(entry, token, savePath, downloadId));
 
     return VideoDownloadHandle(
       downloadId: downloadId,
-      recordingId: uuid,
+      recordingId: token.recordingId,
       savePath: savePath,
       progress: controller.stream,
       cancel: () async {
         if (entry.progress.isTerminal) return;
-        entry.timer?.cancel();
-        final cancelled = VideoDownloadProgress(
-          downloadId: downloadId,
-          recordingId: uuid,
-          status: DownloadStatus.cancelled,
-          bytesReceived: entry.progress.bytesReceived,
-          bytesTotal: entry.progress.bytesTotal,
-          kbps: 0,
-        );
-        _publishProgress(entry, cancelled);
-        await controller.close();
+        if (!cancelToken.isCancelled) cancelToken.cancel('cancelled by user');
       },
     );
   }
+
+  /// Streams [token.httpUrl] to [savePath] with a `Bearer` auth header,
+  /// emitting byte-count progress derived from `Content-Length`. The whole body
+  /// is NOT buffered in memory. Resume on interruption is out of scope for the
+  /// demo (a failed download restarts). The auth token is never logged.
+  Future<void> _streamToDisk(
+    _DownloadState entry,
+    DownloadToken token,
+    String savePath,
+    String downloadId,
+  ) async {
+    final file = File(savePath);
+    IOSink? sink;
+    try {
+      await file.parent.create(recursive: true);
+      final resp = await _dio.get<ResponseBody>(
+        token.httpUrl,
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: {'Authorization': 'Bearer ${token.authToken}'},
+          // Treat any status as a response so 401/410 surface as a clear error
+          // rather than a thrown DioException with no body context.
+          validateStatus: (s) => s != null && s < 500,
+        ),
+        cancelToken: entry.cancelToken,
+      );
+
+      if (resp.statusCode != null && resp.statusCode! >= 400) {
+        _publishProgress(
+          entry,
+          _progress(downloadId, token.recordingId, DownloadStatus.failed,
+              0, 0, 0, error: 'download rejected (HTTP ${resp.statusCode})'),
+        );
+        return;
+      }
+
+      final total = int.tryParse(
+            resp.headers.value(Headers.contentLengthHeader) ?? '',
+          ) ??
+          0;
+      sink = file.openWrite();
+      var received = 0;
+      final sw = Stopwatch()..start();
+      await for (final chunk in resp.data!.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        final kbps = sw.elapsedMilliseconds > 0
+            ? received * 8 / sw.elapsedMilliseconds
+            : 0.0;
+        _publishProgress(
+          entry,
+          _progress(downloadId, token.recordingId, DownloadStatus.running,
+              received, total, kbps),
+        );
+      }
+      await sink.flush();
+      await sink.close();
+      sink = null;
+      _publishProgress(
+        entry,
+        _progress(downloadId, token.recordingId, DownloadStatus.completed,
+            received, total == 0 ? received : total, 0),
+      );
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) {
+        _publishProgress(
+          entry,
+          _progress(downloadId, token.recordingId, DownloadStatus.cancelled,
+              entry.progress.bytesReceived, entry.progress.bytesTotal, 0),
+        );
+      } else {
+        _publishProgress(
+          entry,
+          _progress(downloadId, token.recordingId, DownloadStatus.failed,
+              entry.progress.bytesReceived, entry.progress.bytesTotal, 0,
+              error: e.message ?? 'network error'),
+        );
+      }
+    } catch (e) {
+      _publishProgress(
+        entry,
+        _progress(downloadId, token.recordingId, DownloadStatus.failed,
+            entry.progress.bytesReceived, entry.progress.bytesTotal, 0,
+            error: e.toString()),
+      );
+    } finally {
+      try {
+        await sink?.close();
+      } catch (_) {/* already closing */}
+      if (!entry.controller.isClosed) await entry.controller.close();
+    }
+  }
+
+  VideoDownloadProgress _progress(
+    String downloadId,
+    String recordingId,
+    DownloadStatus status,
+    int received,
+    int total,
+    double kbps, {
+    String? error,
+  }) =>
+      VideoDownloadProgress(
+        downloadId: downloadId,
+        recordingId: recordingId,
+        status: status,
+        bytesReceived: received,
+        bytesTotal: total,
+        kbps: kbps,
+        errorMessage: error,
+      );
 
   void _publishProgress(_DownloadState entry, VideoDownloadProgress p) {
     entry.progress = p;
@@ -462,9 +512,11 @@ class _DownloadState {
     required this.progress,
     required this.controller,
     required this.timer,
+    this.cancelToken,
   });
 
   VideoDownloadProgress progress;
   final StreamController<VideoDownloadProgress> controller;
   Timer? timer;
+  final CancelToken? cancelToken;
 }
