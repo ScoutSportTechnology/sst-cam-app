@@ -5,141 +5,131 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Flutter companion app for the SST Cam — open-source sports camera on NVIDIA Jetson.
-Controls firmware over BLE (command/control) and WiFi (video download).
-Greenfield project; built contract-first against a test double BLE layer.
+Controls firmware over BLE (command/control) and WiFi Direct (live preview + downloads).
+Built **contract-first** against a test-double BLE/WiFi layer — the whole app runs
+and is tested without hardware.
 
 ## Commands
 
 ```bash
 just get              # flutter pub get
+just run              # dev build (mock backend, main.dart)
 just test             # unit + widget tests
 just test-integration # integration tests (needs device/emulator)
+just test-all         # test + test-integration
 just analyze          # flutter analyze
 just format           # dart format
 just format-check     # CI format check (exits non-zero on diff)
 just gen-proto        # regenerate lib/models/proto/ from proto/*.proto (devcontainer)
-just gen-db              # regenerate lib/db/*.g.dart from Drift tables (devcontainer)
-just build-android    # debug APK
+just gen-db           # regenerate Drift *.g.dart from tables/daos (devcontainer)
+just build-android    # debug APK (mock)        build-android-prod → real backend
 just ci               # format-check + analyze + test (mirrors CI)
 ```
 
 ## Dev container
 
-Open in VS Code → "Reopen in Container". The setup uses Docker Compose
-(`.devcontainer/docker-compose.yml`) with two services:
+Open in VS Code → "Reopen in Container". Docker Compose
+(`.devcontainer/docker-compose.yml`), two services:
 
 - **app** — Flutter SDK, Android SDK, `protoc`, Dart protoc plugin, Node.js 22, Claude Code.
   All `just` commands run inside this container.
-- **mock-camera-wifi** — RTSP H.264 preview stream on `:8554` (mediamtx + ffmpeg loop)
-  and HTTP recording download on `:8080` (Bearer auth + Range support). Simulates the
-  camera's WiFi Direct data plane for dev without real hardware.
+- **mock-camera-wifi** — RTSP H.264 preview on `:8554` (mediamtx + ffmpeg loop) and
+  HTTP recording download on `:8080` (Bearer auth + Range). Simulates the camera's
+  WiFi Direct data plane for dev without real hardware.
 
-**iOS builds require macOS + Xcode.** The devcontainer is Linux-only; iOS builds
-go through a macOS CI runner or local `flutter build ios`.
+**iOS builds require macOS + Xcode.** The devcontainer is Linux-only.
 
-## Architecture — contract-first, pull model
+## Entry points & backends
+
+- `lib/main.dart` — **dev** entry: mock backend, seedable dev data, dev navigation.
+- `lib/main_prod.dart` — **prod** entry: real BLE/WiFi services.
+- `lib/core/config/env.dart` / `app_config.dart` — which backend is live (`kAppEnv.isDevBackend`).
+  Mock services are selected at runtime when the dev backend is active — no Riverpod override needed.
+
+## Architecture — contract-first, pull model, feature-first
 
 ### Communication model
 
 **The app always initiates.** The firmware never pushes unsolicited data.
-Every data exchange is: app sends `Command` → firmware sends `CommandResponse`.
-Telemetry and match state are polled by the app on timers (~1 Hz and ~0.5 Hz).
+Every exchange is: app sends `Command` → firmware sends `CommandResponse`,
+matched by `correlation_id`. Telemetry / match state are polled on timers.
+Large payloads use the `ChunkedPayload` envelope with symmetric `ChunkAck`
+flow control. See `proto/README.md` and `proto/overlay-rendering.md`.
 
-### Device filtering
-
-Firmware advertises the SST-Cam service UUID in its BLE advertising payload.
-The app filters by UUID (primary) and name prefix `sst-cam-` (secondary).
-Only two GATT characteristics: **Command Write** and **Command Response**.
-See `proto/README.md` for UUIDs and the full BLE protocol spec.
-
-### Directory layout
+### Layering
 
 ```text
-docs/
-  solutions/         Documented solutions to past problems (architecture patterns, bugs,
-                     conventions) with YAML frontmatter (module, tags, problem_type).
-                     Relevant when implementing features or debugging in documented areas.
-  brainstorms/       Requirements documents from ce-brainstorm
-  plans/             Implementation plans from ce-plan
-.devcontainer/
-  mock-camera-wifi/  Docker service that emulates the camera's WiFi Direct data plane.
-                     mediamtx serves RTSP H.264 on :8554; download_server.py serves MP4
-                     downloads on :8080 with Bearer auth and Range support.
-proto/               Proto3 schemas — wire format + firmware contract
-  README.md          GATT UUIDs, MTU/chunking, filtering, pull-model design
 lib/
-  main.dart          Entry: UncontrolledProviderScope (pre-seeded ProviderContainer) → SSTCamApp
-  app.dart           MaterialApp (dark theme) + _buildTheme; delegates shell to app_shell.dart
-  app_shell.dart     5-tab NavigationBar shell (AppShell); drives tab via activeTabProvider
-  ble/
-    ble_service.dart
-    ble_service_impl.dart  flutter_blue_plus implementation
-    mock_ble_service.dart  In-process mock; selected at runtime when kAppEnv.isDevBackend
-  db/
-    app_database.dart  Drift database class, migration, AppDatabase
-    tables/            Table definitions (one file per entity group)
-    daos/              Data access objects (one file per entity group)
-  services/
-    backup_service.dart  BackupService — export/import full DB as JSON
-  models/            Plain Dart view models (app compiles without generated protos)
-    device.dart      SstDevice, CameraConnectionState, ThumbnailResult
-    telemetry.dart   DeviceTelemetry, WifiState
-    match.dart       MatchConfig, MatchState, Sport, BannerEvent …
-    recording.dart   RecordingMetadata, DownloadToken
-    command.dart     Sealed BleCommand types, BleCommandResponse<T>
-    proto/           (gitignored) — generated by `just gen-proto`
-  state/
-    ble_providers.dart  Riverpod providers; swap impl at bleServiceProvider
-  pages/             One file per tab; MainPage partially done, rest are stubs
-  widgets/           Shared widgets
-test/
-  ble/
-    mock_ble_service_test.dart  Unit tests for MockBleService (in lib/ble/)
-  integration/
-    main_page_test.dart         End-to-end flow with MockBleService override
+  main.dart / main_prod.dart   dev vs prod entry; app.dart = MaterialApp + theme
+  core/                        cross-feature infrastructure
+    ble/      BleService (port) + ble_service_impl (flutter_blue_plus) + ble_protocol + ble_providers
+    wifi/     WifiService (port) + impl + wifi_p2p_channel + wifi_handoff + wifi_providers
+    db/       Drift AppDatabase; tables/ (clips, teams, users, sport_presets,
+              streaming_destinations, team_matches, thumbnails) + daos/ (+ generated *.g.dart)
+    models/   Plain Dart view models — app compiles without generated protos:
+              command, device, telemetry, wifi, match, recording, overlay,
+              overlay_layout, team, user, sport_preset, streaming
+    services/ backup_service, clip_service, gallery_service, video_path_service
+    state/    db_providers, last_camera (cross-feature Riverpod providers)
+    config/   env, app_config, dev_config, dev_navigation, dev_reseeder
+    shell/    app_shell — tabbed NavigationBar shell
+    theme/    tokens — colors/spacing tokens (app.dart wires them into ThemeData)
+    widgets/  shared widgets (wf_button/card/chip, wf_filter_bar, indicators, live_preview_view)
+  features/                    one folder per user-facing feature; *_state.dart = its Riverpod
+    camera/    main_page, camera_state
+    discovery/ discovery_page, diagnostics_page, debug_page
+    match/     landing/setup/match_page + session/ (session_screen, session_state,
+               event_sheet, overlay_renderer)
+    teams/     teams_page, team_detail_page, roster/ matches/ stats/ + form sheets
+    settings/  settings_page + sport_presets/ streaming/ users/ data/ developer/
+    video/     video_page, video_state, overlay_helper, playback/ (detail, download_sheet)
+  mock/                        test doubles for the dev backend
+    emulator/  mock_ble_service, mock_wifi_service (+ fixtures) — emulated firmware
+    internal/  mock_data_service (+ fixtures) — seed app data
+    mock_video_fetcher
+  models/proto/                (gitignored) generated bindings; only *_impl uses them
+test/                          mirrors lib/ (core/, features/, mock/, integration/, wifi/)
 ```
 
-### State management
+A **feature** owns its UI + `*_state.dart` (Riverpod). Anything two features
+share moves to `core/`. New cross-feature provider → `core/state/`.
 
-Riverpod throughout. Key providers in `lib/state/ble_providers.dart`:
+### Ports & mocks
 
-- `db_providers.dart` — `appDatabaseProvider` + per-DAO providers + `backupServiceProvider`
-- `bleServiceProvider` — `Provider<BleService>`; override in tests with `MockBleService`
-- `discoveredDevicesProvider` — `StreamProvider<List<SstDevice>>`
-- `connectionStateProvider(deviceId)` — `StreamProvider.family`
-- `telemetryProvider(deviceId)` — `StreamProvider.family`; impl polls internally
-- `matchStateProvider(deviceId)` — `StreamProvider.family`; impl polls internally
-- `recordingsProvider(deviceId)` — `FutureProvider.family`
-
-### BLE interface contract
-
-`BleService` (abstract) is the only BLE surface the UI touches.
-`BleServiceImpl` uses `flutter_blue_plus` and is wired for real devices.
-`MockBleService` (in `lib/ble/`) is selected at runtime when `kAppEnv.isDevBackend`
-is true — no Riverpod override needed. Tests may still inject it via overrides:
-
-```dart
-ProviderScope(
-  overrides: [bleServiceProvider.overrideWithValue(MockBleService())],
-  child: ...
-)
-```
-
-`BleCommand` is a sealed class hierarchy in `models/command.dart`.
-`BleCommandResponse<T>` carries the typed payload or an error.
+`BleService` and `WifiService` are abstract ports — the only BLE/WiFi surface the
+UI touches. `*_impl` wire the real packages; the `mock/emulator/` doubles back the
+dev backend and are injected automatically when `kAppEnv.isDevBackend`. Tests may
+still override via `ProviderScope(overrides: [...])`.
 
 ### Proto vs. Dart models
 
-- `proto/*.proto` — wire format; source of truth for firmware team
-- `lib/models/*.dart` — plain Dart view models; whole app uses these
-- `lib/models/proto/` — gitignored generated bindings; only `BleServiceImpl` uses them
+- `proto/*.proto` — wire format; source of truth (shared submodule).
+- `lib/core/models/*.dart` — plain Dart view models; the whole app uses these.
+- `lib/models/proto/` — gitignored generated bindings; only `BleServiceImpl` touches them.
 
-The app compiles and runs from plain Dart models. `just gen-proto` regenerates
-`lib/models/proto/` for use when implementing `BleServiceImpl`
+The app compiles and runs from plain Dart models. `just gen-proto` regenerates the
+bindings for use inside `BleServiceImpl`.
+
+### Database
+
+Drift over SQLite. Tables in `core/db/tables/`, DAOs in `core/db/daos/`, both with
+generated `*.g.dart` (`just gen-db`). `BackupService` exports/imports the full DB as JSON.
 
 ### Theme
 
-Dark by default (`ThemeMode.dark`). Seed color `#4FC3F7` (light blue).
-Surface stack: `#0A0A0A` → `#111111` → `#1A1A1A`. Zero elevation on cards and AppBar.
-All theme tokens live in `lib/app.dart` `_buildTheme`.
+Dark by default. Tokens live in `lib/core/theme/tokens.dart`; `lib/app.dart` builds
+`ThemeData` from them. Change a token, not a hardcoded color in a widget.
 
+## Documented solutions
+
+`docs/solutions/` — solutions to past problems (architecture patterns, bugs,
+conventions) with YAML frontmatter (`module`, `tags`, `problem_type`). Read the
+relevant ones before implementing or debugging in a documented area (e.g. BLE
+contract alignment). `docs/brainstorms/` and `docs/plans/` hold requirements and
+implementation plans.
+
+## Firmware spec
+
+This repo also owns `docs/firmware-spec.md` — the implementation contract for the
+firmware team (session lifecycle, required commands, overlay authoring, file
+layout). Keep it in sync when the app's expectations of the firmware change.
