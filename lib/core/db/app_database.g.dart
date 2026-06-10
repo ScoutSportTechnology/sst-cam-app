@@ -2937,6 +2937,500 @@ class ThumbnailsTableCompanion extends UpdateCompanion<ThumbnailsTableData> {
   }
 }
 
+class $RawRecordingsTableTable extends RawRecordingsTable
+    with TableInfo<$RawRecordingsTableTable, RawRecordingsTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RawRecordingsTableTable(this.attachedDatabase, [this._alias]);
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumn<String> captureGroupId = GeneratedColumn<String>(
+    'capture_group_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumn<int> cameraIndex = GeneratedColumn<int>(
+    'camera_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumn<String> matchId = GeneratedColumn<String>(
+    'match_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES team_matches (id) ON DELETE CASCADE',
+    ),
+  );
+  @override
+  late final GeneratedColumn<String> localPath = GeneratedColumn<String>(
+    'local_path',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumn<int> sizeBytes = GeneratedColumn<int>(
+    'size_bytes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  late final GeneratedColumn<bool> isRaw = GeneratedColumn<bool>(
+    'is_raw',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_raw" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  @override
+  late final GeneratedColumn<bool> isComplete = GeneratedColumn<bool>(
+    'is_complete',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_complete" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  late final GeneratedColumn<String> startedAt = GeneratedColumn<String>(
+    'started_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    captureGroupId,
+    cameraIndex,
+    matchId,
+    localPath,
+    sizeBytes,
+    isRaw,
+    isComplete,
+    startedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'raw_recordings';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RawRecordingsTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RawRecordingsTableData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      captureGroupId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}capture_group_id'],
+      )!,
+      cameraIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}camera_index'],
+      )!,
+      matchId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}match_id'],
+      ),
+      localPath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_path'],
+      ),
+      sizeBytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}size_bytes'],
+      )!,
+      isRaw: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_raw'],
+      )!,
+      isComplete: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_complete'],
+      )!,
+      startedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}started_at'],
+      )!,
+    );
+  }
+
+  @override
+  $RawRecordingsTableTable createAlias(String alias) {
+    return $RawRecordingsTableTable(attachedDatabase, alias);
+  }
+}
+
+class RawRecordingsTableData extends DataClass
+    implements Insertable<RawRecordingsTableData> {
+  /// Stable local id (e.g. the firmware recording_id / file stem).
+  final String id;
+
+  /// App-minted id shared by both per-camera files of one raw session.
+  final String captureGroupId;
+
+  /// Physical sensor index (0 = primary, 1 = secondary).
+  final int cameraIndex;
+
+  /// Optional association to a match; cascades on match delete.
+  final String? matchId;
+
+  /// On-disk path of the downloaded file (mirrors clips/thumbnails).
+  final String? localPath;
+  final int sizeBytes;
+
+  /// Always true for rows in this table; kept explicit so the column mirrors the
+  /// contract field and a future non-raw use can't silently reinterpret rows.
+  final bool isRaw;
+
+  /// Whether both files of the pair downloaded successfully. A recovered single
+  /// file is marked incomplete rather than saved as if whole.
+  final bool isComplete;
+  final String startedAt;
+  const RawRecordingsTableData({
+    required this.id,
+    required this.captureGroupId,
+    required this.cameraIndex,
+    this.matchId,
+    this.localPath,
+    required this.sizeBytes,
+    required this.isRaw,
+    required this.isComplete,
+    required this.startedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['capture_group_id'] = Variable<String>(captureGroupId);
+    map['camera_index'] = Variable<int>(cameraIndex);
+    if (!nullToAbsent || matchId != null) {
+      map['match_id'] = Variable<String>(matchId);
+    }
+    if (!nullToAbsent || localPath != null) {
+      map['local_path'] = Variable<String>(localPath);
+    }
+    map['size_bytes'] = Variable<int>(sizeBytes);
+    map['is_raw'] = Variable<bool>(isRaw);
+    map['is_complete'] = Variable<bool>(isComplete);
+    map['started_at'] = Variable<String>(startedAt);
+    return map;
+  }
+
+  RawRecordingsTableCompanion toCompanion(bool nullToAbsent) {
+    return RawRecordingsTableCompanion(
+      id: Value(id),
+      captureGroupId: Value(captureGroupId),
+      cameraIndex: Value(cameraIndex),
+      matchId: matchId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(matchId),
+      localPath: localPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(localPath),
+      sizeBytes: Value(sizeBytes),
+      isRaw: Value(isRaw),
+      isComplete: Value(isComplete),
+      startedAt: Value(startedAt),
+    );
+  }
+
+  factory RawRecordingsTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RawRecordingsTableData(
+      id: serializer.fromJson<String>(json['id']),
+      captureGroupId: serializer.fromJson<String>(json['captureGroupId']),
+      cameraIndex: serializer.fromJson<int>(json['cameraIndex']),
+      matchId: serializer.fromJson<String?>(json['matchId']),
+      localPath: serializer.fromJson<String?>(json['localPath']),
+      sizeBytes: serializer.fromJson<int>(json['sizeBytes']),
+      isRaw: serializer.fromJson<bool>(json['isRaw']),
+      isComplete: serializer.fromJson<bool>(json['isComplete']),
+      startedAt: serializer.fromJson<String>(json['startedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'captureGroupId': serializer.toJson<String>(captureGroupId),
+      'cameraIndex': serializer.toJson<int>(cameraIndex),
+      'matchId': serializer.toJson<String?>(matchId),
+      'localPath': serializer.toJson<String?>(localPath),
+      'sizeBytes': serializer.toJson<int>(sizeBytes),
+      'isRaw': serializer.toJson<bool>(isRaw),
+      'isComplete': serializer.toJson<bool>(isComplete),
+      'startedAt': serializer.toJson<String>(startedAt),
+    };
+  }
+
+  RawRecordingsTableData copyWith({
+    String? id,
+    String? captureGroupId,
+    int? cameraIndex,
+    Value<String?> matchId = const Value.absent(),
+    Value<String?> localPath = const Value.absent(),
+    int? sizeBytes,
+    bool? isRaw,
+    bool? isComplete,
+    String? startedAt,
+  }) => RawRecordingsTableData(
+    id: id ?? this.id,
+    captureGroupId: captureGroupId ?? this.captureGroupId,
+    cameraIndex: cameraIndex ?? this.cameraIndex,
+    matchId: matchId.present ? matchId.value : this.matchId,
+    localPath: localPath.present ? localPath.value : this.localPath,
+    sizeBytes: sizeBytes ?? this.sizeBytes,
+    isRaw: isRaw ?? this.isRaw,
+    isComplete: isComplete ?? this.isComplete,
+    startedAt: startedAt ?? this.startedAt,
+  );
+  RawRecordingsTableData copyWithCompanion(RawRecordingsTableCompanion data) {
+    return RawRecordingsTableData(
+      id: data.id.present ? data.id.value : this.id,
+      captureGroupId: data.captureGroupId.present
+          ? data.captureGroupId.value
+          : this.captureGroupId,
+      cameraIndex: data.cameraIndex.present
+          ? data.cameraIndex.value
+          : this.cameraIndex,
+      matchId: data.matchId.present ? data.matchId.value : this.matchId,
+      localPath: data.localPath.present ? data.localPath.value : this.localPath,
+      sizeBytes: data.sizeBytes.present ? data.sizeBytes.value : this.sizeBytes,
+      isRaw: data.isRaw.present ? data.isRaw.value : this.isRaw,
+      isComplete: data.isComplete.present
+          ? data.isComplete.value
+          : this.isComplete,
+      startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RawRecordingsTableData(')
+          ..write('id: $id, ')
+          ..write('captureGroupId: $captureGroupId, ')
+          ..write('cameraIndex: $cameraIndex, ')
+          ..write('matchId: $matchId, ')
+          ..write('localPath: $localPath, ')
+          ..write('sizeBytes: $sizeBytes, ')
+          ..write('isRaw: $isRaw, ')
+          ..write('isComplete: $isComplete, ')
+          ..write('startedAt: $startedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    captureGroupId,
+    cameraIndex,
+    matchId,
+    localPath,
+    sizeBytes,
+    isRaw,
+    isComplete,
+    startedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RawRecordingsTableData &&
+          other.id == this.id &&
+          other.captureGroupId == this.captureGroupId &&
+          other.cameraIndex == this.cameraIndex &&
+          other.matchId == this.matchId &&
+          other.localPath == this.localPath &&
+          other.sizeBytes == this.sizeBytes &&
+          other.isRaw == this.isRaw &&
+          other.isComplete == this.isComplete &&
+          other.startedAt == this.startedAt);
+}
+
+class RawRecordingsTableCompanion
+    extends UpdateCompanion<RawRecordingsTableData> {
+  final Value<String> id;
+  final Value<String> captureGroupId;
+  final Value<int> cameraIndex;
+  final Value<String?> matchId;
+  final Value<String?> localPath;
+  final Value<int> sizeBytes;
+  final Value<bool> isRaw;
+  final Value<bool> isComplete;
+  final Value<String> startedAt;
+  final Value<int> rowid;
+  const RawRecordingsTableCompanion({
+    this.id = const Value.absent(),
+    this.captureGroupId = const Value.absent(),
+    this.cameraIndex = const Value.absent(),
+    this.matchId = const Value.absent(),
+    this.localPath = const Value.absent(),
+    this.sizeBytes = const Value.absent(),
+    this.isRaw = const Value.absent(),
+    this.isComplete = const Value.absent(),
+    this.startedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RawRecordingsTableCompanion.insert({
+    required String id,
+    required String captureGroupId,
+    required int cameraIndex,
+    this.matchId = const Value.absent(),
+    this.localPath = const Value.absent(),
+    this.sizeBytes = const Value.absent(),
+    this.isRaw = const Value.absent(),
+    this.isComplete = const Value.absent(),
+    required String startedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       captureGroupId = Value(captureGroupId),
+       cameraIndex = Value(cameraIndex),
+       startedAt = Value(startedAt);
+  static Insertable<RawRecordingsTableData> custom({
+    Expression<String>? id,
+    Expression<String>? captureGroupId,
+    Expression<int>? cameraIndex,
+    Expression<String>? matchId,
+    Expression<String>? localPath,
+    Expression<int>? sizeBytes,
+    Expression<bool>? isRaw,
+    Expression<bool>? isComplete,
+    Expression<String>? startedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (captureGroupId != null) 'capture_group_id': captureGroupId,
+      if (cameraIndex != null) 'camera_index': cameraIndex,
+      if (matchId != null) 'match_id': matchId,
+      if (localPath != null) 'local_path': localPath,
+      if (sizeBytes != null) 'size_bytes': sizeBytes,
+      if (isRaw != null) 'is_raw': isRaw,
+      if (isComplete != null) 'is_complete': isComplete,
+      if (startedAt != null) 'started_at': startedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RawRecordingsTableCompanion copyWith({
+    Value<String>? id,
+    Value<String>? captureGroupId,
+    Value<int>? cameraIndex,
+    Value<String?>? matchId,
+    Value<String?>? localPath,
+    Value<int>? sizeBytes,
+    Value<bool>? isRaw,
+    Value<bool>? isComplete,
+    Value<String>? startedAt,
+    Value<int>? rowid,
+  }) {
+    return RawRecordingsTableCompanion(
+      id: id ?? this.id,
+      captureGroupId: captureGroupId ?? this.captureGroupId,
+      cameraIndex: cameraIndex ?? this.cameraIndex,
+      matchId: matchId ?? this.matchId,
+      localPath: localPath ?? this.localPath,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      isRaw: isRaw ?? this.isRaw,
+      isComplete: isComplete ?? this.isComplete,
+      startedAt: startedAt ?? this.startedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (captureGroupId.present) {
+      map['capture_group_id'] = Variable<String>(captureGroupId.value);
+    }
+    if (cameraIndex.present) {
+      map['camera_index'] = Variable<int>(cameraIndex.value);
+    }
+    if (matchId.present) {
+      map['match_id'] = Variable<String>(matchId.value);
+    }
+    if (localPath.present) {
+      map['local_path'] = Variable<String>(localPath.value);
+    }
+    if (sizeBytes.present) {
+      map['size_bytes'] = Variable<int>(sizeBytes.value);
+    }
+    if (isRaw.present) {
+      map['is_raw'] = Variable<bool>(isRaw.value);
+    }
+    if (isComplete.present) {
+      map['is_complete'] = Variable<bool>(isComplete.value);
+    }
+    if (startedAt.present) {
+      map['started_at'] = Variable<String>(startedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RawRecordingsTableCompanion(')
+          ..write('id: $id, ')
+          ..write('captureGroupId: $captureGroupId, ')
+          ..write('cameraIndex: $cameraIndex, ')
+          ..write('matchId: $matchId, ')
+          ..write('localPath: $localPath, ')
+          ..write('sizeBytes: $sizeBytes, ')
+          ..write('isRaw: $isRaw, ')
+          ..write('isComplete: $isComplete, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -2954,6 +3448,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ThumbnailsTableTable thumbnailsTable = $ThumbnailsTableTable(
     this,
   );
+  late final $RawRecordingsTableTable rawRecordingsTable =
+      $RawRecordingsTableTable(this);
   late final UsersDao usersDao = UsersDao(this as AppDatabase);
   late final TeamsDao teamsDao = TeamsDao(this as AppDatabase);
   late final SportPresetsDao sportPresetsDao = SportPresetsDao(
@@ -2962,6 +3458,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final StreamingDestinationsDao streamingDestinationsDao =
       StreamingDestinationsDao(this as AppDatabase);
   late final ClipsDao clipsDao = ClipsDao(this as AppDatabase);
+  late final RawRecordingsDao rawRecordingsDao = RawRecordingsDao(
+    this as AppDatabase,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2975,6 +3474,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     streamingDestinationsTable,
     clipsTable,
     thumbnailsTable,
+    rawRecordingsTable,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -3026,6 +3526,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('thumbnails', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'team_matches',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('raw_recordings', kind: UpdateKind.delete)],
     ),
   ]);
   @override
@@ -4455,6 +4962,33 @@ final class $$TeamMatchesTableTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<
+    $RawRecordingsTableTable,
+    List<RawRecordingsTableData>
+  >
+  _rawRecordingsTableRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.rawRecordingsTable,
+        aliasName: $_aliasNameGenerator(
+          db.teamMatchesTable.id,
+          db.rawRecordingsTable.matchId,
+        ),
+      );
+
+  $$RawRecordingsTableTableProcessedTableManager get rawRecordingsTableRefs {
+    final manager = $$RawRecordingsTableTableTableManager(
+      $_db,
+      $_db.rawRecordingsTable,
+    ).filter((f) => f.matchId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _rawRecordingsTableRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$TeamMatchesTableTableFilterComposer
@@ -4555,6 +5089,31 @@ class $$TeamMatchesTableTableFilterComposer
           }) => $$ClipsTableTableFilterComposer(
             $db: $db,
             $table: $db.clipsTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> rawRecordingsTableRefs(
+    Expression<bool> Function($$RawRecordingsTableTableFilterComposer f) f,
+  ) {
+    final $$RawRecordingsTableTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.rawRecordingsTable,
+      getReferencedColumn: (t) => t.matchId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RawRecordingsTableTableFilterComposer(
+            $db: $db,
+            $table: $db.rawRecordingsTable,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -4740,6 +5299,32 @@ class $$TeamMatchesTableTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> rawRecordingsTableRefs<T extends Object>(
+    Expression<T> Function($$RawRecordingsTableTableAnnotationComposer a) f,
+  ) {
+    final $$RawRecordingsTableTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.rawRecordingsTable,
+          getReferencedColumn: (t) => t.matchId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RawRecordingsTableTableAnnotationComposer(
+                $db: $db,
+                $table: $db.rawRecordingsTable,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$TeamMatchesTableTableTableManager
@@ -4755,7 +5340,11 @@ class $$TeamMatchesTableTableTableManager
           $$TeamMatchesTableTableUpdateCompanionBuilder,
           (TeamMatchesTableData, $$TeamMatchesTableTableReferences),
           TeamMatchesTableData,
-          PrefetchHooks Function({bool teamId, bool clipsTableRefs})
+          PrefetchHooks Function({
+            bool teamId,
+            bool clipsTableRefs,
+            bool rawRecordingsTableRefs,
+          })
         > {
   $$TeamMatchesTableTableTableManager(
     _$AppDatabase db,
@@ -4834,69 +5423,100 @@ class $$TeamMatchesTableTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({teamId = false, clipsTableRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [if (clipsTableRefs) db.clipsTable],
-              addJoins:
-                  <
-                    T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic
-                    >
-                  >(state) {
-                    if (teamId) {
-                      state =
-                          state.withJoin(
-                                currentTable: table,
-                                currentColumn: table.teamId,
-                                referencedTable:
-                                    $$TeamMatchesTableTableReferences
-                                        ._teamIdTable(db),
-                                referencedColumn:
-                                    $$TeamMatchesTableTableReferences
-                                        ._teamIdTable(db)
-                                        .id,
-                              )
-                              as T;
-                    }
+          prefetchHooksCallback:
+              ({
+                teamId = false,
+                clipsTableRefs = false,
+                rawRecordingsTableRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (clipsTableRefs) db.clipsTable,
+                    if (rawRecordingsTableRefs) db.rawRecordingsTable,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (teamId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.teamId,
+                                    referencedTable:
+                                        $$TeamMatchesTableTableReferences
+                                            ._teamIdTable(db),
+                                    referencedColumn:
+                                        $$TeamMatchesTableTableReferences
+                                            ._teamIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
 
-                    return state;
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (clipsTableRefs)
+                        await $_getPrefetchedData<
+                          TeamMatchesTableData,
+                          $TeamMatchesTableTable,
+                          ClipsTableData
+                        >(
+                          currentTable: table,
+                          referencedTable: $$TeamMatchesTableTableReferences
+                              ._clipsTableRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TeamMatchesTableTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).clipsTableRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.matchId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (rawRecordingsTableRefs)
+                        await $_getPrefetchedData<
+                          TeamMatchesTableData,
+                          $TeamMatchesTableTable,
+                          RawRecordingsTableData
+                        >(
+                          currentTable: table,
+                          referencedTable: $$TeamMatchesTableTableReferences
+                              ._rawRecordingsTableRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TeamMatchesTableTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).rawRecordingsTableRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.matchId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
                   },
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (clipsTableRefs)
-                    await $_getPrefetchedData<
-                      TeamMatchesTableData,
-                      $TeamMatchesTableTable,
-                      ClipsTableData
-                    >(
-                      currentTable: table,
-                      referencedTable: $$TeamMatchesTableTableReferences
-                          ._clipsTableRefsTable(db),
-                      managerFromTypedResult: (p0) =>
-                          $$TeamMatchesTableTableReferences(
-                            db,
-                            table,
-                            p0,
-                          ).clipsTableRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.matchId == item.id),
-                      typedResults: items,
-                    ),
-                ];
+                );
               },
-            );
-          },
         ),
       );
 }
@@ -4913,7 +5533,11 @@ typedef $$TeamMatchesTableTableProcessedTableManager =
       $$TeamMatchesTableTableUpdateCompanionBuilder,
       (TeamMatchesTableData, $$TeamMatchesTableTableReferences),
       TeamMatchesTableData,
-      PrefetchHooks Function({bool teamId, bool clipsTableRefs})
+      PrefetchHooks Function({
+        bool teamId,
+        bool clipsTableRefs,
+        bool rawRecordingsTableRefs,
+      })
     >;
 typedef $$SportPresetsTableTableCreateCompanionBuilder =
     SportPresetsTableCompanion Function({
@@ -6480,6 +7104,426 @@ typedef $$ThumbnailsTableTableProcessedTableManager =
       ThumbnailsTableData,
       PrefetchHooks Function({bool clipId})
     >;
+typedef $$RawRecordingsTableTableCreateCompanionBuilder =
+    RawRecordingsTableCompanion Function({
+      required String id,
+      required String captureGroupId,
+      required int cameraIndex,
+      Value<String?> matchId,
+      Value<String?> localPath,
+      Value<int> sizeBytes,
+      Value<bool> isRaw,
+      Value<bool> isComplete,
+      required String startedAt,
+      Value<int> rowid,
+    });
+typedef $$RawRecordingsTableTableUpdateCompanionBuilder =
+    RawRecordingsTableCompanion Function({
+      Value<String> id,
+      Value<String> captureGroupId,
+      Value<int> cameraIndex,
+      Value<String?> matchId,
+      Value<String?> localPath,
+      Value<int> sizeBytes,
+      Value<bool> isRaw,
+      Value<bool> isComplete,
+      Value<String> startedAt,
+      Value<int> rowid,
+    });
+
+final class $$RawRecordingsTableTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $RawRecordingsTableTable,
+          RawRecordingsTableData
+        > {
+  $$RawRecordingsTableTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $TeamMatchesTableTable _matchIdTable(_$AppDatabase db) =>
+      db.teamMatchesTable.createAlias(
+        $_aliasNameGenerator(
+          db.rawRecordingsTable.matchId,
+          db.teamMatchesTable.id,
+        ),
+      );
+
+  $$TeamMatchesTableTableProcessedTableManager? get matchId {
+    final $_column = $_itemColumn<String>('match_id');
+    if ($_column == null) return null;
+    final manager = $$TeamMatchesTableTableTableManager(
+      $_db,
+      $_db.teamMatchesTable,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_matchIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$RawRecordingsTableTableFilterComposer
+    extends Composer<_$AppDatabase, $RawRecordingsTableTable> {
+  $$RawRecordingsTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get captureGroupId => $composableBuilder(
+    column: $table.captureGroupId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get cameraIndex => $composableBuilder(
+    column: $table.cameraIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localPath => $composableBuilder(
+    column: $table.localPath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sizeBytes => $composableBuilder(
+    column: $table.sizeBytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isRaw => $composableBuilder(
+    column: $table.isRaw,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isComplete => $composableBuilder(
+    column: $table.isComplete,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get startedAt => $composableBuilder(
+    column: $table.startedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$TeamMatchesTableTableFilterComposer get matchId {
+    final $$TeamMatchesTableTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.matchId,
+      referencedTable: $db.teamMatchesTable,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TeamMatchesTableTableFilterComposer(
+            $db: $db,
+            $table: $db.teamMatchesTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RawRecordingsTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $RawRecordingsTableTable> {
+  $$RawRecordingsTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get captureGroupId => $composableBuilder(
+    column: $table.captureGroupId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get cameraIndex => $composableBuilder(
+    column: $table.cameraIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localPath => $composableBuilder(
+    column: $table.localPath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sizeBytes => $composableBuilder(
+    column: $table.sizeBytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isRaw => $composableBuilder(
+    column: $table.isRaw,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isComplete => $composableBuilder(
+    column: $table.isComplete,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get startedAt => $composableBuilder(
+    column: $table.startedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$TeamMatchesTableTableOrderingComposer get matchId {
+    final $$TeamMatchesTableTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.matchId,
+      referencedTable: $db.teamMatchesTable,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TeamMatchesTableTableOrderingComposer(
+            $db: $db,
+            $table: $db.teamMatchesTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RawRecordingsTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RawRecordingsTableTable> {
+  $$RawRecordingsTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get captureGroupId => $composableBuilder(
+    column: $table.captureGroupId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get cameraIndex => $composableBuilder(
+    column: $table.cameraIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get localPath =>
+      $composableBuilder(column: $table.localPath, builder: (column) => column);
+
+  GeneratedColumn<int> get sizeBytes =>
+      $composableBuilder(column: $table.sizeBytes, builder: (column) => column);
+
+  GeneratedColumn<bool> get isRaw =>
+      $composableBuilder(column: $table.isRaw, builder: (column) => column);
+
+  GeneratedColumn<bool> get isComplete => $composableBuilder(
+    column: $table.isComplete,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get startedAt =>
+      $composableBuilder(column: $table.startedAt, builder: (column) => column);
+
+  $$TeamMatchesTableTableAnnotationComposer get matchId {
+    final $$TeamMatchesTableTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.matchId,
+      referencedTable: $db.teamMatchesTable,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TeamMatchesTableTableAnnotationComposer(
+            $db: $db,
+            $table: $db.teamMatchesTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RawRecordingsTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $RawRecordingsTableTable,
+          RawRecordingsTableData,
+          $$RawRecordingsTableTableFilterComposer,
+          $$RawRecordingsTableTableOrderingComposer,
+          $$RawRecordingsTableTableAnnotationComposer,
+          $$RawRecordingsTableTableCreateCompanionBuilder,
+          $$RawRecordingsTableTableUpdateCompanionBuilder,
+          (RawRecordingsTableData, $$RawRecordingsTableTableReferences),
+          RawRecordingsTableData,
+          PrefetchHooks Function({bool matchId})
+        > {
+  $$RawRecordingsTableTableTableManager(
+    _$AppDatabase db,
+    $RawRecordingsTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RawRecordingsTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RawRecordingsTableTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RawRecordingsTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> captureGroupId = const Value.absent(),
+                Value<int> cameraIndex = const Value.absent(),
+                Value<String?> matchId = const Value.absent(),
+                Value<String?> localPath = const Value.absent(),
+                Value<int> sizeBytes = const Value.absent(),
+                Value<bool> isRaw = const Value.absent(),
+                Value<bool> isComplete = const Value.absent(),
+                Value<String> startedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RawRecordingsTableCompanion(
+                id: id,
+                captureGroupId: captureGroupId,
+                cameraIndex: cameraIndex,
+                matchId: matchId,
+                localPath: localPath,
+                sizeBytes: sizeBytes,
+                isRaw: isRaw,
+                isComplete: isComplete,
+                startedAt: startedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String captureGroupId,
+                required int cameraIndex,
+                Value<String?> matchId = const Value.absent(),
+                Value<String?> localPath = const Value.absent(),
+                Value<int> sizeBytes = const Value.absent(),
+                Value<bool> isRaw = const Value.absent(),
+                Value<bool> isComplete = const Value.absent(),
+                required String startedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => RawRecordingsTableCompanion.insert(
+                id: id,
+                captureGroupId: captureGroupId,
+                cameraIndex: cameraIndex,
+                matchId: matchId,
+                localPath: localPath,
+                sizeBytes: sizeBytes,
+                isRaw: isRaw,
+                isComplete: isComplete,
+                startedAt: startedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$RawRecordingsTableTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({matchId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (matchId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.matchId,
+                                referencedTable:
+                                    $$RawRecordingsTableTableReferences
+                                        ._matchIdTable(db),
+                                referencedColumn:
+                                    $$RawRecordingsTableTableReferences
+                                        ._matchIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$RawRecordingsTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $RawRecordingsTableTable,
+      RawRecordingsTableData,
+      $$RawRecordingsTableTableFilterComposer,
+      $$RawRecordingsTableTableOrderingComposer,
+      $$RawRecordingsTableTableAnnotationComposer,
+      $$RawRecordingsTableTableCreateCompanionBuilder,
+      $$RawRecordingsTableTableUpdateCompanionBuilder,
+      (RawRecordingsTableData, $$RawRecordingsTableTableReferences),
+      RawRecordingsTableData,
+      PrefetchHooks Function({bool matchId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -6504,4 +7548,6 @@ class $AppDatabaseManager {
       $$ClipsTableTableTableManager(_db, _db.clipsTable);
   $$ThumbnailsTableTableTableManager get thumbnailsTable =>
       $$ThumbnailsTableTableTableManager(_db, _db.thumbnailsTable);
+  $$RawRecordingsTableTableTableManager get rawRecordingsTable =>
+      $$RawRecordingsTableTableTableManager(_db, _db.rawRecordingsTable);
 }

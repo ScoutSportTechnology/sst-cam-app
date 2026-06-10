@@ -7,11 +7,13 @@ import 'package:path_provider/path_provider.dart';
 
 import '../config/app_config.dart';
 import 'daos/clips_dao.dart';
+import 'daos/raw_recordings_dao.dart';
 import 'daos/sport_presets_dao.dart';
 import 'daos/streaming_destinations_dao.dart';
 import 'daos/teams_dao.dart';
 import 'daos/users_dao.dart';
 import 'tables/clips_table.dart';
+import 'tables/raw_recordings_table.dart';
 import 'tables/sport_presets_table.dart';
 import 'tables/streaming_destinations_table.dart';
 import 'tables/team_matches_table.dart';
@@ -33,6 +35,7 @@ const _kDefaultUserId = 'default-user';
     StreamingDestinationsTable,
     ClipsTable,
     ThumbnailsTable,
+    RawRecordingsTable,
   ],
   daos: [
     UsersDao,
@@ -40,6 +43,7 @@ const _kDefaultUserId = 'default-user';
     SportPresetsDao,
     StreamingDestinationsDao,
     ClipsDao,
+    RawRecordingsDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -55,7 +59,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -82,6 +86,10 @@ class AppDatabase extends _$AppDatabase {
         await customStatement(
           'CREATE INDEX idx_clips_match_id ON clips(match_id)',
         );
+        await customStatement(
+          'CREATE INDEX idx_raw_recordings_capture_group_id '
+          'ON raw_recordings(capture_group_id)',
+        );
         // Seed minimum viable state: one default user + all built-in sport
         // presets. This runs unconditionally — the app must always have at
         // least one user and the preset list populated for core flows to work.
@@ -106,6 +114,14 @@ class AppDatabase extends _$AppDatabase {
         if (from < 3) {
           // v2→v3: add color_hex to teams.
           await customStatement('ALTER TABLE teams ADD COLUMN color_hex TEXT');
+        }
+        if (from < 4) {
+          // v3→v4: add raw_recordings (raw dual-camera capture metadata).
+          await m.createTable(rawRecordingsTable);
+          await customStatement(
+            'CREATE INDEX idx_raw_recordings_capture_group_id '
+            'ON raw_recordings(capture_group_id)',
+          );
         }
       });
     },
