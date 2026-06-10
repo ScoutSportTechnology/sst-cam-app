@@ -221,7 +221,23 @@ class WifiServiceImpl implements WifiService {
       _stateController(deviceId).stream;
 
   @override
-  PreviewStreamDescriptor? previewDescriptor(String deviceId) => null;
+  PreviewStreamDescriptor? previewDescriptor(String deviceId) {
+    final group = _currentGroups[deviceId];
+    if (group == null) {
+      return null; // no group up → LivePreviewView shows "Not connected"
+    }
+    // Real firmware (U4) serves RTSP H.264 at /preview on the group-owner IP +
+    // preview port; geometry/bitrate match the firmware AppStreamConfig demo
+    // defaults (854x480@30, 1500 kbps). Confirm the mount/transport on-device.
+    return PreviewStreamDescriptor(
+      url: group.previewUrl(),
+      codec: PreviewCodec.rtspH264,
+      width: 854,
+      height: 480,
+      fps: 30,
+      bitrateKbps: 1500,
+    );
+  }
 
   @override
   Stream<PreviewFrame> previewFrames(String deviceId) => const Stream.empty();
