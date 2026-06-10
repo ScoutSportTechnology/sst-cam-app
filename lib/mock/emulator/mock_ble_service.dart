@@ -622,11 +622,29 @@ class MockBleService implements BleService {
     final decodedRespChunk = proto.ChunkedPayload.fromBuffer(respBytes);
     final decodedResp = proto.CommandResponse.fromBuffer(decodedRespChunk.data);
 
-    if (decodedResp.status != proto.ResponseStatus.OK) {
-      return BleCommandResponse.error(decodedResp.errorMessage);
+    // Mirror BleProtocol._statusToResponse so the emulated firmware surfaces the
+    // same distinct statuses as the real impl — collapsing UNSUPPORTED/TIMEOUT
+    // into a generic error here would hide divergence (e.g. raw PAUSE/RESUME,
+    // which firmware answers UNSUPPORTED).
+    switch (decodedResp.status) {
+      case proto.ResponseStatus.OK:
+        return _mapResponse<T>(command, decodedResp);
+      case proto.ResponseStatus.TIMEOUT:
+        return BleCommandResponse<T>.timeout();
+      case proto.ResponseStatus.UNSUPPORTED:
+        return BleCommandResponse<T>(
+          status: BleResponseStatus.unsupported,
+          errorMessage: decodedResp.errorMessage.isNotEmpty
+              ? decodedResp.errorMessage
+              : 'Command not supported by firmware',
+        );
+      default:
+        return BleCommandResponse<T>.error(
+          decodedResp.errorMessage.isNotEmpty
+              ? decodedResp.errorMessage
+              : 'Command failed with status ${decodedResp.status}',
+        );
     }
-
-    return _mapResponse<T>(command, decodedResp);
   }
 
   proto.Command _encodeCommand(
@@ -892,6 +910,34 @@ class MockBleService implements BleService {
           ),
         )
         .toList();
+
+    // Model real firmware: a raw dual-capture session leaves two per-camera
+    // files stamped with the app-minted capture_group_id (proto RecordingMetadata
+    // 8–10, joint invariant). Surface them so the app's stop() → list → pair →
+    // download path exercises the real happy path against the emulated firmware.
+    // Without this the mock diverges from firmware and every raw download dead-
+    // ends on "incomplete". lastRawCaptureGroupId persists past STOP (set only on
+    // START), so the pair stays listed for download.
+    final rawGroup = lastRawCaptureGroupId;
+    if (rawGroup != null) {
+      final startedAt = Int64(DateTime.now().millisecondsSinceEpoch ~/ 1000);
+      for (var cam = 0; cam < 2; cam++) {
+        protoRecs.add(
+          proto.RecordingMetadata(
+            id: 'raw__${rawGroup}__cam$cam',
+            durationS: Int64(0),
+            sizeBytes: Int64(60 * 1024 * 1024),
+            startedAt: startedAt,
+            sport: '',
+            teams: '',
+            isRaw: true,
+            cameraIndex: cam,
+            captureGroupId: rawGroup,
+          ),
+        );
+      }
+    }
+
     return proto.CommandResponse(
       correlationId: correlationId,
       status: proto.ResponseStatus.OK,

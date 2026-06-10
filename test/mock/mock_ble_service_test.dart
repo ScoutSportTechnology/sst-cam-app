@@ -271,8 +271,36 @@ void main() {
         'SST-CAM-001',
         RawCaptureControlCommand(action: RecordingControlAction.pause),
       );
-      // The app surfaces UNSUPPORTED as a non-success response.
+      // The app surfaces UNSUPPORTED distinctly from a generic error — the mock
+      // must not collapse it (it mirrors BleProtocol.decodeResponse).
       expect(pause.isOk, isFalse);
+      expect(pause.status, BleResponseStatus.unsupported);
+    });
+
+    test('after start, listRecordings surfaces the raw pair for the group',
+        () async {
+      await svc.sendCommand(
+        'SST-CAM-001',
+        RawCaptureControlCommand(
+          action: RecordingControlAction.start,
+          captureGroupId: 'grp-pair',
+        ),
+      );
+
+      final resp = await svc.sendCommand<List<RecordingMetadata>>(
+        'SST-CAM-001',
+        ListRecordingsCommand(),
+      );
+      final raw = (resp.payload ?? <RecordingMetadata>[])
+          .where((r) => r.isRaw && r.captureGroupId == 'grp-pair')
+          .toList();
+
+      // Real firmware leaves two per-camera files stamped with the group id;
+      // the mock must too, or the app's stop()->list->pair->download path can
+      // never complete against the emulated firmware.
+      expect(raw, hasLength(2));
+      expect(raw.map((r) => r.cameraIndex).toSet(), {0, 1});
+      expect(raw.every((r) => r.captureGroupId == 'grp-pair'), isTrue);
     });
   });
 

@@ -34,6 +34,10 @@ class _FakeBle implements BleService {
 class _FakeWifi implements WifiService {
   final List<String> downloaded = [];
 
+  /// Terminal status the simulated download reaches. Defaults to a successful
+  /// transfer; set to failed/cancelled to exercise the partial-download path.
+  DownloadStatus terminalStatus = DownloadStatus.completed;
+
   @override
   Future<VideoDownloadHandle> downloadRecording(String deviceId, String uuid) async {
     downloaded.add(uuid);
@@ -41,7 +45,16 @@ class _FakeWifi implements WifiService {
       downloadId: 'dl-$uuid',
       recordingId: uuid,
       savePath: '/videos/$uuid.nv12',
-      progress: const Stream.empty(),
+      // Emit a single terminal progress event, mirroring the real handle whose
+      // stream runs until the transfer reaches a terminal state then closes.
+      progress: Stream.value(VideoDownloadProgress(
+        downloadId: 'dl-$uuid',
+        recordingId: uuid,
+        status: terminalStatus,
+        bytesReceived: 100,
+        bytesTotal: 100,
+        kbps: 0,
+      )),
       cancel: () async {},
     );
   }
@@ -131,6 +144,26 @@ void main() {
     expect(rows, hasLength(2));
     expect(rows.every((r) => r.isComplete), isTrue);
     expect(rows.map((r) => r.cameraIndex).toSet(), {0, 1});
+  });
+
+  test('stop does NOT complete the group when a download fails', () async {
+    wifi.terminalStatus = DownloadStatus.failed;
+    await ctrl().start();
+    final group = read().captureGroupId!;
+    ble.recordings = [
+      _raw('raw__a__cam0', group, 0),
+      _raw('raw__a__cam1', group, 1),
+    ];
+
+    await ctrl().stop();
+
+    // Both files listed, but neither finished downloading → not complete.
+    expect(read().phase, RawCapturePhase.error);
+    expect(read().message, contains('incomplete'));
+    final rows = await db.rawRecordingsDao.getPair(group);
+    expect(rows.every((r) => !r.isComplete), isTrue);
+    // A failed transfer must not record a playable local path.
+    expect(rows.every((r) => r.localPath == null), isTrue);
   });
 
   test('stop with only one file surfaces an incomplete error', () async {
