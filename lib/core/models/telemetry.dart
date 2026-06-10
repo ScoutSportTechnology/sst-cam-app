@@ -13,6 +13,7 @@ class DeviceTelemetry {
     required this.isRecording,
     required this.isStreaming,
     this.batteryLevelPct,
+    this.isRawCapturing = false,
   });
 
   final int storageFreeBytes;
@@ -30,6 +31,9 @@ class DeviceTelemetry {
 
   /// Battery charge 0–100, or null when the device does not report a battery.
   final int? batteryLevelPct;
+
+  /// Whether raw dual-camera capture is running. Absent on the wire ⇒ false.
+  final bool isRawCapturing;
 
   double get storageUsedPct =>
       storageTotalBytes == 0 ? 0 : 1 - (storageFreeBytes / storageTotalBytes);

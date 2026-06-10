@@ -175,6 +175,16 @@ class RecordingControlCommand extends BleCommand {
   final RecordingControlAction action;
 }
 
+/// Independent raw dual-camera capture, distinct from [RecordingControlCommand].
+/// Only start/stop are honored by firmware. The app MINTS [captureGroupId] and
+/// sends it on start (the stop response is status-only, so this is the only way
+/// the app can reliably pair the two per-camera files).
+class RawCaptureControlCommand extends BleCommand {
+  RawCaptureControlCommand({required this.action, this.captureGroupId});
+  final RecordingControlAction action;
+  final String? captureGroupId;
+}
+
 class StreamingControlCommand extends BleCommand {
   StreamingControlCommand({required this.action, this.rtmpUrl});
   final StreamingControlAction action;

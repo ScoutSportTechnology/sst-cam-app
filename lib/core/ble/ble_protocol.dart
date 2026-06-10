@@ -264,6 +264,23 @@ class BleProtocol {
         },
       ),
     ),
+    RawCaptureControlCommand(:final action, :final captureGroupId) =>
+      proto.Command(
+        correlationId: correlationId,
+        rawCapture: proto.RawCaptureControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          // proto3 optional — only set when the app minted one (start).
+          captureGroupId: captureGroupId,
+        ),
+      ),
     StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
       correlationId: correlationId,
       streamingControl: proto.StreamingControlCommand(
@@ -373,6 +390,13 @@ class BleProtocol {
                       ),
                       sport: r.sport,
                       teams: r.teams,
+                      // Raw identity (proto3 optional, joint invariant): present
+                      // together on a raw file, absent on a final recording.
+                      isRaw: r.isRaw,
+                      cameraIndex: r.hasCameraIndex() ? r.cameraIndex : null,
+                      captureGroupId: r.hasCaptureGroupId()
+                          ? r.captureGroupId
+                          : null,
                     ),
                   )
                   .toList()
@@ -436,6 +460,7 @@ class BleProtocol {
         isRecording: p.isRecording,
         isStreaming: p.isStreaming,
         batteryLevelPct: p.hasBatteryLevelPct() ? p.batteryLevelPct : null,
+        isRawCapturing: p.isRawCapturing,
       );
 
   static WifiState _dartWifiState(proto.WifiState s) => switch (s) {

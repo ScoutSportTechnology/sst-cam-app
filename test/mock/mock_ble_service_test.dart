@@ -231,6 +231,51 @@ void main() {
     });
   });
 
+  group('RawCaptureControlCommand', () {
+    test('start records the app-minted group + sets raw-capturing', () async {
+      final resp = await svc.sendCommand(
+        'SST-CAM-001',
+        RawCaptureControlCommand(
+          action: RecordingControlAction.start,
+          captureGroupId: 'grp-xyz',
+        ),
+      );
+      expect(resp.isOk, isTrue);
+      expect(svc.isRawCapturingActive, isTrue);
+      expect(svc.lastRawCaptureGroupId, 'grp-xyz');
+
+      final tel = await svc.sendCommand<DeviceTelemetry>(
+        'SST-CAM-001',
+        GetTelemetryCommand(),
+      );
+      expect(tel.payload!.isRawCapturing, isTrue);
+    });
+
+    test('stop clears raw-capturing', () async {
+      await svc.sendCommand(
+        'SST-CAM-001',
+        RawCaptureControlCommand(
+          action: RecordingControlAction.start,
+          captureGroupId: 'g',
+        ),
+      );
+      await svc.sendCommand(
+        'SST-CAM-001',
+        RawCaptureControlCommand(action: RecordingControlAction.stop),
+      );
+      expect(svc.isRawCapturingActive, isFalse);
+    });
+
+    test('pause/resume are rejected (firmware answers UNSUPPORTED)', () async {
+      final pause = await svc.sendCommand(
+        'SST-CAM-001',
+        RawCaptureControlCommand(action: RecordingControlAction.pause),
+      );
+      // The app surfaces UNSUPPORTED as a non-success response.
+      expect(pause.isOk, isFalse);
+    });
+  });
+
   group('advertiseDevices', () {
     test('advertiseDevices=true (default) emits devices during scan', () async {
       final emitted = <List<SstDevice>>[];

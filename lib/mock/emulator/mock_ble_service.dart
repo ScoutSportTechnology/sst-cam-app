@@ -566,6 +566,7 @@ class MockBleService implements BleService {
       uptimeSeconds: tick,
       isRecording: b.isRecording,
       isStreaming: b.isStreaming,
+      isRawCapturing: isRawCapturingActive,
     );
   }
 
@@ -673,6 +674,22 @@ class MockBleService implements BleService {
         },
       ),
     ),
+    RawCaptureControlCommand(:final action, :final captureGroupId) =>
+      proto.Command(
+        correlationId: correlationId,
+        rawCapture: proto.RawCaptureControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          captureGroupId: captureGroupId,
+        ),
+      ),
     StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
       correlationId: correlationId,
       streamingControl: proto.StreamingControlCommand(
@@ -746,6 +763,11 @@ class MockBleService implements BleService {
             action == RecordingControlAction.start ||
             action == RecordingControlAction.resume;
         lastRecordingAction = action;
+      case RawCaptureControlCommand(:final action, :final captureGroupId):
+        isRawCapturingActive = action == RecordingControlAction.start;
+        if (action == RecordingControlAction.start) {
+          lastRawCaptureGroupId = captureGroupId;
+        }
       case StreamingControlCommand(:final action):
         isStreamingActive = action == StreamingControlAction.start;
       case MatchControlCommand(:final action):
@@ -808,6 +830,15 @@ class MockBleService implements BleService {
       RecordingControlCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
+      ),
+      RawCaptureControlCommand(:final action) => proto.CommandResponse(
+        correlationId: correlationId,
+        // Mirror firmware: pause/resume are unsupported for raw capture.
+        status:
+            (action == RecordingControlAction.pause ||
+                action == RecordingControlAction.resume)
+            ? proto.ResponseStatus.UNSUPPORTED
+            : proto.ResponseStatus.OK,
       ),
       StreamingControlCommand() => proto.CommandResponse(
         correlationId: correlationId,
@@ -894,6 +925,11 @@ class MockBleService implements BleService {
                     ),
                     sport: r.sport,
                     teams: r.teams,
+                    isRaw: r.isRaw,
+                    cameraIndex: r.hasCameraIndex() ? r.cameraIndex : null,
+                    captureGroupId: r.hasCaptureGroupId()
+                        ? r.captureGroupId
+                        : null,
                   ),
                 )
                 .toList()
@@ -920,6 +956,7 @@ class MockBleService implements BleService {
             as T?,
       ),
       RecordingControlCommand() => BleCommandResponse.ok(null as T?),
+      RawCaptureControlCommand() => BleCommandResponse.ok(null as T?),
       StreamingControlCommand() => BleCommandResponse.ok(null as T?),
       MatchControlCommand() => BleCommandResponse.ok(null as T?),
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
@@ -959,6 +996,7 @@ class MockBleService implements BleService {
       uptimeSeconds: Int64(tick),
       isRecording: b.isRecording,
       isStreaming: b.isStreaming,
+      isRawCapturing: isRawCapturingActive,
     );
   }
 
@@ -975,6 +1013,7 @@ class MockBleService implements BleService {
     uptimeSeconds: p.uptimeSeconds.toInt(),
     isRecording: p.isRecording,
     isStreaming: p.isStreaming,
+    isRawCapturing: p.isRawCapturing,
   );
 
   WifiState _dartWifiState(proto.WifiState s) => switch (s) {
@@ -1065,6 +1104,13 @@ class MockBleService implements BleService {
 
   /// True when recording is active (toggled by [RecordingControlCommand]).
   bool isRecordingActive = false;
+
+  /// True when raw dual-camera capture is active (toggled by
+  /// [RawCaptureControlCommand]); surfaced via telemetry `isRawCapturing`.
+  bool isRawCapturingActive = false;
+
+  /// The app-minted capture group id from the last raw-capture start.
+  String? lastRawCaptureGroupId;
 
   /// True when streaming is active (toggled by [StreamingControlCommand]).
   bool isStreamingActive = false;
