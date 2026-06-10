@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../db/app_database.dart';
 import '../db/daos/clips_dao.dart';
+import '../db/daos/raw_recordings_dao.dart';
 import '../db/daos/users_dao.dart';
 import '../db/daos/teams_dao.dart';
 import '../db/daos/sport_presets_dao.dart';
@@ -46,6 +47,10 @@ final streamingDestinationsDaoProvider = Provider<StreamingDestinationsDao>((
 });
 
 // ---------------------------------------------------------------------------
+final rawRecordingsDaoProvider = Provider<RawRecordingsDao>((ref) {
+  return ref.watch(appDatabaseProvider).rawRecordingsDao;
+});
+
 final clipsDaoProvider = Provider<ClipsDao>((ref) {
   return ref.watch(appDatabaseProvider).clipsDao;
 });
