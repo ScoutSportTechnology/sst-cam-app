@@ -109,7 +109,11 @@ class BleServiceImpl implements BleService {
 
     try {
       await device.connect(autoConnect: false);
-      await device.requestMtu(512);
+      // requestMtu returns the ACTUAL negotiated MTU, which can be below 512 on
+      // real hardware. Derive the chunk budget from it — a fixed 400-byte chunk
+      // overflows a single GATT write on a sub-512 MTU (the #1 bring-up risk).
+      final negotiatedMtu = await device.requestMtu(512);
+      conn.chunkDataBudget = BleProtocol.chunkBudgetForMtu(negotiatedMtu);
 
       final services = await device.discoverServices();
       final svc = services.where((s) => s.uuid == _serviceUuid).firstOrNull;
@@ -264,7 +268,11 @@ class BleServiceImpl implements BleService {
 
     final corrId = BleProtocol.newCorrelationId();
     try {
-      final frames = BleProtocol.encodeCommandFrames(command, corrId);
+      final frames = BleProtocol.encodeCommandFrames(
+        command,
+        corrId,
+        maxDataBytes: conn.chunkDataBudget,
+      );
       final responseBytes = await conn._sendFramesAndAwait(
         corrId,
         frames,
@@ -297,7 +305,11 @@ class BleServiceImpl implements BleService {
     // encodeSessionConfigFrames helper and shares the request lifecycle via
     // _sendFramesAndAwait.
     final corrId = BleProtocol.newCorrelationId();
-    final frames = BleProtocol.encodeSessionConfigFrames(config, corrId);
+    final frames = BleProtocol.encodeSessionConfigFrames(
+      config,
+      corrId,
+      maxDataBytes: conn.chunkDataBudget,
+    );
     final responseBytes = await conn._sendFramesAndAwait(
       corrId,
       frames,
@@ -382,6 +394,10 @@ class _ConnectedDevice {
   final _telemetryController = StreamController<DeviceTelemetry>.broadcast();
   final _matchStateController = StreamController<MatchState>.broadcast();
   final _pendingRequests = <String, Completer<List<int>>>{};
+
+  /// Per-frame `data` budget derived from the negotiated ATT MTU at connect.
+  /// Defaults to the proven cap; lowered when the device negotiates below 512.
+  int chunkDataBudget = BleProtocol.maxChunkDataBytes;
 
   BluetoothCharacteristic? _cmdWrite;
   BluetoothCharacteristic? _cmdResponse;

@@ -27,10 +27,31 @@ class BleProtocol {
   /// [proto.ChunkedPayload] frame's `data` field. Commands whose serialized
   /// form exceeds this are split across multiple ordered frames.
   ///
-  /// The BLE link negotiates a 512-byte ATT MTU (see [BleServiceImpl.connect]).
-  /// We keep a conservative payload budget below that to leave room for the
-  /// ChunkedPayload envelope overhead (correlation_id, indices, field tags).
+  /// Default per-frame `data` budget when the negotiated MTU is unknown. The
+  /// BLE link requests a 512-byte ATT MTU (see [BleServiceImpl.connect]); 400
+  /// leaves room for the ChunkedPayload envelope (correlation_id, indices, field
+  /// tags). When the negotiated MTU is lower, the caller passes a smaller budget
+  /// derived from it via [chunkBudgetForMtu] — a fixed 400 would overflow a
+  /// sub-512 MTU's single GATT write.
   static const int maxChunkDataBytes = 400;
+
+  /// Bytes reserved per frame for the ChunkedPayload envelope + ATT write header
+  /// (3-byte ATT opcode/handle + a 36-byte UUID correlation_id + index/tag
+  /// overhead). Subtracted from the negotiated MTU to get the `data` budget.
+  static const int _chunkEnvelopeReserve = 60;
+
+  /// Smallest workable `data` budget. Below this the envelope itself can't fit
+  /// the negotiated MTU and chunking is infeasible (surface as a connect error).
+  static const int minChunkDataBytes = 20;
+
+  /// The per-frame `data` budget for a negotiated ATT [mtu]. Clamped to
+  /// [minChunkDataBytes] and never above [maxChunkDataBytes] (the proven cap).
+  static int chunkBudgetForMtu(int mtu) {
+    final budget = mtu - _chunkEnvelopeReserve;
+    if (budget < minChunkDataBytes) return minChunkDataBytes;
+    if (budget > maxChunkDataBytes) return maxChunkDataBytes;
+    return budget;
+  }
 
   /// Generates a new correlation ID (UUID v4).
   static String newCorrelationId() => _uuid.v4();
@@ -42,25 +63,31 @@ class BleProtocol {
   /// sequential `chunk_index` and `total_chunks = N`.
   static List<Uint8List> encodeCommandFrames(
     BleCommand cmd,
-    String correlationId,
-  ) {
+    String correlationId, {
+    int maxDataBytes = maxChunkDataBytes,
+  }) {
     final protoCmd = _toProtoCommand(cmd, correlationId);
-    return _splitIntoFrames(protoCmd.writeToBuffer(), correlationId);
+    return _splitIntoFrames(
+      protoCmd.writeToBuffer(),
+      correlationId,
+      maxDataBytes: maxDataBytes,
+    );
   }
 
   /// Splits serialized command [data] into ordered ChunkedPayload frames,
-  /// each carrying at most [maxChunkDataBytes] of `data`.
+  /// each carrying at most [maxDataBytes] of `data`.
   static List<Uint8List> _splitIntoFrames(
     List<int> data,
-    String correlationId,
-  ) {
+    String correlationId, {
+    int maxDataBytes = maxChunkDataBytes,
+  }) {
     final total = data.isEmpty
         ? 1
-        : (data.length + maxChunkDataBytes - 1) ~/ maxChunkDataBytes;
+        : (data.length + maxDataBytes - 1) ~/ maxDataBytes;
     final frames = <Uint8List>[];
     for (var i = 0; i < total; i++) {
-      final start = i * maxChunkDataBytes;
-      final end = math.min(start + maxChunkDataBytes, data.length);
+      final start = i * maxDataBytes;
+      final end = math.min(start + maxDataBytes, data.length);
       final chunk = proto.ChunkedPayload(
         correlationId: correlationId,
         chunkIndex: i,
@@ -99,10 +126,15 @@ class BleProtocol {
   /// when null they are left unset on the wire (not encoded as empty strings).
   static List<Uint8List> encodeSessionConfigFrames(
     PushSessionConfig config,
-    String correlationId,
-  ) {
+    String correlationId, {
+    int maxDataBytes = maxChunkDataBytes,
+  }) {
     final protoCmd = _sessionConfigToProtoCommand(config, correlationId);
-    return _splitIntoFrames(protoCmd.writeToBuffer(), correlationId);
+    return _splitIntoFrames(
+      protoCmd.writeToBuffer(),
+      correlationId,
+      maxDataBytes: maxDataBytes,
+    );
   }
 
 

@@ -41,10 +41,17 @@ Open in VS Code → "Reopen in Container". Docker Compose
 
 ## Entry points & backends
 
-- `lib/main.dart` — **dev** entry: mock backend, seedable dev data, dev navigation.
-- `lib/main_prod.dart` — **prod** entry: real BLE/WiFi services.
-- `lib/core/config/env.dart` / `app_config.dart` — which backend is live (`kAppEnv.isDevBackend`).
-  Mock services are selected at runtime when the dev backend is active — no Riverpod override needed.
+- `lib/main.dart` — **dev** entry: builds a `ProviderContainer` that **overrides**
+  `bleServiceProvider`/`wifiServiceProvider` with mocks (+ seedable dev data, dev
+  navigation), then runs an `UncontrolledProviderScope`.
+- `lib/main_prod.dart` — **prod** entry: a bare `ProviderContainer` with **no
+  overrides**, so the providers' defaults (the real `BleServiceImpl`/
+  `WifiServiceImpl`) are used.
+- `lib/core/config/env.dart` / `app_config.dart` — `kAppEnv.isDevBackend` gates
+  dev-only diagnostics/seeding, **not** backend selection. Backend = provider
+  default (real) vs. dev-entry Riverpod override (mock); there is no runtime
+  `isDevBackend` service branch. Audit prod paths for any lingering `isDevBackend ||`
+  bypass.
 
 ## Architecture — contract-first, pull model, feature-first
 
@@ -97,9 +104,10 @@ share moves to `core/`. New cross-feature provider → `core/state/`.
 ### Ports & mocks
 
 `BleService` and `WifiService` are abstract ports — the only BLE/WiFi surface the
-UI touches. `*_impl` wire the real packages; the `mock/emulator/` doubles back the
-dev backend and are injected automatically when `kAppEnv.isDevBackend`. Tests may
-still override via `ProviderScope(overrides: [...])`.
+UI touches. `*_impl` wire the real packages and are the **provider defaults**; the
+`mock/emulator/` doubles back the dev backend via the **`main.dart` Riverpod
+override** (and tests override the same way with `ProviderScope(overrides: [...])`).
+`main_prod.dart` adds no overrides, so prod gets the real impls.
 
 ### Proto vs. Dart models
 
