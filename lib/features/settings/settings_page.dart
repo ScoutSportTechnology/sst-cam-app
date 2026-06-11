@@ -105,8 +105,9 @@ class SettingsPage extends ConsumerWidget {
                 Builder(
                   builder: (ctx) {
                     final devNav = ref.watch(devNavigationProvider);
-                    if (devNav.developerSettings == null)
+                    if (devNav.developerSettings == null) {
                       return const SizedBox.shrink();
+                    }
                     return Column(
                       children: [
                         const Divider(height: 1, color: T.rule),
