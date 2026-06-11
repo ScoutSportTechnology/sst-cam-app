@@ -1,0 +1,109 @@
+name: release
+
+# Builds and uploads the signed release APKs when a GitHub Release is published.
+# release-please (.github/workflows/release-please.yml) creates the tag + Release;
+# because it uses the org GitHub App token (RELEASE_PLEASE_TOKEN, not GITHUB_TOKEN),
+# the `release: published` event below actually fires.
+#
+# Builds TWO APKs from a single Gradle flavor, differing only by entrypoint + env:
+#   - production: -t lib/main_prod.dart --dart-define=APP_ENV=prod  (real backend, prod env)
+#   - developer : --dart-define=APP_ENV=stage                       (real backend, stage env)
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build & upload release APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Proto is still consumed via the `proto/` git submodule + `just gen-proto`
+          # (the Dart-package cutover is deferred — see pubspec.yaml TODO). The
+          # release build therefore needs the submodule checked out.
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # protoc + the Dart plugin are needed for `just gen-proto`. Remove this
+      # step once the proto Dart-package cutover lands (pubspec.yaml TODO).
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install Dart protoc plugin
+        run: dart pub global activate protoc_plugin
+
+      - name: Generate proto bindings
+        # Mirrors `just gen-proto`. The submodule provides proto/*.proto.
+        run: |
+          mkdir -p lib/models/proto
+          export PATH="$PATH":"$HOME/.pub-cache/bin"
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Materialize Android signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Decode the base64-encoded keystore into android/app/ (so the relative
+          # storeFile path in key.properties resolves correctly).
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=${ANDROID_STORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          keyPassword=${ANDROID_KEY_PASSWORD}
+          EOF
+
+      - name: Build production APK
+        run: flutter build apk --release -t lib/main_prod.dart --dart-define=APP_ENV=prod
+
+      - name: Rename production APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/apk/release/app-release.apk \
+            "dist/sst-cam-app-${{ github.event.release.tag_name }}-production.apk"
+
+      - name: Build developer APK
+        run: flutter build apk --release --dart-define=APP_ENV=stage
+
+      - name: Rename developer APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/apk/release/app-release.apk \
+            "dist/sst-cam-app-${{ github.event.release.tag_name }}-developer.apk"
+
+      - name: Upload APKs to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "dist/sst-cam-app-${{ github.event.release.tag_name }}-production.apk" \
+            "dist/sst-cam-app-${{ github.event.release.tag_name }}-developer.apk" \
+            --clobber
+
+      # NOTE (open item): the developer + production APKs currently share the
+      # applicationId "com.sst.sstcam", so they cannot be installed side-by-side
+      # on a single device. If that is required, add `applicationIdSuffix ".dev"`
+      # to the developer variant (see the TODO in android/app/build.gradle.kts).

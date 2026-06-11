@@ -1,0 +1,31 @@
+name: release-please
+
+# Runs on every push to main. release-please maintains a "release PR" that
+# accumulates conventional-commit changes and bumps the app version in
+# pubspec.yaml. Merging that PR creates a `v<version>` tag + GitHub Release,
+# which triggers the release build workflow (.github/workflows/release.yml).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          # IMPORTANT: this MUST be an org GitHub App installation token (stored
+          # as the RELEASE_PLEASE_TOKEN secret), NOT the default GITHUB_TOKEN.
+          # GitHub's recursion guard suppresses workflow_run/`release: published`
+          # events for tags + releases created with GITHUB_TOKEN, so release.yml
+          # would NEVER fire. A GitHub App token is treated as a distinct actor
+          # and so the resulting tag/release does trigger downstream workflows.
+          # Provision the App at the org level and install it on this repo; see
+          # the EXTERNAL/MANUAL steps in the CI/CD plan.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
