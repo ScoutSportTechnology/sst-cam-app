@@ -26,6 +26,16 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Format-check hand-written code BEFORE generating protos — generated
+      # bindings under lib/models/proto/ are not dart-formatted and must not be
+      # format-gated. integration_test/ does not currently exist; include it
+      # only if present so the check doesn't hard-error on a missing path.
+      - name: Format check
+        run: |
+          dirs="lib test"
+          [ -d integration_test ] && dirs="$dirs integration_test"
+          dart format --set-exit-if-changed $dirs
+
       # The app's BLE layer imports lib/models/proto/*.dart (gitignored,
       # generated). Generate them before analyze/test — mirrors `just gen-proto`.
       - name: Install protoc
@@ -44,14 +54,6 @@ jobs:
         run: |
           mkdir -p lib/models/proto
           protoc --dart_out=lib/models/proto -I proto proto/*.proto
-
-      - name: Format check
-        # integration_test/ does not currently exist; include it only if present
-        # so the check doesn't hard-error on a missing path.
-        run: |
-          dirs="lib test"
-          [ -d integration_test ] && dirs="$dirs integration_test"
-          dart format --set-exit-if-changed $dirs
 
       - name: Analyze
         run: flutter analyze
@@ -95,8 +97,6 @@ jobs:
 
       - name: Install Dart protoc plugin
         run: |
-          # Pin to match the app's expected generated API (protobuf ^3.1.0).
-          # The latest plugin changes map-field + enum codegen and breaks analyze.
           dart pub global activate protoc_plugin 21.1.2
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
 
