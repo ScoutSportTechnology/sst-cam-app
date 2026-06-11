@@ -471,6 +471,13 @@ class BleProtocol {
         // we still OK with null and let the caller's null-check surface it.
         return BleCommandResponse.ok(null as T?);
     }
+    // Defensive: the oneof above is not statically exhaustive over every
+    // CommandResponse payload variant. If the firmware sends a typed payload
+    // this decoder does not map, surface it rather than completing normally
+    // (which would return null and violate the non-nullable return type).
+    throw StateError(
+      'unhandled CommandResponse payload: ${resp.whichPayload()}',
+    );
   }
 
   static DeviceTelemetry _dartTelemetry(proto.DeviceTelemetry p) =>

@@ -13,6 +13,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # proto/*.proto comes from the git submodule; the BLE layer imports
+          # the generated bindings, so analyze + tests need them generated.
+          submodules: recursive
 
       - uses: subosito/flutter-action@v2
         with:
@@ -21,6 +25,23 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      # The app's BLE layer imports lib/models/proto/*.dart (gitignored,
+      # generated). Generate them before analyze/test — mirrors `just gen-proto`.
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        run: |
+          dart pub global activate protoc_plugin
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
 
       - name: Format check
         # integration_test/ does not currently exist; include it only if present
@@ -49,6 +70,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-java@v4
         with:
@@ -62,6 +85,21 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        run: |
+          dart pub global activate protoc_plugin
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
 
       - name: Build debug APK
         run: flutter build apk --debug

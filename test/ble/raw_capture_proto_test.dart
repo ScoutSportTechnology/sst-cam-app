@@ -1,4 +1,3 @@
-import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_protocol.dart';
 import 'package:sst_cam_app/core/models/command.dart';
