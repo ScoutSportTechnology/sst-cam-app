@@ -32,18 +32,21 @@ void main() {
     );
   }
 
-  test('getPair returns the two per-camera files ordered by camera index', () async {
-    await db.rawRecordingsDao.upsert(row('r1', 'grp-1', 1));
-    await db.rawRecordingsDao.upsert(row('r0', 'grp-1', 0));
-    await db.rawRecordingsDao.upsert(row('other', 'grp-2', 0));
+  test(
+    'getPair returns the two per-camera files ordered by camera index',
+    () async {
+      await db.rawRecordingsDao.upsert(row('r1', 'grp-1', 1));
+      await db.rawRecordingsDao.upsert(row('r0', 'grp-1', 0));
+      await db.rawRecordingsDao.upsert(row('other', 'grp-2', 0));
 
-    final pair = await db.rawRecordingsDao.getPair('grp-1');
-    expect(pair, hasLength(2));
-    expect(pair[0].cameraIndex, 0);
-    expect(pair[1].cameraIndex, 1);
-    expect(pair.every((r) => r.captureGroupId == 'grp-1'), isTrue);
-    expect(pair.every((r) => r.isRaw), isTrue);
-  });
+      final pair = await db.rawRecordingsDao.getPair('grp-1');
+      expect(pair, hasLength(2));
+      expect(pair[0].cameraIndex, 0);
+      expect(pair[1].cameraIndex, 1);
+      expect(pair.every((r) => r.captureGroupId == 'grp-1'), isTrue);
+      expect(pair.every((r) => r.isRaw), isTrue);
+    },
+  );
 
   test('setGroupComplete flips both rows of the group', () async {
     await db.rawRecordingsDao.upsert(row('r0', 'grp-1', 0));
@@ -74,46 +77,51 @@ void main() {
     expect(pair.single.sizeBytes, 1024);
   });
 
-  test('FK cascade: deleting a match removes its raw rows (pragma on)', () async {
-    await db.usersDao.insertUser(
-      UsersTableCompanion.insert(id: 'u1', name: 'Coach'),
-    );
-    await db.teamsDao.insertTeam(
-      TeamsTableCompanion.insert(
-        id: 't1',
-        userId: 'u1',
-        name: 'Team One',
-        shortName: 'T1',
-        sport: 'Soccer',
-      ),
-    );
-    await db.teamsDao.insertTeamMatch(
-      TeamMatchesTableCompanion.insert(
-        id: 'm1',
-        teamId: 't1',
-        opponent: 'vs Two',
-        date: 'May 11',
-        result: '',
-        kind: 'upcoming',
-        numPeriods: 2,
-        periodLengthSeconds: 2100,
-      ),
-    );
-    await db.rawRecordingsDao.upsert(row('r0', 'grp-1', 0, matchId: 'm1'));
+  test(
+    'FK cascade: deleting a match removes its raw rows (pragma on)',
+    () async {
+      await db.usersDao.insertUser(
+        UsersTableCompanion.insert(id: 'u1', name: 'Coach'),
+      );
+      await db.teamsDao.insertTeam(
+        TeamsTableCompanion.insert(
+          id: 't1',
+          userId: 'u1',
+          name: 'Team One',
+          shortName: 'T1',
+          sport: 'Soccer',
+        ),
+      );
+      await db.teamsDao.insertTeamMatch(
+        TeamMatchesTableCompanion.insert(
+          id: 'm1',
+          teamId: 't1',
+          opponent: 'vs Two',
+          date: 'May 11',
+          result: '',
+          kind: 'upcoming',
+          numPeriods: 2,
+          periodLengthSeconds: 2100,
+        ),
+      );
+      await db.rawRecordingsDao.upsert(row('r0', 'grp-1', 0, matchId: 'm1'));
 
-    expect(await db.rawRecordingsDao.getPair('grp-1'), hasLength(1));
-    await db.teamsDao.deleteTeamMatch('m1');
-    expect(await db.rawRecordingsDao.getPair('grp-1'), isEmpty);
-  });
+      expect(await db.rawRecordingsDao.getPair('grp-1'), hasLength(1));
+      await db.teamsDao.deleteTeamMatch('m1');
+      expect(await db.rawRecordingsDao.getPair('grp-1'), isEmpty);
+    },
+  );
 
   test('watchAll emits on insert', () async {
     final stream = db.rawRecordingsDao.watchAll();
     await db.rawRecordingsDao.upsert(row('r0', 'grp-1', 0));
     await expectLater(
       stream,
-      emitsThrough(predicate<List<RawRecordingsTableData>>(
-        (rows) => rows.any((r) => r.id == 'r0'),
-      )),
+      emitsThrough(
+        predicate<List<RawRecordingsTableData>>(
+          (rows) => rows.any((r) => r.id == 'r0'),
+        ),
+      ),
     );
   });
 }

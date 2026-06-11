@@ -68,8 +68,10 @@ void main() {
     }
 
     test('present true decodes to true', () {
-      expect(decode(proto.DeviceTelemetry(isRawCapturing: true)).isRawCapturing,
-          isTrue);
+      expect(
+        decode(proto.DeviceTelemetry(isRawCapturing: true)).isRawCapturing,
+        isTrue,
+      );
     });
 
     test('absent decodes to false', () {

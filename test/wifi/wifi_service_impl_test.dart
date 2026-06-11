@@ -38,8 +38,7 @@ class _FakeBle implements BleService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 WifiDirectGroup _group(String role) => WifiDirectGroup(
@@ -92,45 +91,51 @@ void main() {
     await svc.dispose();
   });
 
-  test('disconnect sends StopWifiDirectCommand and a second connect succeeds', () async {
-    final ble = _FakeBle(_group('GO'));
-    final svc = WifiServiceImpl(ble: ble);
+  test(
+    'disconnect sends StopWifiDirectCommand and a second connect succeeds',
+    () async {
+      final ble = _FakeBle(_group('GO'));
+      final svc = WifiServiceImpl(ble: ble);
 
-    await svc.connectGroup('dev-1');
-    await svc.disconnectGroup('dev-1');
-    expect(
-      ble.sent.any((c) => c is StopWifiDirectCommand),
-      isTrue,
-      reason: 'disconnect must release the firmware P2P group',
-    );
-    expect(svc.currentGroup('dev-1'), isNull);
+      await svc.connectGroup('dev-1');
+      await svc.disconnectGroup('dev-1');
+      expect(
+        ble.sent.any((c) => c is StopWifiDirectCommand),
+        isTrue,
+        reason: 'disconnect must release the firmware P2P group',
+      );
+      expect(svc.currentGroup('dev-1'), isNull);
 
-    // The second connect must not fail on a stale group.
-    final group2 = await svc.connectGroup('dev-1');
-    expect(group2.role, 'GO');
-    expect(svc.currentGroup('dev-1'), isNotNull);
-    await svc.dispose();
-  });
+      // The second connect must not fail on a stale group.
+      final group2 = await svc.connectGroup('dev-1');
+      expect(group2.role, 'GO');
+      expect(svc.currentGroup('dev-1'), isNotNull);
+      await svc.dispose();
+    },
+  );
 
   test('previewDescriptor is null before a group is up', () {
     final svc = WifiServiceImpl(ble: _FakeBle(_group('GO')));
     expect(svc.previewDescriptor('dev-1'), isNull);
   });
 
-  test('previewDescriptor yields the RTSP URL from the connected group', () async {
-    final svc = WifiServiceImpl(ble: _FakeBle(_group('GO')));
-    await svc.connectGroup('dev-1');
+  test(
+    'previewDescriptor yields the RTSP URL from the connected group',
+    () async {
+      final svc = WifiServiceImpl(ble: _FakeBle(_group('GO')));
+      await svc.connectGroup('dev-1');
 
-    final desc = svc.previewDescriptor('dev-1');
-    expect(desc, isNotNull);
-    expect(desc!.url, 'rtsp://192.168.49.1:8554/preview');
-    expect(desc.codec, PreviewCodec.rtspH264);
+      final desc = svc.previewDescriptor('dev-1');
+      expect(desc, isNotNull);
+      expect(desc!.url, 'rtsp://192.168.49.1:8554/preview');
+      expect(desc.codec, PreviewCodec.rtspH264);
 
-    // After disconnect the descriptor goes back to null.
-    await svc.disconnectGroup('dev-1');
-    expect(svc.previewDescriptor('dev-1'), isNull);
-    await svc.dispose();
-  });
+      // After disconnect the descriptor goes back to null.
+      await svc.disconnectGroup('dev-1');
+      expect(svc.previewDescriptor('dev-1'), isNull);
+      await svc.dispose();
+    },
+  );
 
   test('group_owner spelling is accepted', () async {
     final svc = WifiServiceImpl(ble: _FakeBle(_group('group_owner')));

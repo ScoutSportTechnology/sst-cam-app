@@ -23,8 +23,8 @@ import 'wifi_service.dart';
 ///     resume support against the Jetson's recording HTTP server.
 class WifiServiceImpl implements WifiService {
   WifiServiceImpl({required BleService ble, Dio? dio})
-      : _ble = ble,
-        _dio = dio ?? Dio();
+    : _ble = ble,
+      _dio = dio ?? Dio();
 
   final BleService _ble;
   final Dio _dio;
@@ -159,7 +159,9 @@ class WifiServiceImpl implements WifiService {
     if (group.ssid.isEmpty || group.psk.isEmpty) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       _emitState(deviceId, WifiDirectState.failed);
-      throw const WifiDirectException('BLE credential fetch returned empty ssid/psk');
+      throw const WifiDirectException(
+        'BLE credential fetch returned empty ssid/psk',
+      );
     }
 
     // Honor WifiDirectGroupResponse.role. The camera must be the WiFi Direct
@@ -387,15 +389,21 @@ class WifiServiceImpl implements WifiService {
       if (resp.statusCode != null && resp.statusCode! >= 400) {
         _publishProgress(
           entry,
-          _progress(downloadId, token.recordingId, DownloadStatus.failed,
-              0, 0, 0, error: 'download rejected (HTTP ${resp.statusCode})'),
+          _progress(
+            downloadId,
+            token.recordingId,
+            DownloadStatus.failed,
+            0,
+            0,
+            0,
+            error: 'download rejected (HTTP ${resp.statusCode})',
+          ),
         );
         return;
       }
 
-      final total = int.tryParse(
-            resp.headers.value(Headers.contentLengthHeader) ?? '',
-          ) ??
+      final total =
+          int.tryParse(resp.headers.value(Headers.contentLengthHeader) ?? '') ??
           0;
       sink = file.openWrite();
       var received = 0;
@@ -408,8 +416,14 @@ class WifiServiceImpl implements WifiService {
             : 0.0;
         _publishProgress(
           entry,
-          _progress(downloadId, token.recordingId, DownloadStatus.running,
-              received, total, kbps),
+          _progress(
+            downloadId,
+            token.recordingId,
+            DownloadStatus.running,
+            received,
+            total,
+            kbps,
+          ),
         );
       }
       await sink.flush();
@@ -417,35 +431,61 @@ class WifiServiceImpl implements WifiService {
       sink = null;
       _publishProgress(
         entry,
-        _progress(downloadId, token.recordingId, DownloadStatus.completed,
-            received, total == 0 ? received : total, 0),
+        _progress(
+          downloadId,
+          token.recordingId,
+          DownloadStatus.completed,
+          received,
+          total == 0 ? received : total,
+          0,
+        ),
       );
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
         _publishProgress(
           entry,
-          _progress(downloadId, token.recordingId, DownloadStatus.cancelled,
-              entry.progress.bytesReceived, entry.progress.bytesTotal, 0),
+          _progress(
+            downloadId,
+            token.recordingId,
+            DownloadStatus.cancelled,
+            entry.progress.bytesReceived,
+            entry.progress.bytesTotal,
+            0,
+          ),
         );
       } else {
         _publishProgress(
           entry,
-          _progress(downloadId, token.recordingId, DownloadStatus.failed,
-              entry.progress.bytesReceived, entry.progress.bytesTotal, 0,
-              error: e.message ?? 'network error'),
+          _progress(
+            downloadId,
+            token.recordingId,
+            DownloadStatus.failed,
+            entry.progress.bytesReceived,
+            entry.progress.bytesTotal,
+            0,
+            error: e.message ?? 'network error',
+          ),
         );
       }
     } catch (e) {
       _publishProgress(
         entry,
-        _progress(downloadId, token.recordingId, DownloadStatus.failed,
-            entry.progress.bytesReceived, entry.progress.bytesTotal, 0,
-            error: e.toString()),
+        _progress(
+          downloadId,
+          token.recordingId,
+          DownloadStatus.failed,
+          entry.progress.bytesReceived,
+          entry.progress.bytesTotal,
+          0,
+          error: e.toString(),
+        ),
       );
     } finally {
       try {
         await sink?.close();
-      } catch (_) {/* already closing */}
+      } catch (_) {
+        /* already closing */
+      }
       if (!entry.controller.isClosed) await entry.controller.close();
     }
   }
@@ -458,16 +498,15 @@ class WifiServiceImpl implements WifiService {
     int total,
     double kbps, {
     String? error,
-  }) =>
-      VideoDownloadProgress(
-        downloadId: downloadId,
-        recordingId: recordingId,
-        status: status,
-        bytesReceived: received,
-        bytesTotal: total,
-        kbps: kbps,
-        errorMessage: error,
-      );
+  }) => VideoDownloadProgress(
+    downloadId: downloadId,
+    recordingId: recordingId,
+    status: status,
+    bytesReceived: received,
+    bytesTotal: total,
+    kbps: kbps,
+    errorMessage: error,
+  );
 
   void _publishProgress(_DownloadState entry, VideoDownloadProgress p) {
     entry.progress = p;

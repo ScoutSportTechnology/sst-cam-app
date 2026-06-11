@@ -24,9 +24,11 @@ class RawRecordingsTable extends Table {
   IntColumn get cameraIndex => integer()();
 
   /// Optional association to a match; cascades on match delete.
-  TextColumn get matchId => text()
-      .nullable()
-      .references(TeamMatchesTable, #id, onDelete: KeyAction.cascade)();
+  TextColumn get matchId => text().nullable().references(
+    TeamMatchesTable,
+    #id,
+    onDelete: KeyAction.cascade,
+  )();
 
   /// On-disk path of the downloaded file (mirrors clips/thumbnails).
   TextColumn get localPath => text().nullable()();

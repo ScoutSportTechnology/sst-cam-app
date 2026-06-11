@@ -23,7 +23,12 @@ jobs:
         run: flutter pub get
 
       - name: Format check
-        run: dart format --set-exit-if-changed lib test integration_test
+        # integration_test/ does not currently exist; include it only if present
+        # so the check doesn't hard-error on a missing path.
+        run: |
+          dirs="lib test"
+          [ -d integration_test ] && dirs="$dirs integration_test"
+          dart format --set-exit-if-changed $dirs
 
       - name: Analyze
         run: flutter analyze

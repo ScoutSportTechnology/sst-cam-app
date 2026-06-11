@@ -19,7 +19,10 @@ class _FakeBle implements BleService {
   List<RecordingMetadata> recordings = const [];
 
   @override
-  Future<BleCommandResponse<T>> sendCommand<T>(String deviceId, BleCommand command) async {
+  Future<BleCommandResponse<T>> sendCommand<T>(
+    String deviceId,
+    BleCommand command,
+  ) async {
     sent.add(command);
     if (command is ListRecordingsCommand) {
       return BleCommandResponse.ok(recordings as T?);
@@ -39,7 +42,10 @@ class _FakeWifi implements WifiService {
   DownloadStatus terminalStatus = DownloadStatus.completed;
 
   @override
-  Future<VideoDownloadHandle> downloadRecording(String deviceId, String uuid) async {
+  Future<VideoDownloadHandle> downloadRecording(
+    String deviceId,
+    String uuid,
+  ) async {
     downloaded.add(uuid);
     return VideoDownloadHandle(
       downloadId: 'dl-$uuid',
@@ -47,14 +53,16 @@ class _FakeWifi implements WifiService {
       savePath: '/videos/$uuid.nv12',
       // Emit a single terminal progress event, mirroring the real handle whose
       // stream runs until the transfer reaches a terminal state then closes.
-      progress: Stream.value(VideoDownloadProgress(
-        downloadId: 'dl-$uuid',
-        recordingId: uuid,
-        status: terminalStatus,
-        bytesReceived: 100,
-        bytesTotal: 100,
-        kbps: 0,
-      )),
+      progress: Stream.value(
+        VideoDownloadProgress(
+          downloadId: 'dl-$uuid',
+          recordingId: uuid,
+          status: terminalStatus,
+          bytesReceived: 100,
+          bytesTotal: 100,
+          kbps: 0,
+        ),
+      ),
       cancel: () async {},
     );
   }
@@ -64,16 +72,16 @@ class _FakeWifi implements WifiService {
 }
 
 RecordingMetadata _raw(String id, String group, int cam) => RecordingMetadata(
-      id: id,
-      durationSeconds: 0,
-      sizeBytes: 100,
-      startedAt: DateTime(2026, 6, 10),
-      sport: '',
-      teams: '',
-      isRaw: true,
-      cameraIndex: cam,
-      captureGroupId: group,
-    );
+  id: id,
+  durationSeconds: 0,
+  sizeBytes: 100,
+  startedAt: DateTime(2026, 6, 10),
+  sport: '',
+  teams: '',
+  isRaw: true,
+  cameraIndex: cam,
+  captureGroupId: group,
+);
 
 void main() {
   late AppDatabase db;
@@ -83,16 +91,21 @@ void main() {
 
   setUp(() {
     db = AppDatabase.forTesting(
-      DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true),
+      DatabaseConnection(
+        NativeDatabase.memory(),
+        closeStreamsSynchronously: true,
+      ),
     );
     ble = _FakeBle();
     wifi = _FakeWifi();
-    container = ProviderContainer(overrides: [
-      appDatabaseProvider.overrideWithValue(db),
-      bleServiceProvider.overrideWithValue(ble),
-      wifiServiceProvider.overrideWithValue(wifi),
-      activeCameraIdProvider.overrideWith((ref) => 'dev-1'),
-    ]);
+    container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWithValue(db),
+        bleServiceProvider.overrideWithValue(ble),
+        wifiServiceProvider.overrideWithValue(wifi),
+        activeCameraIdProvider.overrideWith((ref) => 'dev-1'),
+      ],
+    );
   });
 
   tearDown(() async {
@@ -120,31 +133,34 @@ void main() {
     expect(ble.sent, isEmpty);
   });
 
-  test('stop downloads + persists both files and completes the group', () async {
-    await ctrl().start();
-    final group = read().captureGroupId!;
-    ble.recordings = [
-      _raw('raw__a__cam0', group, 0),
-      _raw('raw__a__cam1', group, 1),
-      RecordingMetadata(
-        id: 'final-x',
-        durationSeconds: 1,
-        sizeBytes: 1,
-        startedAt: DateTime(2026, 6, 10),
-        sport: '',
-        teams: '',
-      ),
-    ];
+  test(
+    'stop downloads + persists both files and completes the group',
+    () async {
+      await ctrl().start();
+      final group = read().captureGroupId!;
+      ble.recordings = [
+        _raw('raw__a__cam0', group, 0),
+        _raw('raw__a__cam1', group, 1),
+        RecordingMetadata(
+          id: 'final-x',
+          durationSeconds: 1,
+          sizeBytes: 1,
+          startedAt: DateTime(2026, 6, 10),
+          sport: '',
+          teams: '',
+        ),
+      ];
 
-    await ctrl().stop();
+      await ctrl().stop();
 
-    expect(read().phase, RawCapturePhase.idle);
-    expect(wifi.downloaded, ['raw__a__cam0', 'raw__a__cam1']);
-    final rows = await db.rawRecordingsDao.getPair(group);
-    expect(rows, hasLength(2));
-    expect(rows.every((r) => r.isComplete), isTrue);
-    expect(rows.map((r) => r.cameraIndex).toSet(), {0, 1});
-  });
+      expect(read().phase, RawCapturePhase.idle);
+      expect(wifi.downloaded, ['raw__a__cam0', 'raw__a__cam1']);
+      final rows = await db.rawRecordingsDao.getPair(group);
+      expect(rows, hasLength(2));
+      expect(rows.every((r) => r.isComplete), isTrue);
+      expect(rows.map((r) => r.cameraIndex).toSet(), {0, 1});
+    },
+  );
 
   test('stop does NOT complete the group when a download fails', () async {
     wifi.terminalStatus = DownloadStatus.failed;

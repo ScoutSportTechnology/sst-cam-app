@@ -29,9 +29,7 @@ void main() {
 
   group('encode + reassemble round-trip at each MTU', () {
     // A command large enough to span many chunks even at a 400-byte budget.
-    final bigCommand = DownloadRequestCommand(
-      recordingId: 'r' * 3000,
-    );
+    final bigCommand = DownloadRequestCommand(recordingId: 'r' * 3000);
 
     for (final mtu in [185, 247, 512]) {
       test('MTU $mtu: multi-chunk frames reassemble to the original', () {
@@ -45,8 +43,7 @@ void main() {
 
         expect(frames.length, greaterThan(1), reason: 'should split');
 
-        final chunks =
-            frames.map(proto.ChunkedPayload.fromBuffer).toList();
+        final chunks = frames.map(proto.ChunkedPayload.fromBuffer).toList();
 
         // Every frame's data fits the budget; indices are sequential; totals agree.
         for (var i = 0; i < chunks.length; i++) {
@@ -80,7 +77,8 @@ void main() {
     final reassembler = ChunkReassembler();
     List<int>? assembled;
     for (final f in frames) {
-      assembled = reassembler.add(proto.ChunkedPayload.fromBuffer(f)) ?? assembled;
+      assembled =
+          reassembler.add(proto.ChunkedPayload.fromBuffer(f)) ?? assembled;
     }
     expect(proto.Command.fromBuffer(assembled!).hasGetTelemetry(), isTrue);
   });

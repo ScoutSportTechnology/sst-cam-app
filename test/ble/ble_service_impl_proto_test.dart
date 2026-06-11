@@ -32,7 +32,10 @@ void main() {
       'GetTelemetryCommand produces non-empty bytes decodable as Command',
       () {
         const corrId = 'test-corr-id-001';
-        final bytes = BleProtocol.encodeCommandFrames(GetTelemetryCommand(), corrId).first;
+        final bytes = BleProtocol.encodeCommandFrames(
+          GetTelemetryCommand(),
+          corrId,
+        ).first;
         expect(bytes, isNotEmpty);
 
         final chunk = proto.ChunkedPayload.fromBuffer(bytes);
@@ -57,7 +60,10 @@ void main() {
 
     test('correlationId is preserved through the ChunkedPayload wrapper', () {
       const corrId = 'unique-corr-id-abc123';
-      final bytes = BleProtocol.encodeCommandFrames(GetTelemetryCommand(), corrId).first;
+      final bytes = BleProtocol.encodeCommandFrames(
+        GetTelemetryCommand(),
+        corrId,
+      ).first;
       final chunk = proto.ChunkedPayload.fromBuffer(bytes);
       expect(chunk.correlationId, corrId);
     });
@@ -92,10 +98,7 @@ void main() {
         );
         final bytes = chunk.writeToBuffer();
 
-        final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
-          bytes,
-          corrId,
-        );
+        final resp = BleProtocol.decodeResponse<DeviceTelemetry>(bytes, corrId);
         expect(resp.isOk, isTrue);
         final t = resp.payload!;
         expect(t.storageTotalBytes, 256 * 1024 * 1024);
@@ -150,10 +153,7 @@ void main() {
       );
       final bytes = chunk.writeToBuffer();
 
-      final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
-        bytes,
-        corrId,
-      );
+      final resp = BleProtocol.decodeResponse<DeviceTelemetry>(bytes, corrId);
       expect(resp.isOk, isFalse);
       expect(resp.status, BleResponseStatus.timeout);
     });
@@ -238,8 +238,10 @@ void main() {
     });
 
     test('frames reassemble to a push_session_config Command', () {
-      final frames =
-          BleProtocol.encodeSessionConfigFrames(fullConfig(), 'sc-4');
+      final frames = BleProtocol.encodeSessionConfigFrames(
+        fullConfig(),
+        'sc-4',
+      );
       final cmd = _reassembleCommand(frames);
       expect(cmd.hasPushSessionConfig(), isTrue);
       expect(cmd.pushSessionConfig.matchUuid, 'match-1');
@@ -283,38 +285,43 @@ void main() {
   // ===========================================================================
   group('BleProtocol.encodeCommandFrames chunking (U3)', () {
     test('sub-MTU command emits exactly one frame {0, 1}', () {
-      final frames =
-          BleProtocol.encodeCommandFrames(GetTelemetryCommand(), 'c-1');
+      final frames = BleProtocol.encodeCommandFrames(
+        GetTelemetryCommand(),
+        'c-1',
+      );
       expect(frames.length, 1);
       final chunk = proto.ChunkedPayload.fromBuffer(frames.single);
       expect(chunk.chunkIndex, 0);
       expect(chunk.totalChunks, 1);
     });
 
-    test('command just over chunk size emits 2 ordered frames, same corrId', () {
-      // Build a banner event whose serialized form exceeds maxChunkDataBytes.
-      final big = 'x' * (BleProtocol.maxChunkDataBytes + 50);
-      final frames = BleProtocol.encodeCommandFrames(
-        BannerEventCommand(
-          templateId: big,
-          durationSeconds: 1,
-        ),
-        'c-2',
-      );
-      expect(frames.length, 2);
-      final f0 = proto.ChunkedPayload.fromBuffer(frames[0]);
-      final f1 = proto.ChunkedPayload.fromBuffer(frames[1]);
-      expect(f0.chunkIndex, 0);
-      expect(f1.chunkIndex, 1);
-      expect(f0.totalChunks, 2);
-      expect(f1.totalChunks, 2);
-      expect(f0.correlationId, 'c-2');
-      expect(f1.correlationId, 'c-2');
-      // Each frame's data within the budget.
-      expect(f0.data.length, lessThanOrEqualTo(BleProtocol.maxChunkDataBytes));
-      // Reassembly reproduces the command.
-      expect(_reassembleCommand(frames).bannerEvent.templateId, big);
-    });
+    test(
+      'command just over chunk size emits 2 ordered frames, same corrId',
+      () {
+        // Build a banner event whose serialized form exceeds maxChunkDataBytes.
+        final big = 'x' * (BleProtocol.maxChunkDataBytes + 50);
+        final frames = BleProtocol.encodeCommandFrames(
+          BannerEventCommand(templateId: big, durationSeconds: 1),
+          'c-2',
+        );
+        expect(frames.length, 2);
+        final f0 = proto.ChunkedPayload.fromBuffer(frames[0]);
+        final f1 = proto.ChunkedPayload.fromBuffer(frames[1]);
+        expect(f0.chunkIndex, 0);
+        expect(f1.chunkIndex, 1);
+        expect(f0.totalChunks, 2);
+        expect(f1.totalChunks, 2);
+        expect(f0.correlationId, 'c-2');
+        expect(f1.correlationId, 'c-2');
+        // Each frame's data within the budget.
+        expect(
+          f0.data.length,
+          lessThanOrEqualTo(BleProtocol.maxChunkDataBytes),
+        );
+        // Reassembly reproduces the command.
+        expect(_reassembleCommand(frames).bannerEvent.templateId, big);
+      },
+    );
 
     test('large overlay layout splits into the expected frame count', () {
       // A push_overlay_layout payload built from the default scoreboard has
@@ -422,10 +429,7 @@ void main() {
           ),
         ),
       );
-      final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
-        bytes,
-        corrId,
-      );
+      final resp = BleProtocol.decodeResponse<DeviceTelemetry>(bytes, corrId);
       expect(resp.isOk, isTrue);
       expect(resp.payload!.batteryLevelPct, 77);
     });
@@ -439,10 +443,7 @@ void main() {
           telemetry: proto.DeviceTelemetry(storageTotalBytes: Int64(1)),
         ),
       );
-      final resp = BleProtocol.decodeResponse<DeviceTelemetry>(
-        bytes,
-        corrId,
-      );
+      final resp = BleProtocol.decodeResponse<DeviceTelemetry>(bytes, corrId);
       expect(resp.payload!.batteryLevelPct, isNull);
     });
 
@@ -462,10 +463,7 @@ void main() {
           ),
         ),
       );
-      final resp = BleProtocol.decodeResponse<WifiDirectGroup>(
-        bytes,
-        corrId,
-      );
+      final resp = BleProtocol.decodeResponse<WifiDirectGroup>(bytes, corrId);
       expect(resp.isOk, isTrue);
       expect(resp.payload!.ssid, 'cam-ap');
       expect(resp.payload!.role, 'go');
@@ -503,10 +501,7 @@ void main() {
           errorMessage: 'no can do',
         ),
       );
-      final resp = BleProtocol.decodeResponse<void>(
-        bytes,
-        corrId,
-      );
+      final resp = BleProtocol.decodeResponse<void>(bytes, corrId);
       expect(resp.status, BleResponseStatus.unsupported);
       expect(resp.isOk, isFalse);
       expect(resp.errorMessage, 'no can do');
@@ -521,10 +516,7 @@ void main() {
           errorMessage: 'boom',
         ),
       );
-      final resp = BleProtocol.decodeResponse<void>(
-        bytes,
-        corrId,
-      );
+      final resp = BleProtocol.decodeResponse<void>(bytes, corrId);
       expect(resp.status, BleResponseStatus.error);
       expect(resp.errorMessage, 'boom');
     });
@@ -537,10 +529,7 @@ void main() {
           status: proto.ResponseStatus.OK,
         ),
       );
-      final resp = BleProtocol.decodeResponse<Object>(
-        bytes,
-        corrId,
-      );
+      final resp = BleProtocol.decodeResponse<Object>(bytes, corrId);
       expect(resp.isOk, isTrue);
       expect(resp.payload, isNull);
     });
@@ -553,8 +542,7 @@ void main() {
           status: proto.ResponseStatus.OK,
         ),
       );
-      final resp =
-          BleProtocol.decodeSessionConfigResponse(bytes, corrId);
+      final resp = BleProtocol.decodeSessionConfigResponse(bytes, corrId);
       expect(resp.isOk, isTrue);
     });
 
@@ -566,8 +554,7 @@ void main() {
           status: proto.ResponseStatus.UNSUPPORTED,
         ),
       );
-      final resp =
-          BleProtocol.decodeSessionConfigResponse(bytes, corrId);
+      final resp = BleProtocol.decodeSessionConfigResponse(bytes, corrId);
       expect(resp.status, BleResponseStatus.unsupported);
     });
   });

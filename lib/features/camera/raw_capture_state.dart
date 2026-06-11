@@ -42,12 +42,11 @@ class RawCaptureState {
     RawCapturePhase? phase,
     String? captureGroupId,
     String? message,
-  }) =>
-      RawCaptureState(
-        phase: phase ?? this.phase,
-        captureGroupId: captureGroupId ?? this.captureGroupId,
-        message: message ?? this.message,
-      );
+  }) => RawCaptureState(
+    phase: phase ?? this.phase,
+    captureGroupId: captureGroupId ?? this.captureGroupId,
+    message: message ?? this.message,
+  );
 }
 
 class RawCaptureController extends Notifier<RawCaptureState> {
@@ -80,7 +79,9 @@ class RawCaptureController extends Notifier<RawCaptureState> {
       captureGroupId: groupId,
     );
 
-    final resp = await ref.read(bleServiceProvider).sendCommand<void>(
+    final resp = await ref
+        .read(bleServiceProvider)
+        .sendCommand<void>(
           deviceId,
           RawCaptureControlCommand(
             action: RecordingControlAction.start,
@@ -129,8 +130,10 @@ class RawCaptureController extends Notifier<RawCaptureState> {
     // exclude it — never coerce a null cameraIndex to 0, which would mislabel the
     // pair.
     final pair = (listResp.payload ?? <RecordingMetadata>[])
-        .where((r) =>
-            r.isRaw && r.captureGroupId == groupId && r.cameraIndex != null)
+        .where(
+          (r) =>
+              r.isRaw && r.captureGroupId == groupId && r.cameraIndex != null,
+        )
         .toList();
 
     final wifi = ref.read(wifiServiceProvider);
@@ -158,8 +161,9 @@ class RawCaptureController extends Notifier<RawCaptureState> {
           // Only stamp a local path once the bytes are on disk; a failed/partial
           // transfer leaves it absent so the row isn't treated as playable.
           localPath: ok ? Value(handle.savePath) : const Value.absent(),
-          sizeBytes:
-              Value(ok ? (last?.bytesReceived ?? rec.sizeBytes) : rec.sizeBytes),
+          sizeBytes: Value(
+            ok ? (last?.bytesReceived ?? rec.sizeBytes) : rec.sizeBytes,
+          ),
         ),
       );
     }
@@ -200,5 +204,5 @@ class RawCaptureController extends Notifier<RawCaptureState> {
 
 final rawCaptureProvider =
     NotifierProvider<RawCaptureController, RawCaptureState>(
-  RawCaptureController.new,
-);
+      RawCaptureController.new,
+    );

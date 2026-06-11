@@ -277,31 +277,33 @@ void main() {
       expect(pause.status, BleResponseStatus.unsupported);
     });
 
-    test('after start, listRecordings surfaces the raw pair for the group',
-        () async {
-      await svc.sendCommand(
-        'SST-CAM-001',
-        RawCaptureControlCommand(
-          action: RecordingControlAction.start,
-          captureGroupId: 'grp-pair',
-        ),
-      );
+    test(
+      'after start, listRecordings surfaces the raw pair for the group',
+      () async {
+        await svc.sendCommand(
+          'SST-CAM-001',
+          RawCaptureControlCommand(
+            action: RecordingControlAction.start,
+            captureGroupId: 'grp-pair',
+          ),
+        );
 
-      final resp = await svc.sendCommand<List<RecordingMetadata>>(
-        'SST-CAM-001',
-        ListRecordingsCommand(),
-      );
-      final raw = (resp.payload ?? <RecordingMetadata>[])
-          .where((r) => r.isRaw && r.captureGroupId == 'grp-pair')
-          .toList();
+        final resp = await svc.sendCommand<List<RecordingMetadata>>(
+          'SST-CAM-001',
+          ListRecordingsCommand(),
+        );
+        final raw = (resp.payload ?? <RecordingMetadata>[])
+            .where((r) => r.isRaw && r.captureGroupId == 'grp-pair')
+            .toList();
 
-      // Real firmware leaves two per-camera files stamped with the group id;
-      // the mock must too, or the app's stop()->list->pair->download path can
-      // never complete against the emulated firmware.
-      expect(raw, hasLength(2));
-      expect(raw.map((r) => r.cameraIndex).toSet(), {0, 1});
-      expect(raw.every((r) => r.captureGroupId == 'grp-pair'), isTrue);
-    });
+        // Real firmware leaves two per-camera files stamped with the group id;
+        // the mock must too, or the app's stop()->list->pair->download path can
+        // never complete against the emulated firmware.
+        expect(raw, hasLength(2));
+        expect(raw.map((r) => r.cameraIndex).toSet(), {0, 1});
+        expect(raw.every((r) => r.captureGroupId == 'grp-pair'), isTrue);
+      },
+    );
   });
 
   group('advertiseDevices', () {

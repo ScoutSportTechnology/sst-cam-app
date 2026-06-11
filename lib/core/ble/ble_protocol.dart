@@ -137,7 +137,6 @@ class BleProtocol {
     );
   }
 
-
   static proto.Command _sessionConfigToProtoCommand(
     PushSessionConfig config,
     String correlationId,
@@ -162,10 +161,7 @@ class BleProtocol {
     if (config.rtmpUrl != null) pb.rtmpUrl = config.rtmpUrl!;
     if (config.streamKey != null) pb.streamKey = config.streamKey!;
 
-    return proto.Command(
-      correlationId: correlationId,
-      pushSessionConfig: pb,
-    );
+    return proto.Command(correlationId: correlationId, pushSessionConfig: pb);
   }
 
   /// Decodes a CommandResponse for a [PushSessionConfig] push (which carries no
