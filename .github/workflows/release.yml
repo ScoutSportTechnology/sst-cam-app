@@ -1,0 +1,163 @@
+name: release
+
+# Manual, no-PR release. Click "Run workflow" to cut a release: resolve a version,
+# create the tag + GitHub Release, then build + upload the two signed APKs.
+# Why workflow_dispatch instead of release-please: the org disables "Allow GitHub
+# Actions to create and approve pull requests", so GITHUB_TOKEN cannot open a
+# release PR. Tagging + releasing is contents:write (allowed) and the tag ruleset
+# permits compliant semver tags — so no PAT / GitHub App is needed.
+#
+# Two APKs from one Gradle flavor, differing only by entrypoint + env:
+#   - production: -t lib/main_prod.dart --dart-define=APP_ENV=prod
+#   - developer : --dart-define=APP_ENV=stage
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact version tag, e.g. v1.2.3 (leave empty to auto-bump)"
+        required: false
+        default: ""
+      bump:
+        description: "Bump level when version is empty"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+
+jobs:
+  tag-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          IN_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          if [ -n "$IN_VERSION" ]; then
+            tag="$IN_VERSION"
+          else
+            latest="$(git tag -l 'v*' --sort=-v:refname | head -1)"
+            latest="${latest:-v0.0.0}"
+            ver="${latest#v}"
+            MA="${ver%%.*}"; rest="${ver#*.}"; MI="${rest%%.*}"; PA="${rest##*.}"
+            case "$IN_BUMP" in
+              major) MA=$((MA+1)); MI=0; PA=0 ;;
+              minor) MI=$((MI+1)); PA=0 ;;
+              patch) PA=$((PA+1)) ;;
+            esac
+            tag="v${MA}.${MI}.${PA}"
+          fi
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::invalid version '$tag'"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
+      - name: Create tag + GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --target "$GITHUB_SHA" \
+            --title "${{ steps.ver.outputs.tag }}" \
+            --generate-notes
+
+  build-and-upload:
+    name: Build & upload release APKs
+    needs: tag-release
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.tag-release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Proto is still consumed via the `proto/` git submodule + `just gen-proto`
+          # (the Dart-package cutover is deferred — see pubspec.yaml TODO).
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # protoc + the Dart plugin are needed for `just gen-proto`. Remove once the
+      # proto Dart-package cutover lands (pubspec.yaml TODO).
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install Dart protoc plugin
+        run: dart pub global activate protoc_plugin
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          export PATH="$PATH":"$HOME/.pub-cache/bin"
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Materialize Android signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=${ANDROID_STORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          keyPassword=${ANDROID_KEY_PASSWORD}
+          EOF
+
+      - name: Build production APK
+        run: flutter build apk --release -t lib/main_prod.dart --dart-define=APP_ENV=prod
+
+      - name: Rename production APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/apk/release/app-release.apk \
+            "dist/sst-cam-app-${TAG}-production.apk"
+
+      - name: Build developer APK
+        run: flutter build apk --release --dart-define=APP_ENV=stage
+
+      - name: Rename developer APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/apk/release/app-release.apk \
+            "dist/sst-cam-app-${TAG}-developer.apk"
+
+      - name: Upload APKs to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${TAG}" \
+            "dist/sst-cam-app-${TAG}-production.apk" \
+            "dist/sst-cam-app-${TAG}-developer.apk" \
+            --clobber
+
+      # NOTE (open item): production + developer APKs share applicationId
+      # "com.sst.sstcam" so they can't coexist on one device. Add
+      # applicationIdSuffix ".dev" to the developer variant if needed
+      # (see TODO in android/app/build.gradle.kts).
