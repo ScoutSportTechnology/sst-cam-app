@@ -22,6 +22,31 @@ dependencies:
   protobuf: ^3.1.0
   fixnum: ^1.1.0
 
+  # DEFERRED CUTOVER — proto as a versioned Dart package (plan U2).
+  # Today proto is consumed via the `proto/` git submodule + `just gen-proto`
+  # (protoc --dart_out=lib/models/proto). The sst-cam-proto repo has NOT cut its
+  # first release yet, so this dependency stays COMMENTED OUT to keep the app
+  # building. Do NOT uncomment until sst-cam-proto publishes a tag.
+  #
+  # Cutover steps (do all of these together, then verify):
+  #   1. Uncomment the dependency below and set `ref:` to the proto release tag
+  #      (e.g. v0.1.0). The Dart package lives at `gen/dart` inside that repo.
+  #   2. Remove the `proto/` submodule: `git submodule deinit -f proto`,
+  #      `git rm -f proto`, delete the `[submodule "proto"]` block in .gitmodules.
+  #   3. Retire `just gen-proto` and drop protoc from the build path
+  #      (justfile + .github/workflows/release.yml proto steps).
+  #   4. Switch imports from `lib/models/proto/*.dart` to
+  #      `package:sst_cam_proto/...` (only BleServiceImpl imports the generated
+  #      bindings today — verify with a grep before merging).
+  #   5. Remove the `lib/models/proto/` .gitignore entry once it is dead.
+  #   6. Verify: `flutter pub get` && `flutter analyze` && `flutter test`.
+  #
+  # sst_cam_proto:
+  #   git:
+  #     url: https://github.com/ScoutSportTechnology/sst-cam-proto.git
+  #     ref: v0.1.0   # pin to the proto release tag once it exists
+  #     path: gen/dart
+
   # Video / HTTP
   dio: ^5.7.0
   video_player: ^2.9.2
