@@ -35,7 +35,9 @@ jobs:
 
       - name: Install Dart protoc plugin
         run: |
-          dart pub global activate protoc_plugin
+          # Pin to match the app's expected generated API (protobuf ^3.1.0).
+          # The latest plugin changes map-field + enum codegen and breaks analyze.
+          dart pub global activate protoc_plugin 21.1.2
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
 
       - name: Generate proto bindings
@@ -93,7 +95,9 @@ jobs:
 
       - name: Install Dart protoc plugin
         run: |
-          dart pub global activate protoc_plugin
+          # Pin to match the app's expected generated API (protobuf ^3.1.0).
+          # The latest plugin changes map-field + enum codegen and breaks analyze.
+          dart pub global activate protoc_plugin 21.1.2
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
 
       - name: Generate proto bindings
