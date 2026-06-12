@@ -141,7 +141,7 @@ jobs:
           export PATH="$PATH":"$HOME/.pub-cache/bin"
           protoc --dart_out=lib/models/proto -I proto proto/*.proto
 
-      - name: Materialize Android signing keystore
+      - name: Materialize Android signing keystore (if configured)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -149,6 +149,13 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
           set -euo pipefail
+          # No keystore secret yet → skip; build.gradle.kts falls back to debug
+          # signing so the release still produces (debug-signed) APKs. Add the
+          # ANDROID_* secrets to get properly release-signed APKs.
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building APKs with debug signing."
+            exit 0
+          fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           cat > android/key.properties <<EOF
           storeFile=upload-keystore.jks
