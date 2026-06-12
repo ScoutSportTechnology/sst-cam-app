@@ -628,7 +628,6 @@ void main() {
   testWidgets('substituted text disappears after banner timer expires', (
     tester,
   ) async {
-
     await tester.pumpWidget(
       _wrap(
         OverlayLayoutRenderer(
@@ -688,8 +687,9 @@ void main() {
       ),
     );
 
-    final positioneds =
-        tester.widgetList<Positioned>(find.byType(Positioned)).toList();
+    final positioneds = tester
+        .widgetList<Positioned>(find.byType(Positioned))
+        .toList();
     expect(positioneds.length, 2);
     // First child in Stack = lower z = back (x1=0 → left≈0).
     expect(positioneds[0].left, closeTo(0.0, 0.1));
@@ -728,8 +728,9 @@ void main() {
     );
     await tester.pump();
 
-    final positioneds =
-        tester.widgetList<Positioned>(find.byType(Positioned)).toList();
+    final positioneds = tester
+        .widgetList<Positioned>(find.byType(Positioned))
+        .toList();
     expect(positioneds.length, 2);
     expect(positioneds[0].left, closeTo(0.0, 0.1));
     expect(positioneds[1].left, closeTo(topLeft, 0.1));
@@ -737,32 +738,35 @@ void main() {
 
   // ---- 20. SHAPE_CIRCLE renders via CustomPaint (not BoxShape.circle) ------
 
-  testWidgets('SHAPE_CIRCLE child is CustomPaint, not a BoxShape.circle Container', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _wrap(
-        OverlayLayoutRenderer(
-          layout: _circleSquareLayout,
-          matchState: LiveMatchState.initial,
+  testWidgets(
+    'SHAPE_CIRCLE child is CustomPaint, not a BoxShape.circle Container',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          OverlayLayoutRenderer(
+            layout: _circleSquareLayout,
+            matchState: LiveMatchState.initial,
+          ),
         ),
-      ),
-    );
-    expect(tester.takeException(), isNull);
+      );
+      expect(tester.takeException(), isNull);
 
-    // The Positioned child for the circle element must be Opacity wrapping CustomPaint.
-    final positioned = tester.widget<Positioned>(find.byType(Positioned).first);
-    expect(positioned.child, isA<Opacity>());
-    expect((positioned.child as Opacity).child, isA<CustomPaint>());
+      // The Positioned child for the circle element must be Opacity wrapping CustomPaint.
+      final positioned = tester.widget<Positioned>(
+        find.byType(Positioned).first,
+      );
+      expect(positioned.child, isA<Opacity>());
+      expect((positioned.child as Opacity).child, isA<CustomPaint>());
 
-    // Must NOT be a Container with BoxShape.circle (old incorrect implementation).
-    final containers = tester.widgetList<Container>(find.byType(Container));
-    final circleContainers = containers.where((c) {
-      final dec = c.decoration;
-      return dec is BoxDecoration && dec.shape == BoxShape.circle;
-    });
-    expect(circleContainers, isEmpty);
-  });
+      // Must NOT be a Container with BoxShape.circle (old incorrect implementation).
+      final containers = tester.widgetList<Container>(find.byType(Container));
+      final circleContainers = containers.where((c) {
+        final dec = c.decoration;
+        return dec is BoxDecoration && dec.shape == BoxShape.circle;
+      });
+      expect(circleContainers, isEmpty);
+    },
+  );
 
   // ---- 21. SHAPE_CIRCLE on non-square bounds fills full width --------------
 
@@ -784,9 +788,7 @@ void main() {
       ),
     );
 
-    final positioned = tester.widget<Positioned>(
-      find.byType(Positioned).first,
-    );
+    final positioned = tester.widget<Positioned>(find.byType(Positioned).first);
     expect(positioned.width, closeTo(expectedWidth, 0.1));
     expect(positioned.height, closeTo(expectedHeight, 0.1));
     // Width should be wider than height — confirming the oval uses full bounds.
@@ -903,12 +905,13 @@ void main() {
       ),
     );
 
-    final container = tester.widgetList<Container>(find.byType(Container)).where(
-      (c) {
-        final dec = c.decoration;
-        return dec is BoxDecoration && dec.borderRadius != null;
-      },
-    ).first;
+    final container = tester
+        .widgetList<Container>(find.byType(Container))
+        .where((c) {
+          final dec = c.decoration;
+          return dec is BoxDecoration && dec.borderRadius != null;
+        })
+        .first;
     final dec = container.decoration as BoxDecoration;
     final radius = (dec.borderRadius as BorderRadius).topLeft.x;
     expect(radius, closeTo(expectedRadius, 0.5));
@@ -946,12 +949,13 @@ void main() {
       ),
     );
 
-    final container = tester.widgetList<Container>(find.byType(Container)).where(
-      (c) {
-        final dec = c.decoration;
-        return dec is BoxDecoration && dec.borderRadius != null;
-      },
-    ).first;
+    final container = tester
+        .widgetList<Container>(find.byType(Container))
+        .where((c) {
+          final dec = c.decoration;
+          return dec is BoxDecoration && dec.borderRadius != null;
+        })
+        .first;
     final dec = container.decoration as BoxDecoration;
     final radius = (dec.borderRadius as BorderRadius).topLeft.x;
     expect(radius, closeTo(expectedRadius, 0.5));

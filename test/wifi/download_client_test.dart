@@ -15,8 +15,7 @@ import 'package:sst_cam_app/core/wifi/wifi_service_impl.dart';
 
 class _DummyBle implements BleService {
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// Streams [bytes] back in small chunks (with a yield between them so a
@@ -59,11 +58,11 @@ class _FakeAdapter implements HttpClientAdapter {
 }
 
 DownloadToken _token() => DownloadToken(
-      recordingId: 'rec-1',
-      httpUrl: 'http://camera/recordings/rec-1',
-      authToken: 'secret-bearer',
-      expiresAt: DateTime.now().add(const Duration(minutes: 5)),
-    );
+  recordingId: 'rec-1',
+  httpUrl: 'http://camera/recordings/rec-1',
+  authToken: 'secret-bearer',
+  expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+);
 
 Future<VideoDownloadProgress> _terminal(VideoDownloadHandle handle) {
   final completer = Completer<VideoDownloadProgress>();
@@ -81,8 +80,10 @@ void main() {
   test('streams the body to disk and completes with full byte count', () async {
     final bytes = List<int>.generate(1000, (i) => i % 256);
     final adapter = _FakeAdapter(bytes: bytes);
-    final svc =
-        WifiServiceImpl(ble: _DummyBle(), dio: Dio()..httpClientAdapter = adapter);
+    final svc = WifiServiceImpl(
+      ble: _DummyBle(),
+      dio: Dio()..httpClientAdapter = adapter,
+    );
     final savePath = '${tmp.path}/out.mp4';
 
     final handle = await svc.startDownload('dev', _token(), saveAs: savePath);
@@ -93,17 +94,24 @@ void main() {
     expect(terminal.bytesTotal, 1000);
     expect(File(savePath).readAsBytesSync(), bytes);
     // Bearer header was sent (and is the only place the token appears).
-    expect(adapter.lastRequestHeaders!['Authorization'], ['Bearer secret-bearer']);
+    expect(adapter.lastRequestHeaders!['Authorization'], [
+      'Bearer secret-bearer',
+    ]);
     await svc.dispose();
   });
 
   test('an error status surfaces as a failed download', () async {
     final adapter = _FakeAdapter(bytes: const [], status: 401);
-    final svc =
-        WifiServiceImpl(ble: _DummyBle(), dio: Dio()..httpClientAdapter = adapter);
+    final svc = WifiServiceImpl(
+      ble: _DummyBle(),
+      dio: Dio()..httpClientAdapter = adapter,
+    );
 
-    final handle =
-        await svc.startDownload('dev', _token(), saveAs: '${tmp.path}/x.mp4');
+    final handle = await svc.startDownload(
+      'dev',
+      _token(),
+      saveAs: '${tmp.path}/x.mp4',
+    );
     final terminal = await _terminal(handle);
 
     expect(terminal.status, DownloadStatus.failed);
@@ -115,11 +123,16 @@ void main() {
     // Large body + tiny chunks so cancel lands before completion.
     final bytes = List<int>.generate(100000, (i) => i % 256);
     final adapter = _FakeAdapter(bytes: bytes, chunkSize: 16);
-    final svc =
-        WifiServiceImpl(ble: _DummyBle(), dio: Dio()..httpClientAdapter = adapter);
+    final svc = WifiServiceImpl(
+      ble: _DummyBle(),
+      dio: Dio()..httpClientAdapter = adapter,
+    );
 
-    final handle =
-        await svc.startDownload('dev', _token(), saveAs: '${tmp.path}/c.mp4');
+    final handle = await svc.startDownload(
+      'dev',
+      _token(),
+      saveAs: '${tmp.path}/c.mp4',
+    );
     final terminal = _terminal(handle);
     await Future<void>.delayed(const Duration(milliseconds: 5));
     await handle.cancel();

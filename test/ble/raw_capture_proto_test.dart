@@ -1,4 +1,3 @@
-import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_protocol.dart';
 import 'package:sst_cam_app/core/models/command.dart';
@@ -68,8 +67,10 @@ void main() {
     }
 
     test('present true decodes to true', () {
-      expect(decode(proto.DeviceTelemetry(isRawCapturing: true)).isRawCapturing,
-          isTrue);
+      expect(
+        decode(proto.DeviceTelemetry(isRawCapturing: true)).isRawCapturing,
+        isTrue,
+      );
     });
 
     test('absent decodes to false', () {

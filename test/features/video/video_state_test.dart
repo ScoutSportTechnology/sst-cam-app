@@ -499,8 +499,9 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         final lib = c.read(libraryProvider).valueOrNull ?? const [];
         final teams = c.read(teamsControllerProvider).valueOrNull;
-        if (lib.length >= minLibrary && teams != null && teams.isNotEmpty)
+        if (lib.length >= minLibrary && teams != null && teams.isNotEmpty) {
           break;
+        }
       }
     }
 

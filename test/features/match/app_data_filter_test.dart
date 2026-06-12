@@ -424,8 +424,11 @@ void main() {
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(Duration.zero);
         final lib = c.read(libraryProvider).valueOrNull ?? const [];
-        if (lib.any((m) => m.teamId == 'nr-u14' && m.downloadState != 'remote'))
+        if (lib.any(
+          (m) => m.teamId == 'nr-u14' && m.downloadState != 'remote',
+        )) {
           break;
+        }
       }
       sub.close();
 
@@ -463,8 +466,11 @@ void main() {
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(Duration.zero);
         final lib = c.read(libraryProvider).valueOrNull ?? const [];
-        if (lib.any((m) => m.teamId == 'nr-u14' && m.downloadState != 'remote'))
+        if (lib.any(
+          (m) => m.teamId == 'nr-u14' && m.downloadState != 'remote',
+        )) {
           break;
+        }
       }
       sub.close();
 

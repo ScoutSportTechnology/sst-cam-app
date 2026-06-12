@@ -1,8 +1,23 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release signing is driven by android/key.properties, which is gitignored and
+// materialized in CI from secrets (see .github/workflows/release.yml). When the
+// file is absent (typical local dev), release builds fall back to the debug key
+// so `flutter run --release` and local smoke builds keep working without secrets.
+// See android/key.properties.example for the expected keys.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+val hasReleaseSigning = keystorePropertiesFile.exists()
+if (hasReleaseSigning) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -30,11 +45,38 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // Only declared when key.properties is present (CI / a configured local
+        // machine). Reading absent properties would NPE on storeFile, so guard it.
+        if (hasReleaseSigning) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Use the real release signing config when key.properties exists,
+            // otherwise fall back to the debug key so local release builds work
+            // without secrets. CI always provides key.properties (from secrets).
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+
+            // TODO (open item, see plan U4 / Open Questions): the `developer`
+            // (APP_ENV=stage) and `production` APKs currently share applicationId
+            // "com.sst.sstcam", so they cannot be installed side-by-side on one
+            // device. If side-by-side install is required, give the developer
+            // build an `applicationIdSuffix = ".dev"`. Deferred — adding it here
+            // unconditionally would also suffix the production build, and the
+            // app has no Gradle product flavors to scope it to. Revisit when the
+            // build variant strategy is finalized.
         }
     }
 

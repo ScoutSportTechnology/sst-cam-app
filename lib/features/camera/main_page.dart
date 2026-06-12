@@ -387,7 +387,8 @@ class _RawCaptureButton extends ConsumerWidget {
     final raw = ref.watch(rawCaptureProvider);
     final ctrl = ref.read(rawCaptureProvider.notifier);
     final capturing = raw.isCapturing;
-    final busyOther = raw.phase == RawCapturePhase.starting ||
+    final busyOther =
+        raw.phase == RawCapturePhase.starting ||
         raw.phase == RawCapturePhase.stopping ||
         raw.phase == RawCapturePhase.downloading;
 
@@ -406,23 +407,28 @@ class _RawCaptureButton extends ConsumerWidget {
           label: label,
           full: true,
           size: WfButtonSize.sm,
-          variant:
-              capturing ? WfButtonVariant.primary : WfButtonVariant.outline,
+          variant: capturing
+              ? WfButtonVariant.primary
+              : WfButtonVariant.outline,
           leading: Icon(
             Icons.fiber_manual_record,
             size: 13,
             color: capturing ? T.ink : _rawRed,
           ),
-          onPressed:
-              busyOther ? null : () => capturing ? ctrl.stop() : ctrl.start(),
+          onPressed: busyOther
+              ? null
+              : () => capturing ? ctrl.stop() : ctrl.start(),
         ),
         if (raw.phase == RawCapturePhase.error && raw.message != null)
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Row(
               children: [
-                const Icon(Icons.warning_amber_rounded,
-                    size: 13, color: _rawRed),
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  size: 13,
+                  color: _rawRed,
+                ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(

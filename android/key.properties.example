@@ -1,0 +1,25 @@
+# Release signing configuration for the Android app.
+#
+# Copy this file to `android/key.properties` and fill in real values to produce a
+# release-signed APK locally. The real `key.properties` file and the keystore
+# (*.jks / *.keystore) are gitignored and MUST NOT be committed.
+#
+# In CI the file is materialized from secrets (see .github/workflows/release.yml):
+#   - ANDROID_KEYSTORE_BASE64 -> base64-decoded to the keystore file
+#   - ANDROID_KEY_PROPERTIES values (alias + passwords) -> written into key.properties
+#
+# When `android/key.properties` is absent, release builds fall back to the debug
+# signing key so local development without secrets still works.
+
+# Alias of the key inside the keystore.
+keyAlias=upload
+
+# Password for the key entry above.
+keyPassword=CHANGE_ME
+
+# Path to the keystore file. Relative paths resolve against android/app/.
+# In CI this points at the decoded ANDROID_KEYSTORE_BASE64 file.
+storeFile=upload-keystore.jks
+
+# Password for the keystore itself.
+storePassword=CHANGE_ME

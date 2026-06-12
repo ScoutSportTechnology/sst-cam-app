@@ -54,5 +54,11 @@ protoc-*.zip
 # Generated protobuf Dart bindings — run `just gen-proto` to regenerate
 lib/models/proto/
 
+# Android release signing — never commit the keystore or its passwords.
+# key.properties.example is the committed, placeholder-only template.
+android/key.properties
+*.jks
+*.keystore
+
 # Lock files
 pubspec.lock.claude/worktrees/

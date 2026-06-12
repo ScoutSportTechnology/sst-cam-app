@@ -97,17 +97,14 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           constraints.maxHeight / widget.layout.canvasHeight,
         );
 
-        final persistentWidgets = (widget.layout.elements
-                .where((e) => e.visible)
-                .toList()
-              ..sort((a, b) => a.bounds.z.compareTo(b.bounds.z)))
-            .map((e) => _buildPositioned(e, s))
-            .toList();
+        final persistentWidgets =
+            (widget.layout.elements.where((e) => e.visible).toList()
+                  ..sort((a, b) => a.bounds.z.compareTo(b.bounds.z)))
+                .map((e) => _buildPositioned(e, s))
+                .toList();
 
         final bannerWidgets = _activeBannerTemplate != null
-            ? ((_activeBannerTemplate!.elements
-                      .where((e) => e.visible)
-                      .toList()
+            ? ((_activeBannerTemplate!.elements.where((e) => e.visible).toList()
                     ..sort((a, b) => a.bounds.z.compareTo(b.bounds.z)))
                   .map((e) => _buildPositioned(e, s))
                   .toList())
@@ -136,9 +133,7 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
           child: Container(
             decoration: BoxDecoration(
               color: _parseHex(el.style.fillColor),
-              borderRadius: BorderRadius.circular(
-                _clampCornerRadius(el) * s,
-              ),
+              borderRadius: BorderRadius.circular(_clampCornerRadius(el) * s),
             ),
           ),
         );
@@ -178,10 +173,7 @@ class _OverlayLayoutRendererState extends State<OverlayLayoutRenderer> {
                     decoration: BoxDecoration(color: fillColor),
                     // Fill the full bounds box; the text aligns within it.
                     child: SizedBox.expand(
-                      child: Align(
-                        alignment: Alignment.topLeft,
-                        child: text,
-                      ),
+                      child: Align(alignment: Alignment.topLeft, child: text),
                     ),
                   )
                 : text,
@@ -264,10 +256,7 @@ class _OvalPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawOval(
-      Offset.zero & size,
-      Paint()..color = color,
-    );
+    canvas.drawOval(Offset.zero & size, Paint()..color = color);
   }
 
   @override
