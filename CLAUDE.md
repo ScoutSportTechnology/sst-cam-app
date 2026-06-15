@@ -128,6 +128,23 @@ generated `*.g.dart` (`just gen-db`). `BackupService` exports/imports the full D
 Dark by default. Tokens live in `lib/core/theme/tokens.dart`; `lib/app.dart` builds
 `ThemeData` from them. Change a token, not a hardcoded color in a widget.
 
+## CI/CD & releasing
+
+PR-gated, Conventional-Commit driven. Two workflows:
+
+- `.github/workflows/ci.yml` — **pull requests only**. Required status check on `main`: `Analyze & Test (Linux)` = `dart format` check → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`. Plus a non-required debug-APK smoke build.
+- `.github/workflows/release.yml` — on **push to `main`** (a merge) + manual `workflow_dispatch`. Conventional-commit bump (`feat:` → minor, `fix:`/`perf:` → patch, `BREAKING`/`type!:` → major, docs/chore-only → **skip**) → tag `vX.Y.Z` + GitHub Release, then builds and uploads **two APKs**: production (`-t lib/main_prod.dart --dart-define=APP_ENV=prod`) and developer (`--dart-define=APP_ENV=stage`). Signing comes from `ANDROID_*` secrets when set, else falls back to debug signing. Default `GITHUB_TOKEN` only — no PAT/App.
+
+### Branch + commit + tag rules
+- `main` is protected: no direct push; PR + 1 approval + green `Analyze & Test` to merge.
+- Tags `v*` are immutable semver (no delete/move/force-push).
+- Use Conventional Commits. The **squash-merge subject** is what `release.yml` reads to choose the bump — a non-conventional subject cuts no release.
+
+### Releasing
+- Normal: merge a `feat:`/`fix:`/… PR → release auto-cuts on merge with both APKs.
+- Manual: `gh workflow run release.yml -f bump=minor` (or `-f version=vX.Y.Z`).
+- For release-signed (not debug) APKs, set repo secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `ANDROID_STORE_PASSWORD`.
+
 ## Documented solutions
 
 `docs/solutions/` — solutions to past problems (architecture patterns, bugs,
