@@ -168,6 +168,40 @@ signing. Default `GITHUB_TOKEN` only — no PAT/App. Operational runbooks:
 - Manual: `gh workflow run release-alpha.yml -f version=v0.1.0` (seed) or `-f bump=minor`; `gh workflow run release-beta.yml`; `gh workflow run release.yml -f version=X.Y.Z`.
 - For release-signed (not debug) APKs, set repo secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `ANDROID_STORE_PASSWORD`.
 
+## Release lifecycle
+
+The version ladder is driven by **which branch you push to**, not by counters. Tags climb `vX.Y.Z-alpha.N` (develop) → `vX.Y.Z-beta.N` (release/*) → `vX.Y.Z` (main); the math lives in `scripts/ci/resolve-version.sh`.
+
+**Alpha — automatic, every `develop` merge.** `release-alpha.yml` runs `resolve-version.sh alpha`: the base is a Conventional-Commit bump from the latest *stable* tag (or from `v0.0.0` when none exists), and `-alpha.N` increments per merge. The developer APK (`APP_ENV=stage`) is published on the prerelease.
+
+```
+feat A → develop   →  v0.1.0-alpha.1
+feat B → develop   →  v0.1.0-alpha.2
+feat C → develop   →  v0.1.0-alpha.3
+```
+
+With no stable tag yet, a `feat:` yields base `0.1.0` (a `feat!:`/`BREAKING CHANGE` → `1.0.0`; a `fix:`-only → `0.0.1`); docs/chore-only mints nothing.
+
+**Beta — when you cut the release branch.** Manually branch `release/X.Y.Z` off `develop` and push it; `release-beta.yml` runs `resolve-version.sh beta X.Y.Z` (base = the branch name) and publishes **both** APKs (production + developer):
+
+```
+git switch -c release/0.1.0 develop && git push   →  v0.1.0-beta.1
+```
+
+Each subsequent push to that branch bumps the beta counter — `-beta.2`, `-beta.3`, … This is the rung you **validate by hand against real firmware on a device**. Alpha and beta are independent counters.
+
+**Stable — when you merge `release/X.Y.Z → main`.** Pushing the branch *creates* the betas; **merging it to `main` promotes the latest beta to stable.** `release.yml` auto-selects the highest `vX.Y.Z-beta.N`, tags `vX.Y.Z`, then **downloads the beta APKs, verifies their SHA-256, and re-uploads the same bytes** to the stable Release — no Flutter build on `main`.
+
+```
+develop:        alpha.1   alpha.2   alpha.3
+                                       │ cut release/0.1.0
+release/0.1.0:                         └─► beta.1 → beta.2 → beta.3
+                                                              │ merge → main
+main:                                                         └─► v0.1.0  (stable)
+```
+
+After `v0.1.0` stable exists, the next `feat:` on `develop` bumps from the latest stable → `v0.2.0-alpha.1` (a `fix:` → `v0.1.1-alpha.1`). The alpha base climbs only once a stable is cut.
+
 ## Documented solutions
 
 `docs/solutions/` — solutions to past problems (architecture patterns, bugs,
