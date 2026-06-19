@@ -1,0 +1,136 @@
+name: release-beta
+
+# Push to a release/X.Y.Z branch → build BOTH release APKs, mint the next
+# vX.Y.Z-beta.N prerelease, and publish the APKs as its assets. The beta base is
+# the branch name (authoritative during the stabilization window even if develop
+# has moved on); the beta counter increments within it. The published beta APK
+# asset is exactly what promote.yml later copies to the stable Release — main
+# never rebuilds (R3/R7).
+#
+# Default GITHUB_TOKEN only (contents:write); the "Release Tags" ruleset allows
+# creating compliant semver tags, so no PAT/App is needed.
+#
+# Two APKs from one Gradle flavor, differing only by entrypoint + env:
+#   - production: -t lib/main_prod.dart --dart-define=APP_ENV=prod
+#   - developer : --dart-define=APP_ENV=stage
+
+on:
+  push:
+    branches: [release/**]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-beta:
+    name: Build & publish beta APKs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so resolve-version.sh sees existing beta tags; proto
+          # comes from the git submodule.
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Resolve version (beta)
+        id: ver
+        run: |
+          set -euo pipefail
+          # Base X.Y.Z is the release branch name. Fail fast on a malformed branch.
+          base="${GITHUB_REF_NAME#release/}"
+          echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::branch '${GITHUB_REF_NAME}' is not release/X.Y.Z"; exit 1; }
+          ./scripts/ci/resolve-version.sh beta "$base"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        run: |
+          dart pub global activate protoc_plugin 21.1.2
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Materialize Android signing keystore (if configured)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # No keystore secret yet → skip; build.gradle.kts falls back to debug
+          # signing so the release still produces (debug-signed) APKs.
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building APKs with debug signing."
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=${ANDROID_STORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          keyPassword=${ANDROID_KEY_PASSWORD}
+          EOF
+
+      - name: Build production APK
+        run: flutter build apk --release -t lib/main_prod.dart --dart-define=APP_ENV=prod
+
+      - name: Rename production APK
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/apk/release/app-release.apk \
+            "dist/sst-cam-app-${TAG}-production.apk"
+
+      - name: Build developer APK
+        run: flutter build apk --release --dart-define=APP_ENV=stage
+
+      - name: Rename developer APK
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/apk/release/app-release.apk \
+            "dist/sst-cam-app-${TAG}-developer.apk"
+
+      - name: Create prerelease + upload beta APKs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            "dist/sst-cam-app-${TAG}-production.apk" \
+            "dist/sst-cam-app-${TAG}-developer.apk"
+
+      # NOTE (open item): production + developer APKs share applicationId
+      # "com.sst.sstcam" so they can't coexist on one device. Add
+      # applicationIdSuffix ".dev" to the developer variant if needed
+      # (see TODO in android/app/build.gradle.kts).
