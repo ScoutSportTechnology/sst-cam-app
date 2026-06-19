@@ -101,8 +101,10 @@ maturity ladder:
 
 Two non-negotiables: the APK **build is a required check in the PR** (build-in-PR
 / tag-on-merge), and **`main` never builds** — promotion only copies the
-already-built beta artifact. Four workflows (`ci`, `alpha`, `release-beta`,
-`promote`) split by trigger; version math is `scripts/ci/resolve-version.sh`.
+already-built beta artifact. Three branch-scoped workflows
+(`release-alpha` owns `develop`, `release-beta` owns `release/**`, `release` owns
+`main`), each folding its PR gate in — no separate `ci` workflow; version math is
+`scripts/ci/resolve-version.sh`.
 Each release publishes a **developer** APK (`APP_ENV=stage`) and, from beta on, a
 **production** APK (`main_prod.dart`, `APP_ENV=prod`). See [`CLAUDE.md`](CLAUDE.md)
 and `docs/ci/` for the full model and maintainer runbooks.

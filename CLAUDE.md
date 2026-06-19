@@ -141,15 +141,15 @@ ladder**:
 Two non-negotiables: **build-in-PR / tag-on-merge**, and **`main` never builds**
 (it only promotes an already-built beta APK).
 
-Four workflows, trigger-separated:
+Three branch-scoped workflows — each owns one branch class end to end and folds
+its PR gate in (gated to `pull_request`); there is no standalone `ci.yml`:
 
-- `.github/workflows/ci.yml` — **PRs into `develop` / `release/*`**. Required checks: `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`) and `Build Android APK`. The build is in the gate — this is what keeps `main` from ever needing to build.
-- `.github/workflows/alpha.yml` — **push to `develop`** + `workflow_dispatch`. `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release.
-- `.github/workflows/release-beta.yml` — **push to `release/**`** + `workflow_dispatch`. Base = the branch name `X.Y.Z`; `resolve-version.sh beta X.Y.Z` → `-beta.(N+1)` → builds **both** APKs (production `-t lib/main_prod.dart --dart-define=APP_ENV=prod`, developer `--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release carrying both.
-- `.github/workflows/promote.yml` — **push to `main`** + `workflow_dispatch`. Derives `X.Y.Z` from the merged `release/X.Y.Z` branch, picks the highest `vX.Y.Z-beta.N` tag (fail fast if none), tags `vX.Y.Z`, **downloads the beta APK assets and re-uploads them renamed** (bytes preserved). **No `flutter`/Gradle step exists** — the structural "main never builds" guarantee.
+- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `develop`.** `pull_request:[develop]` runs the gate checks `CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`), and `Build Android APK`. The build is in the gate — this is what keeps `main` from ever needing to build. `push:[develop]` (+ `workflow_dispatch`) runs `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release.
+- `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`.** `pull_request:[release/**]` runs the same three gate checks. `push:[release/**]` (+ `workflow_dispatch`) sets base = the branch name `X.Y.Z`; `resolve-version.sh beta X.Y.Z` → `-beta.(N+1)` → builds **both** APKs (production `-t lib/main_prod.dart --dart-define=APP_ENV=prod`, developer `--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release carrying both.
+- `.github/workflows/release.yml` (name `release`) — **owns `main`.** `push:[main]` (+ `workflow_dispatch`) derives `X.Y.Z` from the merged `release/X.Y.Z` branch, picks the highest `vX.Y.Z-beta.N` tag (fail fast if none), tags `vX.Y.Z`, **downloads the beta APK assets and re-uploads them renamed** (bytes preserved). **No `flutter`/Gradle step exists** — the structural "main never builds" guarantee.
 
-Version math lives in `scripts/ci/resolve-version.sh` (single source for all
-three release workflows; `scripts/ci/resolve-version-test.sh` covers it).
+Version math lives in `scripts/ci/resolve-version.sh` (single source for both
+release workflows; `scripts/ci/resolve-version-test.sh` covers it).
 Signing comes from `ANDROID_*` secrets when set, else falls back to debug
 signing. Default `GITHUB_TOKEN` only — no PAT/App. Operational runbooks:
 `docs/ci/rulesets.md` (branch/tag rulesets), `docs/ci/version-reset-runbook.md`.
@@ -157,15 +157,15 @@ signing. Default `GITHUB_TOKEN` only — no PAT/App. Operational runbooks:
 ### Branch + commit + tag rules
 - `develop` is the default branch; target `feat/*` / `fix/*` PRs at it.
 - `release/X.Y.Z` is cut from `develop` to stabilize a version; betas iterate on it.
-- `main` is promote-only: no direct push; PR (from `release/*`) + 1 approval + green required checks. **No build runs on `main`.**
+- `main` is promote-only: no direct push; PR (from `release/*`) + 1 approval + green required checks. **No build runs on `main`** (`release.yml` only promotes).
 - Tags `v*` are immutable semver (`-alpha.N` < `-beta.N` < stable; no delete/move/force-push).
 - Use Conventional Commits. The merged commit subjects since the last stable tag drive the alpha base bump (`feat:` → minor, `fix:`/`perf:` → patch, `BREAKING`/`type!:` → major, docs/chore-only → **skip**).
 
 ### Releasing
-- Alpha: merge a `feat:`/`fix:`/… PR into `develop` → `alpha.yml` auto-tags `vX.Y.Z-alpha.N` + publishes the developer APK (docs/chore-only → no release).
+- Alpha: merge a `feat:`/`fix:`/… PR into `develop` → `release-alpha.yml` auto-tags `vX.Y.Z-alpha.N` + publishes the developer APK (docs/chore-only → no release).
 - Beta: cut `release/X.Y.Z` from `develop` and push → `release-beta.yml` builds both APKs + tags `vX.Y.Z-beta.N`; push fixes to iterate `-beta.(N+1)`.
-- Stable: after beta sign-off, PR `release/X.Y.Z → main` and merge → `promote.yml` tags `vX.Y.Z` and copies the beta APKs to the stable Release (no rebuild). Then delete the release branch and merge `main` back to `develop`.
-- Manual: `gh workflow run alpha.yml -f version=v0.1.0` (seed) or `-f bump=minor`; `gh workflow run release-beta.yml`; `gh workflow run promote.yml -f version=X.Y.Z`.
+- Stable: after beta sign-off, PR `release/X.Y.Z → main` and merge → `release.yml` tags `vX.Y.Z` and copies the beta APKs to the stable Release (no rebuild). Then delete the release branch and merge `main` back to `develop`.
+- Manual: `gh workflow run release-alpha.yml -f version=v0.1.0` (seed) or `-f bump=minor`; `gh workflow run release-beta.yml`; `gh workflow run release.yml -f version=X.Y.Z`.
 - For release-signed (not debug) APKs, set repo secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `ANDROID_STORE_PASSWORD`.
 
 ## Documented solutions

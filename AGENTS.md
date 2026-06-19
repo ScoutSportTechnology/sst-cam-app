@@ -18,19 +18,20 @@ ladder**:
 
 1. **Build-in-PR / tag-on-merge** — the APK build is a required check on
    `develop` / `release/*` PRs.
-2. **`main` never builds** — `promote.yml` only copies an already-built beta APK.
-   Never add a `flutter` / Gradle step to `promote.yml`.
+2. **`main` never builds** — `release.yml` only copies an already-built beta APK.
+   Never add a `flutter` / Gradle step to `release.yml`.
 
-Four workflows, trigger-separated:
+Three branch-scoped workflows — each owns one branch class and folds its PR gate
+in (gated to `pull_request`); there is no standalone `ci.yml`. Required PR checks:
+`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`.
 
-| Workflow | Trigger | Does |
-| -------- | ------- | ---- |
-| `ci.yml` | PR → `develop` / `release/*` | `Analyze & Test (Linux)` + `Build Android APK` (required checks) |
-| `alpha.yml` | push → `develop` | `resolve-version.sh alpha` → developer APK → `--prerelease` |
-| `release-beta.yml` | push → `release/**` | base = branch `X.Y.Z` → both APKs → `-beta.N` `--prerelease` |
-| `promote.yml` | push → `main` | tag `vX.Y.Z`, copy beta APK assets (no build) |
+| Workflow | Owns | PR (`pull_request`) | Push |
+| -------- | ---- | ------------------- | ---- |
+| `release-alpha.yml` | `develop` | the 3 gate checks | `resolve-version.sh alpha` → developer APK → `--prerelease` |
+| `release-beta.yml` | `release/**` | the 3 gate checks | base = branch `X.Y.Z` → both APKs → `-beta.N` `--prerelease` |
+| `release.yml` | `main` | — | tag `vX.Y.Z`, copy beta APK assets (no build) |
 
-Version math is `scripts/ci/resolve-version.sh` (single source for all release
+Version math is `scripts/ci/resolve-version.sh` (single source for both release
 workflows; tested by `scripts/ci/resolve-version-test.sh` — run it after editing
 the script). Default `GITHUB_TOKEN` only — no PAT/App; do not reintroduce
 release-please. Signing falls back to debug when `ANDROID_*` secrets are unset.

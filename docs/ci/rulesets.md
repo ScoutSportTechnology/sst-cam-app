@@ -1,5 +1,12 @@
 # GitHub rulesets — sst-cam-app (maintainer runbook)
 
+> **APPLIED 2026-06-18.** These rulesets are **live**: `Release Tags` (tag),
+> `develop`, `main`, and `release-branches` (branch), all `enforcement: active`,
+> with an **OrgAdmin bypass** actor. `develop` requires `CI Scripts (shellcheck +
+> version tests)`, `Analyze & Test (Linux)`, and `Build Android APK`; `main`'s
+> required checks are **deferred** (see the open caveat below). Commands below are
+> retained for reference / re-creation.
+
 Operational runbook for applying the branch + tag rulesets that enforce the
 SST workflow standard. **This is a one-time maintainer/admin task** (U6 of the
 [CI/CD workflow-standard plan](../plans/2026-06-17-001-feat-cicd-workflow-standard-plan.md));
@@ -15,8 +22,8 @@ checks are applied here, by hand, with `gh`.
 
 | Branch      | Rule                                                                                                                  |
 | ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| `develop`   | Default branch. PR required + green required checks (`Analyze & Test (Linux)`, `Build Android APK`). No direct push. |
-| `release/*` | PR required + the same beta checks (`Analyze & Test (Linux)`, `Build Android APK`) reported on `release/*` pushes.   |
+| `develop`   | Default branch. PR required + green required checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`). No direct push. |
+| `release/*` | PR required + the same beta checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`) reported on `release/*` PRs.       |
 | `main`      | PR required + green required checks + **no direct push / force-push / delete** (admin/hotfix bypass only).           |
 | `v*` tags   | Existing immutable "Release Tags" ruleset — allows compliant semver tag *creation*, blocks delete/update/force-push. |
 
@@ -24,20 +31,23 @@ The two non-negotiables this enforces:
 
 1. **Build-in-PR / tag-on-merge** — the APK build is a required check on
    `develop`/`release/*` PRs, so a broken build blocks the merge.
-2. **`main` never builds** — `promote.yml` only copies an already-built beta
+2. **`main` never builds** — `release.yml` only copies an already-built beta
    asset; no `flutter build` runs on `main` (verify by inspection of the file).
 
 ## Required check names (capture from the first run)
 
-Required-status-check contexts are the **job `name:` values**, not the job ids:
+Required-status-check contexts are the **job `name:` values**, not the job ids.
+The PR gate jobs are folded into `release-alpha.yml` (`develop`) and
+`release-beta.yml` (`release/**`), gated to `pull_request`:
 
-- `Analyze & Test (Linux)` — `analyze-and-test` job in `ci.yml`.
-- `Build Android APK` — `build-android` job in `ci.yml`.
+- `CI Scripts (shellcheck + version tests)` — `version-script` job.
+- `Analyze & Test (Linux)` — `analyze-and-test` job.
+- `Build Android APK` — `build-android` job.
 
 Confirm the exact strings against a real run before wiring:
 
 ```bash
-# After the first throwaway PR into develop has run ci.yml once:
+# After the first PR into develop has run release-alpha.yml once:
 gh api repos/:owner/:repo/commits/<head-sha>/check-runs \
   --jq '.check_runs[].name'
 ```
@@ -73,6 +83,7 @@ gh api repos/:owner/:repo/rulesets -X POST --input - <<'JSON'
       "parameters": {
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
+          { "context": "CI Scripts (shellcheck + version tests)" },
           { "context": "Analyze & Test (Linux)" },
           { "context": "Build Android APK" }
         ]
@@ -106,6 +117,7 @@ gh api repos/:owner/:repo/rulesets -X POST --input - <<'JSON'
       "parameters": {
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
+          { "context": "CI Scripts (shellcheck + version tests)" },
           { "context": "Analyze & Test (Linux)" },
           { "context": "Build Android APK" }
         ]
@@ -183,4 +195,4 @@ live GitHub behavior before wiring `main`'s `required_status_checks`.
 - A direct push to `main` is rejected.
 - A `release/* → main` PR with red checks is blocked (AE3).
 - `develop` is the repo default and rejects unreviewed pushes.
-- `promote.yml` contains no `flutter build` / Gradle step (grep the file).
+- `release.yml` contains no `flutter build` / Gradle step (grep the file).
