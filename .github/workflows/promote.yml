@@ -26,6 +26,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
 jobs:
   promote:
     name: Promote beta APKs to stable (no build)
@@ -42,17 +46,25 @@ jobs:
           IN_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          base="${IN_VERSION:-}"
-          if [ -z "$base" ]; then
-            # The push to main is the release/X.Y.Z → main merge. Parse the merged
-            # branch name from the merge commit subject (e.g.
-            # "Merge pull request #N from owner/release/0.1.0" or
-            # "Merge branch 'release/0.1.0'").
-            subject="$(git log -1 --format='%s' "$GITHUB_SHA")"
-            base="$(printf '%s\n' "$subject" | grep -oE 'release/[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's#release/##')"
+          # The push to main is the release/X.Y.Z → main merge. Derive X.Y.Z
+          # robustly: explicit dispatch input first; then the merge commit
+          # subject AND body (covers "Merge branch 'release/0.1.0'" and PR
+          # merges that carry the branch name only in the body); then fall back
+          # to the highest beta tag merged into this commit.
+          base=""
+          if [ -n "${IN_VERSION:-}" ]; then
+            base="${IN_VERSION#v}"
+          else
+            base="$(git log -1 --format='%s%n%b' "$GITHUB_SHA" \
+              | grep -oE 'release/[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's#release/##' || true)"
+            if [ -z "$base" ]; then
+              cand="$(git tag --merged "$GITHUB_SHA" -l 'v*-beta.*' --sort=-v:refname \
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$' | head -1 || true)"
+              cand="${cand#v}"; base="${cand%-beta.*}"
+            fi
           fi
           echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::could not derive release/X.Y.Z from main push (got '${base:-}'); pass version via workflow_dispatch"; exit 1; }
+            || { echo "::error::cannot derive X.Y.Z under promotion (squash merge? pass workflow_dispatch version=vX.Y.Z)"; exit 1; }
 
           # Highest existing beta tag for this base. Fail fast if none — promotion
           # must never silently rebuild a missing artifact.
@@ -73,12 +85,14 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release create "$TAG" \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
-            --generate-notes
+          # Idempotent: a re-run must not fail on an already-created Release.
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --generate-notes
 
-      - name: Copy beta APKs → stable (bytes preserved, renamed)
+      - name: Copy beta APKs → stable (verified bytes, renamed)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BETA: ${{ steps.pick.outputs.beta }}
@@ -87,16 +101,43 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           gh release download "$BETA" --dir dist --pattern '*.apk'
+
+          # Pull the SHA-256 digests recorded in the beta Release notes by
+          # release-beta.yml. Promotion copies bytes with NO rebuild, so the
+          # only integrity guarantee is this digest match — fail closed if a
+          # digest is missing or mismatched.
+          notes="$(gh release view "$BETA" --json body --jq '.body')"
+
           for kind in production developer; do
             src="dist/sst-cam-app-${BETA}-${kind}.apk"
             dst="dist/sst-cam-app-${TAG}-${kind}.apk"
+            asset="sst-cam-app-${BETA}-${kind}.apk"
             [ -f "$src" ] \
               || { echo "::error::expected beta asset '${src}' missing from ${BETA} — refusing to rebuild"; exit 1; }
+
+            # Recorded digest for this asset, line format:
+            #   sha256: <64hex>  sst-cam-app-<tag>-<kind>.apk
+            # Anchor the hex run so an over-length string can't be captured.
+            line="$(printf '%s\n' "$notes" | grep -F "$asset" | head -1 || true)"
+            recorded="$(printf '%s\n' "$line" \
+              | grep -oiE 'sha256:[[:space:]]*[0-9a-f]{64}([^0-9a-f]|$)' \
+              | grep -oiE '[0-9a-f]{64}' | head -1 || true)"
+            [ -n "$recorded" ] \
+              || { echo "::error::no recorded sha256 for '${asset}' in ${BETA} notes — failing closed"; exit 1; }
+
+            actual="$(sha256sum "$src" | cut -d' ' -f1)"
+            if [ "$(printf '%s' "$recorded" | tr 'A-F' 'a-f')" != "$actual" ]; then
+              echo "::error::sha256 mismatch for '${asset}': recorded=${recorded} actual=${actual}"
+              exit 1
+            fi
+            echo "verified ${asset}: ${actual}"
             mv "$src" "$dst"
           done
+
           gh release upload "$TAG" \
             "dist/sst-cam-app-${TAG}-production.apk" \
-            "dist/sst-cam-app-${TAG}-developer.apk"
+            "dist/sst-cam-app-${TAG}-developer.apk" \
+            --clobber
 
       - name: Run summary — post-promote maintainer actions
         env:
