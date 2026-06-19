@@ -90,19 +90,19 @@ contract-first design.
 
 ## Releases & CI/CD
 
-Branch model `feat/* → develop → release/X.Y.Z → main` with a test-fidelity
+Branch model `feat/* → development → release/X.Y.Z → main` with a test-fidelity
 maturity ladder:
 
 | Stage | Tag | Built on | Fidelity |
 | ----- | --- | -------- | -------- |
-| **alpha** | `vX.Y.Z-alpha.N` | push to `develop` | automated tests vs mock + emulator |
+| **alpha** | `vX.Y.Z-alpha.N` | push to `development` | automated tests vs mock + emulator |
 | **beta** | `vX.Y.Z-beta.N` | push to `release/X.Y.Z` | release candidate, manual sign-off vs real firmware |
 | **stable** | `vX.Y.Z` | merge to `main` | shipped — the promoted beta APK (same bytes) |
 
 Two non-negotiables: the APK **build is a required check in the PR** (build-in-PR
 / tag-on-merge), and **`main` never builds** — promotion only copies the
 already-built beta artifact. Three branch-scoped workflows
-(`release-alpha` owns `develop`, `release-beta` owns `release/**`, `release` owns
+(`release-alpha` owns `development`, `release-beta` owns `release/**`, `release` owns
 `main`), each folding its PR gate in — no separate `ci` workflow; version math is
 `scripts/ci/resolve-version.sh`.
 Each release publishes a **developer** APK (`APP_ENV=stage`) and, from beta on, a

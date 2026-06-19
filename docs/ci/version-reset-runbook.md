@@ -9,13 +9,13 @@ runbook removes the bogus tag/Release and seeds the clean line.
 > **This is a one-time admin operation, not a workflow.** It is executed by hand,
 > once, by a repo/org admin (U7 of the
 > [CI/CD workflow-standard plan](../plans/2026-06-17-001-feat-cicd-workflow-standard-plan.md)).
-> Do it **after** `develop` exists (U0) and `alpha.yml` is landed (U3), so the
+> Do it **after** `development` exists (U0) and `alpha.yml` is landed (U3), so the
 > first real alpha can be minted immediately afterward.
 
 ## The maturity-ladder target
 
 - `0.1.0-alpha.N` — automated test fidelity (app vs mock + emulator), minted on
-  every `develop` merge.
+  every `development` merge.
 - **`0.1.0-beta.1`** — the immediate target: the **joint firmware + app hardware
   test** (manual integration sign-off against a real firmware device). Coordinate
   its cut timing with the firmware plan; it is not a CI artifact of this plan.
@@ -65,7 +65,7 @@ The immutable **"Release Tags" ruleset blocks tag deletion**, so the bypass is
 
 With the line clean, mint `v0.1.0-alpha.1` either way:
 
-- **Natural:** the next `feat:`-bearing merge into `develop` triggers `alpha.yml`
+- **Natural:** the next `feat:`-bearing merge into `development` triggers `alpha.yml`
   → `resolve-version.sh alpha` bumps from the implicit `v0.0.0` base (no stable
   tag) → `v0.1.0-alpha.1`.
 - **Seeded (deterministic):** dispatch `alpha.yml` manually to seed without
@@ -84,6 +84,6 @@ With the line clean, mint `v0.1.0-alpha.1` either way:
 ## Verification
 
 - `git tag -l 'v*'` shows **no** bogus `v0.1.0`.
-- The first `develop` alpha is `v0.1.0-alpha.1` (a `--prerelease` Release with
+- The first `development` alpha is `v0.1.0-alpha.1` (a `--prerelease` Release with
   one developer APK asset).
 - The "Release Tags" ruleset is re-enabled.

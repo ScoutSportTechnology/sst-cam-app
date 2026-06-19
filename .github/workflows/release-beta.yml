@@ -8,7 +8,7 @@ name: release-beta
 #
 # On push to release/X.Y.Z → build BOTH release APKs, mint the next
 # vX.Y.Z-beta.N prerelease, and publish the APKs as its assets. The beta base is
-# the branch name (authoritative during the stabilization window even if develop
+# the branch name (authoritative during the stabilization window even if development
 # has moved on); the beta counter increments within it. The published beta APK
 # asset is exactly what release.yml later copies to the stable Release — main
 # never rebuilds (R3/R7).

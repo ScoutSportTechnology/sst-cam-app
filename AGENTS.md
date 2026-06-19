@@ -7,17 +7,17 @@ file mirrors its CI/CD contract and adds the rules an agent most often trips on.
 ## CI/CD & releasing
 
 PR-gated, Conventional-Commit driven, on the SST branch model
-`feat/* → develop → release/X.Y.Z → main` with a test-fidelity **maturity
+`feat/* → development → release/X.Y.Z → main` with a test-fidelity **maturity
 ladder**:
 
-- **alpha** (`vX.Y.Z-alpha.N`) — automated tests vs **mock + emulator**; minted on every `develop` merge.
+- **alpha** (`vX.Y.Z-alpha.N`) — automated tests vs **mock + emulator**; minted on every `development` merge.
 - **beta** (`vX.Y.Z-beta.N`) — release candidate, manually validated vs **real firmware**; built on `release/*`.
 - **stable** (`vX.Y.Z`) — shipped; the promoted beta artifact (same bytes), cut on merge to `main`.
 
 **Two non-negotiables — do not break these:**
 
 1. **Build-in-PR / tag-on-merge** — the APK build is a required check on
-   `develop` / `release/*` PRs.
+   `development` / `release/*` PRs.
 2. **`main` never builds** — `release.yml` only copies an already-built beta APK.
    Never add a `flutter` / Gradle step to `release.yml`.
 
@@ -27,7 +27,7 @@ in (gated to `pull_request`); there is no standalone `ci.yml`. Required PR check
 
 | Workflow | Owns | PR (`pull_request`) | Push |
 | -------- | ---- | ------------------- | ---- |
-| `release-alpha.yml` | `develop` | the 3 gate checks | `resolve-version.sh alpha` → developer APK → `--prerelease` |
+| `release-alpha.yml` | `development` | the 3 gate checks | `resolve-version.sh alpha` → developer APK → `--prerelease` |
 | `release-beta.yml` | `release/**` | the 3 gate checks | base = branch `X.Y.Z` → both APKs → `-beta.N` `--prerelease` |
 | `release.yml` | `main` | — | tag `vX.Y.Z`, copy beta APK assets (no build) |
 
@@ -38,7 +38,7 @@ release-please. Signing falls back to debug when `ANDROID_*` secrets are unset.
 
 ### Branch + commit + tag rules
 
-- `develop` is the default branch; target `feat/*` / `fix/*` PRs at it. Do not
+- `development` is the default branch; target `feat/*` / `fix/*` PRs at it. Do not
   target `main`.
 - `main` is promote-only: no direct push; PR from `release/*` only.
 - Tags `v*` are immutable semver (`-alpha.N` < `-beta.N` < stable).

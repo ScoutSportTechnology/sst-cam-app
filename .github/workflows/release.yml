@@ -152,5 +152,5 @@ jobs:
             echo ""
             echo "**Maintainer follow-up:**"
             echo "- Delete the \`release/${BASE}\` branch."
-            echo "- Merge \`main\` back to \`develop\` so it never silently diverges."
+            echo "- Merge \`main\` back to \`development\` so it never silently diverges."
           } >> "$GITHUB_STEP_SUMMARY"

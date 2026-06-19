@@ -131,10 +131,10 @@ Dark by default. Tokens live in `lib/core/theme/tokens.dart`; `lib/app.dart` bui
 ## CI/CD & releasing
 
 PR-gated, Conventional-Commit driven, on the SST branch model
-`feat/* → develop → release/X.Y.Z → main` with a test-fidelity **maturity
+`feat/* → development → release/X.Y.Z → main` with a test-fidelity **maturity
 ladder**:
 
-- **alpha** (`vX.Y.Z-alpha.N`) — automated tests vs **mock + emulator**; minted on every `develop` merge.
+- **alpha** (`vX.Y.Z-alpha.N`) — automated tests vs **mock + emulator**; minted on every `development` merge.
 - **beta** (`vX.Y.Z-beta.N`) — release candidate, manually validated vs **real firmware**; built on `release/*`.
 - **stable** (`vX.Y.Z`) — shipped; the promoted beta artifact (same bytes), cut on merge to `main`.
 
@@ -144,7 +144,7 @@ Two non-negotiables: **build-in-PR / tag-on-merge**, and **`main` never builds**
 Three branch-scoped workflows — each owns one branch class end to end and folds
 its PR gate in (gated to `pull_request`); there is no standalone `ci.yml`:
 
-- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `develop`.** `pull_request:[develop]` runs the gate checks `CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`), and `Build Android APK`. The build is in the gate — this is what keeps `main` from ever needing to build. `push:[develop]` (+ `workflow_dispatch`) runs `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release.
+- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `development`.** `pull_request:[development]` runs the gate checks `CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`), and `Build Android APK`. The build is in the gate — this is what keeps `main` from ever needing to build. `push:[development]` (+ `workflow_dispatch`) runs `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release.
 - `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`.** `pull_request:[release/**]` runs the same three gate checks. `push:[release/**]` (+ `workflow_dispatch`) sets base = the branch name `X.Y.Z`; `resolve-version.sh beta X.Y.Z` → `-beta.(N+1)` → builds **both** APKs (production `-t lib/main_prod.dart --dart-define=APP_ENV=prod`, developer `--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release carrying both.
 - `.github/workflows/release.yml` (name `release`) — **owns `main`.** `push:[main]` (+ `workflow_dispatch`) derives `X.Y.Z` from the merged `release/X.Y.Z` branch, picks the highest `vX.Y.Z-beta.N` tag (fail fast if none), tags `vX.Y.Z`, **downloads the beta APK assets and re-uploads them renamed** (bytes preserved). **No `flutter`/Gradle step exists** — the structural "main never builds" guarantee.
 
@@ -155,37 +155,37 @@ signing. Default `GITHUB_TOKEN` only — no PAT/App. Operational runbooks:
 `docs/ci/rulesets.md` (branch/tag rulesets), `docs/ci/version-reset-runbook.md`.
 
 ### Branch + commit + tag rules
-- `develop` is the default branch; target `feat/*` / `fix/*` PRs at it.
-- `release/X.Y.Z` is cut from `develop` to stabilize a version; betas iterate on it.
+- `development` is the default branch; target `feat/*` / `fix/*` PRs at it.
+- `release/X.Y.Z` is cut from `development` to stabilize a version; betas iterate on it.
 - `main` is promote-only: no direct push; PR (from `release/*`) + 1 approval + green required checks. **No build runs on `main`** (`release.yml` only promotes).
 - Tags `v*` are immutable semver (`-alpha.N` < `-beta.N` < stable; no delete/move/force-push).
 - Use Conventional Commits. The merged commit subjects since the last stable tag drive the alpha base bump (`feat:` → minor, `fix:`/`perf:` → patch, `BREAKING`/`type!:` → major, docs/chore-only → **skip**).
 
 ### Releasing
-- Alpha: merge a `feat:`/`fix:`/… PR into `develop` → `release-alpha.yml` auto-tags `vX.Y.Z-alpha.N` + publishes the developer APK (docs/chore-only → no release).
-- Beta: cut `release/X.Y.Z` from `develop` and push → `release-beta.yml` builds both APKs + tags `vX.Y.Z-beta.N`; push fixes to iterate `-beta.(N+1)`.
-- Stable: after beta sign-off, PR `release/X.Y.Z → main` and merge → `release.yml` tags `vX.Y.Z` and copies the beta APKs to the stable Release (no rebuild). Then delete the release branch and merge `main` back to `develop`.
+- Alpha: merge a `feat:`/`fix:`/… PR into `development` → `release-alpha.yml` auto-tags `vX.Y.Z-alpha.N` + publishes the developer APK (docs/chore-only → no release).
+- Beta: cut `release/X.Y.Z` from `development` and push → `release-beta.yml` builds both APKs + tags `vX.Y.Z-beta.N`; push fixes to iterate `-beta.(N+1)`.
+- Stable: after beta sign-off, PR `release/X.Y.Z → main` and merge → `release.yml` tags `vX.Y.Z` and copies the beta APKs to the stable Release (no rebuild). Then delete the release branch and merge `main` back to `development`.
 - Manual: `gh workflow run release-alpha.yml -f version=v0.1.0` (seed) or `-f bump=minor`; `gh workflow run release-beta.yml`; `gh workflow run release.yml -f version=X.Y.Z`.
 - For release-signed (not debug) APKs, set repo secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `ANDROID_STORE_PASSWORD`.
 
 ## Release lifecycle
 
-The version ladder is driven by **which branch you push to**, not by counters. Tags climb `vX.Y.Z-alpha.N` (develop) → `vX.Y.Z-beta.N` (release/*) → `vX.Y.Z` (main); the math lives in `scripts/ci/resolve-version.sh`.
+The version ladder is driven by **which branch you push to**, not by counters. Tags climb `vX.Y.Z-alpha.N` (development) → `vX.Y.Z-beta.N` (release/*) → `vX.Y.Z` (main); the math lives in `scripts/ci/resolve-version.sh`.
 
-**Alpha — automatic, every `develop` merge.** `release-alpha.yml` runs `resolve-version.sh alpha`: the base is a Conventional-Commit bump from the latest *stable* tag (or from `v0.0.0` when none exists), and `-alpha.N` increments per merge. The developer APK (`APP_ENV=stage`) is published on the prerelease.
+**Alpha — automatic, every `development` merge.** `release-alpha.yml` runs `resolve-version.sh alpha`: the base is a Conventional-Commit bump from the latest *stable* tag (or from `v0.0.0` when none exists), and `-alpha.N` increments per merge. The developer APK (`APP_ENV=stage`) is published on the prerelease.
 
 ```
-feat A → develop   →  v0.1.0-alpha.1
-feat B → develop   →  v0.1.0-alpha.2
-feat C → develop   →  v0.1.0-alpha.3
+feat A → development   →  v0.1.0-alpha.1
+feat B → development   →  v0.1.0-alpha.2
+feat C → development   →  v0.1.0-alpha.3
 ```
 
 With no stable tag yet, a `feat:` yields base `0.1.0` (a `feat!:`/`BREAKING CHANGE` → `1.0.0`; a `fix:`-only → `0.0.1`); docs/chore-only mints nothing.
 
-**Beta — when you cut the release branch.** Manually branch `release/X.Y.Z` off `develop` and push it; `release-beta.yml` runs `resolve-version.sh beta X.Y.Z` (base = the branch name) and publishes **both** APKs (production + developer):
+**Beta — when you cut the release branch.** Manually branch `release/X.Y.Z` off `development` and push it; `release-beta.yml` runs `resolve-version.sh beta X.Y.Z` (base = the branch name) and publishes **both** APKs (production + developer):
 
 ```
-git switch -c release/0.1.0 develop && git push   →  v0.1.0-beta.1
+git switch -c release/0.1.0 development && git push   →  v0.1.0-beta.1
 ```
 
 Each subsequent push to that branch bumps the beta counter — `-beta.2`, `-beta.3`, … This is the rung you **validate by hand against real firmware on a device**. Alpha and beta are independent counters.
@@ -193,14 +193,14 @@ Each subsequent push to that branch bumps the beta counter — `-beta.2`, `-beta
 **Stable — when you merge `release/X.Y.Z → main`.** Pushing the branch *creates* the betas; **merging it to `main` promotes the latest beta to stable.** `release.yml` auto-selects the highest `vX.Y.Z-beta.N`, tags `vX.Y.Z`, then **downloads the beta APKs, verifies their SHA-256, and re-uploads the same bytes** to the stable Release — no Flutter build on `main`.
 
 ```
-develop:        alpha.1   alpha.2   alpha.3
+development:        alpha.1   alpha.2   alpha.3
                                        │ cut release/0.1.0
 release/0.1.0:                         └─► beta.1 → beta.2 → beta.3
                                                               │ merge → main
 main:                                                         └─► v0.1.0  (stable)
 ```
 
-After `v0.1.0` stable exists, the next `feat:` on `develop` bumps from the latest stable → `v0.2.0-alpha.1` (a `fix:` → `v0.1.1-alpha.1`). The alpha base climbs only once a stable is cut.
+After `v0.1.0` stable exists, the next `feat:` on `development` bumps from the latest stable → `v0.2.0-alpha.1` (a `fix:` → `v0.1.1-alpha.1`). The alpha base climbs only once a stable is cut.
 
 ## Documented solutions
 

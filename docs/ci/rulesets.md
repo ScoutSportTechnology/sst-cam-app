@@ -1,8 +1,8 @@
 # GitHub rulesets — sst-cam-app (maintainer runbook)
 
 > **APPLIED 2026-06-18.** These rulesets are **live**: `Release Tags` (tag),
-> `develop`, `main`, and `release-branches` (branch), all `enforcement: active`,
-> with an **OrgAdmin bypass** actor. `develop` requires `CI Scripts (shellcheck +
+> `development`, `main`, and `release-branches` (branch), all `enforcement: active`,
+> with an **OrgAdmin bypass** actor. `development` requires `CI Scripts (shellcheck +
 > version tests)`, `Analyze & Test (Linux)`, and `Build Android APK`; `main`'s
 > required checks are **deferred** (see the open caveat below). Commands below are
 > retained for reference / re-creation.
@@ -13,7 +13,7 @@ SST workflow standard. **This is a one-time maintainer/admin task** (U6 of the
 the workflow YAML is already in the repo, but the rulesets that *require* its
 checks are applied here, by hand, with `gh`.
 
-> **Strict ordering.** Bootstrap `develop` (U0) → land the workflows → let CI run
+> **Strict ordering.** Bootstrap `development` (U0) → land the workflows → let CI run
 > **once** so the exact check-run names exist → only then wire
 > `required_status_checks`. Wiring a required check before it has ever reported
 > silently fails to enforce it (the name-mismatch trap from prior CI work).
@@ -22,7 +22,7 @@ checks are applied here, by hand, with `gh`.
 
 | Branch      | Rule                                                                                                                  |
 | ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| `develop`   | Default branch. PR required + green required checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`). No direct push. |
+| `development`   | Default branch. PR required + green required checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`). No direct push. |
 | `release/*` | PR required + the same beta checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`) reported on `release/*` PRs.       |
 | `main`      | PR required + green required checks + **no direct push / force-push / delete** (admin/hotfix bypass only).           |
 | `v*` tags   | Existing immutable "Release Tags" ruleset — allows compliant semver tag *creation*, blocks delete/update/force-push. |
@@ -30,14 +30,14 @@ checks are applied here, by hand, with `gh`.
 The two non-negotiables this enforces:
 
 1. **Build-in-PR / tag-on-merge** — the APK build is a required check on
-   `develop`/`release/*` PRs, so a broken build blocks the merge.
+   `development`/`release/*` PRs, so a broken build blocks the merge.
 2. **`main` never builds** — `release.yml` only copies an already-built beta
    asset; no `flutter build` runs on `main` (verify by inspection of the file).
 
 ## Required check names (capture from the first run)
 
 Required-status-check contexts are the **job `name:` values**, not the job ids.
-The PR gate jobs are folded into `release-alpha.yml` (`develop`) and
+The PR gate jobs are folded into `release-alpha.yml` (`development`) and
 `release-beta.yml` (`release/**`), gated to `pull_request`:
 
 - `CI Scripts (shellcheck + version tests)` — `version-script` job.
@@ -47,7 +47,7 @@ The PR gate jobs are folded into `release-alpha.yml` (`develop`) and
 Confirm the exact strings against a real run before wiring:
 
 ```bash
-# After the first PR into develop has run release-alpha.yml once:
+# After the first PR into development has run release-alpha.yml once:
 gh api repos/:owner/:repo/commits/<head-sha>/check-runs \
   --jq '.check_runs[].name'
 ```
@@ -56,18 +56,18 @@ gh api repos/:owner/:repo/commits/<head-sha>/check-runs \
 
 Run as a repo admin. Replace `OWNER/REPO` if `:owner/:repo` does not resolve.
 
-### develop — PR + green checks, default branch
+### development — PR + green checks, default branch
 
 ```bash
 # (Default-branch flip itself is U0:)
-#   gh api repos/:owner/:repo -X PATCH -f default_branch=develop
+#   gh api repos/:owner/:repo -X PATCH -f default_branch=development
 
 gh api repos/:owner/:repo/rulesets -X POST --input - <<'JSON'
 {
-  "name": "develop protection",
+  "name": "development protection",
   "target": "branch",
   "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/heads/develop"], "exclude": [] } },
+  "conditions": { "ref_name": { "include": ["refs/heads/development"], "exclude": [] } },
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
@@ -194,5 +194,5 @@ live GitHub behavior before wiring `main`'s `required_status_checks`.
 
 - A direct push to `main` is rejected.
 - A `release/* → main` PR with red checks is blocked (AE3).
-- `develop` is the repo default and rejects unreviewed pushes.
+- `development` is the repo default and rejects unreviewed pushes.
 - `release.yml` contains no `flutter build` / Gradle step (grep the file).
