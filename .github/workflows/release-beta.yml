@@ -122,13 +122,34 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
+          prod="dist/sst-cam-app-${TAG}-production.apk"
+          dev="dist/sst-cam-app-${TAG}-developer.apk"
+
+          # Record the SHA-256 of each APK in the Release notes. promote.yml
+          # copies these exact bytes to the stable Release with NO rebuild, so
+          # this digest is the integrity hand-off it verifies against (fail
+          # closed on mismatch). Line format is contractual:
+          #   sha256: <64hex>  sst-cam-app-<tag>-<kind>.apk
+          prod_sha="$(sha256sum "$prod" | cut -d' ' -f1)"
+          dev_sha="$(sha256sum "$dev" | cut -d' ' -f1)"
+          notes="$(mktemp)"
+          {
+            echo "### APK integrity (SHA-256)"
+            echo ""
+            echo "Promotion to stable copies these bytes unchanged; promote.yml"
+            echo "verifies each APK against the digest below before publishing."
+            echo ""
+            echo "    sha256: ${prod_sha}  sst-cam-app-${TAG}-production.apk"
+            echo "    sha256: ${dev_sha}  sst-cam-app-${TAG}-developer.apk"
+          } > "$notes"
+
           gh release create "$TAG" \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "$TAG" \
-            --generate-notes \
-            "dist/sst-cam-app-${TAG}-production.apk" \
-            "dist/sst-cam-app-${TAG}-developer.apk"
+            --notes-file "$notes" \
+            "$prod" \
+            "$dev"
 
       # NOTE (open item): production + developer APKs share applicationId
       # "com.sst.sstcam" so they can't coexist on one device. Add
