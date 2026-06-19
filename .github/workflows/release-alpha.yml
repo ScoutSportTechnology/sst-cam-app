@@ -1,0 +1,299 @@
+name: release-alpha
+
+# Owns the `develop` branch end to end.
+#
+# On PRs into develop → run the CI CHECK jobs (shellcheck + version tests,
+# analyze & test, build APK). The build is in the gate — this is what keeps
+# `main` from ever needing to build.
+#
+# On push to develop (post-merge) → mint the next vX.Y.Z-alpha.N prerelease and
+# publish the developer APK. The PR gate above already built this exact tree, so
+# this post-merge build should not fail on a non-flake; if it does, the develop
+# code has still landed — recover by re-dispatching via workflow_dispatch. This
+# keeps the only build-can-fail-after-merge risk on develop, never on main (R3).
+#
+# Alpha base = conventional-commit bump from the latest *stable* tag; the alpha
+# counter increments within that base. Version math lives in
+# scripts/ci/resolve-version.sh (single source shared with release-beta/release).
+#
+# The check jobs are gated to pull_request and the alpha release job to push, so
+# the release job is intentionally NOT `needs:`-dependent on the checks (a check
+# skipped on push must not block the release).
+#
+# Default GITHUB_TOKEN only (contents:write); the "Release Tags" ruleset allows
+# creating compliant semver tags, so no PAT/App is needed.
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Force base version eg v1.2.3 (seeds vX.Y.Z-alpha.1)"
+        required: false
+        default: ""
+      bump:
+        description: "Force base bump level (overrides commit scan)"
+        type: choice
+        options: ["", patch, minor, major]
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- CI CHECK jobs (PRs only) -------------------------------------------
+  # job name: values below are wired ruleset required-status-check contexts —
+  # do NOT rename them or branch protection breaks.
+
+  # Gates the shared release version logic. resolve-version.sh drives all three
+  # release workflows (alpha/beta/release); it is committed but only ever runs in
+  # CI here — keep it covered and shellcheck-clean.
+  version-script:
+    name: CI Scripts (shellcheck + version tests)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint CI scripts (shellcheck)
+        run: shellcheck scripts/ci/*.sh
+
+      - name: Lint workflows (actionlint)
+        uses: raviqqe/[email protected]
+
+      - name: resolve-version unit tests
+        run: ./scripts/ci/resolve-version-test.sh
+
+  analyze-and-test:
+    name: Analyze & Test (Linux)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # proto/*.proto comes from the git submodule; the BLE layer imports
+          # the generated bindings, so analyze + tests need them generated.
+          submodules: recursive
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Format-check hand-written code BEFORE generating protos — generated
+      # bindings under lib/models/proto/ are not dart-formatted and must not be
+      # format-gated. integration_test/ does not currently exist; include it
+      # only if present so the check doesn't hard-error on a missing path.
+      - name: Format check
+        run: |
+          dirs="lib test"
+          [ -d integration_test ] && dirs="$dirs integration_test"
+          dart format --set-exit-if-changed $dirs
+
+      # The app's BLE layer imports lib/models/proto/*.dart (gitignored,
+      # generated). Generate them before analyze/test — mirrors `just gen-proto`.
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        run: |
+          # Pin to match the app's expected generated API (protobuf ^3.1.0).
+          # The latest plugin changes map-field + enum codegen and breaks analyze.
+          dart pub global activate protoc_plugin 21.1.2
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Unit & widget tests
+        run: flutter test --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+        continue-on-error: true
+
+  build-android:
+    name: Build Android APK
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    needs: analyze-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        run: |
+          dart pub global activate protoc_plugin 21.1.2
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+  # iOS builds require macOS + Xcode — run separately on macOS runners.
+  # Uncomment when a macOS CI runner is available (e.g. GitHub Actions macos-latest,
+  # Codemagic, or Bitrise).
+  #
+  # build-ios:
+  #   name: Build iOS (macOS)
+  #   runs-on: macos-latest
+  #   needs: analyze-and-test
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: subosito/flutter-action@v2
+  #       with:
+  #         channel: stable
+  #     - run: flutter pub get
+  #     - run: flutter build ios --release --no-codesign
+
+  # ---- alpha release job (push / dispatch only) ---------------------------
+  alpha:
+    name: Tag & publish alpha APK
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history for the conventional-commit scan in resolve-version.sh;
+          # proto/*.proto comes from the git submodule.
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Resolve version (alpha)
+        id: ver
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          IN_BUMP: ${{ inputs.bump }}
+        run: ./scripts/ci/resolve-version.sh alpha
+
+      - uses: actions/setup-java@v4
+        if: steps.ver.outputs.released == 'true'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        if: steps.ver.outputs.released == 'true'
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        if: steps.ver.outputs.released == 'true'
+        run: flutter pub get
+
+      # protoc + the Dart plugin are needed for `just gen-proto`. Pin the plugin
+      # to match the app's expected generated API (protobuf ^3.1.0).
+      - name: Install protoc
+        if: steps.ver.outputs.released == 'true'
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        if: steps.ver.outputs.released == 'true'
+        run: |
+          dart pub global activate protoc_plugin 21.1.2
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        if: steps.ver.outputs.released == 'true'
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Materialize Android signing keystore (if configured)
+        if: steps.ver.outputs.released == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # No keystore secret yet → skip; build.gradle.kts falls back to debug
+          # signing so the alpha still produces a (debug-signed) APK.
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building APK with debug signing."
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=${ANDROID_STORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          keyPassword=${ANDROID_KEY_PASSWORD}
+          EOF
+
+      # Alpha publishes the developer APK only (stage env). The production APK is
+      # a beta/stable concern.
+      - name: Build developer APK
+        if: steps.ver.outputs.released == 'true'
+        run: flutter build apk --release --dart-define=APP_ENV=stage
+
+      - name: Rename developer APK
+        if: steps.ver.outputs.released == 'true'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/apk/release/app-release.apk \
+            "dist/sst-cam-app-${TAG}-developer.apk"
+
+      - name: Create prerelease + upload alpha APK
+        if: steps.ver.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            "dist/sst-cam-app-${TAG}-developer.apk"
