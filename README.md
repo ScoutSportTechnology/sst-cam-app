@@ -88,6 +88,27 @@ contract-first design.
 
 ---
 
+## Releases & CI/CD
+
+Branch model `feat/* → develop → release/X.Y.Z → main` with a test-fidelity
+maturity ladder:
+
+| Stage | Tag | Built on | Fidelity |
+| ----- | --- | -------- | -------- |
+| **alpha** | `vX.Y.Z-alpha.N` | push to `develop` | automated tests vs mock + emulator |
+| **beta** | `vX.Y.Z-beta.N` | push to `release/X.Y.Z` | release candidate, manual sign-off vs real firmware |
+| **stable** | `vX.Y.Z` | merge to `main` | shipped — the promoted beta APK (same bytes) |
+
+Two non-negotiables: the APK **build is a required check in the PR** (build-in-PR
+/ tag-on-merge), and **`main` never builds** — promotion only copies the
+already-built beta artifact. Four workflows (`ci`, `alpha`, `release-beta`,
+`promote`) split by trigger; version math is `scripts/ci/resolve-version.sh`.
+Each release publishes a **developer** APK (`APP_ENV=stage`) and, from beta on, a
+**production** APK (`main_prod.dart`, `APP_ENV=prod`). See [`CLAUDE.md`](CLAUDE.md)
+and `docs/ci/` for the full model and maintainer runbooks.
+
+---
+
 ## Related repos
 
 - [`sst-cam-firmware`](https://github.com/ScoutSportTechnology/sst-cam-firmware) — on-device C++ runtime (Jetson)
