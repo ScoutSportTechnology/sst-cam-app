@@ -1,0 +1,115 @@
+name: promote
+
+# Push to main (a release/X.Y.Z → main merge) → tag vX.Y.Z and publish the
+# ALREADY-BUILT beta APKs by copying the assets. There is deliberately NO
+# flutter/Gradle build step in this workflow: main only promotes a verified
+# artifact, never rebuilds it. This is the structural guarantee for R3/R7/AE4 —
+# if you are tempted to add `flutter build` here, you are breaking the contract.
+#
+# Flow: derive X.Y.Z from the merged release branch → pick the highest existing
+# vX.Y.Z-beta.N tag → resolve-version.sh stable X.Y.Z → create the vX.Y.Z Release
+# → download the beta assets → rename beta→stable (bytes preserved) → upload.
+#
+# Default GITHUB_TOKEN only (contents:write); the "Release Tags" ruleset allows
+# creating compliant semver tags, so no PAT/App is needed.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version X.Y.Z to promote (overrides branch detect)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    name: Promote beta APKs to stable (no build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the merge commit + beta tags are visible.
+          fetch-depth: 0
+
+      - name: Derive X.Y.Z + select source beta tag
+        id: pick
+        env:
+          IN_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          base="${IN_VERSION:-}"
+          if [ -z "$base" ]; then
+            # The push to main is the release/X.Y.Z → main merge. Parse the merged
+            # branch name from the merge commit subject (e.g.
+            # "Merge pull request #N from owner/release/0.1.0" or
+            # "Merge branch 'release/0.1.0'").
+            subject="$(git log -1 --format='%s' "$GITHUB_SHA")"
+            base="$(printf '%s\n' "$subject" | grep -oE 'release/[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's#release/##')"
+          fi
+          echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::could not derive release/X.Y.Z from main push (got '${base:-}'); pass version via workflow_dispatch"; exit 1; }
+
+          # Highest existing beta tag for this base. Fail fast if none — promotion
+          # must never silently rebuild a missing artifact.
+          beta="$(git tag -l "v${base}-beta.*" --sort=-v:refname | head -1 || true)"
+          [ -n "$beta" ] \
+            || { echo "::error::no v${base}-beta.* tag exists to promote — nothing to copy"; exit 1; }
+
+          echo "base=$base"   >> "$GITHUB_OUTPUT"
+          echo "beta=$beta"   >> "$GITHUB_OUTPUT"
+
+      - name: Resolve stable tag
+        id: ver
+        run: ./scripts/ci/resolve-version.sh stable "${{ steps.pick.outputs.base }}"
+
+      - name: Create stable Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes
+
+      - name: Copy beta APKs → stable (bytes preserved, renamed)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BETA: ${{ steps.pick.outputs.beta }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$BETA" --dir dist --pattern '*.apk'
+          for kind in production developer; do
+            src="dist/sst-cam-app-${BETA}-${kind}.apk"
+            dst="dist/sst-cam-app-${TAG}-${kind}.apk"
+            [ -f "$src" ] \
+              || { echo "::error::expected beta asset '${src}' missing from ${BETA} — refusing to rebuild"; exit 1; }
+            mv "$src" "$dst"
+          done
+          gh release upload "$TAG" \
+            "dist/sst-cam-app-${TAG}-production.apk" \
+            "dist/sst-cam-app-${TAG}-developer.apk"
+
+      - name: Run summary — post-promote maintainer actions
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          BETA: ${{ steps.pick.outputs.beta }}
+          BASE: ${{ steps.pick.outputs.base }}
+        run: |
+          {
+            echo "### Promoted ${BETA} → ${TAG} (no rebuild)"
+            echo ""
+            echo "APK bytes copied from the beta prerelease, not rebuilt."
+            echo ""
+            echo "**Maintainer follow-up:**"
+            echo "- Delete the \`release/${BASE}\` branch."
+            echo "- Merge \`main\` back to \`develop\` so it never silently diverges."
+          } >> "$GITHUB_STEP_SUMMARY"
