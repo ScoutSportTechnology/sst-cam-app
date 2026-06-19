@@ -31,6 +31,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: alpha-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   alpha:
     name: Tag & publish alpha APK
