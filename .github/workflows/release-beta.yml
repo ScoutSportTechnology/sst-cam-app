@@ -1,11 +1,21 @@
 name: release-beta
 
-# Push to a release/X.Y.Z branch → build BOTH release APKs, mint the next
+# Owns the `release/**` branches end to end.
+#
+# On PRs into release/** → run the CI CHECK jobs (shellcheck + version tests,
+# analyze & test, build APK). The build is in the gate — this is what keeps
+# `main` from ever needing to build.
+#
+# On push to release/X.Y.Z → build BOTH release APKs, mint the next
 # vX.Y.Z-beta.N prerelease, and publish the APKs as its assets. The beta base is
 # the branch name (authoritative during the stabilization window even if develop
 # has moved on); the beta counter increments within it. The published beta APK
-# asset is exactly what promote.yml later copies to the stable Release — main
+# asset is exactly what release.yml later copies to the stable Release — main
 # never rebuilds (R3/R7).
+#
+# The check jobs are gated to pull_request and the beta release job to push, so
+# the release job is intentionally NOT `needs:`-dependent on the checks (a check
+# skipped on push must not block the release).
 #
 # Default GITHUB_TOKEN only (contents:write); the "Release Tags" ruleset allows
 # creating compliant semver tags, so no PAT/App is needed.
@@ -15,6 +25,8 @@ name: release-beta
 #   - developer : --dart-define=APP_ENV=stage
 
 on:
+  pull_request:
+    branches: [release/**]
   push:
     branches: [release/**]
   workflow_dispatch:
@@ -23,8 +35,136 @@ permissions:
   contents: write
 
 jobs:
+  # ---- CI CHECK jobs (PRs only) -------------------------------------------
+  # job name: values below are wired ruleset required-status-check contexts —
+  # do NOT rename them or branch protection breaks.
+
+  # Gates the shared release version logic. resolve-version.sh drives all three
+  # release workflows (alpha/beta/release); it is committed but only ever runs in
+  # CI here — keep it covered and shellcheck-clean.
+  version-script:
+    name: CI Scripts (shellcheck + version tests)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint CI scripts (shellcheck)
+        run: shellcheck scripts/ci/*.sh
+
+      - name: Lint workflows (actionlint)
+        uses: raviqqe/[email protected]
+
+      - name: resolve-version unit tests
+        run: ./scripts/ci/resolve-version-test.sh
+
+  analyze-and-test:
+    name: Analyze & Test (Linux)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # proto/*.proto comes from the git submodule; the BLE layer imports
+          # the generated bindings, so analyze + tests need them generated.
+          submodules: recursive
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Format-check hand-written code BEFORE generating protos — generated
+      # bindings under lib/models/proto/ are not dart-formatted and must not be
+      # format-gated. integration_test/ does not currently exist; include it
+      # only if present so the check doesn't hard-error on a missing path.
+      - name: Format check
+        run: |
+          dirs="lib test"
+          [ -d integration_test ] && dirs="$dirs integration_test"
+          dart format --set-exit-if-changed $dirs
+
+      # The app's BLE layer imports lib/models/proto/*.dart (gitignored,
+      # generated). Generate them before analyze/test — mirrors `just gen-proto`.
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        run: |
+          # Pin to match the app's expected generated API (protobuf ^3.1.0).
+          # The latest plugin changes map-field + enum codegen and breaks analyze.
+          dart pub global activate protoc_plugin 21.1.2
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Unit & widget tests
+        run: flutter test --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+        continue-on-error: true
+
+  build-android:
+    name: Build Android APK
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    needs: analyze-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dart protoc plugin
+        run: |
+          dart pub global activate protoc_plugin 21.1.2
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Generate proto bindings
+        run: |
+          mkdir -p lib/models/proto
+          protoc --dart_out=lib/models/proto -I proto proto/*.proto
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+  # ---- beta release job (push / dispatch only) ----------------------------
   release-beta:
     name: Build & publish beta APKs
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -125,7 +265,7 @@ jobs:
           prod="dist/sst-cam-app-${TAG}-production.apk"
           dev="dist/sst-cam-app-${TAG}-developer.apk"
 
-          # Record the SHA-256 of each APK in the Release notes. promote.yml
+          # Record the SHA-256 of each APK in the Release notes. release.yml
           # copies these exact bytes to the stable Release with NO rebuild, so
           # this digest is the integrity hand-off it verifies against (fail
           # closed on mismatch). Line format is contractual:
@@ -136,7 +276,7 @@ jobs:
           {
             echo "### APK integrity (SHA-256)"
             echo ""
-            echo "Promotion to stable copies these bytes unchanged; promote.yml"
+            echo "Promotion to stable copies these bytes unchanged; release.yml"
             echo "verifies each APK against the digest below before publishing."
             echo ""
             echo "    sha256: ${prod_sha}  sst-cam-app-${TAG}-production.apk"
