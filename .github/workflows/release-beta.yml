@@ -30,6 +30,13 @@ on:
     branches: [release/**]
   push:
     branches: [release/**]
+    # Docs-only pushes must not build/mint a beta — a Markdown or docs/ change
+    # carries no APK delta, so rebuilding both APKs would be pure waste. (PR-gate
+    # checks still run via the pull_request trigger above so required status
+    # checks stay satisfiable.)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
