@@ -293,9 +293,11 @@ jobs:
       # Alpha publishes the developer APK only — the dev VARIANT: real backend
       # (main_prod.dart) + dev tooling (APP_ENV=stage) on the `dev` Gradle flavor
       # (com.sst.sstcam.dev). The production APK is a beta/stable concern.
+      # arm64-only — Jetson + device-test phones are all 64-bit ARM; skipping the
+      # 32-bit/x86 ABIs cuts build time and APK size. Matches release-beta.yml.
       - name: Build developer APK
         if: steps.ver.outputs.released == 'true'
-        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage
+        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage --target-platform android-arm64
 
       - name: Rename developer APK
         if: steps.ver.outputs.released == 'true'
