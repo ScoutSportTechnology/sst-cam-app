@@ -81,7 +81,7 @@ run: gen-icons
 # `--network host`. Requires `adb` on the host PATH (platform-tools); pairing is
 # one-time. `host_adb` defaults to PATH but can be overridden:
 #   just host_adb=./.devtools/platform-tools/adb run-phone 10.10.1.121:46273
-host_adb := "adb"
+host_adb := justfile_directory() / "../.devtools/platform-tools/adb"
 fl_img := "flutter4android"
 
 # Pair the phone ONCE (host adb). From the phone: Wireless debugging -> "Pair
@@ -96,12 +96,13 @@ pair-phone ADDR CODE:
 # q=quit work. Pair once first with `just pair-phone`. flutter (container) reaches
 # the host-connected device via --network host.
 #   just run-phone 10.10.1.121:46273
-run-phone ADDR: gen-icons
+run-phone ADDR:
     @{{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
      docker run --rm -it --network host -u vscode -e HOME=/home/vscode \
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
-       {{fl_img}} /home/vscode/flutter/bin/flutter \
-         run --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod -d {{ADDR}}
+       {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
+         $FL pub get && dart run flutter_launcher_icons && \
+         $FL run --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod -d {{ADDR}}'
 
 # Final-check loop — build the SAME prod RELEASE artifact CI ships (AOT, no hot
 # reload) and install it, WITHOUT pushing or minting a release tag. Use
@@ -112,8 +113,13 @@ run-phone ADDR: gen-icons
 #
 # The prod APK is debug-signed (no keystore), same as CI, so `install -r` upgrades
 # in place. On a signature mismatch, `adb uninstall com.sst.sstcam` once, re-run.
-deploy-phone ADDR: build-android-prod
-    @APK="build/app/outputs/flutter-apk/app-prod-release.apk"; \
+deploy-phone ADDR:
+    @docker run --rm -u vscode -e HOME=/home/vscode \
+       -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
+       {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
+         $FL pub get && dart run flutter_launcher_icons && \
+         $FL build apk --release --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod'; \
+     APK="build/app/outputs/flutter-apk/app-prod-release.apk"; \
      [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
      {{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
      {{host_adb}} -s {{ADDR}} install -r "$APK" && \
