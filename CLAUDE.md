@@ -22,7 +22,8 @@ just format           # dart format
 just format-check     # CI format check (exits non-zero on diff)
 just gen-proto        # regenerate lib/models/proto/ from proto/*.proto (devcontainer)
 just gen-db           # regenerate Drift *.g.dart from tables/daos (devcontainer)
-just build-android    # debug APK (mock)        build-android-prod → real backend
+just gen-icons        # regenerate per-flavor launcher icons (dev/prod)
+just build-android    # debug APK (mock)        build-android-dev / build-android-prod → real backend
 just ci               # format-check + analyze + test (mirrors CI)
 ```
 
@@ -44,9 +45,11 @@ Open in VS Code → "Reopen in Container". Docker Compose
 - `lib/main.dart` — **dev** entry: builds a `ProviderContainer` that **overrides**
   `bleServiceProvider`/`wifiServiceProvider` with mocks (+ seedable dev data, dev
   navigation), then runs an `UncontrolledProviderScope`.
-- `lib/main_prod.dart` — **prod** entry: a bare `ProviderContainer` with **no
-  overrides**, so the providers' defaults (the real `BleServiceImpl`/
-  `WifiServiceImpl`) are used.
+- `lib/main_prod.dart` — **prod** entry: a `ProviderContainer` whose only
+  overrides come from `shippedOverrides(kAppEnv)` — none for a `prod` build
+  (tooling compiled out), dev navigation for a `stage`/dev build. The BLE/WiFi
+  providers keep their defaults (the real `BleServiceImpl`/`WifiServiceImpl`), so
+  both shipped variants run the real backend.
 - `lib/core/config/env.dart` / `app_config.dart` — `kAppEnv.isDevBackend` gates
   dev-only diagnostics/seeding, **not** backend selection. Backend = provider
   default (real) vs. dev-entry Riverpod override (mock); there is no runtime
@@ -138,14 +141,15 @@ ladder**:
 - **beta** (`vX.Y.Z-beta.N`) — release candidate, manually validated vs **real firmware**; built on `release/*`.
 - **stable** (`vX.Y.Z`) — shipped; the promoted beta artifact (same bytes), cut on merge to `main`.
 
-Two non-negotiables: **build-in-PR / tag-on-merge**, and **`main` never builds**
-(it only promotes an already-built beta APK).
+Two non-negotiables: **gate-in-PR / build-and-tag-on-merge** (the APK is built
+only on push, not in the PR — the PR gate is `Analyze & Test` + `CI Scripts`),
+and **`main` never builds** (it only promotes an already-built beta APK).
 
 Three branch-scoped workflows — each owns one branch class end to end and folds
 its PR gate in (gated to `pull_request`); there is no standalone `ci.yml`:
 
-- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `development`.** `pull_request:[development]` runs the gate checks `CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`), and `Build Android APK`. The build is in the gate — this is what keeps `main` from ever needing to build. `push:[development]` (+ `workflow_dispatch`) runs `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release.
-- `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`.** `pull_request:[release/**]` runs the same three gate checks. `push:[release/**]` (+ `workflow_dispatch`) sets base = the branch name `X.Y.Z`; `resolve-version.sh beta X.Y.Z` → `-beta.(N+1)` → builds **both** APKs (production `-t lib/main_prod.dart --dart-define=APP_ENV=prod`, developer `--dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release carrying both.
+- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `development`.** `pull_request:[development]` runs the gate checks `CI Scripts (shellcheck + version tests)` and `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`). The APK is **not** built in the PR — it builds only on push, which is what keeps `main` from ever needing to build. `push:[development]` (+ `workflow_dispatch`) runs `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--flavor dev --dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release.
+- `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`.** `pull_request:[release/**]` runs the same two gate checks. `push:[release/**]` (+ `workflow_dispatch`) sets base = the branch name `X.Y.Z`; `resolve-version.sh beta X.Y.Z` → `-beta.(N+1)` → builds **both** APKs (production `--flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod`, developer `--flavor dev --dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release carrying both.
 - `.github/workflows/release.yml` (name `release`) — **owns `main`.** `push:[main]` (+ `workflow_dispatch`) derives `X.Y.Z` from the merged `release/X.Y.Z` branch, picks the highest `vX.Y.Z-beta.N` tag (fail fast if none), tags `vX.Y.Z`, **downloads the beta APK assets and re-uploads them renamed** (bytes preserved). **No `flutter`/Gradle step exists** — the structural "main never builds" guarantee.
 
 Version math lives in `scripts/ci/resolve-version.sh` (single source for both

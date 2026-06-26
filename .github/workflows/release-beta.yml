@@ -20,9 +20,10 @@ name: release-beta
 # Default GITHUB_TOKEN only (contents:write); the "Release Tags" ruleset allows
 # creating compliant semver tags, so no PAT/App is needed.
 #
-# Two APKs from one Gradle flavor, differing only by entrypoint + env:
-#   - production: -t lib/main_prod.dart --dart-define=APP_ENV=prod
-#   - developer : --dart-define=APP_ENV=stage
+# Two APKs from two Gradle flavors (real backend both), differing by flavor +
+# entrypoint + env:
+#   - production: --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod
+#   - developer : --flavor dev                        --dart-define=APP_ENV=stage
 
 on:
   pull_request:
@@ -33,6 +34,14 @@ on:
 
 permissions:
   contents: write
+
+# A stabilization branch takes many quick fix pushes; without this two near
+# simultaneous pushes would both resolve the same -beta.N tag and race on
+# `gh release create`. Cancel the older run — the latest commit is the intended
+# beta. (Matches release-alpha.yml.)
+concurrency:
+  group: beta-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # ---- CI CHECK jobs (PRs only) -------------------------------------------
@@ -188,11 +197,14 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
           set -euo pipefail
-          # No keystore secret yet → skip; build.gradle.kts falls back to debug
-          # signing so the release still produces (debug-signed) APKs.
+          # Fail closed on the beta lane: its production APK is the byte-for-byte
+          # promotion candidate for stable, and a debug-signed APK is rejected at
+          # Play/MDM distribution (the SHA-256 promotion check can't catch a wrong
+          # *signer* — it only proves the bytes match). Unlike alpha (which may
+          # warn-and-continue with debug signing), beta must be release-signed.
           if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
-            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building APKs with debug signing."
-            exit 0
+            echo "::error::ANDROID_KEYSTORE_BASE64 not set — refusing to publish a debug-signed beta (production candidate must be release-signed)."
+            exit 1
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           cat > android/key.properties <<EOF
@@ -259,10 +271,17 @@ jobs:
             echo "    sha256: ${dev_sha}  sst-cam-app-${TAG}-developer.apk"
           } > "$notes"
 
-          gh release create "$TAG" \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
-            --notes-file "$notes" \
-            "$prod" \
-            "$dev"
+          # Idempotent: a re-dispatch after a partial failure must not 422 on an
+          # already-created Release. Create if absent, else refresh notes; then
+          # upload assets with --clobber so the run always ends with the current
+          # APKs on the Release regardless of prior partial state.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --prerelease --target "$GITHUB_SHA" --notes-file "$notes"
+          else
+            gh release create "$TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --notes-file "$notes"
+          fi
+          gh release upload "$TAG" "$prod" "$dev" --clobber
