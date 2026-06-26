@@ -25,8 +25,25 @@ class _DiscoveryPageState extends ConsumerState<DiscoveryPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(bleServiceProvider).startScan();
+      _startScan();
     });
+  }
+
+  /// Kick off a scan and surface a permission-denied (or any) failure to the
+  /// user. startScan() throws StateError when BLUETOOTH_SCAN/CONNECT is denied;
+  /// both call sites here are fire-and-forget, so without this catch the throw
+  /// lands in an unawaited Future and the screen silently sits on "Idle".
+  Future<void> _startScan() async {
+    try {
+      await ref.read(bleServiceProvider).startScan();
+    } on StateError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -71,13 +88,12 @@ class _DiscoveryPageState extends ConsumerState<DiscoveryPage> {
                 ),
                 TextButton(
                   onPressed: () {
-                    final svc = ref.read(bleServiceProvider);
                     if (scanning) {
-                      svc.stopScan();
+                      ref.read(bleServiceProvider).stopScan();
+                      setState(() {});
                     } else {
-                      svc.startScan();
+                      _startScan();
                     }
-                    setState(() {});
                   },
                   child: Text(scanning ? 'Stop' : 'Scan'),
                 ),

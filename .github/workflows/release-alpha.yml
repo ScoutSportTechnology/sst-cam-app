@@ -270,9 +270,15 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release create "$TAG" \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
-            --generate-notes \
-            "dist/sst-cam-app-${TAG}-developer.apk"
+          apk="dist/sst-cam-app-${TAG}-developer.apk"
+          # Idempotent: a re-dispatch after a partial failure must not 422 on an
+          # already-created Release. Create if absent, then upload --clobber so
+          # the run always ends with the current APK on the Release.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --generate-notes
+          fi
+          gh release upload "$TAG" "$apk" --clobber
