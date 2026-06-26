@@ -152,6 +152,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Caches the Gradle deps + build cache across runs — the largest Android
+      # build cost. Pairs with flutter-action's SDK/pub cache below (R9).
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
