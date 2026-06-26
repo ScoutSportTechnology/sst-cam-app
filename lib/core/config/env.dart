@@ -26,6 +26,12 @@ extension AppEnvX on AppEnv {
   /// Controls service instantiation only — not data loading (see DevConfig).
   bool get isDevBackend => this == AppEnv.dev;
 
+  /// Whether this build exposes dev tooling (debug page, developer settings).
+  /// True for `stage`/`dev`, false for `prod`. APP_ENV is a compile-time const,
+  /// so a `prod` build tree-shakes the tooling branch out entirely — there is no
+  /// runtime path to reveal it. Drives `shippedOverrides` in the shipped entry.
+  bool get showsDevTooling => this != AppEnv.prod;
+
   String get label => switch (this) {
     AppEnv.dev => 'dev',
     AppEnv.stage => 'stage',
