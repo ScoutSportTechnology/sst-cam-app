@@ -56,6 +56,18 @@ The PR gate jobs are folded into `release-alpha.yml` (`development`) and
 build-variant change — the APK builds only on push, so there is no PR-gate
 APK check to require.)
 
+> **Docs-only PRs show `Analyze & Test (Linux)` as _skipped_ — this is intended,
+> not a misconfiguration.** A `changes` job (`dorny/paths-filter`) gates
+> `analyze-and-test` on whether the PR touches build-relevant paths (`lib/`,
+> `test/`, `android/`, `pubspec.*`, `.github/workflows/`, …). A docs/markdown-only
+> PR skips the ~2-3 min job, and **a job skipped by its `if:` counts as SUCCESS
+> for a required status check** (only a never-reported / perpetually-pending check
+> blocks a merge), so the required `Analyze & Test (Linux)` context stays green
+> without running. `CI Scripts (…)` is cheap and stays always-on. The push-side
+> `paths-ignore` skips the post-merge APK build on docs commits. This mirrors
+> `sst-cam-firmware`'s release workflows. **Do not "fix" a skipped Analyze & Test
+> on a docs PR by removing the gate — that re-introduces the 2-3 min waste.**
+
 Confirm the exact strings against a real run before wiring:
 
 ```bash
