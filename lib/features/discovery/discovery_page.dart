@@ -38,9 +38,9 @@ class _DiscoveryPageState extends ConsumerState<DiscoveryPage> {
       await ref.read(bleServiceProvider).startScan();
     } on StateError catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
       }
     }
     if (mounted) setState(() {});
