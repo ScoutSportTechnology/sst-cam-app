@@ -168,6 +168,15 @@ class SstCamApp extends StatelessWidget {
         iconColor: T.ink2,
         textColor: T.ink,
       ),
+      snackBarTheme: const SnackBarThemeData(
+        backgroundColor: T.surfaceHi,
+        contentTextStyle: TextStyle(color: T.ink, fontSize: 13),
+        actionTextColor: T.accent,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(10)),
+        ),
+      ),
     );
   }
 }

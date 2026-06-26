@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/device.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../../core/ble/ble_providers.dart';
+import '../../core/ble/ble_service.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
@@ -191,6 +192,104 @@ class _DeviceRow extends ConsumerWidget {
   const _DeviceRow({required this.device});
   final SstDevice device;
 
+  /// Connect, persist last-connected on success, and surface a real, actionable
+  /// error (with Retry) on failure. Extracted so the error sheet's Retry button
+  /// can re-run the exact same flow.
+  Future<void> _attemptConnect(BuildContext context, WidgetRef ref) async {
+    final svc = ref.read(bleServiceProvider);
+    try {
+      await svc.connect(device.id);
+      ref.read(activeCameraIdProvider.notifier).state = device.id;
+      // Persist the last successfully-connected camera id so the Settings
+      // empty-state CTA can offer a one-tap reconnect. Best-effort — a persist
+      // failure must not break the connect flow.
+      unawaited(
+        ref.read(lastConnectedDeviceIdProvider.notifier).set(device.id),
+      );
+      if (context.mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (context.mounted) _showConnectErrorSheet(context, ref, e);
+    }
+  }
+
+  /// Maps a connect exception to a human-readable, actionable reason instead of
+  /// a generic "Connection failed". The impl throws descriptive exceptions; the
+  /// old SnackBar discarded them entirely.
+  String _humanConnectError(Object error) => switch (error) {
+    BleProtocolVersionException(:final actual, :final expected) =>
+      'Firmware protocol version $actual is incompatible with this app '
+          '(expects $expected). Update the app or camera firmware.',
+    BleConnectionException(:final message) => message,
+    BleTimeoutException(:final message) => message,
+    _ => error.toString(),
+  };
+
+  void _showConnectErrorSheet(
+    BuildContext context,
+    WidgetRef ref,
+    Object error,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: WfCard(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.error_outline, size: 18, color: T.danger),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Couldn't connect to ${device.name}",
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: T.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _humanConnectError(error),
+                style: const TextStyle(fontSize: 12, color: T.ink2),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: WfButton(
+                      label: 'Dismiss',
+                      variant: WfButtonVariant.outline,
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: WfButton(
+                      label: 'Retry',
+                      variant: WfButtonVariant.primary,
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _attemptConnect(context, ref);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connState =
@@ -250,30 +349,7 @@ class _DeviceRow extends ConsumerWidget {
                   await svc.disconnect(device.id);
                   ref.read(activeCameraIdProvider.notifier).state = null;
                 } else {
-                  try {
-                    await svc.connect(device.id);
-                    ref.read(activeCameraIdProvider.notifier).state = device.id;
-                    // Persist the last successfully-connected camera id so
-                    // the Settings empty-state CTA can offer a one-tap
-                    // reconnect on next launch / after disconnect.
-                    // Best-effort — failure to persist must not break the
-                    // connect flow.
-                    unawaited(
-                      ref
-                          .read(lastConnectedDeviceIdProvider.notifier)
-                          .set(device.id),
-                    );
-                    if (context.mounted) Navigator.of(context).pop();
-                  } catch (_) {
-                    // Surface failures via SnackBar; UI stays put.
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Connection failed — retry?'),
-                        ),
-                      );
-                    }
-                  }
+                  await _attemptConnect(context, ref);
                 }
               },
             ),
