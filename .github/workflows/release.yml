@@ -104,6 +104,13 @@ jobs:
           # alpha/beta concern and never reaches users (R4). Pull just the prod APK.
           gh release download "$BETA" --dir dist --pattern '*-production.apk'
 
+          # TODO(signing): once ANDROID_KEYSTORE_BASE64 is configured, assert the
+          # promoted prod APK is RELEASE-signed (not the debug fallback) before
+          # publishing stable — e.g. apksigner verify --print-certs and reject the
+          # Android Debug cert. The SHA-256 check below proves byte-integrity but
+          # NOT signer identity. Deferred while no keystore exists (betas are
+          # debug-signed for sideload testing; see release-beta.yml keystore step).
+
           # Pull the SHA-256 digests recorded in the beta Release notes by
           # release-beta.yml. Promotion copies bytes with NO rebuild, so the
           # only integrity guarantee is this digest match — fail closed if a
