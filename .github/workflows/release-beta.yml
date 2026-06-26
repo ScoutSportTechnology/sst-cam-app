@@ -173,22 +173,30 @@ jobs:
         continue-on-error: true
 
   # NOTE: the PR-gate APK build was removed (R1/AE5). analyze-and-test +
-  # version-script are the PR gate; both APKs are built only on push (the beta
-  # job below). The `Build Android APK` ruleset required-check is dropped in
-  # lockstep (see docs/ci/rulesets.md).
+  # version-script are the PR gate; both APKs are built only on push, in the
+  # parallel matrix below. The `Build Android APK` ruleset required-check is
+  # dropped in lockstep (see docs/ci/rulesets.md).
 
-  # ---- beta release job (push / dispatch only) ----------------------------
-  release-beta:
-    name: Build & publish beta APKs
+  # ---- beta release (push / dispatch only) --------------------------------
+  # Split across three jobs so the two ~6-min flavor builds run on SEPARATE
+  # runners in PARALLEL instead of sequentially in one (~halves wall-clock):
+  #   version → resolve the -beta.N tag once (shared by both builds + publish)
+  #   build   → matrix [prod, dev]: each builds + signs + uploads its APK artifact
+  #   publish → download both artifacts, record SHA-256, create/refresh the Release
+  # Trade-off: two runners re-do checkout/setup and the APKs cross job boundaries
+  # as artifacts — more runner-minutes, but lower wall-clock, which is the goal.
+  version:
+    name: Resolve beta version
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so resolve-version.sh sees existing beta tags; proto
-          # comes from the git submodule.
+          # Full history so resolve-version.sh sees existing beta tags. No
+          # submodules needed — version math is pure git tags.
           fetch-depth: 0
-          submodules: recursive
 
       - name: Resolve version (beta)
         id: ver
@@ -199,6 +207,32 @@ jobs:
           echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
             || { echo "::error::branch '${GITHUB_REF_NAME}' is not release/X.Y.Z"; exit 1; }
           ./scripts/ci/resolve-version.sh beta "$base"
+
+  build:
+    name: Build ${{ matrix.kind }} APK
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      # Build both flavors even if one fails, so both outcomes show in the logs.
+      fail-fast: false
+      matrix:
+        include:
+          # prod VARIANT: real backend, tooling compiled OUT — prod flavor
+          # (com.sst.sstcam) + APP_ENV=prod. The promotion candidate.
+          - flavor: prod
+            app_env: prod
+            kind: production
+          # dev VARIANT: real backend + tooling — dev flavor (com.sst.sstcam.dev)
+          # + APP_ENV=stage. What the maintainer device-tests for sign-off.
+          - flavor: dev
+            app_env: stage
+            kind: developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # proto comes from the git submodule (the BLE layer imports the bindings).
+          submodules: recursive
 
       - uses: actions/setup-java@v4
         with:
@@ -244,15 +278,12 @@ jobs:
           # No keystore secret yet → warn and continue; build.gradle.kts falls
           # back to debug signing so the beta still produces (debug-signed) APKs,
           # which are fine for sideload device-testing during stabilization.
-          #
-          # NOTE: a debug-signed prod APK is rejected at Play/MDM distribution and
-          # the SHA-256 promotion check can't catch a wrong *signer* (only that
-          # bytes match). Enforcing release-signing belongs at STABLE PROMOTION,
-          # not here — gating the beta build hard would block the whole lane while
-          # no keystore exists. Once ANDROID_KEYSTORE_BASE64 is configured, add a
-          # release-signed assertion (apksigner) to the release.yml promote step.
+          # Release-signing is enforced at STABLE PROMOTION (see release.yml), not
+          # here — gating the build hard would block the lane while no keystore
+          # exists. Once ANDROID_KEYSTORE_BASE64 is configured, add a release-signed
+          # assertion (apksigner) to the release.yml promote step.
           if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
-            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building beta APKs with debug signing (not distributable; see release.yml promote note)."
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building beta APK with debug signing (not distributable; see release.yml promote note)."
             exit 0
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
@@ -263,44 +294,59 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
 
-      # Per-flavor launcher icons (dev vs prod) before building either variant (R8).
+      # Per-flavor launcher icons before building this variant (R8).
       - name: Generate launcher icons
         run: dart run flutter_launcher_icons
 
-      # prod VARIANT: real backend, tooling compiled OUT — prod flavor
-      # (com.sst.sstcam) + APP_ENV=prod. This is the promotion candidate.
-      - name: Build production APK
-        run: flutter build apk --release --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod
+      - name: Build ${{ matrix.kind }} APK
+        run: flutter build apk --release --flavor ${{ matrix.flavor }} -t lib/main_prod.dart --dart-define=APP_ENV=${{ matrix.app_env }}
 
-      - name: Rename production APK
+      - name: Stage APK artifact
         env:
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          mkdir -p dist
-          cp build/app/outputs/apk/prod/release/app-prod-release.apk \
-            "dist/sst-cam-app-${TAG}-production.apk"
-
-      # dev VARIANT: real backend + tooling — dev flavor (com.sst.sstcam.dev) +
-      # APP_ENV=stage. This is what the maintainer device-tests for sign-off.
-      - name: Build developer APK
-        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage
-
-      - name: Rename developer APK
-        env:
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          mkdir -p dist
-          cp build/app/outputs/apk/dev/release/app-dev-release.apk \
-            "dist/sst-cam-app-${TAG}-developer.apk"
-
-      - name: Create prerelease + upload beta APKs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ver.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
+          FLAVOR: ${{ matrix.flavor }}
+          KIND: ${{ matrix.kind }}
         run: |
           set -euo pipefail
+          mkdir -p dist
+          src="build/app/outputs/apk/${FLAVOR}/release/app-${FLAVOR}-release.apk"
+          [ -f "$src" ] \
+            || { echo "::error::APK not found at ${src} — check Gradle flavor output path"; exit 1; }
+          cp "$src" "dist/sst-cam-app-${TAG}-${KIND}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ matrix.kind }}
+          path: dist/sst-cam-app-${{ needs.version.outputs.tag }}-${{ matrix.kind }}.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish beta release
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble + publish prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # download-artifact lays each artifact in its own subdir — flatten them.
+          find artifacts -name '*.apk' -exec cp {} dist/ \;
           prod="dist/sst-cam-app-${TAG}-production.apk"
           dev="dist/sst-cam-app-${TAG}-developer.apk"
+          for f in "$prod" "$dev"; do
+            [ -f "$f" ] || { echo "::error::expected artifact '${f}' missing from the build matrix"; exit 1; }
+          done
 
           # Record the SHA-256 of each APK in the Release notes. release.yml
           # copies these exact bytes to the stable Release with NO rebuild, so
