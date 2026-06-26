@@ -74,27 +74,56 @@ build-android-prod: gen-icons
 run: gen-icons
     @just _run "flutter run --flavor dev"
 
-# Local validation loop — build the SAME prod artifact CI ships and install it
-# straight to a phone over adb wireless, WITHOUT pushing or minting a release
-# tag. The build runs in the container; adb runs on the HOST (which holds the
-# phone pairing), so you need `adb` on the host PATH.
+# --- phone iteration loop (real backend, hot reload) ----------------------
+# adb lives in the flutter4android container, not on the host, and the phone
+# needs a one-time TLS pair (Android 11+ wireless debugging). Pairing keys are
+# persisted in .devtools/adb-home so this survives container restarts.
+adb_home := justfile_directory() / ".devtools/adb-home"
+fl_img := "flutter4android"
+
+# Pair the phone ONCE. From the phone: Wireless debugging -> "Pair device with
+# pairing code" gives <ip:pair-port> and a 6-digit CODE.
+#   just pair-phone 10.10.1.121:37123 123456
+pair-phone ADDR CODE:
+    @mkdir -p "{{adb_home}}"; \
+     docker run --rm -u vscode -e HOME=/home/vscode \
+       -v "{{adb_home}}":/home/vscode/.android \
+       {{fl_img}} /home/vscode/android-sdk/platform-tools/adb pair {{ADDR}} {{CODE}}
+
+# Iterate on a real phone with hot reload/restart (debug build, prod flavor =
+# real BLE/WiFi backend). ADDR is the CONNECT ip:port from the main wireless-
+# debugging screen. Run from a terminal (TTY) so r=hot-reload / R=hot-restart /
+# q=quit work. Pair once first with `just pair-phone`.
+#   just run-phone 10.10.1.121:46273
+run-phone ADDR: gen-icons
+    @docker run --rm -it -u vscode -e HOME=/home/vscode \
+       -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
+       -v "{{adb_home}}":/home/vscode/.android \
+       {{fl_img}} bash -c '\
+         A=/home/vscode/android-sdk/platform-tools/adb; F=/home/vscode/flutter/bin/flutter; \
+         $A connect {{ADDR}} && \
+         $F run --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod -d {{ADDR}}'
+
+# Final-check loop — build the SAME prod RELEASE artifact CI ships (AOT, no hot
+# reload) and install it to a phone over adb wireless, WITHOUT pushing or minting
+# a release tag. Use `run-phone` for fast iteration; use this once before a PR to
+# validate the real shipped artifact. Build + adb both run in the container (adb
+# isn't on the host); ADDR is the CONNECT ip:port. Pair once via `just pair-phone`.
+#   just deploy-phone 10.10.1.121:46273
 #
-# One-time pairing from the host (Android 11+ wireless debugging):
-#   adb pair <ip>:<pair-port>     # code shown on the phone
-#   adb connect <ip>:5555
-# Then iterate: just deploy-phone 192.168.1.42   (or 192.168.1.42:5555)
-#
-# Note: the prod APK is debug-signed (no keystore configured), same as CI, so
-# `install -r` upgrades in place. On a signature mismatch, run
-# `adb uninstall com.sst.sstcam` once, then re-run.
-deploy-phone IP: build-android-prod
-    @APK="build/app/outputs/flutter-apk/app-prod-release.apk"; \
-     ADDR="{{IP}}"; case "$ADDR" in *:*) ;; *) ADDR="${ADDR}:5555";; esac; \
-     command -v adb >/dev/null || { echo "adb not found on host PATH" >&2; exit 1; }; \
-     [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
-     echo "Connecting adb to ${ADDR} ..."; adb connect "$ADDR"; \
-     echo "Installing ${APK} -> ${ADDR} ..."; adb -s "$ADDR" install -r "$APK"; \
-     echo "Installed app-prod-release (com.sst.sstcam) to ${ADDR}"
+# The prod APK is debug-signed (no keystore), same as CI, so `install -r` upgrades
+# in place. On a signature mismatch, `adb uninstall com.sst.sstcam` once, re-run.
+deploy-phone ADDR: build-android-prod
+    @docker run --rm -u vscode -e HOME=/home/vscode \
+       -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
+       -v "{{adb_home}}":/home/vscode/.android \
+       {{fl_img}} bash -c '\
+         A=/home/vscode/android-sdk/platform-tools/adb; \
+         APK=build/app/outputs/flutter-apk/app-prod-release.apk; \
+         [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
+         $A connect {{ADDR}} && \
+         $A -s {{ADDR}} install -r "$APK" && \
+         echo "Installed app-prod-release (com.sst.sstcam) to {{ADDR}}"'
 
 # Clean build artifacts.
 clean:
