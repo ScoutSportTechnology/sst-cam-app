@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../models/command.dart';
@@ -18,9 +19,9 @@ import 'ble_service.dart';
 // When wiring proto encoding, regenerate Dart bindings from
 // `proto/bluetooth.proto` (the schema was consolidated from six smaller
 // files; see proto/README.md history note).
-final _serviceUuid = Guid('A1B2C3D401000000800000805F9B34FB');
-final _cmdWriteUuid = Guid('A1B2C3D401100000800000805F9B34FB');
-final _cmdResponseUuid = Guid('A1B2C3D401200000800000805F9B34FB');
+final _serviceUuid = Guid('A1B2C3D400010000800000805F9B34FB');
+final _cmdWriteUuid = Guid('A1B2C3D400110000800000805F9B34FB');
+final _cmdResponseUuid = Guid('A1B2C3D400120000800000805F9B34FB');
 
 // Device name prefix — secondary filter after UUID filter
 const _kNamePrefix = 'sst-cam-';
@@ -55,6 +56,25 @@ class BleServiceImpl implements BleService {
     Duration timeout = const Duration(seconds: 10),
   }) async {
     if (_isScanning) return;
+
+    // Android 12+ requires the BLUETOOTH_SCAN/CONNECT runtime permissions (and
+    // FINE_LOCATION on API <= 31) to be granted before a scan returns any
+    // results — declaring them in the manifest is not enough. Without this the
+    // OS never prompts and FlutterBluePlus.startScan silently yields nothing.
+    // permission_handler no-ops on platforms that don't gate these (iOS asks via
+    // Info.plist usage strings on first BLE use).
+    final statuses = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
+    ].request();
+    if (statuses[Permission.bluetoothScan]?.isGranted == false ||
+        statuses[Permission.bluetoothConnect]?.isGranted == false) {
+      throw StateError(
+        'Bluetooth permission denied — grant Nearby devices / Bluetooth to scan.',
+      );
+    }
+
     _isScanning = true;
 
     final accumulated = <String, SstDevice>{};
