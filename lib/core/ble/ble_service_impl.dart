@@ -43,6 +43,13 @@ class BleServiceImpl implements BleService {
   // scan result lands.
   final _discovery = SeededBroadcast<List<SstDevice>>(const []);
 
+  // Accumulated discovered devices, keyed by id. Persists across the FlutterBluePlus
+  // scan-restart (startScan internally emits an empty `[]` first); we merge into
+  // this map and never relay that empty, so the device list never blanks mid-scan
+  // (the bug where a found camera flashed then vanished). Cleared silently at the
+  // start of a new scan so stale devices drop without blanking the UI.
+  final Map<String, SstDevice> _discovered = {};
+
   // Persistent per-device channels. A slot is created lazily on first
   // stream access OR on connect and is REUSED across connect/disconnect cycles —
   // never removed on disconnect — so the connection/telemetry/match streams keep
@@ -90,22 +97,31 @@ class BleServiceImpl implements BleService {
 
     _isScanning = true;
 
-    final accumulated = <String, SstDevice>{};
+    // Drop stale devices for this fresh scan WITHOUT emitting — late subscribers
+    // keep seeing the last list (replayed by the seeded stream) until the first
+    // real result repopulates, so the UI never flashes empty.
+    _discovered.clear();
     StreamSubscription<List<ScanResult>>? sub;
 
     sub = FlutterBluePlus.onScanResults.listen((results) {
+      var changed = false;
       for (final r in results) {
         final name = r.advertisementData.advName.toLowerCase();
         if (!name.startsWith(_kNamePrefix)) continue;
-        accumulated[r.device.remoteId.str] = SstDevice(
+        _discovered[r.device.remoteId.str] = SstDevice(
           id: r.device.remoteId.str,
           name: r.advertisementData.advName,
           firmwareVersion: '',
           model: '',
           protocolVersion: 0,
         );
+        changed = true;
       }
-      _discovery.add(List.unmodifiable(accumulated.values.toList()));
+      // Only emit when we actually have matching results — never relay the empty
+      // list FlutterBluePlus pushes at scan start (that is what blanked the UI).
+      if (changed) {
+        _discovery.add(List.unmodifiable(_discovered.values.toList()));
+      }
     });
 
     try {
