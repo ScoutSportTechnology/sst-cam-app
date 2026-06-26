@@ -336,6 +336,9 @@ jobs:
       - name: Assemble + publish prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job does no checkout (it only needs the downloaded artifacts), so
+          # gh has no local .git to infer the repo from — point it explicitly.
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           set -euo pipefail
