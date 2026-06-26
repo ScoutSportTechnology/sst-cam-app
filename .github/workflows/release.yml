@@ -100,7 +100,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          gh release download "$BETA" --dir dist --pattern '*.apk'
+          # Stable ships the PRODUCTION variant only — the dev/tooling build is an
+          # alpha/beta concern and never reaches users (R4). Pull just the prod APK.
+          gh release download "$BETA" --dir dist --pattern '*-production.apk'
 
           # Pull the SHA-256 digests recorded in the beta Release notes by
           # release-beta.yml. Promotion copies bytes with NO rebuild, so the
@@ -108,7 +110,7 @@ jobs:
           # digest is missing or mismatched.
           notes="$(gh release view "$BETA" --json body --jq '.body')"
 
-          for kind in production developer; do
+          for kind in production; do
             src="dist/sst-cam-app-${BETA}-${kind}.apk"
             dst="dist/sst-cam-app-${TAG}-${kind}.apk"
             asset="sst-cam-app-${BETA}-${kind}.apk"
@@ -136,7 +138,6 @@ jobs:
 
           gh release upload "$TAG" \
             "dist/sst-cam-app-${TAG}-production.apk" \
-            "dist/sst-cam-app-${TAG}-developer.apk" \
             --clobber
 
       - name: Run summary — post-promote maintainer actions

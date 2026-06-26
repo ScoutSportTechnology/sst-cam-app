@@ -43,6 +43,29 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Default manifest label; product flavors override per variant. Keeps a
+        // flavor-less build resolvable, though Flutter requires --flavor once
+        // flavors exist (see justfile).
+        manifestPlaceholders["appName"] = "SST Cam"
+    }
+
+    // Two real-backend variants distinguished at the Android level so they can be
+    // installed side-by-side and told apart (R8). Tooling on/off is a SEPARATE
+    // axis handled in Dart via the compile-time APP_ENV define (R6/R7) — the
+    // flavor here only controls applicationId, app name, and launcher icon.
+    //   dev  → com.sst.sstcam.dev   "SST Cam Dev"   (paired with APP_ENV=stage)
+    //   prod → com.sst.sstcam       "SST Cam"       (paired with APP_ENV=prod)
+    flavorDimensions += "variant"
+    productFlavors {
+        create("dev") {
+            dimension = "variant"
+            applicationIdSuffix = ".dev"
+            manifestPlaceholders["appName"] = "SST Cam Dev"
+        }
+        create("prod") {
+            dimension = "variant"
+            manifestPlaceholders["appName"] = "SST Cam"
+        }
     }
 
     signingConfigs {
@@ -68,15 +91,8 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
-
-            // TODO (open item, see plan U4 / Open Questions): the `developer`
-            // (APP_ENV=stage) and `production` APKs currently share applicationId
-            // "com.sst.sstcam", so they cannot be installed side-by-side on one
-            // device. If side-by-side install is required, give the developer
-            // build an `applicationIdSuffix = ".dev"`. Deferred — adding it here
-            // unconditionally would also suffix the production build, and the
-            // app has no Gradle product flavors to scope it to. Revisit when the
-            // build variant strategy is finalized.
+            // Variant identity (applicationId suffix, app name, icon) is handled
+            // by the dev/prod product flavors above.
         }
     }
 

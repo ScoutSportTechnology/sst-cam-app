@@ -132,47 +132,12 @@ jobs:
           files: coverage/lcov.info
         continue-on-error: true
 
-  build-android:
-    name: Build Android APK
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    needs: analyze-and-test
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Dart protoc plugin
-        run: |
-          dart pub global activate protoc_plugin 21.1.2
-          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
-
-      - name: Generate proto bindings
-        run: |
-          mkdir -p lib/models/proto
-          protoc --dart_out=lib/models/proto -I proto proto/*.proto
-
-      - name: Build debug APK
-        run: flutter build apk --debug
+  # NOTE: the PR-gate APK build was removed (R1/AE5). analyze-and-test +
+  # version-script are the PR gate; the APK is built only on push (the alpha
+  # job below). `main` still never builds — the beta artifact is promoted
+  # unchanged. The `Build Android APK` ruleset required-check is dropped in
+  # lockstep (see docs/ci/rulesets.md) so PRs don't wait on a job that no
+  # longer runs.
 
   # iOS builds require macOS + Xcode — run separately on macOS runners.
   # Uncomment when a macOS CI runner is available (e.g. GitHub Actions macos-latest,
@@ -215,6 +180,12 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      # Caches the Gradle deps + build cache across runs — the largest Android
+      # build cost. Pairs with flutter-action's SDK/pub cache below (R9).
+      - name: Set up Gradle cache
+        if: steps.ver.outputs.released == 'true'
+        uses: gradle/actions/setup-gradle@v4
 
       - uses: subosito/flutter-action@v2
         if: steps.ver.outputs.released == 'true'
@@ -269,11 +240,19 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
 
-      # Alpha publishes the developer APK only (stage env). The production APK is
-      # a beta/stable concern.
+      # Per-flavor launcher icons (dev vs prod) into android/app/src/<flavor>/res
+      # from flutter_launcher_icons-{dev,prod}.yaml. Needed before a flavored
+      # build so the variant ships its own icon (R8).
+      - name: Generate launcher icons
+        if: steps.ver.outputs.released == 'true'
+        run: dart run flutter_launcher_icons
+
+      # Alpha publishes the developer APK only — the dev VARIANT: real backend
+      # (main_prod.dart) + dev tooling (APP_ENV=stage) on the `dev` Gradle flavor
+      # (com.sst.sstcam.dev). The production APK is a beta/stable concern.
       - name: Build developer APK
         if: steps.ver.outputs.released == 'true'
-        run: flutter build apk --release --dart-define=APP_ENV=stage
+        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage
 
       - name: Rename developer APK
         if: steps.ver.outputs.released == 'true'
@@ -281,7 +260,7 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           mkdir -p dist
-          cp build/app/outputs/apk/release/app-release.apk \
+          cp build/app/outputs/apk/dev/release/app-dev-release.apk \
             "dist/sst-cam-app-${TAG}-developer.apk"
 
       - name: Create prerelease + upload alpha APK

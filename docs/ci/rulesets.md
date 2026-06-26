@@ -3,9 +3,14 @@
 > **APPLIED 2026-06-18.** These rulesets are **live**: `Release Tags` (tag),
 > `development`, `main`, and `release-branches` (branch), all `enforcement: active`,
 > with an **OrgAdmin bypass** actor. `development` requires `CI Scripts (shellcheck +
-> version tests)`, `Analyze & Test (Linux)`, and `Build Android APK`; `main`'s
-> required checks are **deferred** (see the open caveat below). Commands below are
-> retained for reference / re-creation.
+> version tests)` and `Analyze & Test (Linux)`; `main`'s required checks are
+> **deferred** (see the open caveat below). Commands below are retained for
+> reference / re-creation.
+>
+> **UPDATED 2026-06-25 (build-variant change):** the `Build Android APK` PR-gate
+> job was removed (the APK now builds only on push — the alpha/beta release jobs),
+> so it is **no longer a required check** on any ruleset. The required set is now
+> `CI Scripts (shellcheck + version tests)` + `Analyze & Test (Linux)`.
 
 Operational runbook for applying the branch + tag rulesets that enforce the
 SST workflow standard. **This is a one-time maintainer/admin task** (U6 of the
@@ -22,15 +27,19 @@ checks are applied here, by hand, with `gh`.
 
 | Branch      | Rule                                                                                                                  |
 | ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| `development`   | Default branch. PR required + green required checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`). No direct push. |
-| `release/*` | PR required + the same beta checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`, `Build Android APK`) reported on `release/*` PRs.       |
+| `development`   | Default branch. PR required + green required checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`). No direct push. |
+| `release/*` | PR required + the same beta checks (`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`) reported on `release/*` PRs.       |
 | `main`      | PR required + green required checks + **no direct push / force-push / delete** (admin/hotfix bypass only).           |
 | `v*` tags   | Existing immutable "Release Tags" ruleset — allows compliant semver tag *creation*, blocks delete/update/force-push. |
 
 The two non-negotiables this enforces:
 
-1. **Build-in-PR / tag-on-merge** — the APK build is a required check on
-   `development`/`release/*` PRs, so a broken build blocks the merge.
+1. **Gate-in-PR / build-and-tag-on-merge** — `Analyze & Test (Linux)` +
+   `CI Scripts` are the required PR checks. The APK is **not** built in the PR
+   (that throwaway job was removed); it builds only on push to
+   `development`/`release/*` (the alpha/beta release jobs). A post-merge build
+   failure lands on `development`/`release/*`, never on `main`, and is
+   recoverable via re-dispatch.
 2. **`main` never builds** — `release.yml` only copies an already-built beta
    asset; no `flutter build` runs on `main` (verify by inspection of the file).
 
@@ -42,7 +51,10 @@ The PR gate jobs are folded into `release-alpha.yml` (`development`) and
 
 - `CI Scripts (shellcheck + version tests)` — `version-script` job.
 - `Analyze & Test (Linux)` — `analyze-and-test` job.
-- `Build Android APK` — `build-android` job.
+
+(The `build-android` / `Build Android APK` PR job was removed in the
+build-variant change — the APK builds only on push, so there is no PR-gate
+APK check to require.)
 
 Confirm the exact strings against a real run before wiring:
 
@@ -84,8 +96,7 @@ gh api repos/:owner/:repo/rulesets -X POST --input - <<'JSON'
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
           { "context": "CI Scripts (shellcheck + version tests)" },
-          { "context": "Analyze & Test (Linux)" },
-          { "context": "Build Android APK" }
+          { "context": "Analyze & Test (Linux)" }
         ]
       } }
   ]
@@ -118,8 +129,7 @@ gh api repos/:owner/:repo/rulesets -X POST --input - <<'JSON'
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
           { "context": "CI Scripts (shellcheck + version tests)" },
-          { "context": "Analyze & Test (Linux)" },
-          { "context": "Build Android APK" }
+          { "context": "Analyze & Test (Linux)" }
         ]
       } }
   ]
@@ -151,8 +161,7 @@ gh api repos/:owner/:repo/rulesets -X POST --input - <<'JSON'
       "parameters": {
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
-          { "context": "Analyze & Test (Linux)" },
-          { "context": "Build Android APK" }
+          { "context": "Analyze & Test (Linux)" }
         ]
       } }
   ]
@@ -176,9 +185,9 @@ gh api repos/:owner/:repo/rulesets --jq '.[] | select(.target=="tag") | {id,name
 ## OPEN CAVEAT — main's required check (verify before wiring main)
 
 A `release/X.Y.Z → main` PR's head SHA **is** the release-branch tip, which
-already carries green `Analyze & Test (Linux)` + `Build Android APK` check runs
-from its `release/*` push. The intent is for the `main` ruleset to require those
-**already-green** runs on the PR — **no build re-runs on `main`**.
+already carries a green `Analyze & Test (Linux)` check run from its `release/*`
+PR. The intent is for the `main` ruleset to require that **already-green** run
+on the PR — **no build re-runs on `main`**.
 
 **Caveat to verify at implementation:** confirm GitHub surfaces the
 release-head SHA's *push-event* check-run as a *status on the main PR* (same

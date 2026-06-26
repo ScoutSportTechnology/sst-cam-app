@@ -1,0 +1,11 @@
+# Launcher icon for the `prod` Gradle flavor (com.sst.sstcam / "SST Cam").
+# Generated into android/app/src/prod/res by `dart run flutter_launcher_icons`
+# (see `just gen-icons`). Paired with APP_ENV=prod (tooling compiled out).
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "launcher/icon-prod-1024.png"
+  adaptive_icon_foreground: "launcher/icon-prod-foreground.png"
+  adaptive_icon_background: "#0A0A0A"
+  min_sdk_android: 21
+  remove_alpha_ios: false
