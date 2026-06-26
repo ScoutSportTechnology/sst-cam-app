@@ -298,8 +298,13 @@ jobs:
       - name: Generate launcher icons
         run: dart run flutter_launcher_icons
 
+      # arm64-only: the Jetson and the device-test phones are all 64-bit ARM, so
+      # we skip the armeabi-v7a (32-bit) and x86_64 (emulator) ABIs — fewer native
+      # libs to compile + package cuts build time and APK size substantially.
+      # Stable inherits this (it promotes these beta bytes). Re-add ABIs here if a
+      # 32-bit / x86 target is ever needed.
       - name: Build ${{ matrix.kind }} APK
-        run: flutter build apk --release --flavor ${{ matrix.flavor }} -t lib/main_prod.dart --dart-define=APP_ENV=${{ matrix.app_env }}
+        run: flutter build apk --release --flavor ${{ matrix.flavor }} -t lib/main_prod.dart --dart-define=APP_ENV=${{ matrix.app_env }} --target-platform android-arm64
 
       - name: Stage APK artifact
         env:
