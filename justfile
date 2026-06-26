@@ -74,6 +74,28 @@ build-android-prod: gen-icons
 run: gen-icons
     @just _run "flutter run --flavor dev"
 
+# Local validation loop — build the SAME prod artifact CI ships and install it
+# straight to a phone over adb wireless, WITHOUT pushing or minting a release
+# tag. The build runs in the container; adb runs on the HOST (which holds the
+# phone pairing), so you need `adb` on the host PATH.
+#
+# One-time pairing from the host (Android 11+ wireless debugging):
+#   adb pair <ip>:<pair-port>     # code shown on the phone
+#   adb connect <ip>:5555
+# Then iterate: just deploy-phone 192.168.1.42   (or 192.168.1.42:5555)
+#
+# Note: the prod APK is debug-signed (no keystore configured), same as CI, so
+# `install -r` upgrades in place. On a signature mismatch, run
+# `adb uninstall com.sst.sstcam` once, then re-run.
+deploy-phone IP: build-android-prod
+    @APK="build/app/outputs/flutter-apk/app-prod-release.apk"; \
+     ADDR="{{IP}}"; case "$ADDR" in *:*) ;; *) ADDR="${ADDR}:5555";; esac; \
+     command -v adb >/dev/null || { echo "adb not found on host PATH" >&2; exit 1; }; \
+     [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
+     echo "Connecting adb to ${ADDR} ..."; adb connect "$ADDR"; \
+     echo "Installing ${APK} -> ${ADDR} ..."; adb -s "$ADDR" install -r "$APK"; \
+     echo "Installed app-prod-release (com.sst.sstcam) to ${ADDR}"
+
 # Clean build artifacts.
 clean:
     @just _run "flutter clean"
