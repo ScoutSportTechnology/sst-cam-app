@@ -28,6 +28,12 @@ on:
     branches: [development]
   push:
     branches: [development]
+    # Docs-only pushes must not build/mint an alpha — a Markdown or docs/ change
+    # carries no APK delta. (PR-gate checks still run via the pull_request trigger
+    # above so required status checks stay satisfiable.)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
     inputs:
       version:
