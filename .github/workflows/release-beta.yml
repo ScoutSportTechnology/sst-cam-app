@@ -51,6 +51,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # changes — detect whether a PR touches build-relevant paths. The expensive
+  # PR-gate check (Analyze & Test ~2-3 min) gates on `code`; a docs/markdown-only
+  # PR skips it. A job SKIPPED by `if:` counts as SUCCESS for required status
+  # checks (only a never-reported/pending check blocks the merge), so the wired
+  # `Analyze & Test (Linux)` name stays green on a docs-only PR without running.
+  # `CI Scripts` (~13 s) stays always-on. Mirrors sst-cam-firmware's release
+  # workflows; the push-side paths-ignore above skips the BUILD on docs commits.
+  changes:
+    name: changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Filter build-relevant paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'lib/**'
+              - 'test/**'
+              - 'integration_test/**'
+              - 'android/**'
+              - 'ios/**'
+              - 'proto/**'
+              - 'scripts/**'
+              - 'pubspec.yaml'
+              - 'pubspec.lock'
+              - 'analysis_options.yaml'
+              - 'flutter_launcher_icons-*.yaml'
+              - 'justfile'
+              - '.github/workflows/**'
+
   # ---- CI CHECK jobs (PRs only) -------------------------------------------
   # job name: values below are wired ruleset required-status-check contexts —
   # do NOT rename them or branch protection breaks.
@@ -76,7 +110,10 @@ jobs:
 
   analyze-and-test:
     name: Analyze & Test (Linux)
-    if: ${{ github.event_name == 'pull_request' }}
+    needs: changes
+    # Skipped on a docs/markdown-only PR (code == 'false') — a skipped required
+    # check counts as success, so the merge is not blocked. Build-relevant PRs run.
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
