@@ -6,6 +6,9 @@ flutter_launcher_icons:
   ios: true
   image_path: "launcher/icon-prod-1024.png"
   adaptive_icon_foreground: "launcher/icon-prod-foreground.png"
-  adaptive_icon_background: "#0A0A0A"
+  # The prod foreground is black "SC" lettering on transparent; a black bg made
+  # it invisible (only the red dot showed). Match the legacy prod icon's yellow
+  # brand background (icon-prod-1024.png) so the mark renders.
+  adaptive_icon_background: "#E8FF3C"
   min_sdk_android: 21
   remove_alpha_ios: false

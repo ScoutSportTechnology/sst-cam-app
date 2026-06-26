@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:dio/dio.dart';
 
+import '../async/seeded_broadcast.dart';
 import '../ble/ble_service.dart';
 import '../models/command.dart';
 import '../models/overlay.dart';
@@ -36,8 +37,11 @@ class WifiServiceImpl implements WifiService {
   final _allProgressController =
       StreamController<VideoDownloadProgress>.broadcast();
 
-  // Per-device state stream controllers — created on demand.
-  final Map<String, StreamController<WifiDirectState>> _stateControllers = {};
+  // Per-device state stream controllers — created on demand. Seeded so a late
+  // subscriber (LivePreviewView subscribes only when preview is toggled on,
+  // after the group is already connecting/connected) replays the current state
+  // immediately instead of being stuck until the next transition.
+  final Map<String, SeededBroadcast<WifiDirectState>> _stateControllers = {};
 
   // Per-device EventChannel subscriptions — one per active connectGroup call.
   final Map<String, StreamSubscription<int>> _stateSubscriptions = {};
@@ -49,11 +53,11 @@ class WifiServiceImpl implements WifiService {
   // rather than racing with an already-running connect sequence.
   final Map<String, Completer<WifiDirectGroup>> _inflightConnects = {};
 
-  /// Returns (creating if absent) the broadcast controller for [deviceId].
-  StreamController<WifiDirectState> _stateController(String deviceId) {
+  /// Returns (creating if absent) the seeded broadcast controller for [deviceId].
+  SeededBroadcast<WifiDirectState> _stateController(String deviceId) {
     return _stateControllers.putIfAbsent(
       deviceId,
-      () => StreamController<WifiDirectState>.broadcast(),
+      SeededBroadcast<WifiDirectState>.new,
     );
   }
 
