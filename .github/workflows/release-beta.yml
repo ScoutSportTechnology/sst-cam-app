@@ -119,47 +119,10 @@ jobs:
           files: coverage/lcov.info
         continue-on-error: true
 
-  build-android:
-    name: Build Android APK
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    needs: analyze-and-test
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Dart protoc plugin
-        run: |
-          dart pub global activate protoc_plugin 21.1.2
-          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
-
-      - name: Generate proto bindings
-        run: |
-          mkdir -p lib/models/proto
-          protoc --dart_out=lib/models/proto -I proto proto/*.proto
-
-      - name: Build debug APK
-        run: flutter build apk --debug
+  # NOTE: the PR-gate APK build was removed (R1/AE5). analyze-and-test +
+  # version-script are the PR gate; both APKs are built only on push (the beta
+  # job below). The `Build Android APK` ruleset required-check is dropped in
+  # lockstep (see docs/ci/rulesets.md).
 
   # ---- beta release job (push / dispatch only) ----------------------------
   release-beta:
@@ -234,26 +197,34 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
 
+      # Per-flavor launcher icons (dev vs prod) before building either variant (R8).
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      # prod VARIANT: real backend, tooling compiled OUT — prod flavor
+      # (com.sst.sstcam) + APP_ENV=prod. This is the promotion candidate.
       - name: Build production APK
-        run: flutter build apk --release -t lib/main_prod.dart --dart-define=APP_ENV=prod
+        run: flutter build apk --release --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod
 
       - name: Rename production APK
         env:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           mkdir -p dist
-          cp build/app/outputs/apk/release/app-release.apk \
+          cp build/app/outputs/apk/prod/release/app-prod-release.apk \
             "dist/sst-cam-app-${TAG}-production.apk"
 
+      # dev VARIANT: real backend + tooling — dev flavor (com.sst.sstcam.dev) +
+      # APP_ENV=stage. This is what the maintainer device-tests for sign-off.
       - name: Build developer APK
-        run: flutter build apk --release --dart-define=APP_ENV=stage
+        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage
 
       - name: Rename developer APK
         env:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           mkdir -p dist
-          cp build/app/outputs/apk/release/app-release.apk \
+          cp build/app/outputs/apk/dev/release/app-dev-release.apk \
             "dist/sst-cam-app-${TAG}-developer.apk"
 
       - name: Create prerelease + upload beta APKs
@@ -290,8 +261,3 @@ jobs:
             --notes-file "$notes" \
             "$prod" \
             "$dev"
-
-      # NOTE (open item): production + developer APKs share applicationId
-      # "com.sst.sstcam" so they can't coexist on one device. Add
-      # applicationIdSuffix ".dev" to the developer variant if needed
-      # (see TODO in android/app/build.gradle.kts).
