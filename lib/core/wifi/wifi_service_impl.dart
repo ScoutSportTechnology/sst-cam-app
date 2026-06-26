@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../async/seeded_broadcast.dart';
 import '../ble/ble_service.dart';
@@ -53,6 +54,14 @@ class WifiServiceImpl implements WifiService {
   // rather than racing with an already-running connect sequence.
   final Map<String, Completer<WifiDirectGroup>> _inflightConnects = {};
 
+  // Monotonic per-device connect generation. _connectGroupInternal captures the
+  // value at entry; disconnectGroup bumps it. A bumped generation means a
+  // disconnect (or a newer connect) superseded the in-flight attempt while it
+  // was awaiting the BLE round-trip or the permission dialog — the attempt must
+  // abort before touching the platform channel so it can never run
+  // _channel.connect AFTER a _channel.disconnect.
+  final Map<String, int> _connectGen = {};
+
   /// Returns (creating if absent) the seeded broadcast controller for [deviceId].
   SeededBroadcast<WifiDirectState> _stateController(String deviceId) {
     return _stateControllers.putIfAbsent(
@@ -65,6 +74,12 @@ class WifiServiceImpl implements WifiService {
     final ctrl = _stateController(deviceId);
     if (!ctrl.isClosed) ctrl.add(state);
   }
+
+  /// True if a disconnect (or a newer connect) superseded the attempt that
+  /// captured [gen] for [deviceId] — checked after each await in
+  /// [_connectGroupInternal] before the platform join.
+  bool _connectSuperseded(String deviceId, int gen) =>
+      _connectGen[deviceId] != gen;
 
   /// Whether [role] designates the camera as the WiFi Direct group owner.
   /// Accepts the common spellings firmware may use, plus an empty value
@@ -122,6 +137,12 @@ class WifiServiceImpl implements WifiService {
       _emitState(deviceId, WifiDirectState.failed);
       throw const WifiDirectException('local preview not supported on iOS');
     }
+
+    // Capture this attempt's generation. disconnectGroup bumps it; if it no
+    // longer matches after an await, a disconnect superseded us and we must
+    // stop before the platform join (see _connectGen).
+    final gen = (_connectGen[deviceId] ?? 0) + 1;
+    _connectGen[deviceId] = gen;
 
     _emitState(deviceId, WifiDirectState.starting);
 
@@ -182,6 +203,33 @@ class WifiServiceImpl implements WifiService {
       );
     }
 
+    // Android 13+ requires the NEARBY_WIFI_DEVICES runtime permission for
+    // WifiP2pManager.connect(); without it the native join fails and the hero
+    // card shows "WIFI · FAILED" even though the camera AP is up. (The companion
+    // CHANGE_WIFI_STATE is install-granted via the manifest.) permission_handler
+    // reports granted on iOS / older Android where the permission doesn't gate.
+    if (Platform.isAndroid) {
+      final status = await Permission.nearbyWifiDevices.request();
+      if (!status.isGranted && !status.isLimited) {
+        await _stateSubscriptions.remove(deviceId)?.cancel();
+        _emitState(deviceId, WifiDirectState.failed);
+        throw const WifiDirectException(
+          'Nearby Wi-Fi devices permission denied — grant it to join the '
+          'camera preview network.',
+        );
+      }
+    }
+
+    // A disconnect may have arrived while we awaited the BLE round-trip or the
+    // permission dialog. Bail before the platform join so we never connect on
+    // top of a disconnect (which leaves a phantom group + dropped failed state).
+    if (_connectSuperseded(deviceId, gen)) {
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      throw const WifiDirectException(
+        'WiFi Direct connect superseded by a disconnect',
+      );
+    }
+
     // Platform channel — join the P2P group on Android.
     try {
       await _channel.connect(ssid: group.ssid, psk: group.psk);
@@ -197,6 +245,11 @@ class WifiServiceImpl implements WifiService {
 
   @override
   Future<void> disconnectGroup(String deviceId) async {
+    // Supersede any in-flight connect attempt: bumping the generation makes
+    // _connectGroupInternal abort at its next checkpoint instead of running
+    // _channel.connect after the disconnect below.
+    _connectGen[deviceId] = (_connectGen[deviceId] ?? 0) + 1;
+
     // Nothing to tear down if we never connected and nothing is in flight.
     if (_currentGroups[deviceId] == null &&
         _inflightConnects[deviceId] == null) {

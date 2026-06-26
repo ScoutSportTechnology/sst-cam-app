@@ -83,6 +83,11 @@ run: gen-icons
 #   just host_adb=./.devtools/platform-tools/adb run-phone 10.10.1.121:46273
 host_adb := justfile_directory() / "../.devtools/platform-tools/adb"
 fl_img := "flutter4android"
+# Persist the Android SDK + Gradle cache across the ephemeral `docker run --rm`
+# containers. Without these, every launch re-installs SDK Platform 35 + CMake and
+# runs Gradle cold (minutes per run). Named volumes survive container removal, so
+# the second run onward is fast.
+fl_cache := "-v sst_android_sdk:/home/vscode/android-sdk -v sst_gradle_cache:/home/vscode/.gradle -v sst_pub_cache:/home/vscode/.pub-cache"
 
 # Pair the phone ONCE (host adb). From the phone: Wireless debugging -> "Pair
 # device with pairing code" gives <ip:pair-port> and a 6-digit CODE.
@@ -99,6 +104,7 @@ pair-phone ADDR CODE:
 run-phone ADDR:
     @{{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
      docker run --rm -it --network host -u vscode -e HOME=/home/vscode \
+       {{fl_cache}} \
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \
@@ -115,6 +121,7 @@ run-phone ADDR:
 # in place. On a signature mismatch, `adb uninstall com.sst.sstcam` once, re-run.
 deploy-phone ADDR:
     @docker run --rm -u vscode -e HOME=/home/vscode \
+       {{fl_cache}} \
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \

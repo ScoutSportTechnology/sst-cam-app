@@ -58,6 +58,18 @@ class BleServiceImpl implements BleService {
   final Map<String, _ConnectedDevice> _devices = {};
   bool _isScanning = false;
 
+  // Live subscriptions for the active scan. The results listener MUST outlive
+  // the `FlutterBluePlus.startScan()` future: that future completes the instant
+  // the platform scan STARTS (its `timeout` only schedules a later auto-stop),
+  // so the old code — which cancelled the listener in a `finally` right after
+  // the await — tore it down before any advert was delivered. The platform scan
+  // kept running and buffering, but nothing relayed results into `_discovery`,
+  // so the page sat empty until you re-entered it (which re-listened and picked
+  // up the buffered results). These subs instead live until the scan actually
+  // stops, observed via `FlutterBluePlus.isScanning`.
+  StreamSubscription<List<ScanResult>>? _scanResultsSub;
+  StreamSubscription<bool>? _isScanningSub;
+
   @override
   bool get isScanning => _isScanning;
 
@@ -76,65 +88,93 @@ class BleServiceImpl implements BleService {
     Duration timeout = const Duration(seconds: 10),
   }) async {
     if (_isScanning) return;
-
-    // Android 12+ requires the BLUETOOTH_SCAN/CONNECT runtime permissions (and
-    // FINE_LOCATION on API <= 31) to be granted before a scan returns any
-    // results — declaring them in the manifest is not enough. Without this the
-    // OS never prompts and FlutterBluePlus.startScan silently yields nothing.
-    // permission_handler no-ops on platforms that don't gate these (iOS asks via
-    // Info.plist usage strings on first BLE use).
-    final statuses = await [
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
-    ].request();
-    if (statuses[Permission.bluetoothScan]?.isGranted == false ||
-        statuses[Permission.bluetoothConnect]?.isGranted == false) {
-      throw StateError(
-        'Bluetooth permission denied — grant Nearby devices / Bluetooth to scan.',
-      );
-    }
-
+    // Claim the scan slot BEFORE the first await. The permission request below
+    // can suspend for seconds behind the OS dialog; without claiming the slot
+    // up-front a second startScan (e.g. a double-tapped Scan button) would slip
+    // past the guard, re-wire the subscriptions, and orphan the first call's
+    // live results listener (alive, feeding _discovery, unreachable to cancel).
+    // The catch releases the slot on any setup failure.
     _isScanning = true;
 
-    // Drop stale devices for this fresh scan WITHOUT emitting — late subscribers
-    // keep seeing the last list (replayed by the seeded stream) until the first
-    // real result repopulates, so the UI never flashes empty.
-    _discovered.clear();
-    StreamSubscription<List<ScanResult>>? sub;
-
-    sub = FlutterBluePlus.onScanResults.listen((results) {
-      var changed = false;
-      for (final r in results) {
-        final name = r.advertisementData.advName.toLowerCase();
-        if (!name.startsWith(_kNamePrefix)) continue;
-        _discovered[r.device.remoteId.str] = SstDevice(
-          id: r.device.remoteId.str,
-          name: r.advertisementData.advName,
-          firmwareVersion: '',
-          model: '',
-          protocolVersion: 0,
-        );
-        changed = true;
-      }
-      // Only emit when we actually have matching results — never relay the empty
-      // list FlutterBluePlus pushes at scan start (that is what blanked the UI).
-      if (changed) {
-        _discovery.add(List.unmodifiable(_discovered.values.toList()));
-      }
-    });
-
     try {
-      // Primary filter: only devices advertising the SST-Cam service UUID.
-      // This is set in the BLE advertising payload by the firmware.
-      // The name-prefix check above is a secondary safeguard.
+      // Android 12+ requires the BLUETOOTH_SCAN/CONNECT runtime permissions (and
+      // FINE_LOCATION on API <= 31) to be granted before a scan returns any
+      // results — declaring them in the manifest is not enough. Without this the
+      // OS never prompts and FlutterBluePlus.startScan silently yields nothing.
+      // permission_handler no-ops on platforms that don't gate these (iOS asks
+      // via Info.plist usage strings on first BLE use).
+      final statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
+      ].request();
+      if (statuses[Permission.bluetoothScan]?.isGranted == false ||
+          statuses[Permission.bluetoothConnect]?.isGranted == false) {
+        throw StateError(
+          'Bluetooth permission denied — grant Nearby devices / Bluetooth to scan.',
+        );
+      }
+
+      // Drop stale devices for this fresh scan WITHOUT emitting — late
+      // subscribers keep seeing the last list (replayed by the seeded stream)
+      // until the first real result repopulates, so the UI never flashes empty.
+      _discovered.clear();
+
+      // Relay scan results for the WHOLE lifetime of the scan. Stored in a field
+      // (not a local cancelled in `finally`) because `startScan()` returns before
+      // results arrive — see the field doc.
+      await _scanResultsSub?.cancel();
+      _scanResultsSub = FlutterBluePlus.onScanResults.listen((results) {
+        var changed = false;
+        for (final r in results) {
+          final name = r.advertisementData.advName.toLowerCase();
+          if (!name.startsWith(_kNamePrefix)) continue;
+          _discovered[r.device.remoteId.str] = SstDevice(
+            id: r.device.remoteId.str,
+            name: r.advertisementData.advName,
+            firmwareVersion: '',
+            model: '',
+            protocolVersion: 0,
+          );
+          changed = true;
+        }
+        // Only emit when we actually have matching results — never relay the
+        // empty list FlutterBluePlus pushes at scan start (that blanked the UI).
+        if (changed) {
+          _discovery.add(List.unmodifiable(_discovered.values.toList()));
+        }
+      });
+
+      // Retire the results listener when the platform scan actually stops
+      // (timeout fires or stopScan is called) — NOT when `startScan()` returns.
+      // Guard on `sawScanning` so a stale `false` replayed at subscribe time
+      // can't clear the slot we claimed above before the scan has even begun.
+      var sawScanning = false;
+      await _isScanningSub?.cancel();
+      _isScanningSub = FlutterBluePlus.isScanning.listen((scanning) {
+        if (scanning) {
+          sawScanning = true;
+        } else if (sawScanning) {
+          _isScanning = false;
+          unawaited(_teardownScanSubscriptions());
+        }
+      });
+
+      // Primary filter: only devices advertising the SST-Cam service UUID (set in
+      // the firmware advertising payload). The name-prefix check above is a
+      // secondary safeguard. This future completes when the scan STARTS; the
+      // subscriptions above carry it the rest of the way.
       await FlutterBluePlus.startScan(
         withServices: [_serviceUuid],
         timeout: timeout,
       );
-    } finally {
+    } catch (_) {
+      // Setup failed (permission denied, adapter off, platform throw): release
+      // the claimed slot and tear down any partial subscriptions so the next
+      // startScan starts clean and nothing relays results with no active scan.
       _isScanning = false;
-      await sub.cancel();
+      await _teardownScanSubscriptions();
+      rethrow;
     }
   }
 
@@ -142,6 +182,17 @@ class BleServiceImpl implements BleService {
   Future<void> stopScan() async {
     await FlutterBluePlus.stopScan();
     _isScanning = false;
+    await _teardownScanSubscriptions();
+  }
+
+  // Cancel and null both scan subscriptions. Single teardown path shared by
+  // stopScan, the scan-end listener, a failed startScan, and dispose so the two
+  // subs never diverge across the competing call sites.
+  Future<void> _teardownScanSubscriptions() async {
+    await _scanResultsSub?.cancel();
+    _scanResultsSub = null;
+    await _isScanningSub?.cancel();
+    _isScanningSub = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -432,6 +483,7 @@ class BleServiceImpl implements BleService {
 
   @override
   Future<void> dispose() async {
+    await _teardownScanSubscriptions();
     for (final conn in _devices.values) {
       await conn._device?.disconnect();
       conn.dispose();
