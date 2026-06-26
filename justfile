@@ -58,25 +58,30 @@ format-check:
 # Full CI gate: format-check + analyze + test.
 ci: format-check analyze test
 
-# Build a debug APK (mock backend, lib/main.dart).
-build-android:
-    @just _run "flutter build apk --debug"
+# Build a debug APK (mock backend, lib/main.dart) on the dev flavor.
+build-android: gen-icons
+    @just _run "flutter build apk --debug --flavor dev"
 
-# Build a release APK.
-build-android-release:
-    @just _run "flutter build apk --release"
+# Build the dev variant APK (real backend + tooling): dev flavor + APP_ENV=stage.
+build-android-dev: gen-icons
+    @just _run "flutter build apk --release --flavor dev --target=lib/main_prod.dart --dart-define=APP_ENV=stage"
 
-# Build a prod APK (prod entry-point, zero mock code).
-build-android-prod:
-    @just _run "flutter build apk --release --target=lib/main_prod.dart --dart-define=APP_ENV=prod"
+# Build the prod variant APK (real backend, tooling compiled out): prod flavor + APP_ENV=prod.
+build-android-prod: gen-icons
+    @just _run "flutter build apk --release --flavor prod --target=lib/main_prod.dart --dart-define=APP_ENV=prod"
 
-# Run the app on a connected device.
-run:
-    @just _run "flutter run"
+# Run the app on a connected device (mock backend, dev flavor).
+run: gen-icons
+    @just _run "flutter run --flavor dev"
 
 # Clean build artifacts.
 clean:
     @just _run "flutter clean"
+
+# Generate per-flavor launcher icons into android/app/src/<flavor>/res from the
+# flutter_launcher_icons-<flavor>.yaml configs. Run before building a flavored APK.
+gen-icons:
+    @just _run "dart run flutter_launcher_icons"
 
 # Regenerate Dart proto bindings (needs protoc in the container).
 gen-proto:
