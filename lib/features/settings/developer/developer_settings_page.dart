@@ -5,7 +5,7 @@ import 'log_viewer_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
-import '../../../core/config/env.dart';
+import '../../../core/config/dev_navigation.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -119,6 +119,7 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
     final state = ref.watch(developerSettingsProvider);
     final notifier = ref.read(developerSettingsProvider.notifier);
     final staged = state.stagedConfig;
+    final devNav = ref.watch(devNavigationProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -143,28 +144,53 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
           const _SectionHeader('Diagnostics'),
           WfCard(
             padding: EdgeInsets.zero,
-            child: ListTile(
-              title: const Text(
-                'Logs',
-                style: TextStyle(color: T.ink, fontSize: 14),
-              ),
-              subtitle: const Text(
-                'In-app debugPrint capture — copy/share without adb.',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-              trailing: const Icon(Icons.chevron_right, color: T.ink3),
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const LogViewerPage())),
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text(
+                    'Logs',
+                    style: TextStyle(color: T.ink, fontSize: 14),
+                  ),
+                  subtitle: const Text(
+                    'In-app debugPrint capture — copy/share without adb.',
+                    style: TextStyle(color: T.ink2, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LogViewerPage()),
+                  ),
+                ),
+                // Database browser + reset. Lives here (visible) rather than
+                // behind the old long-press-About gesture. Injected via
+                // devNavigationProvider so it stays out of prod builds.
+                if (devNav.debugPage != null) ...[
+                  const Divider(height: 1, color: T.rule),
+                  ListTile(
+                    title: const Text(
+                      'Database browser',
+                      style: TextStyle(color: T.ink, fontSize: 14),
+                    ),
+                    subtitle: const Text(
+                      'Inspect users/teams/matches/clips; reset + reseed.',
+                      style: TextStyle(color: T.ink2, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => devNav.debugPage!()),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           const SizedBox(height: 16),
 
-          // Mock-backend-only controls: emulator advertising, the mock
-          // preview/download endpoints, and dev seeding are read only by the
-          // dev entry (main.dart). On a real-backend (stage) build they do
-          // nothing, so hide them — leaving just Diagnostics/Logs.
-          if (kAppEnv.isDevBackend) ...[
+          // Mock/seed controls. The emulator advertising and mock preview/
+          // download endpoints only take effect on the mock backend (dev
+          // entry); on a real-backend build they are inert but kept visible
+          // for reference. The Database browser above (reset + reseed) is the
+          // data tool that works against any backend.
+          ...[
             const _SectionHeader('Seed app data'),
             WfCard(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
