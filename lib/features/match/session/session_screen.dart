@@ -318,6 +318,21 @@ class SessionScreen extends ConsumerWidget {
         period: state.currentPeriod,
       ),
     );
+    // Stop recording/streaming on the camera per the prompt. endMatch only flips
+    // local state; without these the firmware keeps recording and the mp4 never
+    // finalizes (no moov atom → unplayable, file grows unbounded).
+    if (choice.$1 == true) {
+      _sendIfConnected(
+        ref,
+        RecordingControlCommand(action: RecordingControlAction.stop),
+      );
+    }
+    if (choice.$2 == true) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(action: StreamingControlAction.stop),
+      );
+    }
     ctl.endMatch(
       stopRecording: choice.$1 ?? false,
       stopStreaming: choice.$2 ?? false,
