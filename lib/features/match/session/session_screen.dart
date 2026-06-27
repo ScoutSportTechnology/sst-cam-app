@@ -1334,14 +1334,22 @@ void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
 void _finalizeMatchToLibrary(WidgetRef ref) {
   final ctl = ref.read(liveMatchProvider.notifier);
   final matchId = ctl.matchId;
-  if (matchId == null) return;
+  final result = ctl.resultString();
+  if (matchId == null) {
+    debugPrint('[finalize] SKIP — no matchId (ad-hoc session, no library row)');
+    return;
+  }
+  debugPrint('[finalize] writing matchId=$matchId result=$result');
   unawaited(
     ref
         .read(teamsDaoProvider)
-        .finalizeMatch(
-          matchId,
-          result: ctl.resultString(),
-          eventsJson: ctl.eventsJson(),
-        ),
+        .finalizeMatch(matchId, result: result, eventsJson: ctl.eventsJson())
+        .then(
+          (ok) => debugPrint('[finalize] done updated=$ok matchId=$matchId'),
+        )
+        .catchError((Object e) {
+          debugPrint('[finalize] ERROR $e');
+          return false;
+        }),
   );
 }
