@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:dio/dio.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -61,6 +62,16 @@ class WifiServiceImpl implements WifiService {
   // abort before touching the platform channel so it can never run
   // _channel.connect AFTER a _channel.disconnect.
   final Map<String, int> _connectGen = {};
+
+  // Device ids whose connect retry loop is currently running. While present,
+  // the shared state listener suppresses transient `failed`/`idle` codes (a
+  // formation attempt that didn't take) so the hero card doesn't flash
+  // "WIFI · FAILED" between retries — the loop emits the final outcome itself.
+  final Set<String> _connecting = {};
+
+  // Android P2P state codes (mirror WifiDirectChannel.kt / wifi_p2p_channel).
+  static const _kStateConnected = 2;
+  static const _kStateFailed = 3;
 
   /// Returns (creating if absent) the seeded broadcast controller for [deviceId].
   SeededBroadcast<WifiDirectState> _stateController(String deviceId) {
@@ -185,7 +196,17 @@ class WifiServiceImpl implements WifiService {
     _stateSubscriptions[deviceId] = _channel.stateStream.listen(
       (code) {
         if (_connectSuperseded(deviceId, gen)) return;
-        _emitState(deviceId, _codeToState(code));
+        final st = _codeToState(code);
+        // While the connect retry loop is running, a single formation attempt
+        // can briefly report idle/failed before the group settles (or before
+        // the next retry). Suppress those transients; the loop drives the final
+        // state. Let `connected`/`starting` through so a successful formation
+        // still updates the hero card immediately.
+        if (_connecting.contains(deviceId) &&
+            (st == WifiDirectState.failed || st == WifiDirectState.idle)) {
+          return;
+        }
+        _emitState(deviceId, st);
       },
       onError: (Object e) {
         if (_connectSuperseded(deviceId, gen)) return;
@@ -195,6 +216,7 @@ class WifiServiceImpl implements WifiService {
     );
 
     // BLE round-trip — ask the camera for group credentials.
+    debugPrint('WIFI: requesting group credentials over BLE (StartWifiDirect)');
     final BleCommandResponse<WifiDirectGroup> response;
     try {
       response = await _ble.sendCommand<WifiDirectGroup>(
@@ -202,6 +224,7 @@ class WifiServiceImpl implements WifiService {
         StartWifiDirectCommand(),
       );
     } catch (e) {
+      debugPrint('WIFI: BLE credential fetch threw: $e');
       await _stateSubscriptions.remove(deviceId)?.cancel();
       await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
@@ -212,12 +235,19 @@ class WifiServiceImpl implements WifiService {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
+      debugPrint(
+        'WIFI: BLE credential fetch not OK: ${response.errorMessage} → FAILED',
+      );
       throw WifiDirectException(
         'BLE credential fetch failed: ${response.errorMessage}',
       );
     }
 
     final group = response.payload!;
+    debugPrint(
+      'WIFI: credentials received ssid=${group.ssid} role="${group.role}" '
+      'goIp=${group.groupOwnerIp}',
+    );
 
     if (group.ssid.isEmpty || group.psk.isEmpty) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
@@ -261,35 +291,69 @@ class WifiServiceImpl implements WifiService {
     // it works" loop. Automate it: each attempt clears the stale phone-side group
     // first (see WifiDirectChannel.connect), so a short retry turns the
     // intermittent failure into transparent recovery.
+    // A negotiation that the framework *accepts* does not mean the group
+    // actually forms: on a cold start a stale group, or the phone being made
+    // group owner, leaves connect() resolved-OK while CONNECTION_CHANGED never
+    // reaches the client-connected state — the intermittent "wifi failed" after
+    // a reinstall. So each attempt is judged on real formation: accept the
+    // negotiation, then wait for STATE_CONNECTED (ignoring transient idle). A
+    // timeout or STATE_FAILED (e.g. phone-became-GO) retries the whole join —
+    // the next attempt's removeGroup clears the offending phone-side group.
+    _connecting.add(deviceId);
     Object? lastError;
-    for (var attempt = 1; attempt <= _maxP2pConnectAttempts; attempt++) {
-      // A disconnect (or newer connect) may have superseded us between retries.
-      if (_connectSuperseded(deviceId, gen)) {
-        await _stateSubscriptions.remove(deviceId)?.cancel();
-        throw const WifiDirectException(
-          'WiFi Direct connect superseded by a disconnect',
-        );
-      }
-      try {
-        await _channel.connect(ssid: group.ssid, psk: group.psk);
-        lastError = null;
-        break;
-      } on Exception catch (e) {
-        lastError = e;
+    try {
+      for (var attempt = 1; attempt <= _maxP2pConnectAttempts; attempt++) {
+        // A disconnect (or newer connect) may have superseded us between retries.
+        if (_connectSuperseded(deviceId, gen)) {
+          await _stateSubscriptions.remove(deviceId)?.cancel();
+          throw const WifiDirectException(
+            'WiFi Direct connect superseded by a disconnect',
+          );
+        }
+        try {
+          debugPrint(
+            'WIFI: P2P join attempt $attempt/$_maxP2pConnectAttempts '
+            'ssid=${group.ssid}',
+          );
+          await _channel.connect(ssid: group.ssid, psk: group.psk);
+          debugPrint(
+            'WIFI: attempt $attempt negotiation accepted — '
+            'awaiting group formation',
+          );
+          final formed = await _awaitGroupFormation(deviceId, gen);
+          if (formed) {
+            lastError = null;
+            debugPrint('WIFI: attempt $attempt formed group');
+            break;
+          }
+          lastError = const WifiDirectException(
+            'group did not form (timeout or phone became group owner)',
+          );
+          debugPrint('WIFI: attempt $attempt did not form a usable group');
+        } on Exception catch (e) {
+          lastError = e;
+          debugPrint('WIFI: P2P join attempt $attempt failed: $e');
+        }
         if (attempt < _maxP2pConnectAttempts) {
           await Future<void>.delayed(_p2pConnectRetryDelay);
         }
       }
+    } finally {
+      _connecting.remove(deviceId);
     }
     if (lastError != null) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
+      debugPrint(
+        'WIFI: all $_maxP2pConnectAttempts P2P join attempts failed → FAILED',
+      );
       throw WifiDirectException(
         'P2P connect failed after $_maxP2pConnectAttempts attempts: $lastError',
       );
     }
 
+    debugPrint('WIFI: P2P group joined ssid=${group.ssid}');
     _currentGroups[deviceId] = group;
     return group;
   }
@@ -297,6 +361,39 @@ class WifiServiceImpl implements WifiService {
   // Android P2P connect retry budget — see _connectGroupInternal.
   static const _maxP2pConnectAttempts = 3;
   static const _p2pConnectRetryDelay = Duration(milliseconds: 800);
+  // How long to wait for CONNECTION_CHANGED to reach the client-connected state
+  // after a negotiation is accepted. Observed real formation is ~4–5s; allow
+  // margin before declaring the attempt failed and retrying.
+  static const _p2pFormationTimeout = Duration(seconds: 9);
+
+  // Waits for the native layer to report the group actually formed (client
+  // connected) after a negotiation was accepted. Resolves true on
+  // STATE_CONNECTED, false on STATE_FAILED, a formation timeout, or if the
+  // attempt is superseded. Transient idle/starting codes during formation are
+  // ignored. Listens on the shared broadcast [stateStream] independently of the
+  // hero-card subscription.
+  Future<bool> _awaitGroupFormation(String deviceId, int gen) async {
+    final completer = Completer<bool>();
+    void done(bool ok) {
+      if (!completer.isCompleted) completer.complete(ok);
+    }
+
+    StreamSubscription<int>? sub;
+    final timer = Timer(_p2pFormationTimeout, () => done(false));
+    sub = _channel.stateStream.listen((code) {
+      if (_connectSuperseded(deviceId, gen)) return done(false);
+      if (code == _kStateConnected) return done(true);
+      if (code == _kStateFailed) return done(false);
+      // idle/starting/stopping → transient mid-formation; keep waiting.
+    }, onError: (Object _) => done(false));
+
+    try {
+      return await completer.future;
+    } finally {
+      timer.cancel();
+      await sub.cancel();
+    }
+  }
 
   @override
   Future<void> disconnectGroup(String deviceId) async {

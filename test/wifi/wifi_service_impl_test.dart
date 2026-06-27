@@ -60,10 +60,27 @@ void main() {
 
   var connectCalls = 0;
 
+  // Push a native state code onto the EventChannel stream, as the Kotlin
+  // BroadcastReceiver would (0=idle … 2=connected, 3=failed).
+  Future<void> emitState(int code) async {
+    await messenger.handlePlatformMessage(
+      eventChannelName,
+      const StandardMethodCodec().encodeSuccessEnvelope(code),
+      (_) {},
+    );
+  }
+
   setUp(() {
     connectCalls = 0;
     messenger.setMockMethodCallHandler(method, (call) async {
-      if (call.method == 'connect') connectCalls++;
+      if (call.method == 'connect') {
+        connectCalls++;
+        // connectGroup now waits for real group formation (STATE_CONNECTED)
+        // after a negotiation is accepted. Emit it just after connect() returns
+        // so _awaitGroupFormation has subscribed — mirrors the device, where
+        // CONNECTION_CHANGED arrives a few seconds later.
+        Future.delayed(const Duration(milliseconds: 10), () => emitState(2));
+      }
       return null;
     });
     // EventChannel: respond to the listen handshake so receiveBroadcastStream
