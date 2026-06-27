@@ -23,15 +23,26 @@ import 'wifi_providers.dart';
 class WifiHandoffController extends Notifier<void> {
   String? _activeId;
   CameraConnectionState? _lastState;
+  Timer? _debounce;
+
+  /// How long the BLE connection state must hold before we act on it. Rapid
+  /// connect/disconnect flaps would otherwise churn the WiFi group
+  /// (connect→disconnect→connect), widening the firmware P2P join race and
+  /// surfacing as intermittent "wifi failed". Collapsing flaps to the final
+  /// stable state removes that churn.
+  static const _debounceDelay = Duration(milliseconds: 400);
 
   @override
   void build() {
+    ref.onDispose(() => _debounce?.cancel());
+
     final id = ref.watch(activeCameraIdProvider);
 
     if (id != _activeId) {
       final prev = _activeId;
       _activeId = id;
       _lastState = null;
+      _debounce?.cancel();
       if (prev != null) {
         unawaited(ref.read(wifiServiceProvider).disconnectGroup(prev));
       }
@@ -42,12 +53,21 @@ class WifiHandoffController extends Notifier<void> {
     if (state == _lastState) return;
     _lastState = state;
 
+    // Supersede any pending action with the latest state, then act after the
+    // state has settled.
+    _debounce?.cancel();
     final wifi = ref.read(wifiServiceProvider);
     switch (state) {
       case CameraConnectionState.connected:
-        unawaited(wifi.connectGroup(id));
+        _debounce = Timer(
+          _debounceDelay,
+          () => unawaited(wifi.connectGroup(id)),
+        );
       case CameraConnectionState.disconnected:
-        unawaited(wifi.disconnectGroup(id));
+        _debounce = Timer(
+          _debounceDelay,
+          () => unawaited(wifi.disconnectGroup(id)),
+        );
       default:
         break;
     }

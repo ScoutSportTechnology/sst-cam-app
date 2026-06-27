@@ -75,6 +75,19 @@ class WifiServiceImpl implements WifiService {
     if (!ctrl.isClosed) ctrl.add(state);
   }
 
+  /// Best-effort: tell the firmware to release its P2P group. Called on connect
+  /// failures that occur after StartWifiDirect already brought the group up, so a
+  /// failed/aborted join doesn't leave the camera's group orphaned — that orphan
+  /// made the next connect race a still-up group and surfaced as intermittent
+  /// "wifi failed".
+  Future<void> _releaseFirmwareGroup(String deviceId) async {
+    try {
+      await _ble.sendCommand<void>(deviceId, StopWifiDirectCommand());
+    } catch (_) {
+      // ignore — firmware may already be idle, or BLE may be down.
+    }
+  }
+
   /// True if a disconnect (or a newer connect) superseded the attempt that
   /// captured [gen] for [deviceId] — checked after each await in
   /// [_connectGroupInternal] before the platform join.
@@ -146,13 +159,36 @@ class WifiServiceImpl implements WifiService {
 
     _emitState(deviceId, WifiDirectState.starting);
 
+    // Android 13+ requires the NEARBY_WIFI_DEVICES runtime permission for
+    // WifiP2pManager.connect(). Request it BEFORE StartWifiDirect so a denial
+    // fails fast without bringing the camera's P2P group up — the old order asked
+    // after StartWifiDirect, so a denial left the firmware group orphaned and the
+    // next attempt raced a still-up group ("wifi failed"). permission_handler
+    // reports granted on iOS / older Android where the permission doesn't gate.
+    if (Platform.isAndroid) {
+      final status = await Permission.nearbyWifiDevices.request();
+      if (!status.isGranted && !status.isLimited) {
+        _emitState(deviceId, WifiDirectState.failed);
+        throw const WifiDirectException(
+          'Nearby Wi-Fi devices permission denied — grant it to join the '
+          'camera preview network.',
+        );
+      }
+    }
+
     // Subscribe to the EventChannel BEFORE invoking connect so that the first
     // WifiDirectState.connected event from the Kotlin BroadcastReceiver is
-    // never dropped.
+    // never dropped. Events from a superseded attempt (a late native broadcast
+    // after a disconnect/new connect) are gated out so a stale `failed` from a
+    // prior teardown can't flash the hero card.
     await _stateSubscriptions[deviceId]?.cancel();
     _stateSubscriptions[deviceId] = _channel.stateStream.listen(
-      (code) => _emitState(deviceId, _codeToState(code)),
+      (code) {
+        if (_connectSuperseded(deviceId, gen)) return;
+        _emitState(deviceId, _codeToState(code));
+      },
       onError: (Object e) {
+        if (_connectSuperseded(deviceId, gen)) return;
         _stateSubscriptions.remove(deviceId)?.cancel();
         _emitState(deviceId, WifiDirectState.failed);
       },
@@ -167,12 +203,14 @@ class WifiServiceImpl implements WifiService {
       );
     } catch (e) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw WifiDirectException('BLE credential fetch failed: $e');
     }
 
     if (!response.isOk || response.payload == null) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw WifiDirectException(
         'BLE credential fetch failed: ${response.errorMessage}',
@@ -183,6 +221,7 @@ class WifiServiceImpl implements WifiService {
 
     if (group.ssid.isEmpty || group.psk.isEmpty) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw const WifiDirectException(
         'BLE credential fetch returned empty ssid/psk',
@@ -196,6 +235,7 @@ class WifiServiceImpl implements WifiService {
     // backward compatibility with firmware that does not report it yet.
     if (!_isGroupOwnerRole(group.role)) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw WifiDirectException(
         'camera reported unexpected WiFi Direct role "${group.role}"; '
@@ -203,26 +243,10 @@ class WifiServiceImpl implements WifiService {
       );
     }
 
-    // Android 13+ requires the NEARBY_WIFI_DEVICES runtime permission for
-    // WifiP2pManager.connect(); without it the native join fails and the hero
-    // card shows "WIFI · FAILED" even though the camera AP is up. (The companion
-    // CHANGE_WIFI_STATE is install-granted via the manifest.) permission_handler
-    // reports granted on iOS / older Android where the permission doesn't gate.
-    if (Platform.isAndroid) {
-      final status = await Permission.nearbyWifiDevices.request();
-      if (!status.isGranted && !status.isLimited) {
-        await _stateSubscriptions.remove(deviceId)?.cancel();
-        _emitState(deviceId, WifiDirectState.failed);
-        throw const WifiDirectException(
-          'Nearby Wi-Fi devices permission denied — grant it to join the '
-          'camera preview network.',
-        );
-      }
-    }
-
-    // A disconnect may have arrived while we awaited the BLE round-trip or the
-    // permission dialog. Bail before the platform join so we never connect on
-    // top of a disconnect (which leaves a phantom group + dropped failed state).
+    // A disconnect may have arrived while we awaited the BLE round-trip. Bail
+    // before the platform join so we never connect on top of a disconnect (which
+    // leaves a phantom group + dropped failed state). A disconnect runs its own
+    // firmware StopWifiDirect, so we don't duplicate the teardown here.
     if (_connectSuperseded(deviceId, gen)) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       throw const WifiDirectException(
@@ -235,6 +259,7 @@ class WifiServiceImpl implements WifiService {
       await _channel.connect(ssid: group.ssid, psk: group.psk);
     } on Exception catch (e) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw WifiDirectException('P2P connect failed: $e');
     }
