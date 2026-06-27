@@ -8,6 +8,9 @@ import '../../core/widgets/wf_chip.dart';
 import '../../core/widgets/wf_filter_bar.dart';
 import '../discovery/discovery_page.dart';
 import 'playback/video_match_detail_page.dart';
+import '../camera/camera_state.dart';
+import '../../core/ble/ble_providers.dart';
+import '../../core/models/device.dart';
 
 class VideoPage extends ConsumerWidget {
   const VideoPage({super.key});
@@ -298,11 +301,16 @@ class _EmptyFilterState extends StatelessWidget {
   }
 }
 
-class _NoVideosEmptyState extends StatelessWidget {
+class _NoVideosEmptyState extends ConsumerWidget {
   const _NoVideosEmptyState();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeId = ref.watch(activeCameraIdProvider);
+    final connected =
+        activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -336,22 +344,34 @@ class _NoVideosEmptyState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Record a match to start building your library.',
+            Text(
+              connected
+                  ? 'Record a match to start building your library.'
+                  : 'Connect your camera, then record a match to build your library.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+              style: const TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
             ),
             const SizedBox(height: 18),
-            WfButton(
-              label: 'Connect camera',
-              variant: WfButtonVariant.primary,
-              full: true,
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DiscoveryPage()),
-                );
-              },
-            ),
+            // The CTA reflects connection state: a connected camera shouldn't be
+            // told to "Connect camera" (bug #9) — route it to record instead.
+            if (connected)
+              WfButton(
+                label: 'Go to Match',
+                variant: WfButtonVariant.primary,
+                full: true,
+                onPressed: () => ref.read(activeTabProvider.notifier).state = 2,
+              )
+            else
+              WfButton(
+                label: 'Connect camera',
+                variant: WfButtonVariant.primary,
+                full: true,
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const DiscoveryPage()),
+                  );
+                },
+              ),
           ],
         ),
       ),
