@@ -176,17 +176,6 @@ class SessionScreen extends ConsumerWidget {
                       }
                     }
                   : null,
-              onRecStop: connected
-                  ? () {
-                      _sendIfConnected(
-                        ref,
-                        RecordingControlCommand(
-                          action: RecordingControlAction.stop,
-                        ),
-                      );
-                      ctl.stopRecording();
-                    }
-                  : null,
               onStreamToggle: connected
                   ? () {
                       final newStreaming = !state.streaming;
@@ -779,14 +768,12 @@ class _BottomControls extends StatelessWidget {
     required this.state,
     required this.onTimerTap,
     required this.onRecToggle,
-    required this.onRecStop,
     required this.onStreamToggle,
   });
 
   final LiveMatchState state;
   final VoidCallback onTimerTap;
   final VoidCallback? onRecToggle;
-  final VoidCallback? onRecStop;
   final VoidCallback? onStreamToggle;
 
   @override
@@ -826,32 +813,23 @@ class _BottomControls extends StatelessWidget {
                       ? T.accent
                       : T.ink2,
                   dotColor: state.rec == RecState.recording ? T.accent : null,
-                  body: Row(
-                    children: [
-                      Expanded(
-                        child: WfButton(
-                          label: state.rec == RecState.recording
-                              ? 'Pause'
-                              : state.rec == RecState.paused
-                              ? 'Resume'
-                              : 'Record',
-                          leading: state.rec == RecState.recording
-                              ? const _PauseGlyph()
-                              : const _Dot(color: T.danger),
-                          onPressed: onRecToggle,
-                          full: true,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      WfButton(
-                        label: 'Stop',
-                        variant: WfButtonVariant.danger,
-                        leading: const _Square(color: T.dangerInk),
-                        onPressed: state.rec == RecState.idle
-                            ? null
-                            : onRecStop,
-                      ),
-                    ],
+                  // One continuous file per match: Record → Pause/Resume.
+                  // There is no mid-match "stop" — finalizing mid-match then
+                  // recording again re-opened the SAME <matchId>.mp4 and
+                  // overwrote the earlier footage. The recording is finalized
+                  // once, at match end ("Also stop recording"). Pause through
+                  // anything you don't want recorded.
+                  body: WfButton(
+                    label: state.rec == RecState.recording
+                        ? 'Pause'
+                        : state.rec == RecState.paused
+                        ? 'Resume'
+                        : 'Record',
+                    leading: state.rec == RecState.recording
+                        ? const _PauseGlyph()
+                        : const _Dot(color: T.danger),
+                    onPressed: onRecToggle,
+                    full: true,
                   ),
                 ),
               ),
