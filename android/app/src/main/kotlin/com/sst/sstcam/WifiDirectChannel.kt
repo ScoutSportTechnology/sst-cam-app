@@ -88,6 +88,31 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
             .setPassphrase(psk)
             .build()
 
+        // Clear any lingering P2P group from a previous session BEFORE joining.
+        // Calling connect() while a stale group is still up (the app was closed
+        // or backgrounded without a clean disconnect, so p2p-wlan0-0 persists)
+        // intermittently fails with BUSY (reason 2) — the "wifi failed" seen after
+        // a few app close/reopen cycles. removeGroup is best-effort: a clean
+        // remove and a "no group present" failure both proceed to the join. The
+        // receiver is registered only AFTER removal (in doConnect) so the remove's
+        // own connection-changed broadcast isn't forwarded as a spurious
+        // disconnect mid-connect.
+        mgr.removeGroup(ch, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                doConnect(mgr, ch, config, result)
+            }
+            override fun onFailure(reason: Int) {
+                doConnect(mgr, ch, config, result)
+            }
+        })
+    }
+
+    private fun doConnect(
+        mgr: WifiP2pManager,
+        ch: WifiP2pManager.Channel,
+        config: WifiP2pConfig,
+        result: Result,
+    ) {
         // Register broadcast receiver to get connection state
         registerReceiver()
 
