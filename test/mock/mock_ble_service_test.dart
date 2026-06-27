@@ -4,6 +4,7 @@ import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/overlay_layout.dart';
+import 'package:sst_cam_app/core/models/export_job.dart';
 import 'package:sst_cam_app/core/models/preview_layout.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
@@ -650,6 +651,60 @@ void main() {
       expect(resp.payload!.layout, PreviewLayout.sideBySide);
       expect(resp.payload!.width, 2560);
       expect(svc.lastPreviewLayout, PreviewLayout.sideBySide);
+    });
+  });
+
+  group('overlay export (#6 A6c)', () {
+    test('requestOverlayExport returns a PENDING job + records id', () async {
+      final job = await svc.requestOverlayExport('SST-CAM-001', 'match-42');
+      expect(job.state, ExportJobState.pending);
+      expect(job.jobId, isNotEmpty);
+      expect(svc.lastExportRecordingId, 'match-42');
+    });
+
+    test(
+      'pollOverlayExport returns READY with a token for the recording',
+      () async {
+        await svc.requestOverlayExport('SST-CAM-001', 'match-42');
+        final job = await svc.pollOverlayExport('SST-CAM-001', 'export-1');
+        expect(job.state, ExportJobState.ready);
+        expect(job.isReady, isTrue);
+        expect(job.token, isNotNull);
+        expect(job.token!.recordingId, 'match-42');
+        expect(job.token!.authToken, isNotEmpty);
+      },
+    );
+
+    test(
+      'failNextOverlayExport throws (simulated LIVE_SESSION_ACTIVE)',
+      () async {
+        svc.failNextOverlayExport = true;
+        await expectLater(
+          svc.requestOverlayExport('SST-CAM-001', 'match-42'),
+          throwsA(
+            isA<BleConnectionException>().having(
+              (e) => e.toString(),
+              'message',
+              contains('LIVE_SESSION_ACTIVE'),
+            ),
+          ),
+        );
+        expect(svc.failNextOverlayExport, isFalse);
+      },
+    );
+
+    test('proto round-trip via sendCommand decodes the export job', () async {
+      await svc.sendCommand<ExportJob>(
+        'SST-CAM-001',
+        ExportOverlayedCommand(recordingId: 'match-99'),
+      );
+      final poll = await svc.sendCommand<ExportJob>(
+        'SST-CAM-001',
+        PollExportCommand(jobId: 'export-1'),
+      );
+      expect(poll.isOk, isTrue);
+      expect(poll.payload!.state, ExportJobState.ready);
+      expect(poll.payload!.token!.recordingId, 'match-99');
     });
   });
 }

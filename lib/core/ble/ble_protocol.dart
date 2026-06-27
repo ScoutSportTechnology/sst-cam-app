@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/export_job.dart';
 import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
 import '../models/recording.dart';
@@ -371,6 +372,14 @@ class BleProtocol {
         layout: _dartPreviewLayoutToProto(layout),
       ),
     ),
+    ExportOverlayedCommand(:final recordingId) => proto.Command(
+      correlationId: correlationId,
+      exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
+    ),
+    PollExportCommand(:final jobId) => proto.Command(
+      correlationId: correlationId,
+      pollExport: proto.PollExportCommand(jobId: jobId),
+    ),
     StartWifiDirectCommand() => proto.Command(
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
@@ -484,9 +493,29 @@ class BleProtocol {
               as T?,
         );
       case proto.CommandResponse_Payload.exportJob:
-        // #6 A6c overlayed-export response. Not consumed yet (on-demand-burn
-        // flow is future work); OK with null until that flow is wired.
-        return BleCommandResponse.ok(null as T?);
+        // #6 A6c overlayed-export job: state + (when READY) the one-shot L2
+        // download token nested in the response.
+        final job = resp.exportJob;
+        return BleCommandResponse.ok(
+          ExportJob(
+                jobId: job.jobId,
+                state: _protoExportState(job.state),
+                token: job.hasToken()
+                    ? DownloadToken(
+                        recordingId: job.token.recordingId,
+                        httpUrl: job.token.httpUrl,
+                        authToken: job.token.authToken,
+                        expiresAt: DateTime.fromMillisecondsSinceEpoch(
+                          job.token.expiresAt.toInt() * 1000,
+                        ),
+                      )
+                    : null,
+                errorMessage: resp.errorMessage.isEmpty
+                    ? null
+                    : resp.errorMessage,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
         // match control, score/banner events, overlay/session push). If T is a
@@ -537,6 +566,15 @@ class BleProtocol {
         proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE =>
           PreviewLayout.sideBySide,
         _ => PreviewLayout.single,
+      };
+
+  static ExportJobState _protoExportState(proto.ExportJobState state) =>
+      switch (state) {
+        proto.ExportJobState.EXPORT_JOB_PENDING => ExportJobState.pending,
+        proto.ExportJobState.EXPORT_JOB_RUNNING => ExportJobState.running,
+        proto.ExportJobState.EXPORT_JOB_READY => ExportJobState.ready,
+        proto.ExportJobState.EXPORT_JOB_FAILED => ExportJobState.failed,
+        _ => ExportJobState.unknown,
       };
 
   // ---------------------------------------------------------------------------

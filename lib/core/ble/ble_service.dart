@@ -1,6 +1,7 @@
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/export_job.dart';
 import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
 import '../models/recording.dart';
@@ -109,6 +110,16 @@ abstract class BleService {
     String deviceId,
     PreviewLayout layout,
   );
+
+  /// Request an on-demand overlayed burn (#6 A6c) of the clean recording
+  /// [recordingId]. Returns an [ExportJob] in the PENDING state; poll it with
+  /// [pollOverlayExport]. Throws on a `LIVE_SESSION_ACTIVE` rejection (a burn
+  /// must never contend with the live broadcast encode).
+  Future<ExportJob> requestOverlayExport(String deviceId, String recordingId);
+
+  /// Poll a running overlayed-export job. The READY result carries the
+  /// one-shot L2 [DownloadToken]; FAILED carries an error message.
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

@@ -16,6 +16,14 @@ class VideoPathService {
     return p.join(dir.path, '$recordingId.mp4');
   }
 
+  /// Returns the path for the on-demand overlaid render (L2, #6 A6c) of a
+  /// recording — kept distinct from the clean L1 [recordingPath] so a burn
+  /// never clobbers the clean master.
+  Future<String> overlayRecordingPath(String recordingId) async {
+    final dir = await _videosDir();
+    return p.join(dir.path, '${recordingId}_overlay.mp4');
+  }
+
   /// Returns the path for a highlight clip.
   /// [clipId] is included to guarantee uniqueness when multiple clips share
   /// the same [recordingId] and [startSeconds].

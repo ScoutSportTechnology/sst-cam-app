@@ -10,6 +10,7 @@ import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/match.dart';
 import 'package:sst_cam_app/core/models/overlay_layout.dart';
+import 'package:sst_cam_app/core/models/export_job.dart';
 import 'package:sst_cam_app/core/models/preview_layout.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
@@ -95,6 +96,14 @@ class _StubBleService implements BleService {
     width: 1280,
     height: 720,
   );
+  @override
+  Future<ExportJob> requestOverlayExport(
+    String deviceId,
+    String recordingId,
+  ) async => const ExportJob(jobId: 'export-1', state: ExportJobState.pending);
+  @override
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async =>
+      const ExportJob(jobId: 'export-1', state: ExportJobState.failed);
   @override
   Future<void> dispose() async {}
 }

@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/match.dart';
+import '../../core/models/export_job.dart';
 import '../../core/models/overlay_layout.dart';
 import '../../core/models/preview_layout.dart';
 import '../../core/models/recording.dart';
@@ -772,6 +773,14 @@ class MockBleService implements BleService {
             : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
       ),
     ),
+    ExportOverlayedCommand(:final recordingId) => proto.Command(
+      correlationId: correlationId,
+      exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
+    ),
+    PollExportCommand(:final jobId) => proto.Command(
+      correlationId: correlationId,
+      pollExport: proto.PollExportCommand(jobId: jobId),
+    ),
     StartWifiDirectCommand() => proto.Command(
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
@@ -805,6 +814,8 @@ class MockBleService implements BleService {
         lastPushedOverlayLayout = layout;
       case SetPreviewLayoutCommand(:final layout):
         lastPreviewLayout = layout;
+      case ExportOverlayedCommand(:final recordingId):
+        lastExportRecordingId = recordingId;
       default:
         break;
     }
@@ -898,6 +909,36 @@ class MockBleService implements BleService {
               : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
           width: layout == PreviewLayout.sideBySide ? 2560 : 1280,
           height: 720,
+        ),
+      ),
+      ExportOverlayedCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        exportJob: proto.ExportJobResponse(
+          jobId: 'export-1',
+          state: proto.ExportJobState.EXPORT_JOB_PENDING,
+        ),
+      ),
+      PollExportCommand(:final jobId) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        exportJob: proto.ExportJobResponse(
+          jobId: jobId,
+          state: proto.ExportJobState.EXPORT_JOB_READY,
+          token: proto.DownloadTokenResponse(
+            recordingId: lastExportRecordingId ?? '',
+            httpUrl: joinBaseUrl(
+              downloadBaseUrl,
+              'recordings/${lastExportRecordingId ?? ''}',
+            ),
+            authToken: 'mock-export-token',
+            expiresAt: Int64(
+              DateTime.now()
+                      .add(const Duration(minutes: 15))
+                      .millisecondsSinceEpoch ~/
+                  1000,
+            ),
+          ),
         ),
       ),
       StartWifiDirectCommand() => proto.CommandResponse(
@@ -1042,6 +1083,12 @@ class MockBleService implements BleService {
             )
             as T?,
       ),
+      ExportOverlayedCommand() => BleCommandResponse.ok(
+        _dartExportJob(resp.exportJob) as T?,
+      ),
+      PollExportCommand() => BleCommandResponse.ok(
+        _dartExportJob(resp.exportJob) as T?,
+      ),
       StartWifiDirectCommand() => BleCommandResponse.ok(
         WifiDirectGroup(
               ssid: resp.wifiDirectGroup.ssid,
@@ -1181,6 +1228,13 @@ class MockBleService implements BleService {
   /// When true the next [setPreviewLayout] call throws [BleTimeoutException].
   bool failNextSetPreviewLayout = false;
 
+  /// The recording id from the last [requestOverlayExport] (#6 A6c).
+  String? lastExportRecordingId;
+
+  /// When true the next [requestOverlayExport] throws (simulates the
+  /// LIVE_SESSION_ACTIVE rejection — firmware refuses a burn mid-session).
+  bool failNextOverlayExport = false;
+
   // ---------------------------------------------------------------------------
   // Control command side-effect fields
   // ---------------------------------------------------------------------------
@@ -1256,6 +1310,64 @@ class MockBleService implements BleService {
       ),
     };
   }
+
+  @override
+  Future<ExportJob> requestOverlayExport(
+    String deviceId,
+    String recordingId,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    if (failNextOverlayExport) {
+      failNextOverlayExport = false;
+      throw const BleConnectionException(
+        'overlay export request failed: LIVE_SESSION_ACTIVE',
+      );
+    }
+    lastExportRecordingId = recordingId;
+    return const ExportJob(jobId: 'export-1', state: ExportJobState.pending);
+  }
+
+  @override
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    // The emulated firmware can't really burn an L2, so the job is ready on the
+    // first poll, with a token that points at the same recording over the mock
+    // download server (the overlay would be baked in on real hardware).
+    final rid = lastExportRecordingId ?? '';
+    return ExportJob(
+      jobId: jobId,
+      state: ExportJobState.ready,
+      token: DownloadToken(
+        recordingId: rid,
+        httpUrl: joinBaseUrl(downloadBaseUrl, 'recordings/$rid'),
+        authToken: 'mock-export-token',
+        expiresAt: DateTime.now().add(const Duration(minutes: 15)),
+      ),
+    );
+  }
+
+  // Maps a proto ExportJobResponse to the dart ExportJob (used by the
+  // sendCommand round-trip path; the public methods above bypass this).
+  ExportJob _dartExportJob(proto.ExportJobResponse job) => ExportJob(
+    jobId: job.jobId,
+    state: switch (job.state) {
+      proto.ExportJobState.EXPORT_JOB_PENDING => ExportJobState.pending,
+      proto.ExportJobState.EXPORT_JOB_RUNNING => ExportJobState.running,
+      proto.ExportJobState.EXPORT_JOB_READY => ExportJobState.ready,
+      proto.ExportJobState.EXPORT_JOB_FAILED => ExportJobState.failed,
+      _ => ExportJobState.unknown,
+    },
+    token: job.hasToken()
+        ? DownloadToken(
+            recordingId: job.token.recordingId,
+            httpUrl: job.token.httpUrl,
+            authToken: job.token.authToken,
+            expiresAt: DateTime.fromMillisecondsSinceEpoch(
+              job.token.expiresAt.toInt() * 1000,
+            ),
+          )
+        : null,
+  );
 
   // ---------------------------------------------------------------------------
   // Overlay layout → proto helpers (duplicated from BleProtocol for

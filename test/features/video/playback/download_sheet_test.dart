@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sst_cam_app/core/models/recording.dart' show DownloadToken;
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
@@ -85,6 +86,33 @@ class _ControlledWifiService extends MockWifiService {
     );
   }
 
+  // #6 A6c: the overlay flow downloads the burned L2 by token via startDownload.
+  bool startDownloadCalled = false;
+  String? lastSaveAs;
+  DownloadToken? lastToken;
+
+  @override
+  Future<VideoDownloadHandle> startDownload(
+    String deviceId,
+    DownloadToken token, {
+    String? saveAs,
+  }) async {
+    startDownloadCalled = true;
+    lastSaveAs = saveAs;
+    lastToken = token;
+    final controller = StreamController<VideoDownloadProgress>.broadcast();
+    _controllers.add(controller);
+    return VideoDownloadHandle(
+      downloadId: 'test-ov-${token.recordingId}',
+      recordingId: token.recordingId,
+      savePath: saveAs ?? '/tmp/${token.recordingId}_overlay.mp4',
+      progress: controller.stream,
+      cancel: () async {
+        if (!controller.isClosed) await controller.close();
+      },
+    );
+  }
+
   void simulateProgress(VideoDownloadProgress p) {
     lastController?.add(p);
   }
@@ -107,6 +135,10 @@ class _AbsentVideoPathService extends VideoPathService {
   @override
   Future<String> recordingPath(String recordingId) async =>
       '/nonexistent/$recordingId.mp4';
+
+  @override
+  Future<String> overlayRecordingPath(String recordingId) async =>
+      '/nonexistent/${recordingId}_overlay.mp4';
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +571,93 @@ void main() {
         expect(wifiSvc.downloadCalled, isFalse);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // #6 A6c: overlay burn → poll → download the overlaid L2.
+  // ---------------------------------------------------------------------------
+
+  group('overlay export (A6c)', () {
+    testWidgets(
+      'checking "Burn in scoreboard overlay" renders then downloads the L2 by token',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(db.value);
+
+        final wifiSvc = _ControlledWifiService();
+        await tester.pumpWidget(
+          _buildSheet(db: db.value, match: _makeMatch(), wifiSvc: wifiSvc),
+        );
+        await tester.pump();
+
+        // Opt into the overlay burn, then start.
+        await tester.tap(find.text('Burn in scoreboard overlay'));
+        await tester.pump();
+        await tester.tap(find.text('Start download'));
+        await tester.pump();
+
+        // The "rendering" surface shows while the camera burns the L2.
+        expect(find.textContaining('Rendering overlay'), findsOneWidget);
+        // The plain full-game download path must NOT have been used.
+        expect(wifiSvc.downloadCalled, isFalse);
+
+        // Let the BLE request + 1s poll interval + poll resolve.
+        await tester.pump(const Duration(milliseconds: 120)); // request
+        await tester.pump(const Duration(seconds: 1)); // poll interval
+        await tester.pump(const Duration(milliseconds: 120)); // poll → READY
+        await tester.pump(); // setState(handle)
+
+        // The overlaid L2 is downloaded by the export token to a distinct path.
+        expect(wifiSvc.startDownloadCalled, isTrue);
+        expect(wifiSvc.lastSaveAs, contains('_overlay.mp4'));
+        expect(wifiSvc.lastToken!.authToken, 'mock-export-token');
+        expect(wifiSvc.lastToken!.recordingId, _matchId);
+      },
+    );
+
+    testWidgets('live session blocks the overlay burn before any BLE call', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+      await _insertMatch(db.value);
+
+      final wifiSvc = _ControlledWifiService();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appDatabaseProvider.overrideWithValue(db.value),
+            bleServiceProvider.overrideWithValue(_newBle()),
+            deviceRecordingProvider.overrideWith((ref, matchId) => null),
+            liveSessionActiveProvider.overrideWithValue(true), // live!
+            activeUserProvider.overrideWith((_) => 'user-1'),
+            wifiServiceProvider.overrideWithValue(wifiSvc),
+            videoPathServiceProvider.overrideWithValue(
+              _AbsentVideoPathService(),
+            ),
+            activeCameraIdProvider.overrideWith((_) => 'cam-001'),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: DownloadSheet(
+                match: _makeMatch(),
+                allEvents: const [],
+                selectedEvents: const [],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Burn in scoreboard overlay'));
+      await tester.pump();
+      await tester.tap(find.text('Start download'));
+      await tester.pump();
+
+      expect(find.textContaining("Can't retrieve videos"), findsOneWidget);
+      expect(wifiSvc.startDownloadCalled, isFalse);
+      expect(find.textContaining('Rendering overlay'), findsNothing);
+    });
   });
 
   // _startClips coverage lives in start_clips_test.dart (same directory).

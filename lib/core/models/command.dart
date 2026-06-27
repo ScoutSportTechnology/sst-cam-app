@@ -230,6 +230,20 @@ class SetPreviewLayoutCommand extends BleCommand {
   final PreviewLayout layout;
 }
 
+/// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies
+/// with an [ExportJob] in the PENDING state; poll it with [PollExportCommand].
+class ExportOverlayedCommand extends BleCommand {
+  ExportOverlayedCommand({required this.recordingId});
+  final String recordingId;
+}
+
+/// Poll a running overlayed-export job. Replies with the job's current
+/// [ExportJob] state (READY carries the L2 download token).
+class PollExportCommand extends BleCommand {
+  PollExportCommand({required this.jobId});
+  final String jobId;
+}
+
 // ---------------------------------------------------------------------------
 
 enum BleResponseStatus { ok, error, timeout, unsupported }

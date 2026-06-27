@@ -56,6 +56,12 @@ final deviceRecordingProvider =
 // Assumed sustained WiFi-Direct throughput for the download-time estimate.
 const double _kWifiBytesPerSecond = 2.5 * 1024 * 1024;
 
+// On-demand overlay burn (#6 A6c): how often to poll the camera's export job,
+// and how long to wait before giving up (a software H.264 burn of a full match
+// takes a while on the no-NVENC Orin Nano).
+const Duration _kExportPollInterval = Duration(seconds: 1);
+const Duration _kExportTimeout = Duration(minutes: 10);
+
 String _fmtSize(int bytes) {
   const mb = 1024 * 1024;
   if (bytes >= mb) {
@@ -107,6 +113,14 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   StreamSubscription<VideoDownloadProgress>? _subscription;
   _DownloadMode _mode = _DownloadMode.full;
 
+  /// Full-game only (#6 A6c): burn the scoreboard overlay into the downloaded
+  /// copy. The camera renders it on demand from the stored overlay timeline.
+  bool _withOverlay = false;
+
+  /// True while the camera is rendering the overlaid L2 (before the download
+  /// itself starts). Drives the "Rendering overlay…" surface.
+  bool _exporting = false;
+
   @override
   void dispose() {
     _subscription?.cancel();
@@ -124,7 +138,11 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     }
 
     if (_mode == _DownloadMode.full) {
-      await _startFullDownload();
+      if (_withOverlay) {
+        await _startOverlayDownload();
+      } else {
+        await _startFullDownload();
+      }
     } else {
       await _startClips(
         _mode == _DownloadMode.all ? widget.allEvents : widget.selectedEvents,
@@ -176,6 +194,74 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = _mapDownloadError(e));
+    }
+  }
+
+  /// #6 A6c: ask the camera to burn the overlay into an L2, poll until ready,
+  /// then download that overlaid copy (kept distinct from the clean L1).
+  Future<void> _startOverlayDownload() async {
+    final deviceId = ref.read(activeCameraIdProvider);
+    if (deviceId == null) {
+      setState(() => _error = 'Connect a camera first');
+      return;
+    }
+    final matchId = widget.match.id;
+    final ble = ref.read(bleServiceProvider);
+    final wifi = ref.read(wifiServiceProvider);
+    final pathSvc = ref.read(videoPathServiceProvider);
+    final container = ProviderScope.containerOf(context);
+
+    setState(() => _exporting = true);
+    try {
+      var job = await ble.requestOverlayExport(deviceId, matchId);
+      final deadline = DateTime.now().add(_kExportTimeout);
+      while (!job.isTerminal) {
+        if (DateTime.now().isAfter(deadline)) {
+          throw TimeoutException('overlay render timed out', _kExportTimeout);
+        }
+        await Future<void>.delayed(_kExportPollInterval);
+        job = await ble.pollOverlayExport(deviceId, job.jobId);
+      }
+      if (job.isFailed || job.token == null) {
+        throw WifiDirectException(
+          job.errorMessage ?? 'the camera could not render the overlay',
+        );
+      }
+
+      final overlayPath = await pathSvc.overlayRecordingPath(matchId);
+      final handle = await wifi.startDownload(
+        deviceId,
+        job.token!,
+        saveAs: overlayPath,
+      );
+      if (!mounted) return;
+      setState(() {
+        _exporting = false;
+        _handle = handle;
+      });
+      _subscription = handle.progress.listen(
+        (p) {
+          if (mounted) setState(() => _progress = p);
+        },
+        onDone: () async {
+          if (_progress?.status != DownloadStatus.completed) return;
+          container.invalidate(isOnDeviceProvider(matchId));
+          await GalleryService.saveVideo(
+            sourcePath: overlayPath,
+            displayName: '${matchId}_overlay.mp4',
+          );
+        },
+        onError: (e) {
+          if (mounted) setState(() => _error = _mapDownloadError(e));
+        },
+        cancelOnError: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _exporting = false;
+        _error = _mapDownloadError(e);
+      });
     }
   }
 
@@ -239,6 +325,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   @override
   Widget build(BuildContext context) {
     final running = _handle != null;
+    if (_exporting) return _buildExporting();
     if (running) return _buildProgress();
     // Overlay the camera-reported real size/duration when available; fall back
     // to the library row's scheduled values when offline.
@@ -359,6 +446,36 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
               ),
             );
           }),
+          if (_mode == _DownloadMode.full) ...[
+            const SizedBox(height: 2),
+            GestureDetector(
+              onTap: () => setState(() => _withOverlay = !_withOverlay),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                child: Row(
+                  children: [
+                    _CheckBox(on: _withOverlay),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Burn in scoreboard overlay',
+                        style: TextStyle(fontSize: 13, color: T.ink),
+                      ),
+                    ),
+                    const Text(
+                      'rendered on camera',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: T.ink3,
+                        fontFamily: T.mono,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -521,6 +638,70 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       ),
     );
   }
+
+  Widget _buildExporting() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: T.fillMid,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  valueColor: AlwaysStoppedAnimation<Color>(T.accent),
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Rendering overlay on camera…',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: T.ink,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'The camera is burning the scoreboard into a copy. This can take a '
+            'few minutes for a full match.',
+            style: TextStyle(fontSize: 12, color: T.ink2),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
+          ],
+          const SizedBox(height: 18),
+          WfButton(
+            label: 'Cancel',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Opt {
@@ -528,6 +709,28 @@ class _Opt {
   final _DownloadMode key;
   final String label;
   final String sub;
+}
+
+class _CheckBox extends StatelessWidget {
+  const _CheckBox({required this.on});
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        color: on ? T.accent : Colors.transparent,
+        border: Border.all(color: on ? T.accent : T.hair, width: 2),
+      ),
+      alignment: Alignment.center,
+      child: on
+          ? const Icon(Icons.check_rounded, size: 13, color: T.accentInk)
+          : null,
+    );
+  }
 }
 
 class _Radio extends StatelessWidget {
