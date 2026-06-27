@@ -20,6 +20,7 @@ import '../../../core/models/wifi.dart' show WifiDirectState;
 import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
 import 'overlay_renderer.dart';
@@ -286,6 +287,7 @@ class SessionScreen extends ConsumerWidget {
         ),
       );
       ctl.endMatch(stopRecording: false, stopStreaming: false);
+      _finalizeMatchToLibrary(ref);
       return;
     }
     final choice = await _showEndPrompt(
@@ -305,6 +307,7 @@ class SessionScreen extends ConsumerWidget {
       stopRecording: choice.$1 ?? false,
       stopStreaming: choice.$2 ?? false,
     );
+    _finalizeMatchToLibrary(ref);
   }
 
   void _showEventSheet(BuildContext context, WidgetRef ref) {
@@ -1323,4 +1326,22 @@ void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
   if (connState != CameraConnectionState.connected) return;
   unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
+}
+
+/// Persist the just-ended match into the Library: flips its team_match row to
+/// 'past' with the final score + events so it appears on the Video/Library page.
+/// No-op for an ad-hoc session with no library row (matchId == null).
+void _finalizeMatchToLibrary(WidgetRef ref) {
+  final ctl = ref.read(liveMatchProvider.notifier);
+  final matchId = ctl.matchId;
+  if (matchId == null) return;
+  unawaited(
+    ref
+        .read(teamsDaoProvider)
+        .finalizeMatch(
+          matchId,
+          result: ctl.resultString(),
+          eventsJson: ctl.eventsJson(),
+        ),
+  );
 }

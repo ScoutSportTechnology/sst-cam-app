@@ -8,6 +8,8 @@
 //   periodBreak  → between periods (or after final period, awaiting end-of-match)
 //   ended        → match is over; back-arrow returns to landing
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -168,6 +170,11 @@ class LiveMatchState {
 class LiveMatchController extends Notifier<LiveMatchState> {
   @override
   LiveMatchState build() => LiveMatchState.initial;
+
+  /// The team_match id this live session finalizes into when the match ends
+  /// (set by [loadFromUpcoming]). Null for an ad-hoc session with no library row.
+  String? _matchId;
+  String? get matchId => _matchId;
 
   static String _fmt(int s) {
     final m = (s ~/ 60).toString().padLeft(2, '0');
@@ -342,6 +349,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
   /// Callers pass the relevant fields from [UpcomingMatch] directly to avoid
   /// a cross-feature import cycle between session_state and match_state.
   void loadFromUpcoming({
+    required String matchId,
     required String teamShortName,
     required String teamName,
     required String opponent,
@@ -349,6 +357,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     required int periodLengthSeconds,
     String? homeColorHex,
   }) {
+    _matchId = matchId;
     final home = teamShortName.isNotEmpty ? teamShortName : teamName;
     final away = opponent.startsWith('vs ') ? opponent.substring(3) : opponent;
     final periods = numPeriods > 0 ? numPeriods : 2;
@@ -371,8 +380,33 @@ class LiveMatchController extends Notifier<LiveMatchState> {
   }
 
   void reset() {
+    _matchId = null;
     state = LiveMatchState.initial;
   }
+
+  /// Serialize the live events to the Library's eventsJson shape (a list of
+  /// `{timeSeconds, label, team, kind}`). Phase markers (kickoff/end) are
+  /// dropped; the type/team live inside the label string, so team is left empty
+  /// and kind is generic — enough to show the event list + time in the Library.
+  String eventsJson() {
+    final out = <Map<String, Object>>[];
+    for (final e in state.events) {
+      if (e.kind == 'phase') continue;
+      final parts = e.clock.split(':');
+      final seconds = parts.length == 2
+          ? (int.tryParse(parts[0]) ?? 0) * 60 + (int.tryParse(parts[1]) ?? 0)
+          : 0;
+      out.add({
+        'timeSeconds': seconds,
+        'label': e.label,
+        'team': '',
+        'kind': 'other',
+      });
+    }
+    return jsonEncode(out);
+  }
+
+  String resultString() => '${state.scoreHome}-${state.scoreAway}';
 }
 
 final liveMatchProvider = NotifierProvider<LiveMatchController, LiveMatchState>(

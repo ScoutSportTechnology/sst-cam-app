@@ -52,6 +52,7 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     ref
         .read(liveMatchProvider.notifier)
         .loadFromUpcoming(
+          matchId: up.match.id,
           teamShortName: up.team.shortName,
           teamName: up.team.name,
           opponent: up.match.opponent,

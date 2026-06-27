@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
@@ -73,8 +72,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   // Stable match UUID for the current setup session. Generated on first tap
   // and reused on retry so the camera always sees the same UUID.
   String? _matchUuid;
-
-  static const _uuid = Uuid();
 
   @override
   Widget build(BuildContext context) {
@@ -306,8 +303,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final userUuid = ref.read(activeUserProvider);
     if (userUuid == null) return;
 
-    // Generate a stable match UUID on first tap; reuse on retry.
-    _matchUuid ??= _uuid.v4();
+    // Record under the team_match id (a UUID): the firmware writes to
+    // .../videos/<user>/<matchUuid>/, and the Library row finalized on match end
+    // shares that id, so the recording links back to it and can be downloaded.
+    _matchUuid ??= widget.match.match.id;
     final matchUuid = _matchUuid!;
 
     final rtmpUrl =
@@ -350,11 +349,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     });
 
     try {
-      // Fix 17: Validate matchUuid against the UUID v4 format before
-      // interpolating it into the camera filesystem path. matchUuid is
-      // generated above via Uuid().v4(), so this guard should never fire in
-      // practice — it defends against accidental code changes that replace the
-      // UUID generator with unvalidated input.
+      // Validate matchUuid against the UUID format before interpolating it into
+      // the camera filesystem path. matchUuid is the team_match id, which is
+      // minted as a v4 UUID; this guard defends the path against any legacy or
+      // non-UUID id slipping through.
       _validateUuid(matchUuid, 'matchUuid');
 
       final ble = ref.read(bleServiceProvider);
