@@ -1,6 +1,10 @@
 package com.sst.sstcam
 
 import android.content.ContentValues
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
@@ -9,6 +13,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.nio.ByteBuffer
 
 class MainActivity : FlutterActivity() {
     private val mediaChannel = "com.sst.sstcam/media"
@@ -41,9 +46,95 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "trimVideo" -> {
+                        val source = call.argument<String>("source")
+                        val output = call.argument<String>("output")
+                        val startMs = (call.argument<Number>("startMs") ?: 0).toLong()
+                        val durationMs = (call.argument<Number>("durationMs") ?: 0).toLong()
+                        if (source == null || output == null) {
+                            result.error("NULL_PATH", "source/output path is null", null)
+                        } else {
+                            try {
+                                result.success(trimVideo(source, output, startMs, durationMs))
+                            } catch (e: Exception) {
+                                result.error("TRIM_FAILED", e.message, null)
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * Losslessly trims [sourcePath] to [output], keeping samples in
+     * [startMs, startMs+durationMs]. Stream-copy via MediaExtractor +
+     * MediaMuxer — no decode/encode, so it's fast and quality-preserving.
+     * Replaces ffmpeg-kit, whose prebuilt libavfilter.so failed to load on
+     * modern Android (UnsatisfiedLinkError: std::__ndk1::bad_function_call).
+     *
+     * Video starts at the sync sample at/just before startMs (decode needs a
+     * keyframe); presentation timestamps are rebased so the clip starts at 0.
+     */
+    private fun trimVideo(
+        sourcePath: String,
+        output: String,
+        startMs: Long,
+        durationMs: Long,
+    ): String {
+        val extractor = MediaExtractor()
+        val muxer = MediaMuxer(output, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        try {
+            extractor.setDataSource(sourcePath)
+            val indexMap = HashMap<Int, Int>()
+            var maxInputSize = 0
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+                if (mime.startsWith("video/") || mime.startsWith("audio/")) {
+                    extractor.selectTrack(i)
+                    indexMap[i] = muxer.addTrack(format)
+                    if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
+                        maxInputSize =
+                            maxOf(maxInputSize, format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE))
+                    }
+                }
+            }
+            if (maxInputSize <= 0) maxInputSize = 1 shl 21 // 2 MB fallback
+
+            val startUs = startMs * 1000
+            val endUs = (startMs + durationMs) * 1000
+            extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+
+            muxer.start()
+            val buffer = ByteBuffer.allocate(maxInputSize)
+            val info = MediaCodec.BufferInfo()
+            var baseUs = -1L
+            while (true) {
+                val size = extractor.readSampleData(buffer, 0)
+                if (size < 0) break
+                val sampleTime = extractor.sampleTime
+                if (sampleTime > endUs) break
+                if (baseUs < 0) baseUs = sampleTime
+                val dst = indexMap[extractor.sampleTrackIndex]
+                if (dst != null) {
+                    info.offset = 0
+                    info.size = size
+                    info.presentationTimeUs = (sampleTime - baseUs).coerceAtLeast(0)
+                    info.flags = extractor.sampleFlags
+                    muxer.writeSampleData(dst, buffer, info)
+                }
+                extractor.advance()
+            }
+            muxer.stop()
+            return output
+        } finally {
+            try {
+                muxer.release()
+            } catch (_: Exception) {
+            }
+            extractor.release()
+        }
     }
 
     /**
