@@ -298,7 +298,12 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       }
       sourcePath = await videoPathSvc.recordingPath(widget.match.id);
     }
-    int created = 0;
+    // Process every selected event independently — one clip failing must NOT
+    // abort the rest (a goal near the end of the recording, etc.). Track trims
+    // vs gallery saves separately so the report is honest, and collect the
+    // per-event reasons for anything that didn't make it.
+    var savedToGallery = 0;
+    final failures = <String>[];
     for (final event in events) {
       try {
         final startSeconds = (event.timeSeconds - 15)
@@ -311,35 +316,48 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           durationSeconds: 30,
           label: event.label,
         );
-        created++;
-        // Export to the device gallery so the clip is actually visible to the
-        // user — trim() only writes it to app-private storage + the clips DB.
-        // Best-effort: a gallery-export failure must not drop the clip (it's
-        // already trimmed and recorded).
-        try {
-          final name = '${widget.match.opponent}_${event.label}_$created.mp4'
-              .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-          await GalleryService.saveVideo(
-            sourcePath: clipPath,
-            displayName: name,
-          );
-        } catch (_) {}
+        // Export to the device gallery so the clip is actually visible — trim()
+        // only writes it to app-private storage + the clips DB. A gallery-export
+        // failure is reported (it was previously swallowed, so a clip could be
+        // "saved" yet never appear in the gallery).
+        final name =
+            '${widget.match.opponent}_${event.label}_${savedToGallery + 1}.mp4'
+                .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+        // saveVideo swallows its own errors and returns null on failure — check
+        // the result rather than relying on a throw, so a gallery-insert failure
+        // is reported instead of silently counted as "saved".
+        final savedUri = await GalleryService.saveVideo(
+          sourcePath: clipPath,
+          displayName: name,
+        );
+        if (savedUri != null) {
+          savedToGallery++;
+        } else {
+          failures.add('${event.label}: clipped but not added to the gallery');
+        }
       } on ClipTrimException catch (e) {
-        if (mounted) setState(() => _error = 'Clip failed: ${e.message}');
-        return;
+        failures.add('${event.label}: ${e.message}');
       } catch (e) {
-        if (mounted) setState(() => _error = 'Clip failed: $e');
-        return;
+        failures.add('${event.label}: $e');
       }
     }
-    if (mounted) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$created clip${created == 1 ? '' : 's'} saved'),
-        ),
+    if (!mounted) return;
+    // Nothing made it to the gallery — keep the sheet open and show why.
+    if (savedToGallery == 0) {
+      setState(
+        () => _error = failures.isEmpty
+            ? 'No clips could be saved'
+            : 'No clips saved — ${failures.first}',
       );
+      return;
     }
+    Navigator.of(context).pop();
+    final summary = failures.isEmpty
+        ? '$savedToGallery clip${savedToGallery == 1 ? '' : 's'} saved to gallery'
+        : '$savedToGallery of ${events.length} clipped · ${failures.length} failed';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(summary)));
   }
 
   @override

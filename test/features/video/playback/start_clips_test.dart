@@ -344,8 +344,61 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.textContaining('Clip failed'), findsOneWidget);
+      // No clips reached the gallery → sheet stays open with the reason.
+      expect(find.textContaining('No clips saved'), findsOneWidget);
       expect(find.textContaining('FFmpeg failed'), findsOneWidget);
+    });
+
+    testWidgets('a failing clip does not abort the remaining clips', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+
+      const events = [
+        LibraryEvent(
+          timeSeconds: 60,
+          label: 'Goal1',
+          team: 'NRA',
+          kind: 'goal',
+        ),
+        LibraryEvent(
+          timeSeconds: 120,
+          label: 'Goal2',
+          team: 'NRA',
+          kind: 'goal',
+        ),
+      ];
+
+      final clipSvc = _FakeClipSvc(db.value);
+      // Only the FIRST trim throws (throwOnNextTrim auto-resets).
+      clipSvc.throwOnNextTrim(const ClipTrimException('first one boom'));
+
+      await tester.pumpWidget(
+        _buildSheet(
+          db: db.value,
+          clipSvc: clipSvc,
+          allEvents: events,
+          isOnDevice: true,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('All highlights'));
+      await tester.pump();
+
+      await tester.tap(find.text('Start download'));
+      await tester.pump();
+      await tester.pump();
+
+      // Both events were attempted — the first failing must NOT abort the loop
+      // (regression: a goal near the end used to kill clipping for every later
+      // event, so only the first goal got a clip).
+      expect(
+        clipSvc.calls.length,
+        2,
+        reason: 'loop must continue past a failed clip',
+      );
+      expect(clipSvc.calls[1]['label'], 'Goal2');
     });
   });
 }
