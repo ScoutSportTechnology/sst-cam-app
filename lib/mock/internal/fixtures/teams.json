@@ -1,11 +1,11 @@
 // Schema: each object maps to a TeamsTable row.
-// userId must match the default-user id seeded by base seed ('default-user').
+// userId must match kDefaultUserId seeded by base seed (app_database.dart).
 // Fields: id (String), userId (String), name (String), shortName (String),
 //         sport (String), hidden (bool)
 [
   {
     "id": "mock-team-nr-u14",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Northridge U14",
     "shortName": "NR",
     "sport": "Soccer",
@@ -13,7 +13,7 @@
   },
   {
     "id": "mock-team-efc-u14",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Eastfield FC",
     "shortName": "EFC",
     "sport": "Soccer",
@@ -21,7 +21,7 @@
   },
   {
     "id": "mock-team-ru",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Riverdale Utd",
     "shortName": "RU",
     "sport": "Soccer",
@@ -29,7 +29,7 @@
   },
   {
     "id": "mock-team-lk",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Lakeside FC",
     "shortName": "LK",
     "sport": "Soccer",
@@ -37,7 +37,7 @@
   },
   {
     "id": "mock-team-ba",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Bayshore Athletic",
     "shortName": "BA",
     "sport": "Soccer",
@@ -45,7 +45,7 @@
   },
   {
     "id": "mock-team-ws",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Westview SC",
     "shortName": "WS",
     "sport": "Soccer",
@@ -53,7 +53,7 @@
   },
   {
     "id": "mock-team-pu",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Pinecrest United",
     "shortName": "PU",
     "sport": "Soccer",
@@ -61,7 +61,7 @@
   },
   {
     "id": "mock-team-rm",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "Ridgemont FC",
     "shortName": "RM",
     "sport": "Soccer",

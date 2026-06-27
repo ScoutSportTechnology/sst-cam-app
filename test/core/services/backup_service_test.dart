@@ -416,7 +416,7 @@ void main() {
     final teamId = _uuid.v4();
 
     // Remove base-seeded default-user so only Coach Diego is in the export.
-    await db.usersDao.deleteById('default-user');
+    await db.usersDao.deleteById(kDefaultUserId);
 
     await db.usersDao.insertUser(
       UsersTableCompanion.insert(id: userId, name: 'Coach Diego'),

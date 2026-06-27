@@ -23,7 +23,10 @@ import 'tables/users_table.dart';
 
 part 'app_database.g.dart';
 
-const _kDefaultUserId = 'default-user';
+/// Stable UUID for the seeded starter user. A fixed sentinel (not a random v4)
+/// so the static seed fixtures that reference it stay linked across reseeds.
+/// Real users created in Settings get their own generated UUIDs.
+const kDefaultUserId = '00000000-0000-0000-0000-000000000001';
 
 @DriftDatabase(
   tables: [
@@ -138,9 +141,9 @@ class AppDatabase extends _$AppDatabase {
   /// Safe to call multiple times — uses insertOnConflictUpdate internally.
   Future<void> _seedBaseData() async {
     await usersDao.insertUser(
-      UsersTableCompanion.insert(id: _kDefaultUserId, name: 'Coach'),
+      UsersTableCompanion.insert(id: kDefaultUserId, name: 'Coach'),
     );
-    await sportPresetsDao.seedBuiltInsForUser(_kDefaultUserId);
+    await sportPresetsDao.seedBuiltInsForUser(kDefaultUserId);
   }
 
   /// Re-seeds base data after a manual reset (e.g., from the debug screen).

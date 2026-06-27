@@ -60,7 +60,7 @@ class _DebugPageState extends ConsumerState<DebugPage>
 
       // Reset the active user to the default so all provider scopes
       // that watch activeUserProvider reload their data correctly.
-      ref.read(activeUserProvider.notifier).state = 'default-user';
+      ref.read(activeUserProvider.notifier).state = kDefaultUserId;
 
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -137,7 +137,7 @@ class _TeamsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userId = ref.watch(activeUserProvider) ?? 'default-user';
+    final userId = ref.watch(activeUserProvider) ?? kDefaultUserId;
     return _StreamTab(
       stream: db.teamsDao.watchForUser(userId),
       empty: 'No teams',
