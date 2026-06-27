@@ -342,6 +342,9 @@ class SessionScreen extends ConsumerWidget {
           // sync with overlay_renderer's _resolveBinding substitution.
           final params = <String, String>{
             if (jersey != null && jersey.isNotEmpty) 'jersey': jersey,
+            // Always present (blank when no jersey) so the banner's "{{player}}"
+            // subtitle resolves to a clean string, never a literal placeholder.
+            'player': jersey != null && jersey.isNotEmpty ? '#$jersey' : '',
           };
           // player_id carries the jersey number as the player identifier
           // available on the wire (no roster id is selected in this flow).

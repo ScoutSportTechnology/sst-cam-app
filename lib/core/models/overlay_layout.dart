@@ -243,117 +243,30 @@ OverlayLayout defaultScoreboardLayout({
     binding: OverlayBinding.periodLabel,
   );
 
-  // ---- Banner templates ----
-  const goalTemplate = OverlayTemplate(
+  // ---- Banner templates — clean broadcast event cards ----
+  final goalTemplate = _eventBanner(
     eventType: 'goal',
     durationMs: 5000,
-    elements: [
-      OverlayElement(
-        id: 'goal_banner',
-        shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 390, y1: 250, x2: 890, y2: 340, z: 10),
-        style: OverlayStyle(fillColor: '#FFD700', opacity: 0.9),
-        binding: OverlayBinding.static,
-      ),
-      OverlayElement(
-        id: 'goal_text',
-        shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 390, y1: 250, x2: 890, y2: 340, z: 10),
-        style: OverlayStyle(
-          staticText: 'GOAL!',
-          textColor: '#000000',
-          fontSize: 44,
-          fontWeight: OverlayFontWeight.bold,
-          textAlign: OverlayTextAlign.center,
-          fontFamily: 'Inter',
-        ),
-        binding: OverlayBinding.static,
-      ),
-    ],
+    title: 'GOAL',
+    accent: '#F5B301',
   );
-
-  const yellowCardTemplate = OverlayTemplate(
+  final yellowCardTemplate = _eventBanner(
     eventType: 'yellow_card',
     durationMs: 4000,
-    elements: [
-      OverlayElement(
-        id: 'ycard_banner',
-        shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
-        style: OverlayStyle(fillColor: '#FFEB3B', opacity: 0.9),
-        binding: OverlayBinding.static,
-      ),
-      OverlayElement(
-        id: 'ycard_text',
-        shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
-        style: OverlayStyle(
-          staticText: 'YELLOW CARD',
-          textColor: '#000000',
-          fontSize: 30,
-          fontWeight: OverlayFontWeight.bold,
-          textAlign: OverlayTextAlign.center,
-          fontFamily: 'Inter',
-        ),
-        binding: OverlayBinding.static,
-      ),
-    ],
+    title: 'YELLOW CARD',
+    accent: '#FFC400',
   );
-
-  const redCardTemplate = OverlayTemplate(
+  final redCardTemplate = _eventBanner(
     eventType: 'red_card',
     durationMs: 4000,
-    elements: [
-      OverlayElement(
-        id: 'rcard_banner',
-        shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
-        style: OverlayStyle(fillColor: '#F44336', opacity: 0.9),
-        binding: OverlayBinding.static,
-      ),
-      OverlayElement(
-        id: 'rcard_text',
-        shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
-        style: OverlayStyle(
-          staticText: 'RED CARD',
-          textColor: '#FFFFFF',
-          fontSize: 30,
-          fontWeight: OverlayFontWeight.bold,
-          textAlign: OverlayTextAlign.center,
-          fontFamily: 'Inter',
-        ),
-        binding: OverlayBinding.static,
-      ),
-    ],
+    title: 'RED CARD',
+    accent: '#E5484D',
   );
-
-  const substitutionTemplate = OverlayTemplate(
+  final substitutionTemplate = _eventBanner(
     eventType: 'substitution',
     durationMs: 4000,
-    elements: [
-      OverlayElement(
-        id: 'sub_banner',
-        shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 400, y1: 255, x2: 880, y2: 335, z: 10),
-        style: OverlayStyle(fillColor: '#4CAF50', opacity: 0.9),
-        binding: OverlayBinding.static,
-      ),
-      OverlayElement(
-        id: 'sub_text',
-        shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 400, y1: 255, x2: 880, y2: 335, z: 10),
-        style: OverlayStyle(
-          staticText: 'SUBSTITUTION',
-          textColor: '#FFFFFF',
-          fontSize: 30,
-          fontWeight: OverlayFontWeight.bold,
-          textAlign: OverlayTextAlign.center,
-          fontFamily: 'Inter',
-        ),
-        binding: OverlayBinding.static,
-      ),
-    ],
+    title: 'SUBSTITUTION',
+    accent: '#3DAE5A',
   );
 
   return OverlayLayout(
@@ -375,6 +288,69 @@ OverlayLayout defaultScoreboardLayout({
       yellowCardTemplate,
       redCardTemplate,
       substitutionTemplate,
+    ],
+  );
+}
+
+/// A centred broadcast "event card": a dark rounded panel with a coloured
+/// accent bar on the left, a bold [title], and a player subtitle that resolves
+/// `{{player}}` (e.g. "#7", blank when no jersey). Replaces the old flat
+/// coloured rectangle. Authored on the 1280×720 canvas.
+OverlayTemplate _eventBanner({
+  required String eventType,
+  required int durationMs,
+  required String title,
+  required String accent,
+}) {
+  return OverlayTemplate(
+    eventType: eventType,
+    durationMs: durationMs,
+    elements: [
+      OverlayElement(
+        id: '${eventType}_bg',
+        shape: OverlayShape.rect,
+        bounds: const OverlayRect(x1: 410, y1: 300, x2: 870, y2: 384, z: 10),
+        style: const OverlayStyle(
+          fillColor: '#14161A',
+          opacity: 0.96,
+          cornerRadius: 10,
+        ),
+        binding: OverlayBinding.static,
+      ),
+      OverlayElement(
+        id: '${eventType}_accent',
+        shape: OverlayShape.rect,
+        bounds: const OverlayRect(x1: 410, y1: 300, x2: 422, y2: 384, z: 11),
+        style: OverlayStyle(fillColor: accent),
+        binding: OverlayBinding.static,
+      ),
+      OverlayElement(
+        id: '${eventType}_title',
+        shape: OverlayShape.text,
+        bounds: const OverlayRect(x1: 444, y1: 312, x2: 858, y2: 352, z: 12),
+        style: OverlayStyle(
+          staticText: title,
+          textColor: '#FFFFFF',
+          fontSize: 30,
+          fontWeight: OverlayFontWeight.bold,
+          textAlign: OverlayTextAlign.left,
+          fontFamily: 'Inter',
+        ),
+        binding: OverlayBinding.static,
+      ),
+      OverlayElement(
+        id: '${eventType}_player',
+        shape: OverlayShape.text,
+        bounds: const OverlayRect(x1: 444, y1: 350, x2: 858, y2: 376, z: 12),
+        style: const OverlayStyle(
+          staticText: '{{player}}',
+          textColor: '#AEB6C4',
+          fontSize: 16,
+          textAlign: OverlayTextAlign.left,
+          fontFamily: 'Inter',
+        ),
+        binding: OverlayBinding.static,
+      ),
     ],
   );
 }
