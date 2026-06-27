@@ -122,7 +122,10 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
             }
             override fun onFailure(reason: Int) {
                 unregisterReceiver()
-                eventSink?.success(STATE_FAILED)
+                // Don't push STATE_FAILED here: the Dart side retries connect()
+                // (Android P2P is flaky on reconnect) and owns the final failed
+                // state once its retries are exhausted. Emitting here would flash
+                // "WIFI · FAILED" between otherwise-successful retries.
                 result.error("CONNECT_FAILED", "WifiP2p connect failed: $reason", null)
             }
         })

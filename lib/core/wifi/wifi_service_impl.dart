@@ -254,19 +254,49 @@ class WifiServiceImpl implements WifiService {
       );
     }
 
-    // Platform channel — join the P2P group on Android.
-    try {
-      await _channel.connect(ssid: group.ssid, psk: group.psk);
-    } on Exception catch (e) {
+    // Platform channel — join the P2P group on Android. Android's P2P
+    // connect() is flaky on reconnect (a freshly cycled group, lingering state
+    // after a force-close mid-preview) and frequently fails the first attempt
+    // with BUSY, then succeeds on a retry — which is the manual "stop/start until
+    // it works" loop. Automate it: each attempt clears the stale phone-side group
+    // first (see WifiDirectChannel.connect), so a short retry turns the
+    // intermittent failure into transparent recovery.
+    Object? lastError;
+    for (var attempt = 1; attempt <= _maxP2pConnectAttempts; attempt++) {
+      // A disconnect (or newer connect) may have superseded us between retries.
+      if (_connectSuperseded(deviceId, gen)) {
+        await _stateSubscriptions.remove(deviceId)?.cancel();
+        throw const WifiDirectException(
+          'WiFi Direct connect superseded by a disconnect',
+        );
+      }
+      try {
+        await _channel.connect(ssid: group.ssid, psk: group.psk);
+        lastError = null;
+        break;
+      } on Exception catch (e) {
+        lastError = e;
+        if (attempt < _maxP2pConnectAttempts) {
+          await Future<void>.delayed(_p2pConnectRetryDelay);
+        }
+      }
+    }
+    if (lastError != null) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
-      throw WifiDirectException('P2P connect failed: $e');
+      throw WifiDirectException(
+        'P2P connect failed after $_maxP2pConnectAttempts attempts: $lastError',
+      );
     }
 
     _currentGroups[deviceId] = group;
     return group;
   }
+
+  // Android P2P connect retry budget — see _connectGroupInternal.
+  static const _maxP2pConnectAttempts = 3;
+  static const _p2pConnectRetryDelay = Duration(milliseconds: 800);
 
   @override
   Future<void> disconnectGroup(String deviceId) async {
