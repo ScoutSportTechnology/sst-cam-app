@@ -118,13 +118,15 @@ class OverlayLayout {
 // Factory
 // ---------------------------------------------------------------------------
 
-/// A broadcast-style "bug" scoreboard, bottom-left, authored at the firmware's
+/// A broadcast-style "bug" scoreboard, top-left, authored at the firmware's
 /// native 1280×720 output. Layout: [home color tab | home | score | away |
 /// away color tab | clock·period cell]. The firmware renders this onto the
 /// stream; the app no longer draws its own copy (A6a).
 ///
-/// [homeName]/[awayName] read best short (team short-name / opponent), since the
-/// bug's name cells are compact.
+/// The rendered team names come from the `teamAName`/`teamBName` bindings (i.e.
+/// `PushSessionConfigCommand.team_a_name`/`team_b_name`), NOT [homeName]/
+/// [awayName] — those params are retained for call-site compatibility only.
+/// [homeColorHex]/[awayColorHex] drive the end tabs.
 OverlayLayout defaultScoreboardLayout({
   required String homeName,
   required String awayName,

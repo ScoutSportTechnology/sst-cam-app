@@ -336,10 +336,10 @@ class SessionScreen extends ConsumerWidget {
       builder: (_) => EventSheet(
         homeTeamId: match.team.id,
         onSave: (type, team, jersey) {
-          // Build the param map the firmware uses for {{param}} substitution.
-          // The local preview substitutes the same keys from LiveEvent.params,
-          // so both stacks render identical banner text. Keep these keys in
-          // sync with overlay_renderer's _resolveBinding substitution.
+          // Build the param map the firmware uses for {{param}} substitution in
+          // the event-banner templates (e.g. "{{player}}"). The firmware is the
+          // sole overlay renderer now (A6a), so these keys must match the
+          // template static_text placeholders in defaultScoreboardLayout.
           final params = <String, String>{
             if (jersey != null && jersey.isNotEmpty) 'jersey': jersey,
             // Always present (blank when no jersey) so the banner's "{{player}}"
