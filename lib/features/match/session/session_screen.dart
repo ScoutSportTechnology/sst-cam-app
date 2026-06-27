@@ -13,7 +13,6 @@ import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
-import '../../../core/models/overlay_layout.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/models/wifi.dart' show WifiDirectState;
@@ -23,7 +22,6 @@ import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
-import 'overlay_renderer.dart';
 import 'session_state.dart';
 
 class SessionScreen extends ConsumerWidget {
@@ -933,13 +931,6 @@ class _TopBar extends StatelessWidget {
 // LIVE THUMB
 // ---------------------------------------------------------------------------
 
-const _emptyOverlayLayout = OverlayLayout(
-  canvasWidth: 1920,
-  canvasHeight: 1080,
-  elements: [],
-  templates: [],
-);
-
 class _LiveThumb extends ConsumerWidget {
   const _LiveThumb({required this.matchState, required this.isLive});
   final LiveMatchState matchState;
@@ -960,20 +951,18 @@ class _LiveThumb extends ConsumerWidget {
       children: [
         if (wifiFailed)
           _PreviewUnavailablePlaceholder(matchState: matchState, isLive: isLive)
-        else ...[
+        else
+          // The firmware composites the scoreboard onto the RTSP stream itself
+          // (overlay is firmware-unilateral, #6), so the app must NOT draw its
+          // own overlay here — doing both showed a doubled scoreboard. The app
+          // only authors + pushes the layout (PushOverlayLayout); the preview
+          // shows the firmware-baked stream as-is.
           // No buttons inside the surface — Preview/Stop is in the parent layout.
           LivePreviewView(
             deviceId: activeId,
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
           ),
-          Positioned.fill(
-            child: OverlayLayoutRenderer(
-              layout: matchState.overlayLayout ?? _emptyOverlayLayout,
-              matchState: matchState,
-            ),
-          ),
-        ],
       ],
     );
   }

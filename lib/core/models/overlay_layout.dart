@@ -118,91 +118,129 @@ class OverlayLayout {
 // Factory
 // ---------------------------------------------------------------------------
 
-/// Returns a canonical 1920×1080 scoreboard layout with persistent elements and four banner templates.
+/// A broadcast-style "bug" scoreboard, bottom-left, authored at the firmware's
+/// native 1280×720 output. Layout: [home color tab | home | score | away |
+/// away color tab | clock·period cell]. The firmware renders this onto the
+/// stream; the app no longer draws its own copy (A6a).
+///
+/// [homeName]/[awayName] read best short (team short-name / opponent), since the
+/// bug's name cells are compact.
 OverlayLayout defaultScoreboardLayout({
   required String homeName,
   required String awayName,
   String? homeColorHex,
   String? awayColorHex,
 }) {
-  final homeColor = homeColorHex ?? '#808080';
-  final awayColor = awayColorHex ?? '#808080';
+  final homeColor = homeColorHex ?? '#9AA3B2';
+  final awayColor = awayColorHex ?? '#9AA3B2';
 
-  // ---- Persistent elements ----
+  // Bug geometry on a 1280×720 canvas. Bottom-left, 52px tall.
+  // x: 24 [tab8] 32 [home108] 140 [score132] 272 [away108] 380 [tab8] 388
+  //    [clock cell 76] 464
+  const top = 648.0;
+  const bot = 700.0;
+
+  // ---- Persistent elements (z>0; z=0 is the video itself) ----
   const bg = OverlayElement(
     id: 'bg',
     shape: OverlayShape.rect,
-    bounds: OverlayRect(x1: 0, y1: 950, x2: 1920, y2: 1080, z: 0),
-    style: OverlayStyle(fillColor: '#111111', opacity: 0.85),
+    bounds: OverlayRect(x1: 24, y1: top, x2: 464, y2: bot, z: 1),
+    style: OverlayStyle(fillColor: '#14161A', opacity: 0.92, cornerRadius: 8),
     binding: OverlayBinding.static,
   );
 
-  final homeNameElement = OverlayElement(
+  // Darker cell behind the clock/period at the right end.
+  const clockCell = OverlayElement(
+    id: 'clock_cell',
+    shape: OverlayShape.rect,
+    bounds: OverlayRect(x1: 388, y1: top, x2: 464, y2: bot, z: 2),
+    style: OverlayStyle(fillColor: '#0E1014', opacity: 0.92),
+    binding: OverlayBinding.static,
+  );
+
+  final homeTab = OverlayElement(
+    id: 'home_tab',
+    shape: OverlayShape.rect,
+    bounds: const OverlayRect(x1: 24, y1: top, x2: 32, y2: bot, z: 2),
+    style: OverlayStyle(fillColor: homeColor),
+    binding: OverlayBinding.static,
+  );
+
+  final awayTab = OverlayElement(
+    id: 'away_tab',
+    shape: OverlayShape.rect,
+    bounds: const OverlayRect(x1: 380, y1: top, x2: 388, y2: bot, z: 2),
+    style: OverlayStyle(fillColor: awayColor),
+    binding: OverlayBinding.static,
+  );
+
+  const homeNameElement = OverlayElement(
     id: 'home_name',
     shape: OverlayShape.text,
-    bounds: const OverlayRect(x1: 20, y1: 970, x2: 600, y2: 1040, z: 1),
+    bounds: OverlayRect(x1: 42, y1: 656, x2: 140, y2: 692, z: 3),
     style: OverlayStyle(
-      textColor: homeColor,
+      textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.left,
-      fontSize: 36,
+      fontSize: 22,
       fontWeight: OverlayFontWeight.bold,
       fontFamily: 'Inter',
     ),
     binding: OverlayBinding.teamAName,
   );
 
-  final awayNameElement = OverlayElement(
-    id: 'away_name',
-    shape: OverlayShape.text,
-    bounds: const OverlayRect(x1: 1320, y1: 970, x2: 1900, y2: 1040, z: 1),
-    style: OverlayStyle(
-      textColor: awayColor,
-      textAlign: OverlayTextAlign.right,
-      fontSize: 36,
-      fontWeight: OverlayFontWeight.bold,
-      fontFamily: 'Inter',
-    ),
-    binding: OverlayBinding.teamBName,
-  );
-
   const score = OverlayElement(
     id: 'score',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 760, y1: 960, x2: 1160, y2: 1050, z: 1),
+    bounds: OverlayRect(x1: 140, y1: 652, x2: 272, y2: 698, z: 3),
     style: OverlayStyle(
       textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.center,
-      fontSize: 48,
+      fontSize: 26,
       fontWeight: OverlayFontWeight.bold,
       fontFamily: 'Inter',
     ),
     binding: OverlayBinding.scoreVs,
   );
 
-  const period = OverlayElement(
-    id: 'period',
+  const awayNameElement = OverlayElement(
+    id: 'away_name',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 800, y1: 1040, x2: 1120, y2: 1075, z: 1),
+    bounds: OverlayRect(x1: 274, y1: 656, x2: 378, y2: 692, z: 3),
     style: OverlayStyle(
-      textColor: '#AAAAAA',
-      textAlign: OverlayTextAlign.center,
-      fontSize: 24,
+      textColor: '#FFFFFF',
+      textAlign: OverlayTextAlign.left,
+      fontSize: 22,
+      fontWeight: OverlayFontWeight.bold,
       fontFamily: 'Inter',
     ),
-    binding: OverlayBinding.periodLabel,
+    binding: OverlayBinding.teamBName,
   );
 
   const clock = OverlayElement(
     id: 'clock',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 680, y1: 955, x2: 880, y2: 990, z: 1),
+    bounds: OverlayRect(x1: 388, y1: 652, x2: 464, y2: 678, z: 3),
     style: OverlayStyle(
       textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.center,
-      fontSize: 30,
+      fontSize: 17,
+      fontWeight: OverlayFontWeight.bold,
       fontFamily: 'Inter',
     ),
     binding: OverlayBinding.matchClock,
+  );
+
+  const period = OverlayElement(
+    id: 'period',
+    shape: OverlayShape.text,
+    bounds: OverlayRect(x1: 388, y1: 678, x2: 464, y2: 698, z: 3),
+    style: OverlayStyle(
+      textColor: '#AEB6C4',
+      textAlign: OverlayTextAlign.center,
+      fontSize: 11,
+      fontFamily: 'Inter',
+    ),
+    binding: OverlayBinding.periodLabel,
   );
 
   // ---- Banner templates ----
@@ -213,18 +251,18 @@ OverlayLayout defaultScoreboardLayout({
       OverlayElement(
         id: 'goal_banner',
         shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 560, y1: 400, x2: 1360, y2: 550, z: 10),
+        bounds: OverlayRect(x1: 390, y1: 250, x2: 890, y2: 340, z: 10),
         style: OverlayStyle(fillColor: '#FFD700', opacity: 0.9),
         binding: OverlayBinding.static,
       ),
       OverlayElement(
         id: 'goal_text',
         shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 560, y1: 400, x2: 1360, y2: 550, z: 10),
+        bounds: OverlayRect(x1: 390, y1: 250, x2: 890, y2: 340, z: 10),
         style: OverlayStyle(
           staticText: 'GOAL!',
           textColor: '#000000',
-          fontSize: 72,
+          fontSize: 44,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
           fontFamily: 'Inter',
@@ -241,18 +279,18 @@ OverlayLayout defaultScoreboardLayout({
       OverlayElement(
         id: 'ycard_banner',
         shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 700, y1: 420, x2: 1220, y2: 540, z: 10),
+        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
         style: OverlayStyle(fillColor: '#FFEB3B', opacity: 0.9),
         binding: OverlayBinding.static,
       ),
       OverlayElement(
         id: 'ycard_text',
         shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 700, y1: 420, x2: 1220, y2: 540, z: 10),
+        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
         style: OverlayStyle(
           staticText: 'YELLOW CARD',
           textColor: '#000000',
-          fontSize: 48,
+          fontSize: 30,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
           fontFamily: 'Inter',
@@ -269,18 +307,18 @@ OverlayLayout defaultScoreboardLayout({
       OverlayElement(
         id: 'rcard_banner',
         shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 700, y1: 420, x2: 1220, y2: 540, z: 10),
+        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
         style: OverlayStyle(fillColor: '#F44336', opacity: 0.9),
         binding: OverlayBinding.static,
       ),
       OverlayElement(
         id: 'rcard_text',
         shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 700, y1: 420, x2: 1220, y2: 540, z: 10),
+        bounds: OverlayRect(x1: 420, y1: 255, x2: 860, y2: 335, z: 10),
         style: OverlayStyle(
           staticText: 'RED CARD',
           textColor: '#FFFFFF',
-          fontSize: 48,
+          fontSize: 30,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
           fontFamily: 'Inter',
@@ -297,18 +335,18 @@ OverlayLayout defaultScoreboardLayout({
       OverlayElement(
         id: 'sub_banner',
         shape: OverlayShape.rect,
-        bounds: OverlayRect(x1: 640, y1: 420, x2: 1280, y2: 540, z: 10),
+        bounds: OverlayRect(x1: 400, y1: 255, x2: 880, y2: 335, z: 10),
         style: OverlayStyle(fillColor: '#4CAF50', opacity: 0.9),
         binding: OverlayBinding.static,
       ),
       OverlayElement(
         id: 'sub_text',
         shape: OverlayShape.text,
-        bounds: OverlayRect(x1: 640, y1: 420, x2: 1280, y2: 540, z: 10),
+        bounds: OverlayRect(x1: 400, y1: 255, x2: 880, y2: 335, z: 10),
         style: OverlayStyle(
           staticText: 'SUBSTITUTION',
           textColor: '#FFFFFF',
-          fontSize: 48,
+          fontSize: 30,
           fontWeight: OverlayFontWeight.bold,
           textAlign: OverlayTextAlign.center,
           fontFamily: 'Inter',
@@ -319,9 +357,19 @@ OverlayLayout defaultScoreboardLayout({
   );
 
   return OverlayLayout(
-    canvasWidth: 1920,
-    canvasHeight: 1080,
-    elements: [bg, homeNameElement, awayNameElement, score, period, clock],
+    canvasWidth: 1280,
+    canvasHeight: 720,
+    elements: [
+      bg,
+      clockCell,
+      homeTab,
+      awayTab,
+      homeNameElement,
+      score,
+      awayNameElement,
+      clock,
+      period,
+    ],
     templates: [
       goalTemplate,
       yellowCardTemplate,

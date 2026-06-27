@@ -368,7 +368,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           ? opponent.substring(3)
           : opponent;
       final layout = defaultScoreboardLayout(
-        homeName: widget.match.team.name,
+        // Short name reads best in the compact scoreboard bug.
+        homeName: widget.match.team.shortName,
         awayName: awayName,
         homeColorHex: widget.match.team.colorHex,
         awayColorHex: null,
