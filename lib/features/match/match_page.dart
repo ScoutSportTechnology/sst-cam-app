@@ -8,7 +8,6 @@ import 'match_state.dart';
 import 'session/session_screen.dart';
 import 'session/session_state.dart';
 import 'setup_screen.dart';
-import '../teams/teams_state.dart' show teamsControllerProvider;
 
 /// The Match tab routes between Landing → Setup → Session based on user
 /// selection. The Session screen unifies the old pre-match and live views
@@ -65,26 +64,12 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     });
   }
 
-  /// Pop out of the live session back to landing. When the match ended
-  /// naturally we also remove the upcoming entry from the camera so it
-  /// no longer shows on the landing list.
-  ///
-  /// Order matters: we remove the camera-side entry FIRST and only then
-  /// flip the local state. Otherwise the landing rebuild can race with
-  /// the (mock-delayed) removal and briefly render the just-played match.
-  Future<void> _leave({required bool wasEnded}) async {
-    final selected = _selected;
-    if (wasEnded && selected != null) {
-      try {
-        await ref
-            .read(teamsControllerProvider.notifier)
-            .removeMatch(selected.team.id, selected.match.id);
-      } catch (_) {
-        // Non-fatal: the match may already be gone or the camera may
-        // have disconnected. We still want to leave the session.
-      }
-    }
-    if (!mounted) return;
+  /// Pop out of the live session back to landing. A match played to its end has
+  /// been finalized into a 'past' library entry (see _finalizeMatchToLibrary in
+  /// session_screen), which also flips it out of the 'upcoming' landing list —
+  /// so there is nothing to remove here. Deleting it (the old behavior, when
+  /// matches weren't persisted as recordings) would destroy the library entry.
+  void _leave() {
     ref.read(liveMatchProvider.notifier).reset();
     setState(() {
       _selected = null;
@@ -100,12 +85,7 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     // If a match is loaded and we've passed setup, render the session
     // screen for any non-idle phase OR the pre-game (idle) phase too.
     if (selected != null && _setupConfirmed) {
-      return SessionScreen(
-        match: selected,
-        onLeave: () => _leave(
-          wasEnded: ref.read(liveMatchProvider).phase == MatchPhase.ended,
-        ),
-      );
+      return SessionScreen(match: selected, onLeave: _leave);
     }
 
     if (selected == null) {

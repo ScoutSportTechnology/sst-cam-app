@@ -1379,7 +1379,6 @@ void _finalizeMatchToLibrary(WidgetRef ref) {
         )
         .catchError((Object e) {
           debugPrint('[finalize] ERROR $e');
-          return false;
         }),
   );
 }
