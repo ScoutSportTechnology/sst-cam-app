@@ -43,8 +43,9 @@ const double _kWifiBytesPerSecond = 2.5 * 1024 * 1024;
 
 String _fmtSize(int bytes) {
   const mb = 1024 * 1024;
-  if (bytes >= mb)
+  if (bytes >= mb) {
     return '${(bytes / mb).toStringAsFixed(bytes >= 10 * mb ? 0 : 1)} MB';
+  }
   return '${(bytes / 1024).toStringAsFixed(0)} KB';
 }
 

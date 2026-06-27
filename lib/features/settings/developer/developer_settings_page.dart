@@ -5,6 +5,7 @@ import 'log_viewer_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
+import '../../../core/config/env.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -159,94 +160,99 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
           ),
           const SizedBox(height: 16),
 
-          // Seed app data
-          const _SectionHeader('Seed app data'),
-          WfCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          // Mock-backend-only controls: emulator advertising, the mock
+          // preview/download endpoints, and dev seeding are read only by the
+          // dev entry (main.dart). On a real-backend (stage) build they do
+          // nothing, so hide them — leaving just Diagnostics/Logs.
+          if (kAppEnv.isDevBackend) ...[
+            const _SectionHeader('Seed app data'),
+            WfCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Seed app data',
+                          style: TextStyle(color: T.ink, fontSize: 14),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Fills the local database with sample teams, matches '
+                          'and players, plus on-device past-match videos.',
+                          style: TextStyle(color: T.ink2, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    key: const Key('seedDataSwitch'),
+                    value: staged.seedData,
+                    onChanged: notifier.setSeedData,
+                    activeThumbColor: T.accent,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Camera (BLE + live WiFi)
+            const _SectionHeader('Camera'),
+            WfCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Column(
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        'Seed app data',
-                        style: TextStyle(color: T.ink, fontSize: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Emulate camera',
+                              style: TextStyle(color: T.ink, fontSize: 14),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Mock BLE device advertises and the live WiFi '
+                              'preview/download endpoints respond.',
+                              style: TextStyle(color: T.ink2, fontSize: 12),
+                            ),
+                          ],
+                        ),
                       ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Fills the local database with sample teams, matches '
-                        'and players, plus on-device past-match videos.',
-                        style: TextStyle(color: T.ink2, fontSize: 12),
+                      Switch(
+                        key: const Key('cameraEmulationSwitch'),
+                        value: staged.cameraEmulation,
+                        onChanged: notifier.setCameraEmulation,
+                        activeThumbColor: T.accent,
                       ),
                     ],
                   ),
-                ),
-                Switch(
-                  key: const Key('seedDataSwitch'),
-                  value: staged.seedData,
-                  onChanged: notifier.setSeedData,
-                  activeThumbColor: T.accent,
-                ),
-              ],
+                  const Divider(height: 20, color: T.hair),
+                  _baseUrlField(
+                    fieldKey: const Key('previewBaseField'),
+                    label: 'Preview base URL',
+                    controller: _previewController,
+                    hint: DevConfig.defaults.previewBaseUrl,
+                    onChanged: () => _previewDirty = true,
+                    onCommit: _commitPreviewBase,
+                  ),
+                  const SizedBox(height: 10),
+                  _baseUrlField(
+                    fieldKey: const Key('downloadBaseField'),
+                    label: 'Download base URL',
+                    controller: _downloadController,
+                    hint: DevConfig.defaults.downloadBaseUrl,
+                    onChanged: () => _downloadDirty = true,
+                    onCommit: _commitDownloadBase,
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-
-          // Camera (BLE + live WiFi)
-          const _SectionHeader('Camera'),
-          WfCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Emulate camera',
-                            style: TextStyle(color: T.ink, fontSize: 14),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Mock BLE device advertises and the live WiFi '
-                            'preview/download endpoints respond.',
-                            style: TextStyle(color: T.ink2, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      key: const Key('cameraEmulationSwitch'),
-                      value: staged.cameraEmulation,
-                      onChanged: notifier.setCameraEmulation,
-                      activeThumbColor: T.accent,
-                    ),
-                  ],
-                ),
-                const Divider(height: 20, color: T.hair),
-                _baseUrlField(
-                  fieldKey: const Key('previewBaseField'),
-                  label: 'Preview base URL',
-                  controller: _previewController,
-                  hint: DevConfig.defaults.previewBaseUrl,
-                  onChanged: () => _previewDirty = true,
-                  onCommit: _commitPreviewBase,
-                ),
-                const SizedBox(height: 10),
-                _baseUrlField(
-                  fieldKey: const Key('downloadBaseField'),
-                  label: 'Download base URL',
-                  controller: _downloadController,
-                  hint: DevConfig.defaults.downloadBaseUrl,
-                  onChanged: () => _downloadDirty = true,
-                  onCommit: _commitDownloadBase,
-                ),
-              ],
-            ),
-          ),
+          ],
           const SizedBox(height: 32),
 
           WfButton(
