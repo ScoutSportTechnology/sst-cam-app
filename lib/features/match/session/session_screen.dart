@@ -266,6 +266,21 @@ class SessionScreen extends ConsumerWidget {
         period: state.currentPeriod + 1,
       ),
     );
+    // Honor the start-prompt choices on the camera. startPeriod only flips the
+    // local UI state; without these explicit control commands the firmware
+    // records/streams nothing (the match dir stays empty).
+    if (choice.$1 == true) {
+      _sendIfConnected(
+        ref,
+        RecordingControlCommand(action: RecordingControlAction.start),
+      );
+    }
+    if (choice.$2 == true) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(action: StreamingControlAction.start),
+      );
+    }
     ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);
   }
 
