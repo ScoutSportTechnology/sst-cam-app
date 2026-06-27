@@ -315,14 +315,15 @@ class WifiServiceImpl implements WifiService {
     if (group == null) {
       return null; // no group up → LivePreviewView shows "Not connected"
     }
-    // Real firmware (U4) serves RTSP H.264 at /preview on the group-owner IP +
-    // preview port; geometry/bitrate match the firmware AppStreamConfig demo
-    // defaults (854x480@30, 1500 kbps). Confirm the mount/transport on-device.
+    // Real firmware serves RTSP H.264 at /preview on the group-owner IP +
+    // preview port; geometry matches the firmware AppStreamConfig, which is tied
+    // to the postprocess output (1280x720@30, 1500 kbps). Only used to size the
+    // preview box; VLC decodes at the stream's actual resolution.
     return PreviewStreamDescriptor(
       url: group.previewUrl(),
       codec: PreviewCodec.rtspH264,
-      width: 854,
-      height: 480,
+      width: 1280,
+      height: 720,
       fps: 30,
       bitrateKbps: 1500,
     );
