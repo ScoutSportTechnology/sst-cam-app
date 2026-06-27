@@ -2,6 +2,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/overlay_layout.dart';
+import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 
@@ -99,6 +100,15 @@ abstract class BleService {
 
   /// Push overlay layout to the camera at session start.
   Future<void> pushOverlayLayout(String deviceId, OverlayLayout layout);
+
+  /// Switch the live preview composition (#6 A6b) between single-camera
+  /// (overlay baked in) and side-by-side dual-camera (clean). Returns the
+  /// now-active layout plus the composited frame geometry so the caller can
+  /// size its preview box. The RTSP URL/port are unchanged across a switch.
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  );
 
   // ---------------------------------------------------------------------------
   // Lifecycle

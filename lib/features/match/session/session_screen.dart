@@ -13,6 +13,7 @@ import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
+import '../../../core/widgets/preview_layout_toggle.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/models/wifi.dart' show WifiDirectState;
@@ -965,6 +966,15 @@ class _LiveThumb extends ConsumerWidget {
             deviceId: activeId,
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
+          ),
+        // Single | side-by-side dual-camera composition toggle (#6 A6b). Hidden
+        // when the preview surface is unavailable (WiFi Direct failed) or no
+        // camera is connected.
+        if (!wifiFailed && activeId != null)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: PreviewLayoutToggle(deviceId: activeId),
           ),
       ],
     );

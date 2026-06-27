@@ -11,6 +11,7 @@ import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/match.dart';
 import '../../core/models/overlay_layout.dart';
+import '../../core/models/preview_layout.dart';
 import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
 import '../../core/models/wifi.dart';
@@ -763,6 +764,14 @@ class MockBleService implements BleService {
         layout: _dartLayoutToProto(layout),
       ),
     ),
+    SetPreviewLayoutCommand(:final layout) => proto.Command(
+      correlationId: correlationId,
+      setPreviewLayout: proto.SetPreviewLayoutCommand(
+        layout: layout == PreviewLayout.sideBySide
+            ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+            : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+      ),
+    ),
     StartWifiDirectCommand() => proto.Command(
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
@@ -794,6 +803,8 @@ class MockBleService implements BleService {
         lastBannerEvent = cmd;
       case PushOverlayLayoutCommand(:final layout):
         lastPushedOverlayLayout = layout;
+      case SetPreviewLayoutCommand(:final layout):
+        lastPreviewLayout = layout;
       default:
         break;
     }
@@ -877,6 +888,17 @@ class MockBleService implements BleService {
       PushOverlayLayoutCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
+      ),
+      SetPreviewLayoutCommand(:final layout) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        previewLayout: proto.PreviewLayoutResponse(
+          layout: layout == PreviewLayout.sideBySide
+              ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+              : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+          width: layout == PreviewLayout.sideBySide ? 2560 : 1280,
+          height: 720,
+        ),
       ),
       StartWifiDirectCommand() => proto.CommandResponse(
         correlationId: correlationId,
@@ -1008,6 +1030,18 @@ class MockBleService implements BleService {
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
       BannerEventCommand() => BleCommandResponse.ok(null as T?),
       PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
+      SetPreviewLayoutCommand() => BleCommandResponse.ok(
+        PreviewLayoutResult(
+              layout:
+                  resp.previewLayout.layout ==
+                      proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+                  ? PreviewLayout.sideBySide
+                  : PreviewLayout.single,
+              width: resp.previewLayout.width,
+              height: resp.previewLayout.height,
+            )
+            as T?,
+      ),
       StartWifiDirectCommand() => BleCommandResponse.ok(
         WifiDirectGroup(
               ssid: resp.wifiDirectGroup.ssid,
@@ -1141,6 +1175,12 @@ class MockBleService implements BleService {
   /// When true the next [pushOverlayLayout] call throws [BleTimeoutException].
   bool failNextPushOverlayLayout = false;
 
+  /// The last layout requested via [setPreviewLayout] (#6 A6b).
+  PreviewLayout lastPreviewLayout = PreviewLayout.single;
+
+  /// When true the next [setPreviewLayout] call throws [BleTimeoutException].
+  bool failNextSetPreviewLayout = false;
+
   // ---------------------------------------------------------------------------
   // Control command side-effect fields
   // ---------------------------------------------------------------------------
@@ -1188,6 +1228,33 @@ class MockBleService implements BleService {
       throw const BleTimeoutException('Simulated pushOverlayLayout failure');
     }
     lastPushedOverlayLayout = layout;
+  }
+
+  @override
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    if (failNextSetPreviewLayout) {
+      failNextSetPreviewLayout = false;
+      throw const BleTimeoutException('Simulated setPreviewLayout failure');
+    }
+    lastPreviewLayout = layout;
+    // Emulated geometry: single = one 16:9 sensor (1280×720); side-by-side
+    // composites both cams horizontally into one 32:9 frame (2560×720).
+    return switch (layout) {
+      PreviewLayout.single => const PreviewLayoutResult(
+        layout: PreviewLayout.single,
+        width: 1280,
+        height: 720,
+      ),
+      PreviewLayout.sideBySide => const PreviewLayoutResult(
+        layout: PreviewLayout.sideBySide,
+        width: 2560,
+        height: 720,
+      ),
+    };
   }
 
   // ---------------------------------------------------------------------------

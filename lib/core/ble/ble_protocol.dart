@@ -7,6 +7,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/overlay_layout.dart';
+import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 import '../models/wifi.dart';
@@ -364,6 +365,12 @@ class BleProtocol {
         layout: _dartLayoutToProto(layout),
       ),
     ),
+    SetPreviewLayoutCommand(:final layout) => proto.Command(
+      correlationId: correlationId,
+      setPreviewLayout: proto.SetPreviewLayoutCommand(
+        layout: _dartPreviewLayoutToProto(layout),
+      ),
+    ),
     StartWifiDirectCommand() => proto.Command(
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
@@ -465,10 +472,20 @@ class BleProtocol {
               as T?,
         );
       case proto.CommandResponse_Payload.previewLayout:
+        // #6 A6b dual-preview: the active layout + the geometry the firmware now
+        // composites, so the app can size its preview box.
+        final pl = resp.previewLayout;
+        return BleCommandResponse.ok(
+          PreviewLayoutResult(
+                layout: _protoPreviewLayout(pl.layout),
+                width: pl.width,
+                height: pl.height,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.exportJob:
-        // #6 preview-layout / overlayed-export responses. The app does not
-        // consume these yet (A6b/A6c is future work); OK with null until the
-        // dual-preview + on-demand-burn flows are wired.
+        // #6 A6c overlayed-export response. Not consumed yet (on-demand-burn
+        // flow is future work); OK with null until that flow is wired.
         return BleCommandResponse.ok(null as T?);
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
@@ -503,6 +520,24 @@ class BleProtocol {
     proto.WifiState.WIFI_CONNECTED => WifiState.connected,
     _ => WifiState.unknown,
   };
+
+  // ---------------------------------------------------------------------------
+  // Preview layout ↔ proto helpers (#6 A6b)
+  // ---------------------------------------------------------------------------
+
+  static proto.PreviewLayout _dartPreviewLayoutToProto(PreviewLayout layout) =>
+      switch (layout) {
+        PreviewLayout.single => proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+        PreviewLayout.sideBySide =>
+          proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE,
+      };
+
+  static PreviewLayout _protoPreviewLayout(proto.PreviewLayout layout) =>
+      switch (layout) {
+        proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE =>
+          PreviewLayout.sideBySide,
+        _ => PreviewLayout.single,
+      };
 
   // ---------------------------------------------------------------------------
   // Overlay layout → proto helpers

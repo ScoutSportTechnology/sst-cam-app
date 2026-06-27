@@ -10,6 +10,7 @@ import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/match.dart';
 import 'package:sst_cam_app/core/models/overlay_layout.dart';
+import 'package:sst_cam_app/core/models/preview_layout.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/services/backup_service.dart';
@@ -85,6 +86,15 @@ class _StubBleService implements BleService {
   ) async {}
   @override
   Future<void> pushOverlayLayout(String deviceId, OverlayLayout layout) async {}
+  @override
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  ) async => const PreviewLayoutResult(
+    layout: PreviewLayout.single,
+    width: 1280,
+    height: 720,
+  );
   @override
   Future<void> dispose() async {}
 }

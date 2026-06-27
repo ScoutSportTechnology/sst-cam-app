@@ -4,6 +4,7 @@ import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/overlay_layout.dart';
+import 'package:sst_cam_app/core/models/preview_layout.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/models/match.dart';
@@ -604,6 +605,51 @@ void main() {
       expect(resp.isOk, isTrue);
       expect(svc.lastPushedOverlayLayout!.elements, isNotEmpty);
       expect(svc.lastPushedOverlayLayout!.templates, isNotEmpty);
+    });
+  });
+
+  group('setPreviewLayout (#6 A6b)', () {
+    test('single returns single layout + 16:9 geometry', () async {
+      final result = await svc.setPreviewLayout(
+        'SST-CAM-001',
+        PreviewLayout.single,
+      );
+      expect(result.layout, PreviewLayout.single);
+      expect(result.width, 1280);
+      expect(result.height, 720);
+      expect(svc.lastPreviewLayout, PreviewLayout.single);
+    });
+
+    test('side-by-side returns wide composited geometry', () async {
+      final result = await svc.setPreviewLayout(
+        'SST-CAM-001',
+        PreviewLayout.sideBySide,
+      );
+      expect(result.layout, PreviewLayout.sideBySide);
+      expect(result.width, 2560);
+      expect(result.aspect, closeTo(2560 / 720, 0.001));
+      expect(svc.lastPreviewLayout, PreviewLayout.sideBySide);
+    });
+
+    test('failNextSetPreviewLayout throws and auto-resets', () async {
+      svc.failNextSetPreviewLayout = true;
+      await expectLater(
+        svc.setPreviewLayout('SST-CAM-001', PreviewLayout.sideBySide),
+        throwsA(isA<BleTimeoutException>()),
+      );
+      expect(svc.failNextSetPreviewLayout, isFalse);
+    });
+
+    test('proto round-trip via sendCommand carries geometry', () async {
+      final resp = await svc.sendCommand<PreviewLayoutResult>(
+        'SST-CAM-001',
+        SetPreviewLayoutCommand(layout: PreviewLayout.sideBySide),
+      );
+      expect(resp.isOk, isTrue);
+      expect(resp.payload, isNotNull);
+      expect(resp.payload!.layout, PreviewLayout.sideBySide);
+      expect(resp.payload!.width, 2560);
+      expect(svc.lastPreviewLayout, PreviewLayout.sideBySide);
     });
   });
 }

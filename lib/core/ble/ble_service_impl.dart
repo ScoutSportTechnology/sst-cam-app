@@ -10,6 +10,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/overlay_layout.dart';
+import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 import 'ble_protocol.dart';
@@ -443,6 +444,29 @@ class BleServiceImpl implements BleService {
         'pushOverlayLayout failed: ${resp.errorMessage}',
       );
     }
+  }
+
+  @override
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  ) async {
+    final resp = await sendCommand<PreviewLayoutResult>(
+      deviceId,
+      SetPreviewLayoutCommand(layout: layout),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setPreviewLayout failed: ${resp.errorMessage}',
+      );
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw const BleConnectionException(
+        'setPreviewLayout: firmware returned no PreviewLayoutResponse',
+      );
+    }
+    return result;
   }
 
   // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 // RealBleService translates these to/from protobuf bytes on the wire.
 
 import 'overlay_layout.dart';
+import 'preview_layout.dart';
 
 sealed class BleCommand {}
 
@@ -220,6 +221,13 @@ class BannerEventCommand extends BleCommand {
 class PushOverlayLayoutCommand extends BleCommand {
   PushOverlayLayoutCommand({required this.layout});
   final OverlayLayout layout;
+}
+
+/// Switch the live preview composition between single-camera (overlay baked in)
+/// and side-by-side dual-camera (clean). Replies with [PreviewLayoutResult].
+class SetPreviewLayoutCommand extends BleCommand {
+  SetPreviewLayoutCommand({required this.layout});
+  final PreviewLayout layout;
 }
 
 // ---------------------------------------------------------------------------
