@@ -47,6 +47,7 @@ class LandingScreen extends ConsumerWidget {
                 if (matches.isEmpty) {
                   return _NoUpcomingState(
                     onSchedule: () => _schedule(context, ref),
+                    onTraining: () => _startTraining(context, ref),
                   );
                 }
                 if (filtered.isEmpty) {
@@ -56,9 +57,22 @@ class LandingScreen extends ConsumerWidget {
                 }
                 return Column(
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 2),
+                      child: WfButton(
+                        label: 'Record a training session',
+                        full: true,
+                        leading: const Icon(
+                          Icons.fiber_manual_record,
+                          size: 14,
+                          color: T.danger,
+                        ),
+                        onPressed: () => _startTraining(context, ref),
+                      ),
+                    ),
                     WfSection(
                       'Upcoming · ${filtered.length}',
-                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
                     ),
                     Expanded(
                       child: ListView.separated(
@@ -118,6 +132,69 @@ class LandingScreen extends ConsumerWidget {
       ).showSnackBar(SnackBar(content: Text('Could not add match: $e')));
     }
   }
+
+  /// One-tap "record now": create a lightweight `Training session` match under
+  /// a chosen team and drop straight into the session. It flows through the
+  /// same setup → session → finalize-to-library pipeline as a scheduled match,
+  /// so a training recording lands in the Library like any other.
+  Future<void> _startTraining(BuildContext context, WidgetRef ref) async {
+    final teams =
+        ref.read(teamsControllerProvider).valueOrNull ?? const <TeamRecord>[];
+    final visible = teams.where((t) => !t.hidden).toList();
+    if (visible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add a team in the Teams tab before recording.'),
+        ),
+      );
+      return;
+    }
+    final team = visible.length == 1
+        ? visible.first
+        : await _pickTeam(context, visible);
+    if (team == null || !context.mounted) return;
+    try {
+      final created = await ref
+          .read(teamsControllerProvider.notifier)
+          .addMatch(
+            team.id,
+            TeamMatchDraft(
+              opponent: 'Training session',
+              date: _todayLabel(),
+              kind: MatchKind.upcoming,
+              numPeriods: 1,
+              periodLengthSeconds: 40 * 60,
+            ),
+          );
+      if (!context.mounted) return;
+      onSelect(UpcomingMatch(team: team, match: created));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not start training: $e')));
+    }
+  }
+}
+
+/// Today as a `MMM dd` label, matching the match-form date format.
+String _todayLabel() {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final d = DateTime.now();
+  return '${months[d.month - 1]} ${d.day.toString().padLeft(2, '0')}';
 }
 
 // ---------------------------------------------------------------------------
@@ -412,8 +489,9 @@ class _UpcomingRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _NoUpcomingState extends StatelessWidget {
-  const _NoUpcomingState({required this.onSchedule});
+  const _NoUpcomingState({required this.onSchedule, required this.onTraining});
   final VoidCallback onSchedule;
+  final VoidCallback onTraining;
 
   @override
   Widget build(BuildContext context) {
@@ -462,6 +540,17 @@ class _NoUpcomingState extends StatelessWidget {
               variant: WfButtonVariant.primary,
               full: true,
               onPressed: onSchedule,
+            ),
+            const SizedBox(height: 10),
+            WfButton(
+              label: 'Record a training session',
+              full: true,
+              leading: const Icon(
+                Icons.fiber_manual_record,
+                size: 14,
+                color: T.danger,
+              ),
+              onPressed: onTraining,
             ),
           ],
         ),
