@@ -9,6 +9,42 @@
 > Bug 0 (R8-off preview-crash fix) is already in-tree — finish Step 0 (rebuild dev APK, install,
 > confirm no crash) and commit + PR to `release/0.1.0` before starting below.
 
+## Session status — 2026-06-26 (validated on device: phone + Jetson sst@10.10.1.30)
+
+**Verified working on device, committed to `feat/bug-sweep-and-multicam`:**
+- **Bug 0** (R8 off) — preview no longer crashes. ✅
+- **#1 "WAITING FOR FRAMES"** — needed FOUR layered fixes, each masking the next:
+  (1) R8 off; (2) `INTERNET` permission missing from `src/main` manifest so the release build
+  couldn't open a socket (EPERM); (3) firmware RTSP caps 854×480 vs actual 1280×720 frames;
+  (4) firmware x264 baseline rejected 4:4:4 → forced I420. Frames now render LIVE. ✅
+- **#2 intermittent "wifi failed"** — removeGroup-before-connect (clears stale phone P2P group) +
+  auto-retry the P2P join (3×) + permission ordering + handoff debounce + firmware
+  dnsmasq-orphan-sweep/iface-readiness. Tested 10× across close/disconnect/stop-preview — always
+  recovers. ✅
+- **#4** open-match routing, **#9** video-page CTA, **#3** raw-label (button removed). ✅
+
+**Parked (device-level, not app code):**
+- **Camera pink/magenta cast** — proved ISP/sensor-level: a raw `nvarguscamerasrc → jpeg` capture
+  (no firmware code) is purple too. Our `cvtColor(NV12→BGR)` is correct. `imx477.nito` installed on
+  device but doesn't match the `jakku_*_RBPCV3` module / ArduCAM has no JP7.2 tuning. → dedicated
+  camera-calibration task (ISP `.nito` for this module, or IR-cut-filter check). Out of the code branch.
+
+**New features discovered this session (not started):**
+- **Continuous autofocus** — the ArduCAM IMX477 has a motorized VCM focuser; firmware drives none
+  today (`CameraFocus` config field is dead-wired). User wants continuous AF: I2C VCM driver →
+  sharpness metric (Laplacian variance) → sweep/peak/hold loop. Firmware feature, own effort.
+- **Ship `imx477.nito` via `deploy/install.sh`** so ISP tuning survives reflash (small follow-up).
+
+**Build/test workflow (locked in this session):** build the app through the **long-lived
+devcontainer** (`devcontainer exec`), NOT one-shot `docker run` — the latter rewrote
+`.dart_tool/package_config.json` to a job-local pub cache (broke the devcontainer) and regenerated
+the debug keystore each run (forced an uninstall/data-wipe per install). Devcontainer = stable
+keystore (`install -r`, no wipe) + warm caches.
+
+**Still TODO from this plan:** A9 (#5 record→Match/Training), A10 (#7 dev toggles), A11 (#8 log
+viewer), A12 (test seams), then Phase D (#6 — incl. the dual-cam preview dropdown the user asked
+for, = F6d/A6b).
+
 ---
 
 ## Phase A — Preview pipeline (pairs with firmware F4)
