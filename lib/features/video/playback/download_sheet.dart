@@ -198,7 +198,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
         final startSeconds = (event.timeSeconds - 15)
             .clamp(0, double.infinity)
             .toInt();
-        await clipSvc.trim(
+        final clipPath = await clipSvc.trim(
           matchId: widget.match.id,
           sourcePath: sourcePath,
           startSeconds: startSeconds,
@@ -206,6 +206,18 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           label: event.label,
         );
         created++;
+        // Export to the device gallery so the clip is actually visible to the
+        // user — trim() only writes it to app-private storage + the clips DB.
+        // Best-effort: a gallery-export failure must not drop the clip (it's
+        // already trimmed and recorded).
+        try {
+          final name = '${widget.match.opponent}_${event.label}_$created.mp4'
+              .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+          await GalleryService.saveVideo(
+            sourcePath: clipPath,
+            displayName: name,
+          );
+        } catch (_) {}
       } on ClipTrimException catch (e) {
         if (mounted) setState(() => _error = 'Clip failed: ${e.message}');
         return;
