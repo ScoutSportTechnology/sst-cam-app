@@ -53,6 +53,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   VlcPlayerController? _vlc;
   String? _vlcUrl;
   bool _vlcError = false;
+  bool _vlcPlaying = false;
 
   void _enablePreview() {
     ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state = true;
@@ -83,6 +84,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     _vlc = null;
     _vlcUrl = null;
     _vlcError = false;
+    _vlcPlaying = false;
   }
 
   @override
@@ -93,8 +95,12 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
 
   void _onVlcChange() {
     final hasError = _vlc?.value.hasError ?? false;
-    if (hasError != _vlcError && mounted) {
-      setState(() => _vlcError = hasError);
+    final isPlaying = _vlc?.value.isPlaying ?? false;
+    if ((hasError != _vlcError || isPlaying != _vlcPlaying) && mounted) {
+      setState(() {
+        _vlcError = hasError;
+        _vlcPlaying = isPlaying;
+      });
     }
   }
 
@@ -112,6 +118,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     _vlc = controller;
     _vlcUrl = url;
     _vlcError = false;
+    _vlcPlaying = false;
   }
 
   @override
@@ -204,8 +211,19 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     }
 
     final wifiConnected = wifiState == WifiDirectState.connected;
-    final liveBadgeOn = wifiConnected && frame != null;
     final showVlc = wifiConnected && _vlc != null && !_vlcError;
+    // Liveness is driven by VLC actually decoding frames, not by the
+    // previewFrameProvider heartbeat — the real backend's previewFrames() stream
+    // is empty (pending firmware wiring), so frame is always null and the preview
+    // stayed pinned at "WAITING FOR FRAMES" even while video was playing.
+    final vlcPlaying = showVlc && _vlcPlaying;
+    final liveBadgeOn = vlcPlaying;
+
+    // Drive the surface aspect from the stream's real geometry (the descriptor
+    // carries width/height); a hardcoded 16:9 stretched non-16:9 streams.
+    final streamAspect = (descriptor != null && descriptor.height > 0)
+        ? descriptor.width / descriptor.height
+        : null;
 
     final statusLabel = switch (wifiState) {
       WifiDirectState.starting => 'WIFI · LINKING',
@@ -213,7 +231,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
       WifiDirectState.stopping => 'WIFI · STOPPING',
       WifiDirectState.idle || null => widget.label ?? 'WIFI · IDLE',
       WifiDirectState.connected =>
-        frame == null ? 'WIFI · WAITING FOR FRAMES' : 'LIVE',
+        vlcPlaying ? 'LIVE' : 'WIFI · WAITING FOR FRAMES',
     };
 
     final body = Stack(
@@ -222,14 +240,14 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         if (showVlc)
           VlcPlayer(
             controller: _vlc!,
-            aspectRatio: 16 / 9,
+            aspectRatio: streamAspect ?? widget.aspect ?? 16 / 9,
             placeholder: const ThumbPlaceholder(),
           )
         else
           ThumbPlaceholder(label: liveBadgeOn ? null : statusLabel),
         if (liveBadgeOn)
           Positioned(left: 8, top: 8, child: _LiveBadge(stats: stats)),
-        if (liveBadgeOn)
+        if (liveBadgeOn && frame != null)
           Positioned(
             right: 8,
             top: 8,
@@ -256,7 +274,10 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         child: body,
       );
     }
-    return AspectRatio(aspectRatio: widget.aspect ?? 16 / 9, child: body);
+    return AspectRatio(
+      aspectRatio: widget.aspect ?? streamAspect ?? 16 / 9,
+      child: body,
+    );
   }
 }
 
@@ -266,6 +287,7 @@ class _LiveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = stats;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -285,7 +307,9 @@ class _LiveBadge extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            'LIVE · ${(stats?.fps ?? 0).toStringAsFixed(0)} FPS · ${(stats?.kbps ?? 0).toStringAsFixed(0)} KB/S',
+            s == null
+                ? 'LIVE'
+                : 'LIVE · ${s.fps.toStringAsFixed(0)} FPS · ${s.kbps.toStringAsFixed(0)} KB/S',
             style: const TextStyle(
               fontFamily: T.mono,
               fontSize: 9,

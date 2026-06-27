@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/device.dart';
 import '../../core/models/telemetry.dart';
-import 'camera_state.dart' show activeCameraIdProvider;
+import 'camera_state.dart' show activeCameraIdProvider, activeTabProvider;
 import 'raw_capture_state.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/theme/tokens.dart';
@@ -167,8 +167,13 @@ class _HeroCameraCard extends ConsumerWidget {
                     label: 'Open match',
                     variant: WfButtonVariant.primary,
                     full: true,
+                    // The shell is a NavigationBar + IndexedStack driven by
+                    // activeTabProvider — there is no DefaultTabController in the
+                    // tree, so maybeOf() returned null and the button no-op'd.
+                    // Match is tab index 2; its landing offers "Schedule a match"
+                    // when none exist.
                     onPressed: () =>
-                        DefaultTabController.maybeOf(context)?.animateTo(2),
+                        ref.read(activeTabProvider.notifier).state = 2,
                   ),
                   const SizedBox(height: 8),
                   // Secondary row: Preview/Stop + Disconnect.
@@ -397,7 +402,9 @@ class _RawCaptureButton extends ConsumerWidget {
       RawCapturePhase.starting => 'Starting RAW…',
       RawCapturePhase.stopping => 'Stopping…',
       RawCapturePhase.downloading => 'Downloading pair…',
-      _ => 'Record RAW (training)',
+      // L0 dual-camera raw capture (both sensors, unprocessed) for AI/training.
+      // Distinct from match recording — see the multicam/overlay plan.
+      _ => 'Record raw footage · both cams (training)',
     };
 
     return Column(
