@@ -6,12 +6,34 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ble/ble_providers.dart' show telemetryProvider;
 import '../../core/db/daos/teams_dao.dart';
 import '../../core/models/team.dart';
 import '../../core/state/db_providers.dart';
+import '../camera/camera_state.dart' show activeCameraIdProvider;
+import '../match/session/session_state.dart' show liveMatchProvider, RecState;
 import '../teams/teams_state.dart' show teamsControllerProvider;
 
 export '../../core/models/team.dart';
+
+/// True while a recording and/or streaming session is live — either the app's
+/// own match controller has it running, or the connected firmware reports it
+/// via telemetry. Enforces the HARD INVARIANT: no past-video retrieval or
+/// overlayed export while a session is live. Firmware is the authoritative
+/// source (it rejects with `LIVE_SESSION_ACTIVE`); this gate is UX. Retrieval
+/// re-enables once the session ends.
+final liveSessionActiveProvider = Provider<bool>((ref) {
+  final m = ref.watch(liveMatchProvider);
+  if (m.rec != RecState.idle || m.streaming) return true;
+
+  // Fold in firmware truth when a camera is connected, so a session started
+  // outside this app's controller still locks retrieval.
+  final camId = ref.watch(activeCameraIdProvider);
+  if (camId == null) return false;
+  final tele = ref.watch(telemetryProvider(camId)).valueOrNull;
+  if (tele == null) return false;
+  return tele.isRecording || tele.isStreaming || tele.isRawCapturing;
+});
 
 class LibraryEvent {
   const LibraryEvent({

@@ -74,6 +74,7 @@ List<Override> _baseOverrides(
   return [
     ...dbOverrides(db),
     bleServiceProvider.overrideWithValue(_newMock()),
+    liveSessionActiveProvider.overrideWithValue(false),
     activeUserProvider.overrideWith((_) => 'user-1'),
     videoPathServiceProvider.overrideWithValue(
       videoPathService ?? _AbsentVideoPathService(),

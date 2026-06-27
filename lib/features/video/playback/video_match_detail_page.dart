@@ -8,7 +8,12 @@ import '../../../core/models/overlay.dart' as app_overlay;
 import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
 import '../overlay_helper.dart' show buildOverlayStates;
 import '../video_state.dart'
-    show libraryMatchProvider, isOnDeviceProvider, LibraryMatch, LibraryEvent;
+    show
+        libraryMatchProvider,
+        isOnDeviceProvider,
+        liveSessionActiveProvider,
+        LibraryMatch,
+        LibraryEvent;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/wf_button.dart';
@@ -178,6 +183,8 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         ref.watch(isOnDeviceProvider(widget.matchId)).valueOrNull ?? false;
 
     final selectedCount = _selected.length;
+    // HARD INVARIANT — no past-video retrieval while a match is live.
+    final retrievalLocked = ref.watch(liveSessionActiveProvider);
 
     // Trigger overlay-state build once (idempotent guard inside).
     _maybeStartInit(match);
@@ -214,6 +221,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
             notOnDevice: !isOnDevice,
             currentOverlay: _currentOverlay,
             onDownload: () => _showDownloadSheet(context, match),
+            retrievalLocked: retrievalLocked,
             isPlaying: _isPlaying,
             onPlayPauseTap: _togglePlayPause,
           ),
@@ -303,6 +311,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
           ),
           _Footer(
             selectedCount: selectedCount,
+            retrievalLocked: retrievalLocked,
             onDownload: () => _showDownloadSheet(context, match),
           ),
         ],
@@ -311,6 +320,18 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   }
 
   void _showDownloadSheet(BuildContext context, LibraryMatch match) {
+    // Defense-in-depth: the buttons are disabled while live, but never open
+    // the retrieval sheet if a session is active.
+    if (ref.read(liveSessionActiveProvider)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Can't retrieve videos while a match is live. End the session first.",
+          ),
+        ),
+      );
+      return;
+    }
     final selectedEvents = [
       for (int i = 0; i < match.events.length; i++)
         if (_selected.contains(i)) match.events[i],
@@ -364,6 +385,7 @@ class _Player extends StatelessWidget {
     required this.notOnDevice,
     required this.currentOverlay,
     required this.onDownload,
+    required this.retrievalLocked,
     required this.isPlaying,
     required this.onPlayPauseTap,
   });
@@ -378,6 +400,9 @@ class _Player extends StatelessWidget {
   final bool notOnDevice;
   final app_overlay.OverlayState currentOverlay;
   final VoidCallback onDownload;
+
+  /// True while a match is live — disables the on-frame download CTA.
+  final bool retrievalLocked;
   final bool isPlaying;
   final VoidCallback onPlayPauseTap;
 
@@ -522,10 +547,12 @@ class _Player extends StatelessWidget {
           color: T.bg,
           child: Center(
             child: WfButton(
-              label: 'Download to watch',
+              label: retrievalLocked
+                  ? 'Unavailable during live session'
+                  : 'Download to watch',
               variant: WfButtonVariant.primary,
               leading: const Icon(Icons.download, size: 15, color: T.accentInk),
-              onPressed: onDownload,
+              onPressed: retrievalLocked ? null : onDownload,
             ),
           ),
         ),
@@ -813,8 +840,15 @@ class _EventRow extends StatelessWidget {
 }
 
 class _Footer extends StatelessWidget {
-  const _Footer({required this.selectedCount, required this.onDownload});
+  const _Footer({
+    required this.selectedCount,
+    required this.retrievalLocked,
+    required this.onDownload,
+  });
   final int selectedCount;
+
+  /// True while a match is live — disables the footer download button.
+  final bool retrievalLocked;
   final VoidCallback onDownload;
 
   @override
@@ -825,15 +859,17 @@ class _Footer extends StatelessWidget {
         top: BorderSide(color: T.rule),
       ).toBoxDecoration(),
       child: WfButton(
-        label: selectedCount > 0
-            ? 'Download · $selectedCount clips'
-            : 'Download · options',
+        label: retrievalLocked
+            ? 'Unavailable during live session'
+            : (selectedCount > 0
+                  ? 'Download · $selectedCount clips'
+                  : 'Download · options'),
         variant: WfButtonVariant.primary,
         leading: const Text(
           '↓',
           style: TextStyle(color: T.accentInk, fontWeight: FontWeight.w700),
         ),
-        onPressed: onDownload,
+        onPressed: retrievalLocked ? null : onDownload,
       ),
     );
   }

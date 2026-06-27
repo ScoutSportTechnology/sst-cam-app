@@ -15,7 +15,22 @@ import '../../../core/state/db_providers.dart'
     show clipServiceProvider, videoPathServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../video_state.dart'
-    show isOnDeviceProvider, LibraryMatch, LibraryEvent;
+    show
+        isOnDeviceProvider,
+        liveSessionActiveProvider,
+        LibraryMatch,
+        LibraryEvent;
+
+// Shown when retrieval is attempted (or rejected) during a live session.
+const _kLiveSessionBlocked =
+    "Can't retrieve videos while a match is live. End the session first.";
+
+String _mapDownloadError(Object e) {
+  // Firmware rejects mid-session retrieval with LIVE_SESSION_ACTIVE — surface
+  // the same friendly message as the client-side gate.
+  if (e.toString().contains('LIVE_SESSION_ACTIVE')) return _kLiveSessionBlocked;
+  return e.toString();
+}
 
 /// Real recording metadata (size + duration) reported by the connected camera
 /// for [matchId], or null when no camera is connected or it has no such
@@ -102,6 +117,12 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   Future<void> _start() async {
     setState(() => _error = null);
 
+    // HARD INVARIANT — no past-video retrieval while a match is live.
+    if (ref.read(liveSessionActiveProvider)) {
+      setState(() => _error = _kLiveSessionBlocked);
+      return;
+    }
+
     if (_mode == _DownloadMode.full) {
       await _startFullDownload();
     } else {
@@ -148,13 +169,13 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           );
         },
         onError: (e) {
-          if (mounted) setState(() => _error = e.toString());
+          if (mounted) setState(() => _error = _mapDownloadError(e));
         },
         cancelOnError: true,
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(() => _error = _mapDownloadError(e));
     }
   }
 
