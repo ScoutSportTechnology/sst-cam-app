@@ -169,6 +169,30 @@ void main() {
     await svc.dispose();
   });
 
+  test(
+    'deny path — nearby-wifi permission refused surfaces a clear error',
+    () async {
+      final svc = WifiServiceImpl(
+        ble: _FakeBle(_group('GO')),
+        requestNearbyWifiPermission: () async => false,
+      );
+      await expectLater(
+        svc.connectGroup('dev-perm'),
+        throwsA(
+          isA<WifiDirectException>().having(
+            (e) => e.message,
+            'message',
+            contains('permission denied'),
+          ),
+        ),
+      );
+      // The native join must NOT be attempted when permission is refused.
+      expect(connectCalls, 0);
+      expect(svc.currentGroup('dev-perm'), isNull);
+      await svc.dispose();
+    },
+  );
+
   test('error path — unexpected client role surfaces a clear error', () async {
     final svc = WifiServiceImpl(ble: _FakeBle(_group('client')));
     await expectLater(

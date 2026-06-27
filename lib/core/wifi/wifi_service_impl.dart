@@ -16,6 +16,12 @@ import '../services/video_path_service.dart';
 import 'wifi_p2p_channel.dart';
 import 'wifi_service.dart';
 
+/// Requests the runtime permission required to join a WiFi Direct group and
+/// returns true when usable (granted or limited). Injectable so the deny
+/// branch of [WifiServiceImpl.connectGroup] is unit-testable without a
+/// platform permission dialog.
+typedef NearbyWifiPermissionRequester = Future<bool> Function();
+
 /// Real WiFi Direct implementation.
 ///
 /// Pending firmware wiring:
@@ -25,12 +31,28 @@ import 'wifi_service.dart';
 ///   * a chunked HTTP download client for `startDownload`, with byte-range
 ///     resume support against the Jetson's recording HTTP server.
 class WifiServiceImpl implements WifiService {
-  WifiServiceImpl({required BleService ble, Dio? dio})
-    : _ble = ble,
-      _dio = dio ?? Dio();
+  WifiServiceImpl({
+    required BleService ble,
+    Dio? dio,
+    NearbyWifiPermissionRequester? requestNearbyWifiPermission,
+  }) : _ble = ble,
+       _dio = dio ?? Dio(),
+       _requestNearbyWifiPermission =
+           requestNearbyWifiPermission ?? _defaultNearbyWifiPermission;
 
   final BleService _ble;
   final Dio _dio;
+  final NearbyWifiPermissionRequester _requestNearbyWifiPermission;
+
+  // Real requester: only Android 13+ gates WifiP2pManager.connect() on the
+  // NEARBY_WIFI_DEVICES permission; elsewhere it's a no-op grant. Ask
+  // permission_handler and accept granted OR limited.
+  static Future<bool> _defaultNearbyWifiPermission() async {
+    if (!Platform.isAndroid) return true;
+    final status = await Permission.nearbyWifiDevices.request();
+    return status.isGranted || status.isLimited;
+  }
+
   final WifiP2pChannel _channel = WifiP2pChannel();
 
   final _rng = Random();
@@ -176,15 +198,13 @@ class WifiServiceImpl implements WifiService {
     // after StartWifiDirect, so a denial left the firmware group orphaned and the
     // next attempt raced a still-up group ("wifi failed"). permission_handler
     // reports granted on iOS / older Android where the permission doesn't gate.
-    if (Platform.isAndroid) {
-      final status = await Permission.nearbyWifiDevices.request();
-      if (!status.isGranted && !status.isLimited) {
-        _emitState(deviceId, WifiDirectState.failed);
-        throw const WifiDirectException(
-          'Nearby Wi-Fi devices permission denied — grant it to join the '
-          'camera preview network.',
-        );
-      }
+    final permitted = await _requestNearbyWifiPermission();
+    if (!permitted) {
+      _emitState(deviceId, WifiDirectState.failed);
+      throw const WifiDirectException(
+        'Nearby Wi-Fi devices permission denied — grant it to join the '
+        'camera preview network.',
+      );
     }
 
     // Subscribe to the EventChannel BEFORE invoking connect so that the first
