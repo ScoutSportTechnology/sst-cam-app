@@ -464,6 +464,12 @@ class BleProtocol {
               )
               as T?,
         );
+      case proto.CommandResponse_Payload.previewLayout:
+      case proto.CommandResponse_Payload.exportJob:
+        // #6 preview-layout / overlayed-export responses. The app does not
+        // consume these yet (A6b/A6c is future work); OK with null until the
+        // dual-preview + on-demand-burn flows are wired.
+        return BleCommandResponse.ok(null as T?);
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
         // match control, score/banner events, overlay/session push). If T is a

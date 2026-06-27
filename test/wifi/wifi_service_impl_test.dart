@@ -60,10 +60,27 @@ void main() {
 
   var connectCalls = 0;
 
+  // Push a native state code onto the EventChannel stream, as the Kotlin
+  // BroadcastReceiver would (0=idle … 2=connected, 3=failed).
+  Future<void> emitState(int code) async {
+    await messenger.handlePlatformMessage(
+      eventChannelName,
+      const StandardMethodCodec().encodeSuccessEnvelope(code),
+      (_) {},
+    );
+  }
+
   setUp(() {
     connectCalls = 0;
     messenger.setMockMethodCallHandler(method, (call) async {
-      if (call.method == 'connect') connectCalls++;
+      if (call.method == 'connect') {
+        connectCalls++;
+        // connectGroup now waits for real group formation (STATE_CONNECTED)
+        // after a negotiation is accepted. Emit it just after connect() returns
+        // so _awaitGroupFormation has subscribed — mirrors the device, where
+        // CONNECTION_CHANGED arrives a few seconds later.
+        Future.delayed(const Duration(milliseconds: 10), () => emitState(2));
+      }
       return null;
     });
     // EventChannel: respond to the listen handshake so receiveBroadcastStream
@@ -151,6 +168,30 @@ void main() {
     expect(connectCalls, 1);
     await svc.dispose();
   });
+
+  test(
+    'deny path — nearby-wifi permission refused surfaces a clear error',
+    () async {
+      final svc = WifiServiceImpl(
+        ble: _FakeBle(_group('GO')),
+        requestNearbyWifiPermission: () async => false,
+      );
+      await expectLater(
+        svc.connectGroup('dev-perm'),
+        throwsA(
+          isA<WifiDirectException>().having(
+            (e) => e.message,
+            'message',
+            contains('permission denied'),
+          ),
+        ),
+      );
+      // The native join must NOT be attempted when permission is refused.
+      expect(connectCalls, 0);
+      expect(svc.currentGroup('dev-perm'), isNull);
+      await svc.dispose();
+    },
+  );
 
   test('error path — unexpected client role surfaces a clear error', () async {
     final svc = WifiServiceImpl(ble: _FakeBle(_group('client')));

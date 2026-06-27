@@ -9,17 +9,19 @@ void main() {
         awayName: 'Away',
       );
 
-      expect(layout.canvasWidth, equals(1920));
-      expect(layout.canvasHeight, equals(1080));
+      // Authored at the firmware's native output (Variant A bug).
+      expect(layout.canvasWidth, equals(1280));
+      expect(layout.canvasHeight, equals(720));
     });
 
-    test('layout contains exactly 6 persistent elements', () {
+    test('layout contains the bug elements', () {
       final layout = defaultScoreboardLayout(
         homeName: 'Home',
         awayName: 'Away',
       );
 
-      expect(layout.elements, hasLength(6));
+      // bg, clock cell, two color tabs, home/away names, score, clock, period.
+      expect(layout.elements, hasLength(9));
     });
 
     test('persistent elements include all required bindings', () {
@@ -112,25 +114,22 @@ void main() {
       expect(t.durationMs, equals(4000));
     });
 
-    test(
-      'null colors fall back to #808080 — no null textColor on named elements',
-      () {
-        final layout = defaultScoreboardLayout(
-          homeName: 'Home',
-          awayName: 'Away',
-          homeColorHex: null,
-          awayColorHex: null,
-        );
+    test('null colors fall back to a neutral tab color', () {
+      final layout = defaultScoreboardLayout(
+        homeName: 'Home',
+        awayName: 'Away',
+        homeColorHex: null,
+        awayColorHex: null,
+      );
 
-        final homeEl = layout.elements.firstWhere((e) => e.id == 'home_name');
-        final awayEl = layout.elements.firstWhere((e) => e.id == 'away_name');
+      // Team colors drive the end tabs (names are white for contrast).
+      final homeTab = layout.elements.firstWhere((e) => e.id == 'home_tab');
+      final awayTab = layout.elements.firstWhere((e) => e.id == 'away_tab');
+      expect(homeTab.style.fillColor, equals('#9AA3B2'));
+      expect(awayTab.style.fillColor, equals('#9AA3B2'));
+    });
 
-        expect(homeEl.style.textColor, equals('#808080'));
-        expect(awayEl.style.textColor, equals('#808080'));
-      },
-    );
-
-    test('provided colors are applied to home and away elements', () {
+    test('provided colors are applied to the home and away tabs', () {
       final layout = defaultScoreboardLayout(
         homeName: 'Home FC',
         awayName: 'Away FC',
@@ -138,11 +137,10 @@ void main() {
         awayColorHex: '#0000FF',
       );
 
-      final homeEl = layout.elements.firstWhere((e) => e.id == 'home_name');
-      final awayEl = layout.elements.firstWhere((e) => e.id == 'away_name');
-
-      expect(homeEl.style.textColor, equals('#FF0000'));
-      expect(awayEl.style.textColor, equals('#0000FF'));
+      final homeTab = layout.elements.firstWhere((e) => e.id == 'home_tab');
+      final awayTab = layout.elements.firstWhere((e) => e.id == 'away_tab');
+      expect(homeTab.style.fillColor, equals('#FF0000'));
+      expect(awayTab.style.fillColor, equals('#0000FF'));
     });
   });
 

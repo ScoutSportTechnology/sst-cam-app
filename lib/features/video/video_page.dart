@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,6 +10,9 @@ import '../../core/widgets/wf_chip.dart';
 import '../../core/widgets/wf_filter_bar.dart';
 import '../discovery/discovery_page.dart';
 import 'playback/video_match_detail_page.dart';
+import '../camera/camera_state.dart';
+import '../../core/ble/ble_providers.dart';
+import '../../core/models/device.dart';
 
 class VideoPage extends ConsumerWidget {
   const VideoPage({super.key});
@@ -191,6 +196,7 @@ class _MatchCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final onDeviceAsync = ref.watch(isOnDeviceProvider(match.id));
+    final thumbPath = ref.watch(matchThumbnailProvider(match.id)).valueOrNull;
 
     return InkWell(
       onTap: () {
@@ -207,25 +213,23 @@ class _MatchCard extends ConsumerWidget {
         ).toBoxDecoration(),
         child: Row(
           children: [
-            // Left: circular avatar badge with team shortName
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: T.fillMid,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                match.teamShortName,
-                style: const TextStyle(
-                  fontFamily: T.mono,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                  color: T.ink2,
+            // Left: camera thumbnail when available, else a team-badge fallback.
+            if (thumbPath != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.file(
+                  File(thumbPath),
+                  width: 56,
+                  height: 40,
+                  fit: BoxFit.cover,
+                  // A corrupt/partial cache file shouldn't crash the list —
+                  // fall back to the badge.
+                  errorBuilder: (_, _, _) =>
+                      _TeamBadge(label: match.teamShortName),
                 ),
-              ),
-            ),
+              )
+            else
+              _TeamBadge(label: match.teamShortName),
             const SizedBox(width: 12),
             // Title and subtitle
             Expanded(
@@ -269,6 +273,32 @@ class _MatchCard extends ConsumerWidget {
   }
 }
 
+/// Fallback avatar shown when a match has no cached camera thumbnail.
+class _TeamBadge extends StatelessWidget {
+  const _TeamBadge({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 56,
+    height: 40,
+    decoration: BoxDecoration(
+      color: T.fillMid,
+      borderRadius: BorderRadius.circular(6),
+    ),
+    alignment: Alignment.center,
+    child: Text(
+      label,
+      style: const TextStyle(
+        fontFamily: T.mono,
+        fontWeight: FontWeight.w700,
+        fontSize: 12,
+        color: T.ink2,
+      ),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Empty states
 // ---------------------------------------------------------------------------
@@ -298,11 +328,16 @@ class _EmptyFilterState extends StatelessWidget {
   }
 }
 
-class _NoVideosEmptyState extends StatelessWidget {
+class _NoVideosEmptyState extends ConsumerWidget {
   const _NoVideosEmptyState();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeId = ref.watch(activeCameraIdProvider);
+    final connected =
+        activeId != null &&
+        ref.watch(connectionStateProvider(activeId)).valueOrNull ==
+            CameraConnectionState.connected;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -336,22 +371,34 @@ class _NoVideosEmptyState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Record a match to start building your library.',
+            Text(
+              connected
+                  ? 'Record a match to start building your library.'
+                  : 'Connect your camera, then record a match to build your library.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
+              style: const TextStyle(fontSize: 12, color: T.ink2, height: 1.4),
             ),
             const SizedBox(height: 18),
-            WfButton(
-              label: 'Connect camera',
-              variant: WfButtonVariant.primary,
-              full: true,
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DiscoveryPage()),
-                );
-              },
-            ),
+            // The CTA reflects connection state: a connected camera shouldn't be
+            // told to "Connect camera" (bug #9) — route it to record instead.
+            if (connected)
+              WfButton(
+                label: 'Go to Match',
+                variant: WfButtonVariant.primary,
+                full: true,
+                onPressed: () => ref.read(activeTabProvider.notifier).state = 2,
+              )
+            else
+              WfButton(
+                label: 'Connect camera',
+                variant: WfButtonVariant.primary,
+                full: true,
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const DiscoveryPage()),
+                  );
+                },
+              ),
           ],
         ),
       ),

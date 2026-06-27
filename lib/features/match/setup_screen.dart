@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
@@ -73,8 +72,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   // Stable match UUID for the current setup session. Generated on first tap
   // and reused on retry so the camera always sees the same UUID.
   String? _matchUuid;
-
-  static const _uuid = Uuid();
 
   @override
   Widget build(BuildContext context) {
@@ -287,8 +284,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     );
   }
 
-  // Fix 17: UUID v4 format regex used to validate UUIDs before interpolating
-  // them into output paths.
+  // matchUuid is the team_match id — a v4 UUID by contract (ids are minted with
+  // Uuid().v4()). It is interpolated into the camera filesystem path, so enforce
+  // the UUID shape here: it both upholds the "ids are UUIDs, never strings" rule
+  // and guarantees the value can't contain a '/'/'.'/'..' that escapes the dir.
   static final _uuidRegex = RegExp(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
   );
@@ -306,8 +305,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final userUuid = ref.read(activeUserProvider);
     if (userUuid == null) return;
 
-    // Generate a stable match UUID on first tap; reuse on retry.
-    _matchUuid ??= _uuid.v4();
+    // Record under the team_match id (a UUID): the firmware writes to
+    // .../videos/<user>/<matchUuid>/, and the Library row finalized on match end
+    // shares that id, so the recording links back to it and can be downloaded.
+    _matchUuid ??= widget.match.match.id;
     final matchUuid = _matchUuid!;
 
     final rtmpUrl =
@@ -327,15 +328,22 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       numPeriods: periods,
       periodLengthSeconds: periodLengthSeconds,
       rtmpUrl: rtmpUrl,
-      videoOutputPath: '/data/video/$userUuid/$matchUuid/',
-      thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
+      // Root these under the firmware's provisioned storage (chowned to the
+      // non-root sst-cam service user, and the dir the DownloadServer enumerates).
+      // The old /data/video|/data/thumbnail roots don't exist on the device and
+      // aren't writable, so mkdir failed -> "Failed to configure camera", and any
+      // recording there would also be invisible to downloads.
+      videoOutputPath: '/var/lib/sst/cam/videos/$userUuid/$matchUuid/',
+      thumbnailOutputPath: '/var/lib/sst/cam/thumbnails/$userUuid/$matchUuid/',
       teamAId: widget.match.team.id,
       // The opponent has no team record/UUID, so its display name doubles as the
       // stable team B identifier. ScoreUpdateCommand for the away team sends the
       // same value (see session_screen) so the firmware routes goals correctly.
       teamBId: opponentName,
-      teamAName: widget.match.team.name,
-      teamBName: opponentName,
+      // The scoreboard bug is compact — show short codes (home short-name,
+      // a derived 3-letter code for the opponent), standardised in length.
+      teamAName: widget.match.team.shortName,
+      teamBName: _shortCode(opponentName),
       teamAColorHex: widget.match.team.colorHex,
     );
 
@@ -345,11 +353,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     });
 
     try {
-      // Fix 17: Validate matchUuid against the UUID v4 format before
-      // interpolating it into the camera filesystem path. matchUuid is
-      // generated above via Uuid().v4(), so this guard should never fire in
-      // practice — it defends against accidental code changes that replace the
-      // UUID generator with unvalidated input.
+      // matchUuid (the team_match id) is interpolated into the camera
+      // filesystem path; reject anything that isn't a safe path segment before
+      // it gets there, so a malformed id can't escape the per-match directory.
       _validateUuid(matchUuid, 'matchUuid');
 
       final ble = ref.read(bleServiceProvider);
@@ -364,7 +370,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           ? opponent.substring(3)
           : opponent;
       final layout = defaultScoreboardLayout(
-        homeName: widget.match.team.name,
+        // Short name reads best in the compact scoreboard bug.
+        homeName: widget.match.team.shortName,
         awayName: awayName,
         homeColorHex: widget.match.team.colorHex,
         awayColorHex: null,
@@ -437,6 +444,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 String _stripSportPrefix(String name, String sport) {
   final pref = '$sport · ';
   return name.startsWith(pref) ? name.substring(pref.length) : name;
+}
+
+/// A compact, scoreboard-friendly code for a free-text opponent name (which has
+/// no short-name field): the first three letters, uppercased — "Eastfield FC"
+/// → "EAS". Falls back to the trimmed name when it has no letters.
+String _shortCode(String name) {
+  final letters = name.replaceAll(RegExp('[^A-Za-z]'), '');
+  if (letters.isEmpty) return name.trim().toUpperCase();
+  return letters
+      .substring(0, letters.length < 3 ? letters.length : 3)
+      .toUpperCase();
 }
 
 // ---------------------------------------------------------------------------

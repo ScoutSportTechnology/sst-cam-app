@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
+
+import 'log_viewer_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
+import '../../../core/config/dev_navigation.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -116,6 +119,7 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
     final state = ref.watch(developerSettingsProvider);
     final notifier = ref.read(developerSettingsProvider.notifier);
     final staged = state.stagedConfig;
+    final devNav = ref.watch(devNavigationProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -136,94 +140,151 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
             const SizedBox(height: 12),
           ],
 
-          // Seed app data
-          const _SectionHeader('Seed app data'),
+          // Diagnostics
+          const _SectionHeader('Diagnostics'),
           WfCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Seed app data',
+            padding: EdgeInsets.zero,
+            // ListTiles paint their ink/splashes on the nearest Material; the
+            // WfCard's coloured DecoratedBox would hide them (and newer Flutter
+            // asserts on it). Give the tiles their own transparent Material.
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                children: [
+                  ListTile(
+                    title: const Text(
+                      'Logs',
+                      style: TextStyle(color: T.ink, fontSize: 14),
+                    ),
+                    subtitle: const Text(
+                      'In-app debugPrint capture — copy/share without adb.',
+                      style: TextStyle(color: T.ink2, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const LogViewerPage()),
+                    ),
+                  ),
+                  // Database browser + reset. Lives here (visible) rather than
+                  // behind the old long-press-About gesture. Injected via
+                  // devNavigationProvider so it stays out of prod builds.
+                  if (devNav.debugPage != null) ...[
+                    const Divider(height: 1, color: T.rule),
+                    ListTile(
+                      title: const Text(
+                        'Database browser',
                         style: TextStyle(color: T.ink, fontSize: 14),
                       ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Fills the local database with sample teams, matches '
-                        'and players, plus on-device past-match videos.',
+                      subtitle: const Text(
+                        'Inspect users/teams/matches/clips; reset + reseed.',
                         style: TextStyle(color: T.ink2, fontSize: 12),
                       ),
-                    ],
-                  ),
-                ),
-                Switch(
-                  key: const Key('seedDataSwitch'),
-                  value: staged.seedData,
-                  onChanged: notifier.setSeedData,
-                  activeThumbColor: T.accent,
-                ),
-              ],
+                      trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => devNav.debugPage!()),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
 
-          // Camera (BLE + live WiFi)
-          const _SectionHeader('Camera'),
-          WfCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Emulate camera',
-                            style: TextStyle(color: T.ink, fontSize: 14),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Mock BLE device advertises and the live WiFi '
-                            'preview/download endpoints respond.',
-                            style: TextStyle(color: T.ink2, fontSize: 12),
-                          ),
-                        ],
-                      ),
+          // Mock/seed controls. The emulator advertising and mock preview/
+          // download endpoints only take effect on the mock backend (dev
+          // entry); on a real-backend build they are inert but kept visible
+          // for reference. The Database browser above (reset + reseed) is the
+          // data tool that works against any backend.
+          ...[
+            const _SectionHeader('Seed app data'),
+            WfCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Seed app data',
+                          style: TextStyle(color: T.ink, fontSize: 14),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Fills the local database with sample teams, matches '
+                          'and players, plus on-device past-match videos.',
+                          style: TextStyle(color: T.ink2, fontSize: 12),
+                        ),
+                      ],
                     ),
-                    Switch(
-                      key: const Key('cameraEmulationSwitch'),
-                      value: staged.cameraEmulation,
-                      onChanged: notifier.setCameraEmulation,
-                      activeThumbColor: T.accent,
-                    ),
-                  ],
-                ),
-                const Divider(height: 20, color: T.hair),
-                _baseUrlField(
-                  fieldKey: const Key('previewBaseField'),
-                  label: 'Preview base URL',
-                  controller: _previewController,
-                  hint: DevConfig.defaults.previewBaseUrl,
-                  onChanged: () => _previewDirty = true,
-                  onCommit: _commitPreviewBase,
-                ),
-                const SizedBox(height: 10),
-                _baseUrlField(
-                  fieldKey: const Key('downloadBaseField'),
-                  label: 'Download base URL',
-                  controller: _downloadController,
-                  hint: DevConfig.defaults.downloadBaseUrl,
-                  onChanged: () => _downloadDirty = true,
-                  onCommit: _commitDownloadBase,
-                ),
-              ],
+                  ),
+                  Switch(
+                    key: const Key('seedDataSwitch'),
+                    value: staged.seedData,
+                    onChanged: notifier.setSeedData,
+                    activeThumbColor: T.accent,
+                  ),
+                ],
+              ),
             ),
-          ),
+            const SizedBox(height: 16),
+
+            // Camera (BLE + live WiFi)
+            const _SectionHeader('Camera'),
+            WfCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Emulate camera',
+                              style: TextStyle(color: T.ink, fontSize: 14),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Mock BLE device advertises and the live WiFi '
+                              'preview/download endpoints respond.',
+                              style: TextStyle(color: T.ink2, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        key: const Key('cameraEmulationSwitch'),
+                        value: staged.cameraEmulation,
+                        onChanged: notifier.setCameraEmulation,
+                        activeThumbColor: T.accent,
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 20, color: T.hair),
+                  _baseUrlField(
+                    fieldKey: const Key('previewBaseField'),
+                    label: 'Preview base URL',
+                    controller: _previewController,
+                    hint: DevConfig.defaults.previewBaseUrl,
+                    onChanged: () => _previewDirty = true,
+                    onCommit: _commitPreviewBase,
+                  ),
+                  const SizedBox(height: 10),
+                  _baseUrlField(
+                    fieldKey: const Key('downloadBaseField'),
+                    label: 'Download base URL',
+                    controller: _downloadController,
+                    hint: DevConfig.defaults.downloadBaseUrl,
+                    onChanged: () => _downloadDirty = true,
+                    onCommit: _commitDownloadBase,
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 32),
 
           WfButton(

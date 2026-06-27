@@ -38,9 +38,11 @@ dependencies:
   # v1 embedding API (PluginRegistry.Registrar) → build failure. v7.4.3 is the
   # first version that drops v1 embedding AND keeps the old channel format.
   flutter_vlc_player: 7.4.3
-  # Cut-only MP4 trimming (no re-encode). LGPL, FFmpeg 7.1.1. Community-maintained
-  # fork of the archived arthenica/ffmpeg-kit (ffmpeg_kit_flutter_min had a broken Maven artifact).
-  ffmpeg_kit_flutter_new_full: ^2.0.0
+  # NOTE: clip trimming is done natively (Android MediaExtractor + MediaMuxer via
+  # the com.sst.sstcam/media channel — see ClipService). ffmpeg-kit was removed:
+  # its prebuilt libavfilter.so failed to dlopen on modern Android
+  # (UnsatisfiedLinkError: std::__ndk1::bad_function_call) and crashed the app,
+  # and it bloated the APK by ~300 MB for a stream-copy cut the platform does natively.
 
   # Storage
   drift: ^2.20.2

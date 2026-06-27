@@ -119,12 +119,13 @@ class PushSessionConfig {
   /// (optional). May be null even when [rtmpUrl] is provided.
   final String? streamKey;
 
-  /// Absolute path on the camera where video files will be written, e.g.
-  /// `/data/video/{userUuid}/{matchUuid}/`.
+  /// Absolute path on the camera where video files will be written, under the
+  /// firmware's provisioned storage root, e.g.
+  /// `/var/lib/sst/cam/videos/{userUuid}/{matchUuid}/`.
   final String videoOutputPath;
 
   /// Absolute path on the camera where thumbnail files will be written, e.g.
-  /// `/data/thumbnail/{userUuid}/{matchUuid}/`.
+  /// `/var/lib/sst/cam/thumbnails/{userUuid}/{matchUuid}/`.
   final String thumbnailOutputPath;
 
   /// Stable id of team A (home), e.g. the local DB team UUID. Optional —

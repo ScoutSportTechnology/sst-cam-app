@@ -152,28 +152,15 @@ class SettingsPage extends ConsumerWidget {
                   ),
                 ),
                 const Divider(height: 1, color: T.rule),
-                Builder(
-                  builder: (ctx) {
-                    final devNav = ref.watch(devNavigationProvider);
-                    return GestureDetector(
-                      onLongPress: devNav.debugPage != null
-                          ? () => Navigator.push(
-                              ctx,
-                              MaterialPageRoute<void>(
-                                builder: (_) => devNav.debugPage!(),
-                              ),
-                            )
-                          : null,
-                      child: const _RowItem(
-                        leading: Icon(Icons.info_outline),
-                        label: 'About',
-                        trailing: Text(
-                          '0.3.2',
-                          style: TextStyle(color: T.ink2, fontSize: 12),
-                        ),
-                      ),
-                    );
-                  },
+                // The DB debug browser used to hide behind a long-press here;
+                // it now has a visible row in Settings → Developer.
+                const _RowItem(
+                  leading: Icon(Icons.info_outline),
+                  label: 'About',
+                  trailing: Text(
+                    '0.3.2',
+                    style: TextStyle(color: T.ink2, fontSize: 12),
+                  ),
                 ),
               ],
             ),

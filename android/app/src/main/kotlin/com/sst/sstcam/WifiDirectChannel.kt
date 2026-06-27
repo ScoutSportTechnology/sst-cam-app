@@ -88,16 +88,58 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
             .setPassphrase(psk)
             .build()
 
+        // Clear any lingering P2P group from a previous session BEFORE joining.
+        // Calling connect() while a stale group is still up (the app was closed
+        // or backgrounded without a clean disconnect, so p2p-wlan0-0 persists)
+        // intermittently fails with BUSY (reason 2) — the "wifi failed" seen after
+        // a few app close/reopen cycles. removeGroup is best-effort: a clean
+        // remove and a "no group present" failure both proceed to the join. The
+        // receiver is registered only AFTER removal (in doConnect) so the remove's
+        // own connection-changed broadcast isn't forwarded as a spurious
+        // disconnect mid-connect.
+        Log.w(TAG, "connect() ssid=$ssid — clearing stale group before join")
+        mgr.removeGroup(ch, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                Log.w(TAG, "removeGroup ok → join")
+                doConnect(mgr, ch, config, result)
+            }
+            override fun onFailure(reason: Int) {
+                Log.w(TAG, "removeGroup failed reason=${reasonName(reason)} → join anyway")
+                doConnect(mgr, ch, config, result)
+            }
+        })
+    }
+
+    // WifiP2pManager.ActionListener reason codes, named for log readability.
+    private fun reasonName(reason: Int): String = when (reason) {
+        WifiP2pManager.ERROR -> "ERROR(0)"
+        WifiP2pManager.P2P_UNSUPPORTED -> "P2P_UNSUPPORTED(1)"
+        WifiP2pManager.BUSY -> "BUSY(2)"
+        WifiP2pManager.NO_SERVICE_REQUESTS -> "NO_SERVICE_REQUESTS(3)"
+        else -> "UNKNOWN($reason)"
+    }
+
+    private fun doConnect(
+        mgr: WifiP2pManager,
+        ch: WifiP2pManager.Channel,
+        config: WifiP2pConfig,
+        result: Result,
+    ) {
         // Register broadcast receiver to get connection state
         registerReceiver()
 
         mgr.connect(ch, config, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
+                Log.w(TAG, "connect() negotiation accepted — awaiting CONNECTION_CHANGED")
                 result.success(null)
             }
             override fun onFailure(reason: Int) {
+                Log.w(TAG, "connect() onFailure reason=${reasonName(reason)}")
                 unregisterReceiver()
-                eventSink?.success(STATE_FAILED)
+                // Don't push STATE_FAILED here: the Dart side retries connect()
+                // (Android P2P is flaky on reconnect) and owns the final failed
+                // state once its retries are exhausted. Emitting here would flash
+                // "WIFI · FAILED" between otherwise-successful retries.
                 result.error("CONNECT_FAILED", "WifiP2p connect failed: $reason", null)
             }
         })
@@ -141,12 +183,14 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
                             intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_INFO)
                         }
                         if (info?.isGroupOwner == false && info.groupFormed) {
+                            Log.w(TAG, "CONNECTION_CHANGED: groupFormed, client role → STATE_CONNECTED")
                             eventSink?.success(STATE_CONNECTED)
                         } else if (info?.isGroupOwner == true && info.groupFormed) {
                             // Device became group owner unexpectedly; we only join as client.
-                            Log.w(TAG, "Device became GO unexpectedly; emitting STATE_FAILED")
+                            Log.w(TAG, "CONNECTION_CHANGED: phone became GO unexpectedly → STATE_FAILED")
                             eventSink?.success(STATE_FAILED)
                         } else if (info?.groupFormed == false) {
+                            Log.w(TAG, "CONNECTION_CHANGED: groupFormed=false → STATE_IDLE")
                             eventSink?.success(STATE_IDLE)
                         }
                     }

@@ -27,7 +27,7 @@ import 'package:sst_cam_app/features/settings/users/users_state.dart'
     show activeUserProvider;
 import 'package:sst_cam_app/features/video/playback/download_sheet.dart';
 import 'package:sst_cam_app/features/video/video_state.dart'
-    show isOnDeviceProvider, LibraryMatch;
+    show isOnDeviceProvider, liveSessionActiveProvider, LibraryMatch;
 import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 import 'package:drift/drift.dart' show Value;
@@ -153,6 +153,10 @@ Widget _buildSheet({
     overrides: [
       appDatabaseProvider.overrideWithValue(db),
       bleServiceProvider.overrideWithValue(_newBle()),
+      // The sheet fetches real recording metadata on build; stub it so the
+      // mock's delayed listRecordings timer isn't left pending at teardown.
+      deviceRecordingProvider.overrideWith((ref, matchId) => null),
+      liveSessionActiveProvider.overrideWithValue(false),
       activeUserProvider.overrideWith((_) => 'user-1'),
       wifiServiceProvider.overrideWithValue(wifiSvc),
       videoPathServiceProvider.overrideWithValue(
@@ -372,6 +376,7 @@ void main() {
             overrides: [
               appDatabaseProvider.overrideWithValue(db.value),
               bleServiceProvider.overrideWithValue(_newBle()),
+              liveSessionActiveProvider.overrideWithValue(false),
               activeUserProvider.overrideWith((_) => 'user-1'),
               wifiServiceProvider.overrideWithValue(wifiSvc),
               videoPathServiceProvider.overrideWithValue(

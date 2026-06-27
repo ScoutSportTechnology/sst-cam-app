@@ -13,6 +13,22 @@ Widget _page({DevConfig activeConfig = const DevConfig()}) {
   );
 }
 
+/// Pump the page on a tall surface so every control (the switches, the bottom
+/// "Close & restart" button) is on-screen and hit-testable. With the default
+/// 800×600 the lower controls fall below the fold under CI font metrics and
+/// taps miss them ("widget is off-screen").
+Future<void> _pumpPage(
+  WidgetTester tester, {
+  DevConfig activeConfig = const DevConfig(),
+}) async {
+  tester.view.physicalSize = const Size(1200, 2600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(_page(activeConfig: activeConfig));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -20,8 +36,7 @@ void main() {
     testWidgets('renders seed data and camera switches (no mode chips)', (
       tester,
     ) async {
-      await tester.pumpWidget(_page());
-      await tester.pumpAndSettle();
+      await _pumpPage(tester);
 
       expect(find.byKey(const Key('seedDataSwitch')), findsOneWidget);
       expect(find.byKey(const Key('cameraEmulationSwitch')), findsOneWidget);
@@ -35,8 +50,7 @@ void main() {
     testWidgets(
       'editing the download base commits and shows the restart indicator',
       (tester) async {
-        await tester.pumpWidget(_page());
-        await tester.pumpAndSettle();
+        await _pumpPage(tester);
 
         expect(find.text('Restart to apply'), findsNothing);
 
@@ -56,8 +70,7 @@ void main() {
       'toggling seed data shows restart indicator when active is seeded',
       (tester) async {
         const active = DevConfig(seedData: true);
-        await tester.pumpWidget(_page(activeConfig: active));
-        await tester.pumpAndSettle();
+        await _pumpPage(tester, activeConfig: active);
 
         // No indicator initially
         expect(find.text('Restart to apply'), findsNothing);
@@ -73,8 +86,7 @@ void main() {
       tester,
     ) async {
       const active = DevConfig(cameraEmulation: true);
-      await tester.pumpWidget(_page(activeConfig: active));
-      await tester.pumpAndSettle();
+      await _pumpPage(tester, activeConfig: active);
 
       expect(find.text('Restart to apply'), findsNothing);
 
@@ -87,8 +99,7 @@ void main() {
     testWidgets(
       'no restart indicator when staged config matches active config',
       (tester) async {
-        await tester.pumpWidget(_page());
-        await tester.pumpAndSettle();
+        await _pumpPage(tester);
 
         expect(find.text('Restart to apply'), findsNothing);
       },
@@ -97,8 +108,7 @@ void main() {
     testWidgets('close button is disabled when no pending changes', (
       tester,
     ) async {
-      await tester.pumpWidget(_page());
-      await tester.pumpAndSettle();
+      await _pumpPage(tester);
 
       // No pending changes → button disabled (onPressed == null)
       final button = find.text('Close & restart');
@@ -113,8 +123,7 @@ void main() {
     testWidgets(
       'close button shows confirmation dialog when changes are pending',
       (tester) async {
-        await tester.pumpWidget(_page());
-        await tester.pumpAndSettle();
+        await _pumpPage(tester);
 
         // Make a change to enable the button
         await tester.tap(find.byKey(const Key('seedDataSwitch')));
@@ -131,8 +140,7 @@ void main() {
     testWidgets('Cancel in restart dialog closes dialog without restarting', (
       tester,
     ) async {
-      await tester.pumpWidget(_page());
-      await tester.pumpAndSettle();
+      await _pumpPage(tester);
 
       await tester.tap(find.byKey(const Key('seedDataSwitch')));
       await tester.pumpAndSettle();

@@ -13,6 +13,7 @@ import '../models/overlay_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 import 'ble_protocol.dart';
+import 'ble_seams.dart';
 import 'ble_service.dart';
 
 // UUIDs defined in proto/README.md.
@@ -149,12 +150,10 @@ class BleServiceImpl implements BleService {
       // (timeout fires or stopScan is called) — NOT when `startScan()` returns.
       // Guard on `sawScanning` so a stale `false` replayed at subscribe time
       // can't clear the slot we claimed above before the scan has even begun.
-      var sawScanning = false;
+      final scanLifecycle = ScanLifecycleTracker();
       await _isScanningSub?.cancel();
       _isScanningSub = FlutterBluePlus.isScanning.listen((scanning) {
-        if (scanning) {
-          sawScanning = true;
-        } else if (sawScanning) {
+        if (scanLifecycle.onScanningChanged(scanning)) {
           _isScanning = false;
           unawaited(_teardownScanSubscriptions());
         }
@@ -629,19 +628,20 @@ class _ConnectedDevice {
         final total = chunk.totalChunks;
 
         // Disambiguate an inbound ChunkAck (outbound flow-control) from an
-        // inbound ChunkedPayload response. Convention (mirrors firmware):
-        // total_chunks == 0 marks an ack frame; a real payload has total >= 1.
-        if (total == 0) {
-          _pendingAcks[corrId]?.remove(chunk.chunkIndex)?.complete();
-          return;
-        }
-
-        if (total == 1) {
-          // Single-chunk fast path: ack (flow control is symmetric per the
-          // contract) then deliver immediately.
-          _sendAck(corrId, chunk.chunkIndex);
-          _pendingRequests.remove(corrId)?.complete(rawBytes);
-          return;
+        // inbound ChunkedPayload response (total_chunks: 0=ack, 1=single, >=2
+        // multi). See [classifyInboundFrame].
+        switch (classifyInboundFrame(total)) {
+          case InboundFrameKind.ack:
+            _pendingAcks[corrId]?.remove(chunk.chunkIndex)?.complete();
+            return;
+          case InboundFrameKind.singlePayload:
+            // Single-chunk fast path: ack (flow control is symmetric per the
+            // contract) then deliver immediately.
+            _sendAck(corrId, chunk.chunkIndex);
+            _pendingRequests.remove(corrId)?.complete(rawBytes);
+            return;
+          case InboundFrameKind.multiPayload:
+            break; // fall through to reassembly below
         }
 
         // Multi-chunk: ack this chunk, then place its data at chunk_index

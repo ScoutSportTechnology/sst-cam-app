@@ -3,12 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ble/ble_providers.dart' show bleServiceProvider;
+import '../../core/models/overlay_layout.dart';
+import '../camera/camera_state.dart' show activeCameraIdProvider;
 import 'landing_screen.dart';
 import 'match_state.dart';
 import 'session/session_screen.dart';
 import 'session/session_state.dart';
 import 'setup_screen.dart';
-import '../teams/teams_state.dart' show teamsControllerProvider;
+
+/// An empty overlay pushed to the camera when a match session ends, so the
+/// firmware stops compositing the (now-stale) scoreboard onto the preview.
+const _clearOverlayLayout = OverlayLayout(
+  canvasWidth: 1280,
+  canvasHeight: 720,
+  elements: [],
+  templates: [],
+);
 
 /// The Match tab routes between Landing → Setup → Session based on user
 /// selection. The Session screen unifies the old pre-match and live views
@@ -52,6 +63,7 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     ref
         .read(liveMatchProvider.notifier)
         .loadFromUpcoming(
+          matchId: up.match.id,
           teamShortName: up.team.shortName,
           teamName: up.team.name,
           opponent: up.match.opponent,
@@ -64,31 +76,32 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     });
   }
 
-  /// Pop out of the live session back to landing. When the match ended
-  /// naturally we also remove the upcoming entry from the camera so it
-  /// no longer shows on the landing list.
-  ///
-  /// Order matters: we remove the camera-side entry FIRST and only then
-  /// flip the local state. Otherwise the landing rebuild can race with
-  /// the (mock-delayed) removal and briefly render the just-played match.
-  Future<void> _leave({required bool wasEnded}) async {
-    final selected = _selected;
-    if (wasEnded && selected != null) {
-      try {
-        await ref
-            .read(teamsControllerProvider.notifier)
-            .removeMatch(selected.team.id, selected.match.id);
-      } catch (_) {
-        // Non-fatal: the match may already be gone or the camera may
-        // have disconnected. We still want to leave the session.
-      }
-    }
-    if (!mounted) return;
+  /// Pop out of the live session back to landing. A match played to its end has
+  /// been finalized into a 'past' library entry (see _finalizeMatchToLibrary in
+  /// session_screen), which also flips it out of the 'upcoming' landing list —
+  /// so there is nothing to remove here. Deleting it (the old behavior, when
+  /// matches weren't persisted as recordings) would destroy the library entry.
+  void _leave() {
+    _clearCameraOverlay();
     ref.read(liveMatchProvider.notifier).reset();
     setState(() {
       _selected = null;
       _setupConfirmed = false;
     });
+  }
+
+  /// Tell the camera to drop the scoreboard when the user leaves the match —
+  /// the firmware caches the last rendered overlay and would otherwise keep it
+  /// on the preview after the match ends and into the next match.
+  void _clearCameraOverlay() {
+    final deviceId = ref.read(activeCameraIdProvider);
+    if (deviceId == null) return;
+    unawaited(
+      ref
+          .read(bleServiceProvider)
+          .pushOverlayLayout(deviceId, _clearOverlayLayout)
+          .catchError((Object _) {}),
+    );
   }
 
   @override
@@ -99,12 +112,7 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     // If a match is loaded and we've passed setup, render the session
     // screen for any non-idle phase OR the pre-game (idle) phase too.
     if (selected != null && _setupConfirmed) {
-      return SessionScreen(
-        match: selected,
-        onLeave: () => _leave(
-          wasEnded: ref.read(liveMatchProvider).phase == MatchPhase.ended,
-        ),
-      );
+      return SessionScreen(match: selected, onLeave: _leave);
     }
 
     if (selected == null) {

@@ -27,7 +27,7 @@ void main() {
   test('watchAll on fresh DB emits the default user from base seed', () async {
     final result = await db.usersDao.watchAll().first;
     expect(result, hasLength(1));
-    expect(result.first.id, 'default-user');
+    expect(result.first.id, kDefaultUserId);
   });
 
   test('insert user → watchAll emits it alongside the default user', () async {
@@ -87,7 +87,7 @@ void main() {
 
       final users = await db.usersDao.getAll();
       expect(users, hasLength(1));
-      expect(users.first.id, 'default-user');
+      expect(users.first.id, kDefaultUserId);
     },
   );
 

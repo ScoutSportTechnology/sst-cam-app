@@ -7,8 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/device.dart';
 import '../../core/models/telemetry.dart';
-import 'camera_state.dart' show activeCameraIdProvider;
-import 'raw_capture_state.dart';
+import 'camera_state.dart' show activeCameraIdProvider, activeTabProvider;
 import '../../core/ble/ble_providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
@@ -167,8 +166,13 @@ class _HeroCameraCard extends ConsumerWidget {
                     label: 'Open match',
                     variant: WfButtonVariant.primary,
                     full: true,
+                    // The shell is a NavigationBar + IndexedStack driven by
+                    // activeTabProvider — there is no DefaultTabController in the
+                    // tree, so maybeOf() returned null and the button no-op'd.
+                    // Match is tab index 2; its landing offers "Schedule a match"
+                    // when none exist.
                     onPressed: () =>
-                        DefaultTabController.maybeOf(context)?.animateTo(2),
+                        ref.read(activeTabProvider.notifier).state = 2,
                   ),
                   const SizedBox(height: 8),
                   // Secondary row: Preview/Stop + Disconnect.
@@ -210,10 +214,6 @@ class _HeroCameraCard extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  // Raw dual-camera training capture — a distinct RAW affordance,
-                  // never confused with normal recording.
-                  _RawCaptureButton(),
                 ] else
                   WfButton(
                     label: 'Connect camera',
@@ -376,74 +376,8 @@ class _TelemetryTile extends StatelessWidget {
   }
 }
 
-/// Raw dual-camera capture control. Phase-aware label + a RAW affordance (red
-/// record dot) so it never reads as normal recording, plus an interrupted/
-/// incomplete banner. Logic lives in [rawCaptureProvider].
-class _RawCaptureButton extends ConsumerWidget {
-  static const _rawRed = Color(0xFFE5484D);
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final raw = ref.watch(rawCaptureProvider);
-    final ctrl = ref.read(rawCaptureProvider.notifier);
-    final capturing = raw.isCapturing;
-    final busyOther =
-        raw.phase == RawCapturePhase.starting ||
-        raw.phase == RawCapturePhase.stopping ||
-        raw.phase == RawCapturePhase.downloading;
-
-    final label = switch (raw.phase) {
-      RawCapturePhase.capturing => 'Stop RAW capture',
-      RawCapturePhase.starting => 'Starting RAW…',
-      RawCapturePhase.stopping => 'Stopping…',
-      RawCapturePhase.downloading => 'Downloading pair…',
-      _ => 'Record RAW (training)',
-    };
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        WfButton(
-          label: label,
-          full: true,
-          size: WfButtonSize.sm,
-          variant: capturing
-              ? WfButtonVariant.primary
-              : WfButtonVariant.outline,
-          leading: Icon(
-            Icons.fiber_manual_record,
-            size: 13,
-            color: capturing ? T.ink : _rawRed,
-          ),
-          onPressed: busyOther
-              ? null
-              : () => capturing ? ctrl.stop() : ctrl.start(),
-        ),
-        if (raw.phase == RawCapturePhase.error && raw.message != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  size: 13,
-                  color: _rawRed,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    raw.message!,
-                    style: const TextStyle(fontSize: 11, color: _rawRed),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: ctrl.acknowledge,
-                  child: const Icon(Icons.close, size: 13, color: T.ink3),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
+// The manual "Record raw footage (training)" button was removed: L0 dual-camera
+// raw capture is internal/training-only and should run automatically under the
+// hood whenever a match is recorded or streamed (see the multicam/overlay plan,
+// Bug #6). The capture mechanism still lives in rawCaptureProvider
+// (raw_capture_state.dart); #6 wires it to the match record/stream lifecycle.

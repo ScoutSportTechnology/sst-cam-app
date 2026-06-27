@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:dio/dio.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -15,6 +16,12 @@ import '../services/video_path_service.dart';
 import 'wifi_p2p_channel.dart';
 import 'wifi_service.dart';
 
+/// Requests the runtime permission required to join a WiFi Direct group and
+/// returns true when usable (granted or limited). Injectable so the deny
+/// branch of [WifiServiceImpl.connectGroup] is unit-testable without a
+/// platform permission dialog.
+typedef NearbyWifiPermissionRequester = Future<bool> Function();
+
 /// Real WiFi Direct implementation.
 ///
 /// Pending firmware wiring:
@@ -24,12 +31,28 @@ import 'wifi_service.dart';
 ///   * a chunked HTTP download client for `startDownload`, with byte-range
 ///     resume support against the Jetson's recording HTTP server.
 class WifiServiceImpl implements WifiService {
-  WifiServiceImpl({required BleService ble, Dio? dio})
-    : _ble = ble,
-      _dio = dio ?? Dio();
+  WifiServiceImpl({
+    required BleService ble,
+    Dio? dio,
+    NearbyWifiPermissionRequester? requestNearbyWifiPermission,
+  }) : _ble = ble,
+       _dio = dio ?? Dio(),
+       _requestNearbyWifiPermission =
+           requestNearbyWifiPermission ?? _defaultNearbyWifiPermission;
 
   final BleService _ble;
   final Dio _dio;
+  final NearbyWifiPermissionRequester _requestNearbyWifiPermission;
+
+  // Real requester: only Android 13+ gates WifiP2pManager.connect() on the
+  // NEARBY_WIFI_DEVICES permission; elsewhere it's a no-op grant. Ask
+  // permission_handler and accept granted OR limited.
+  static Future<bool> _defaultNearbyWifiPermission() async {
+    if (!Platform.isAndroid) return true;
+    final status = await Permission.nearbyWifiDevices.request();
+    return status.isGranted || status.isLimited;
+  }
+
   final WifiP2pChannel _channel = WifiP2pChannel();
 
   final _rng = Random();
@@ -62,6 +85,16 @@ class WifiServiceImpl implements WifiService {
   // _channel.connect AFTER a _channel.disconnect.
   final Map<String, int> _connectGen = {};
 
+  // Device ids whose connect retry loop is currently running. While present,
+  // the shared state listener suppresses transient `failed`/`idle` codes (a
+  // formation attempt that didn't take) so the hero card doesn't flash
+  // "WIFI · FAILED" between retries — the loop emits the final outcome itself.
+  final Set<String> _connecting = {};
+
+  // Android P2P state codes (mirror WifiDirectChannel.kt / wifi_p2p_channel).
+  static const _kStateConnected = 2;
+  static const _kStateFailed = 3;
+
   /// Returns (creating if absent) the seeded broadcast controller for [deviceId].
   SeededBroadcast<WifiDirectState> _stateController(String deviceId) {
     return _stateControllers.putIfAbsent(
@@ -73,6 +106,19 @@ class WifiServiceImpl implements WifiService {
   void _emitState(String deviceId, WifiDirectState state) {
     final ctrl = _stateController(deviceId);
     if (!ctrl.isClosed) ctrl.add(state);
+  }
+
+  /// Best-effort: tell the firmware to release its P2P group. Called on connect
+  /// failures that occur after StartWifiDirect already brought the group up, so a
+  /// failed/aborted join doesn't leave the camera's group orphaned — that orphan
+  /// made the next connect race a still-up group and surfaced as intermittent
+  /// "wifi failed".
+  Future<void> _releaseFirmwareGroup(String deviceId) async {
+    try {
+      await _ble.sendCommand<void>(deviceId, StopWifiDirectCommand());
+    } catch (_) {
+      // ignore — firmware may already be idle, or BLE may be down.
+    }
   }
 
   /// True if a disconnect (or a newer connect) superseded the attempt that
@@ -146,19 +192,51 @@ class WifiServiceImpl implements WifiService {
 
     _emitState(deviceId, WifiDirectState.starting);
 
+    // Android 13+ requires the NEARBY_WIFI_DEVICES runtime permission for
+    // WifiP2pManager.connect(). Request it BEFORE StartWifiDirect so a denial
+    // fails fast without bringing the camera's P2P group up — the old order asked
+    // after StartWifiDirect, so a denial left the firmware group orphaned and the
+    // next attempt raced a still-up group ("wifi failed"). permission_handler
+    // reports granted on iOS / older Android where the permission doesn't gate.
+    final permitted = await _requestNearbyWifiPermission();
+    if (!permitted) {
+      _emitState(deviceId, WifiDirectState.failed);
+      throw const WifiDirectException(
+        'Nearby Wi-Fi devices permission denied — grant it to join the '
+        'camera preview network.',
+      );
+    }
+
     // Subscribe to the EventChannel BEFORE invoking connect so that the first
     // WifiDirectState.connected event from the Kotlin BroadcastReceiver is
-    // never dropped.
+    // never dropped. Events from a superseded attempt (a late native broadcast
+    // after a disconnect/new connect) are gated out so a stale `failed` from a
+    // prior teardown can't flash the hero card.
     await _stateSubscriptions[deviceId]?.cancel();
     _stateSubscriptions[deviceId] = _channel.stateStream.listen(
-      (code) => _emitState(deviceId, _codeToState(code)),
+      (code) {
+        if (_connectSuperseded(deviceId, gen)) return;
+        final st = _codeToState(code);
+        // While the connect retry loop is running, a single formation attempt
+        // can briefly report idle/failed before the group settles (or before
+        // the next retry). Suppress those transients; the loop drives the final
+        // state. Let `connected`/`starting` through so a successful formation
+        // still updates the hero card immediately.
+        if (_connecting.contains(deviceId) &&
+            (st == WifiDirectState.failed || st == WifiDirectState.idle)) {
+          return;
+        }
+        _emitState(deviceId, st);
+      },
       onError: (Object e) {
+        if (_connectSuperseded(deviceId, gen)) return;
         _stateSubscriptions.remove(deviceId)?.cancel();
         _emitState(deviceId, WifiDirectState.failed);
       },
     );
 
     // BLE round-trip — ask the camera for group credentials.
+    debugPrint('WIFI: requesting group credentials over BLE (StartWifiDirect)');
     final BleCommandResponse<WifiDirectGroup> response;
     try {
       response = await _ble.sendCommand<WifiDirectGroup>(
@@ -166,23 +244,34 @@ class WifiServiceImpl implements WifiService {
         StartWifiDirectCommand(),
       );
     } catch (e) {
+      debugPrint('WIFI: BLE credential fetch threw: $e');
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw WifiDirectException('BLE credential fetch failed: $e');
     }
 
     if (!response.isOk || response.payload == null) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
+      debugPrint(
+        'WIFI: BLE credential fetch not OK: ${response.errorMessage} → FAILED',
+      );
       throw WifiDirectException(
         'BLE credential fetch failed: ${response.errorMessage}',
       );
     }
 
     final group = response.payload!;
+    debugPrint(
+      'WIFI: credentials received ssid=${group.ssid} role="${group.role}" '
+      'goIp=${group.groupOwnerIp}',
+    );
 
     if (group.ssid.isEmpty || group.psk.isEmpty) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw const WifiDirectException(
         'BLE credential fetch returned empty ssid/psk',
@@ -196,6 +285,7 @@ class WifiServiceImpl implements WifiService {
     // backward compatibility with firmware that does not report it yet.
     if (!_isGroupOwnerRole(group.role)) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
       throw WifiDirectException(
         'camera reported unexpected WiFi Direct role "${group.role}"; '
@@ -203,26 +293,10 @@ class WifiServiceImpl implements WifiService {
       );
     }
 
-    // Android 13+ requires the NEARBY_WIFI_DEVICES runtime permission for
-    // WifiP2pManager.connect(); without it the native join fails and the hero
-    // card shows "WIFI · FAILED" even though the camera AP is up. (The companion
-    // CHANGE_WIFI_STATE is install-granted via the manifest.) permission_handler
-    // reports granted on iOS / older Android where the permission doesn't gate.
-    if (Platform.isAndroid) {
-      final status = await Permission.nearbyWifiDevices.request();
-      if (!status.isGranted && !status.isLimited) {
-        await _stateSubscriptions.remove(deviceId)?.cancel();
-        _emitState(deviceId, WifiDirectState.failed);
-        throw const WifiDirectException(
-          'Nearby Wi-Fi devices permission denied — grant it to join the '
-          'camera preview network.',
-        );
-      }
-    }
-
-    // A disconnect may have arrived while we awaited the BLE round-trip or the
-    // permission dialog. Bail before the platform join so we never connect on
-    // top of a disconnect (which leaves a phantom group + dropped failed state).
+    // A disconnect may have arrived while we awaited the BLE round-trip. Bail
+    // before the platform join so we never connect on top of a disconnect (which
+    // leaves a phantom group + dropped failed state). A disconnect runs its own
+    // firmware StopWifiDirect, so we don't duplicate the teardown here.
     if (_connectSuperseded(deviceId, gen)) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       throw const WifiDirectException(
@@ -230,17 +304,115 @@ class WifiServiceImpl implements WifiService {
       );
     }
 
-    // Platform channel — join the P2P group on Android.
+    // Platform channel — join the P2P group on Android. Android's P2P
+    // connect() is flaky on reconnect (a freshly cycled group, lingering state
+    // after a force-close mid-preview) and frequently fails the first attempt
+    // with BUSY, then succeeds on a retry — which is the manual "stop/start until
+    // it works" loop. Automate it: each attempt clears the stale phone-side group
+    // first (see WifiDirectChannel.connect), so a short retry turns the
+    // intermittent failure into transparent recovery.
+    // A negotiation that the framework *accepts* does not mean the group
+    // actually forms: on a cold start a stale group, or the phone being made
+    // group owner, leaves connect() resolved-OK while CONNECTION_CHANGED never
+    // reaches the client-connected state — the intermittent "wifi failed" after
+    // a reinstall. So each attempt is judged on real formation: accept the
+    // negotiation, then wait for STATE_CONNECTED (ignoring transient idle). A
+    // timeout or STATE_FAILED (e.g. phone-became-GO) retries the whole join —
+    // the next attempt's removeGroup clears the offending phone-side group.
+    _connecting.add(deviceId);
+    Object? lastError;
     try {
-      await _channel.connect(ssid: group.ssid, psk: group.psk);
-    } on Exception catch (e) {
+      for (var attempt = 1; attempt <= _maxP2pConnectAttempts; attempt++) {
+        // A disconnect (or newer connect) may have superseded us between retries.
+        if (_connectSuperseded(deviceId, gen)) {
+          await _stateSubscriptions.remove(deviceId)?.cancel();
+          throw const WifiDirectException(
+            'WiFi Direct connect superseded by a disconnect',
+          );
+        }
+        try {
+          debugPrint(
+            'WIFI: P2P join attempt $attempt/$_maxP2pConnectAttempts '
+            'ssid=${group.ssid}',
+          );
+          await _channel.connect(ssid: group.ssid, psk: group.psk);
+          debugPrint(
+            'WIFI: attempt $attempt negotiation accepted — '
+            'awaiting group formation',
+          );
+          final formed = await _awaitGroupFormation(deviceId, gen);
+          if (formed) {
+            lastError = null;
+            debugPrint('WIFI: attempt $attempt formed group');
+            break;
+          }
+          lastError = const WifiDirectException(
+            'group did not form (timeout or phone became group owner)',
+          );
+          debugPrint('WIFI: attempt $attempt did not form a usable group');
+        } on Exception catch (e) {
+          lastError = e;
+          debugPrint('WIFI: P2P join attempt $attempt failed: $e');
+        }
+        if (attempt < _maxP2pConnectAttempts) {
+          await Future<void>.delayed(_p2pConnectRetryDelay);
+        }
+      }
+    } finally {
+      _connecting.remove(deviceId);
+    }
+    if (lastError != null) {
       await _stateSubscriptions.remove(deviceId)?.cancel();
+      await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
-      throw WifiDirectException('P2P connect failed: $e');
+      debugPrint(
+        'WIFI: all $_maxP2pConnectAttempts P2P join attempts failed → FAILED',
+      );
+      throw WifiDirectException(
+        'P2P connect failed after $_maxP2pConnectAttempts attempts: $lastError',
+      );
     }
 
+    debugPrint('WIFI: P2P group joined ssid=${group.ssid}');
     _currentGroups[deviceId] = group;
     return group;
+  }
+
+  // Android P2P connect retry budget — see _connectGroupInternal.
+  static const _maxP2pConnectAttempts = 3;
+  static const _p2pConnectRetryDelay = Duration(milliseconds: 800);
+  // How long to wait for CONNECTION_CHANGED to reach the client-connected state
+  // after a negotiation is accepted. Observed real formation is ~4–5s; allow
+  // margin before declaring the attempt failed and retrying.
+  static const _p2pFormationTimeout = Duration(seconds: 9);
+
+  // Waits for the native layer to report the group actually formed (client
+  // connected) after a negotiation was accepted. Resolves true on
+  // STATE_CONNECTED, false on STATE_FAILED, a formation timeout, or if the
+  // attempt is superseded. Transient idle/starting codes during formation are
+  // ignored. Listens on the shared broadcast [stateStream] independently of the
+  // hero-card subscription.
+  Future<bool> _awaitGroupFormation(String deviceId, int gen) async {
+    final completer = Completer<bool>();
+    void done(bool ok) {
+      if (!completer.isCompleted) completer.complete(ok);
+    }
+
+    StreamSubscription<int>? sub;
+    final timer = Timer(_p2pFormationTimeout, () => done(false));
+    sub = _channel.stateStream.listen((code) {
+      if (_connectSuperseded(deviceId, gen)) return done(false);
+      if (code == _kStateConnected) return done(true);
+      if (code == _kStateFailed) return done(false);
+      // idle/starting/stopping → transient mid-formation; keep waiting.
+    }, onError: (Object _) => done(false));
+
+    try {
+      return await completer.future;
+    } finally {
+      timer.cancel();
+      await sub.cancel();
+    }
   }
 
   @override
@@ -290,14 +462,15 @@ class WifiServiceImpl implements WifiService {
     if (group == null) {
       return null; // no group up → LivePreviewView shows "Not connected"
     }
-    // Real firmware (U4) serves RTSP H.264 at /preview on the group-owner IP +
-    // preview port; geometry/bitrate match the firmware AppStreamConfig demo
-    // defaults (854x480@30, 1500 kbps). Confirm the mount/transport on-device.
+    // Real firmware serves RTSP H.264 at /preview on the group-owner IP +
+    // preview port; geometry matches the firmware AppStreamConfig, which is tied
+    // to the postprocess output (1280x720@30, 1500 kbps). Only used to size the
+    // preview box; VLC decodes at the stream's actual resolution.
     return PreviewStreamDescriptor(
       url: group.previewUrl(),
       codec: PreviewCodec.rtspH264,
-      width: 854,
-      height: 480,
+      width: 1280,
+      height: 720,
       fps: 30,
       bitrateKbps: 1500,
     );
@@ -328,6 +501,34 @@ class WifiServiceImpl implements WifiService {
 
   @override
   Future<bool> checkCameraHasRecording(String uuid) => Future.value(true);
+
+  @override
+  Future<String?> fetchThumbnail(String deviceId, String uuid) async {
+    final group = _currentGroups[deviceId];
+    if (group == null) return null; // not joined — can't reach the camera
+    final url = '${group.downloadBaseUrl()}/thumbnails/$uuid';
+    try {
+      final resp = await _dio.get<List<int>>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          // 404 (no thumbnail) is an expected miss, not an exception.
+          validateStatus: (s) => s != null && s < 500,
+        ),
+      );
+      final bytes = resp.data;
+      if (resp.statusCode != 200 || bytes == null || bytes.isEmpty) {
+        return null;
+      }
+      final savePath = await _videoPathService.thumbnailPath(uuid);
+      await File(savePath).writeAsBytes(bytes, flush: true);
+      debugPrint('WIFI: cached thumbnail for $uuid (${bytes.length} bytes)');
+      return savePath;
+    } catch (e) {
+      debugPrint('WIFI: thumbnail fetch failed for $uuid: $e');
+      return null;
+    }
+  }
 
   @override
   Future<VideoDownloadHandle> downloadRecording(

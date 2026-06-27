@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/ble/ble_providers.dart' show bleServiceProvider;
+import '../../../core/models/recording.dart' show RecordingMetadata;
 import '../../../core/models/wifi.dart';
 import '../../../core/services/clip_service.dart';
 import '../../../core/services/gallery_service.dart';
@@ -13,7 +15,69 @@ import '../../../core/state/db_providers.dart'
     show clipServiceProvider, videoPathServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../video_state.dart'
-    show isOnDeviceProvider, LibraryMatch, LibraryEvent;
+    show
+        isOnDeviceProvider,
+        liveSessionActiveProvider,
+        LibraryMatch,
+        LibraryEvent;
+
+// Shown when retrieval is attempted (or rejected) during a live session.
+const _kLiveSessionBlocked =
+    "Can't retrieve videos while a match is live. End the session first.";
+
+String _mapDownloadError(Object e) {
+  // Firmware rejects mid-session retrieval with LIVE_SESSION_ACTIVE — surface
+  // the same friendly message as the client-side gate.
+  if (e.toString().contains('LIVE_SESSION_ACTIVE')) return _kLiveSessionBlocked;
+  return e.toString();
+}
+
+/// Real recording metadata (size + duration) reported by the connected camera
+/// for [matchId], or null when no camera is connected or it has no such
+/// recording. The download sheet overlays these on top of the scheduled values
+/// stored in the library row so size/duration/ETA reflect the actual file.
+final deviceRecordingProvider =
+    FutureProvider.family<RecordingMetadata?, String>((ref, matchId) async {
+      final deviceId = ref.watch(activeCameraIdProvider);
+      if (deviceId == null) return null;
+      try {
+        final recordings = await ref
+            .watch(bleServiceProvider)
+            .listRecordings(deviceId);
+        for (final r in recordings) {
+          if (r.id == matchId) return r;
+        }
+      } catch (_) {
+        // Offline / BLE error — fall back to stored values.
+      }
+      return null;
+    });
+
+// Assumed sustained WiFi-Direct throughput for the download-time estimate.
+const double _kWifiBytesPerSecond = 2.5 * 1024 * 1024;
+
+String _fmtSize(int bytes) {
+  const mb = 1024 * 1024;
+  if (bytes >= mb) {
+    return '${(bytes / mb).toStringAsFixed(bytes >= 10 * mb ? 0 : 1)} MB';
+  }
+  return '${(bytes / 1024).toStringAsFixed(0)} KB';
+}
+
+String _fmtClock(int seconds) {
+  final h = seconds ~/ 3600;
+  final m = (seconds % 3600) ~/ 60;
+  final s = seconds % 60;
+  final mm = m.toString().padLeft(2, '0');
+  final ss = s.toString().padLeft(2, '0');
+  return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
+}
+
+String _fmtEta(int bytes) {
+  final secs = (bytes / _kWifiBytesPerSecond).ceil();
+  if (secs < 60) return '~${secs}s';
+  return '~${(secs / 60).ceil()} min';
+}
 
 class DownloadSheet extends ConsumerStatefulWidget {
   const DownloadSheet({
@@ -52,6 +116,12 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
 
   Future<void> _start() async {
     setState(() => _error = null);
+
+    // HARD INVARIANT — no past-video retrieval while a match is live.
+    if (ref.read(liveSessionActiveProvider)) {
+      setState(() => _error = _kLiveSessionBlocked);
+      return;
+    }
 
     if (_mode == _DownloadMode.full) {
       await _startFullDownload();
@@ -99,13 +169,13 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           );
         },
         onError: (e) {
-          if (mounted) setState(() => _error = e.toString());
+          if (mounted) setState(() => _error = _mapDownloadError(e));
         },
         cancelOnError: true,
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(() => _error = _mapDownloadError(e));
     }
   }
 
@@ -128,7 +198,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
         final startSeconds = (event.timeSeconds - 15)
             .clamp(0, double.infinity)
             .toInt();
-        await clipSvc.trim(
+        final clipPath = await clipSvc.trim(
           matchId: widget.match.id,
           sourcePath: sourcePath,
           startSeconds: startSeconds,
@@ -136,6 +206,18 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           label: event.label,
         );
         created++;
+        // Export to the device gallery so the clip is actually visible to the
+        // user — trim() only writes it to app-private storage + the clips DB.
+        // Best-effort: a gallery-export failure must not drop the clip (it's
+        // already trimmed and recorded).
+        try {
+          final name = '${widget.match.opponent}_${event.label}_$created.mp4'
+              .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+          await GalleryService.saveVideo(
+            sourcePath: clipPath,
+            displayName: name,
+          );
+        } catch (_) {}
       } on ClipTrimException catch (e) {
         if (mounted) setState(() => _error = 'Clip failed: ${e.message}');
         return;
@@ -158,14 +240,27 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   Widget build(BuildContext context) {
     final running = _handle != null;
     if (running) return _buildProgress();
-    final fullSize = '${widget.match.fullSizeMb} MB';
+    // Overlay the camera-reported real size/duration when available; fall back
+    // to the library row's scheduled values when offline.
+    final deviceRec = ref
+        .watch(deviceRecordingProvider(widget.match.id))
+        .valueOrNull;
+    final fullSize = deviceRec != null
+        ? _fmtSize(deviceRec.sizeBytes)
+        : '${widget.match.fullSizeMb} MB';
+    final fullDuration = (deviceRec != null && deviceRec.durationSeconds > 0)
+        ? _fmtClock(deviceRec.durationSeconds)
+        : widget.match.fullDuration;
+    final eta = deviceRec != null
+        ? '${_fmtEta(deviceRec.sizeBytes)} @ WiFi'
+        : '~— @ WiFi';
     final selectedCount = widget.selectedEvents.length;
     final allCount = widget.allEvents.length;
     final opts = <_Opt>[
       _Opt(
         key: _DownloadMode.full,
         label: 'Full game',
-        sub: '${widget.match.fullDuration} · $fullSize · ~12 min @ WiFi',
+        sub: '$fullDuration · $fullSize · $eta',
       ),
       if (allCount > 0)
         _Opt(

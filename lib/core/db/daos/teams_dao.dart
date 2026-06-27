@@ -113,6 +113,30 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
   Future<int> deleteTeamMatch(String matchId) =>
       (delete(teamMatchesTable)..where((m) => m.id.equals(matchId))).go();
 
+  /// Finalize a played match into the library: flip it to 'past' and record the
+  /// result + events. [sizeMb] stays 0 until the recording is downloaded (the
+  /// library then shows it as remote/needs-download). The scheduled date is kept.
+  /// Returns true if a row was updated.
+  Future<bool> finalizeMatch(
+    String matchId, {
+    required String result,
+    required String eventsJson,
+    int sizeMb = 0,
+  }) async {
+    final updated =
+        await (update(
+          teamMatchesTable,
+        )..where((m) => m.id.equals(matchId))).write(
+          TeamMatchesTableCompanion(
+            kind: const Value('past'),
+            result: Value(result),
+            eventsJson: Value(eventsJson),
+            sizeMb: Value(sizeMb),
+          ),
+        );
+    return updated > 0;
+  }
+
   /// Watch all past matches joined with their team, for the library screen.
   /// Emits on any mutation to teamMatchesTable or teamsTable.
   Stream<List<LibraryMatchRow>> watchPastMatchesForLibrary() {

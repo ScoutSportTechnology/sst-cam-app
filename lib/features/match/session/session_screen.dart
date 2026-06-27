@@ -13,16 +13,15 @@ import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
-import '../../../core/models/overlay_layout.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/models/wifi.dart' show WifiDirectState;
 import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
-import 'overlay_renderer.dart';
 import 'session_state.dart';
 
 class SessionScreen extends ConsumerWidget {
@@ -175,17 +174,6 @@ class SessionScreen extends ConsumerWidget {
                       }
                     }
                   : null,
-              onRecStop: connected
-                  ? () {
-                      _sendIfConnected(
-                        ref,
-                        RecordingControlCommand(
-                          action: RecordingControlAction.stop,
-                        ),
-                      );
-                      ctl.stopRecording();
-                    }
-                  : null,
               onStreamToggle: connected
                   ? () {
                       final newStreaming = !state.streaming;
@@ -265,6 +253,21 @@ class SessionScreen extends ConsumerWidget {
         period: state.currentPeriod + 1,
       ),
     );
+    // Honor the start-prompt choices on the camera. startPeriod only flips the
+    // local UI state; without these explicit control commands the firmware
+    // records/streams nothing (the match dir stays empty).
+    if (choice.$1 == true) {
+      _sendIfConnected(
+        ref,
+        RecordingControlCommand(action: RecordingControlAction.start),
+      );
+    }
+    if (choice.$2 == true) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(action: StreamingControlAction.start),
+      );
+    }
     ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);
   }
 
@@ -286,6 +289,7 @@ class SessionScreen extends ConsumerWidget {
         ),
       );
       ctl.endMatch(stopRecording: false, stopStreaming: false);
+      _finalizeMatchToLibrary(ref);
       return;
     }
     final choice = await _showEndPrompt(
@@ -301,10 +305,26 @@ class SessionScreen extends ConsumerWidget {
         period: state.currentPeriod,
       ),
     );
+    // Stop recording/streaming on the camera per the prompt. endMatch only flips
+    // local state; without these the firmware keeps recording and the mp4 never
+    // finalizes (no moov atom → unplayable, file grows unbounded).
+    if (choice.$1 == true) {
+      _sendIfConnected(
+        ref,
+        RecordingControlCommand(action: RecordingControlAction.stop),
+      );
+    }
+    if (choice.$2 == true) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(action: StreamingControlAction.stop),
+      );
+    }
     ctl.endMatch(
       stopRecording: choice.$1 ?? false,
       stopStreaming: choice.$2 ?? false,
     );
+    _finalizeMatchToLibrary(ref);
   }
 
   void _showEventSheet(BuildContext context, WidgetRef ref) {
@@ -316,12 +336,15 @@ class SessionScreen extends ConsumerWidget {
       builder: (_) => EventSheet(
         homeTeamId: match.team.id,
         onSave: (type, team, jersey) {
-          // Build the param map the firmware uses for {{param}} substitution.
-          // The local preview substitutes the same keys from LiveEvent.params,
-          // so both stacks render identical banner text. Keep these keys in
-          // sync with overlay_renderer's _resolveBinding substitution.
+          // Build the param map the firmware uses for {{param}} substitution in
+          // the event-banner templates (e.g. "{{player}}"). The firmware is the
+          // sole overlay renderer now (A6a), so these keys must match the
+          // template static_text placeholders in defaultScoreboardLayout.
           final params = <String, String>{
             if (jersey != null && jersey.isNotEmpty) 'jersey': jersey,
+            // Always present (blank when no jersey) so the banner's "{{player}}"
+            // subtitle resolves to a clean string, never a literal placeholder.
+            'player': jersey != null && jersey.isNotEmpty ? '#$jersey' : '',
           };
           // player_id carries the jersey number as the player identifier
           // available on the wire (no roster id is selected in this flow).
@@ -746,14 +769,12 @@ class _BottomControls extends StatelessWidget {
     required this.state,
     required this.onTimerTap,
     required this.onRecToggle,
-    required this.onRecStop,
     required this.onStreamToggle,
   });
 
   final LiveMatchState state;
   final VoidCallback onTimerTap;
   final VoidCallback? onRecToggle;
-  final VoidCallback? onRecStop;
   final VoidCallback? onStreamToggle;
 
   @override
@@ -793,32 +814,23 @@ class _BottomControls extends StatelessWidget {
                       ? T.accent
                       : T.ink2,
                   dotColor: state.rec == RecState.recording ? T.accent : null,
-                  body: Row(
-                    children: [
-                      Expanded(
-                        child: WfButton(
-                          label: state.rec == RecState.recording
-                              ? 'Pause'
-                              : state.rec == RecState.paused
-                              ? 'Resume'
-                              : 'Record',
-                          leading: state.rec == RecState.recording
-                              ? const _PauseGlyph()
-                              : const _Dot(color: T.danger),
-                          onPressed: onRecToggle,
-                          full: true,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      WfButton(
-                        label: 'Stop',
-                        variant: WfButtonVariant.danger,
-                        leading: const _Square(color: T.dangerInk),
-                        onPressed: state.rec == RecState.idle
-                            ? null
-                            : onRecStop,
-                      ),
-                    ],
+                  // One continuous file per match: Record → Pause/Resume.
+                  // There is no mid-match "stop" — finalizing mid-match then
+                  // recording again re-opened the SAME <matchId>.mp4 and
+                  // overwrote the earlier footage. The recording is finalized
+                  // once, at match end ("Also stop recording"). Pause through
+                  // anything you don't want recorded.
+                  body: WfButton(
+                    label: state.rec == RecState.recording
+                        ? 'Pause'
+                        : state.rec == RecState.paused
+                        ? 'Resume'
+                        : 'Record',
+                    leading: state.rec == RecState.recording
+                        ? const _PauseGlyph()
+                        : const _Dot(color: T.danger),
+                    onPressed: onRecToggle,
+                    full: true,
                   ),
                 ),
               ),
@@ -922,13 +934,6 @@ class _TopBar extends StatelessWidget {
 // LIVE THUMB
 // ---------------------------------------------------------------------------
 
-const _emptyOverlayLayout = OverlayLayout(
-  canvasWidth: 1920,
-  canvasHeight: 1080,
-  elements: [],
-  templates: [],
-);
-
 class _LiveThumb extends ConsumerWidget {
   const _LiveThumb({required this.matchState, required this.isLive});
   final LiveMatchState matchState;
@@ -949,20 +954,18 @@ class _LiveThumb extends ConsumerWidget {
       children: [
         if (wifiFailed)
           _PreviewUnavailablePlaceholder(matchState: matchState, isLive: isLive)
-        else ...[
+        else
+          // The firmware composites the scoreboard onto the RTSP stream itself
+          // (overlay is firmware-unilateral, #6), so the app must NOT draw its
+          // own overlay here — doing both showed a doubled scoreboard. The app
+          // only authors + pushes the layout (PushOverlayLayout); the preview
+          // shows the firmware-baked stream as-is.
           // No buttons inside the surface — Preview/Stop is in the parent layout.
           LivePreviewView(
             deviceId: activeId,
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
           ),
-          Positioned.fill(
-            child: OverlayLayoutRenderer(
-              layout: matchState.overlayLayout ?? _emptyOverlayLayout,
-              matchState: matchState,
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -1323,4 +1326,29 @@ void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
   if (connState != CameraConnectionState.connected) return;
   unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
+}
+
+/// Persist the just-ended match into the Library: flips its team_match row to
+/// 'past' with the final score + events so it appears on the Video/Library page.
+/// No-op for an ad-hoc session with no library row (matchId == null).
+void _finalizeMatchToLibrary(WidgetRef ref) {
+  final ctl = ref.read(liveMatchProvider.notifier);
+  final matchId = ctl.matchId;
+  final result = ctl.resultString();
+  if (matchId == null) {
+    debugPrint('[finalize] SKIP — no matchId (ad-hoc session, no library row)');
+    return;
+  }
+  debugPrint('[finalize] writing matchId=$matchId result=$result');
+  unawaited(
+    ref
+        .read(teamsDaoProvider)
+        .finalizeMatch(matchId, result: result, eventsJson: ctl.eventsJson())
+        .then(
+          (ok) => debugPrint('[finalize] done updated=$ok matchId=$matchId'),
+        )
+        .catchError((Object e) {
+          debugPrint('[finalize] ERROR $e');
+        }),
+  );
 }

@@ -1,8 +1,7 @@
 import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
-import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../db/app_database.dart';
@@ -13,18 +12,22 @@ const _uuid = Uuid();
 
 /// Trims a source MP4 to produce a highlight clip.
 ///
-/// Uses FFmpeg `-c copy` (cut-only, no re-encode) for fast, lossless output.
-/// The result is an MP4 file in the app-private videos/ directory.
+/// Stream-copies the cut natively (Android `MediaExtractor` + `MediaMuxer` via
+/// the `com.sst.sstcam/media` channel) — no decode/encode, so it's fast and
+/// lossless. Replaced ffmpeg-kit, whose prebuilt `libavfilter.so` failed to
+/// load on modern Android (UnsatisfiedLinkError) and crashed the app.
 class ClipService {
   const ClipService({required this.clipsDao, required this.videoPathService});
 
   final ClipsDao clipsDao;
   final VideoPathService videoPathService;
 
+  static const _mediaChannel = MethodChannel('com.sst.sstcam/media');
+
   /// Trim [sourcePath] from [startSeconds] for [durationSeconds] seconds.
   ///
   /// Returns the path of the output clip file on success.
-  /// Throws [ClipTrimException] if FFmpeg fails or the source file is missing.
+  /// Throws [ClipTrimException] if the trim fails or the source file is missing.
   Future<String> trim({
     required String matchId,
     required String sourcePath,
@@ -39,22 +42,20 @@ class ClipService {
     final clipId = _uuid.v4();
     final outputPath = await videoPathService.clipPath(matchId, clipId);
 
-    // -ss before -i for fast seek; -c copy for no re-encode.
-    final cmd =
-        '-y -ss $startSeconds -t $durationSeconds '
-        '-i "$sourcePath" -c copy "$outputPath"';
-
-    final session = await FFmpegKit.execute(cmd);
-    final returnCode = await session.getReturnCode();
-
-    if (!ReturnCode.isSuccess(returnCode)) {
-      final log = await session.getOutput();
+    try {
+      await _mediaChannel.invokeMethod<String>('trimVideo', {
+        'source': sourcePath,
+        'output': outputPath,
+        'startMs': startSeconds * 1000,
+        'durationMs': durationSeconds * 1000,
+      });
+    } on PlatformException catch (e) {
       // Clean up any partial output file; ignore cleanup failures.
       try {
         final out = File(outputPath);
         if (out.existsSync()) out.deleteSync();
       } catch (_) {}
-      throw ClipTrimException('FFmpeg failed (rc=$returnCode): $log');
+      throw ClipTrimException('Trim failed: ${e.message}');
     }
 
     late final int sizeBytes;

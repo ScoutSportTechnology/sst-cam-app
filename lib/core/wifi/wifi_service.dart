@@ -78,6 +78,12 @@ abstract class WifiService {
   /// [uuid] is the match record's ID — the only identifier used for recordings.
   Future<bool> checkCameraHasRecording(String uuid);
 
+  /// Fetches the camera-rendered thumbnail (`<uuid>.jpg`) for a recording over
+  /// the WiFi link and caches it locally. Returns the local file path, or null
+  /// when no group is connected or the camera has no such thumbnail. Small,
+  /// untokened GET — the recording id is the thumbnail id.
+  Future<String?> fetchThumbnail(String deviceId, String uuid);
+
   /// Downloads the full raw recording for [uuid] from [deviceId].
   /// Returns a [VideoDownloadHandle] with a progress stream and cancel hook,
   /// identical to [startDownload] but addressed by recording UUID rather than

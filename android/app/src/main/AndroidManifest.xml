@@ -9,6 +9,15 @@
          join failed and the preview hero card showed "WIFI · FAILED". -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- INTERNET must be declared here (main), not only in the Flutter-generated
+         src/debug + src/profile manifests. Without it the *release* build type
+         (what we ship and validate, e.g. dev-release/prod-release) has no INTERNET
+         permission, so the app's uid is kept out of the kernel `inet` group and
+         every socket() returns EPERM. libVLC then "cannot create socket" and the
+         RTSP preview never connects (frames stick at "WAITING FOR FRAMES"); HTTP
+         downloads fail the same way. `flutter run` (debug) worked because the
+         debug manifest grants it. Keep it in main so debug==release. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="33" />

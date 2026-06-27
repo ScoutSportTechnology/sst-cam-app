@@ -10,6 +10,7 @@ import 'core/config/dev_config.dart';
 import 'core/config/dev_navigation.dart';
 import 'core/config/dev_reseeder.dart';
 import 'core/services/gallery_service.dart';
+import 'core/services/log_service.dart';
 import 'core/db/app_database.dart';
 import 'core/state/db_providers.dart';
 import 'core/wifi/wifi_providers.dart';
@@ -23,6 +24,9 @@ import 'mock/mock_video_fetcher.dart';
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+
+  // Capture debugPrint into an in-app ring buffer for the developer Logs viewer.
+  LogService.instance.attach();
 
   DevConfig devConfig;
   try {

@@ -400,7 +400,7 @@ void main() {
       expect(initial, hasLength(2));
 
       // Delete one upcoming match directly via the DAO.
-      await db.value.teamsDao.deleteTeamMatch('nr-u14-up1');
+      await db.value.teamsDao.deleteTeamMatch(seedMatchUp1Id);
 
       // Allow the Drift watch stream to propagate.
       await Future<void>.delayed(Duration.zero);
@@ -408,7 +408,7 @@ void main() {
 
       final updated = await container.read(upcomingMatchesProvider.future);
       expect(updated, hasLength(1));
-      expect(updated.first.match.id, 'nr-u14-up2');
+      expect(updated.first.match.id, seedMatchUp2Id);
     });
   });
 
