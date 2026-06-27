@@ -19,7 +19,8 @@ import '../../../core/widgets/wf_card.dart';
 import '../../../core/models/wifi.dart' show WifiDirectState;
 import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
-import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../camera/camera_state.dart'
+    show activeCameraIdProvider, activeTabProvider, AppTab;
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
@@ -943,6 +944,10 @@ class _LiveThumb extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
+    // Only the visible tab holds a VLC client (home + match preview cards both
+    // stay mounted in the shell's IndexedStack; two clients on the single-stream
+    // RTSP server stall the second — the match preview was the loser).
+    final onMatchTab = ref.watch(activeTabProvider) == AppTab.match;
 
     // When WiFi Direct fails (e.g. iOS does not support local preview),
     // show a static placeholder instead of the live preview surface.
@@ -966,6 +971,7 @@ class _LiveThumb extends ConsumerWidget {
             deviceId: activeId,
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
+            paused: !onMatchTab,
           ),
         // Single | side-by-side dual-camera composition toggle (#6 A6b). Hidden
         // when the preview surface is unavailable (WiFi Direct failed) or no

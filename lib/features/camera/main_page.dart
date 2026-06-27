@@ -7,7 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/device.dart';
 import '../../core/models/telemetry.dart';
-import 'camera_state.dart' show activeCameraIdProvider, activeTabProvider;
+import 'camera_state.dart'
+    show activeCameraIdProvider, activeTabProvider, AppTab;
 import '../../core/ble/ble_providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
@@ -88,6 +89,10 @@ class _HeroCameraCard extends ConsumerWidget {
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(deviceId));
+    // Only the visible tab's preview surface holds an RTSP/VLC client (two on
+    // one single-stream server stalls the second — home vs match both stay
+    // mounted in the shell's IndexedStack).
+    final onMainTab = ref.watch(activeTabProvider) == AppTab.main;
 
     return Container(
       decoration: BoxDecoration(
@@ -102,6 +107,7 @@ class _HeroCameraCard extends ConsumerWidget {
             deviceId: deviceId,
             label: 'LIVE THUMBNAIL',
             showButtons: false,
+            paused: !onMainTab,
           ),
           Padding(
             padding: const EdgeInsets.all(14),

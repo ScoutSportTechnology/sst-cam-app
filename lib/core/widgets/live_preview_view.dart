@@ -32,6 +32,7 @@ class LivePreviewView extends ConsumerStatefulWidget {
     this.aspect,
     this.autoStart = false,
     this.showButtons = true,
+    this.paused = false,
   });
 
   final String? deviceId;
@@ -43,6 +44,14 @@ class LivePreviewView extends ConsumerStatefulWidget {
   /// Whether to render Preview / Stop toggle buttons inside this surface.
   /// Set false when the parent provides external controls.
   final bool showButtons;
+
+  /// When true this surface releases its RTSP/VLC client (but keeps the shared
+  /// [livePreviewEnabledProvider] on). Set it for a surface that is mounted but
+  /// not visible — the home and match preview cards are BOTH alive in the tab
+  /// shell's IndexedStack, and two VLC clients on one single-stream RTSP server
+  /// makes the second stall on "waiting for frames". Only the active tab's
+  /// surface should hold the client; it resumes automatically when un-paused.
+  final bool paused;
 
   @override
   ConsumerState<LivePreviewView> createState() => _LivePreviewViewState();
@@ -201,13 +210,17 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
     // Spin up / replace the VLC controller whenever the descriptor URL changes.
-    if (previewEnabled) {
+    // A paused (off-tab) surface releases its client so only the visible surface
+    // holds one — two clients on the single-stream RTSP server stall the second.
+    if (previewEnabled && !widget.paused) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
         _swapVlcController(url);
       } else if (url == null && _vlc != null) {
         _tearDownVlc();
       }
+    } else if (widget.paused && _vlc != null) {
+      _tearDownVlc();
     }
 
     final wifiConnected = wifiState == WifiDirectState.connected;
@@ -225,14 +238,16 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         ? descriptor.width / descriptor.height
         : null;
 
-    final statusLabel = switch (wifiState) {
-      WifiDirectState.starting => 'WIFI · LINKING',
-      WifiDirectState.failed => 'WIFI · FAILED',
-      WifiDirectState.stopping => 'WIFI · STOPPING',
-      WifiDirectState.idle || null => widget.label ?? 'WIFI · IDLE',
-      WifiDirectState.connected =>
-        vlcPlaying ? 'LIVE' : 'WIFI · WAITING FOR FRAMES',
-    };
+    final statusLabel = widget.paused
+        ? (widget.label ?? 'PREVIEW')
+        : switch (wifiState) {
+            WifiDirectState.starting => 'WIFI · LINKING',
+            WifiDirectState.failed => 'WIFI · FAILED',
+            WifiDirectState.stopping => 'WIFI · STOPPING',
+            WifiDirectState.idle || null => widget.label ?? 'WIFI · IDLE',
+            WifiDirectState.connected =>
+              vlcPlaying ? 'LIVE' : 'WIFI · WAITING FOR FRAMES',
+          };
 
     final body = Stack(
       fit: StackFit.expand,
