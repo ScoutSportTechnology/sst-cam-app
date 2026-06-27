@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -270,14 +271,33 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       setState(() => _error = 'No events selected');
       return;
     }
-    final onDevice = await ref.read(isOnDeviceProvider(widget.match.id).future);
-    if (!onDevice) {
-      if (mounted) setState(() => _error = 'Download the full game first');
-      return;
-    }
     final clipSvc = ref.read(clipServiceProvider);
     final videoPathSvc = ref.read(videoPathServiceProvider);
-    final sourcePath = await videoPathSvc.recordingPath(widget.match.id);
+    // Clips are sliced locally from a full game already on device — the camera
+    // has no per-clip burn. With the overlay option we slice from the overlaid
+    // full game (L2, must be downloaded first); otherwise from the clean L1.
+    final String sourcePath;
+    if (_withOverlay) {
+      sourcePath = await videoPathSvc.overlayRecordingPath(widget.match.id);
+      if (!await File(sourcePath).exists()) {
+        if (mounted) {
+          setState(
+            () => _error =
+                'Download the full game with the overlay first, then clip it',
+          );
+        }
+        return;
+      }
+    } else {
+      final onDevice = await ref.read(
+        isOnDeviceProvider(widget.match.id).future,
+      );
+      if (!onDevice) {
+        if (mounted) setState(() => _error = 'Download the full game first');
+        return;
+      }
+      sourcePath = await videoPathSvc.recordingPath(widget.match.id);
+    }
     int created = 0;
     for (final event in events) {
       try {
@@ -446,36 +466,36 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
               ),
             );
           }),
-          if (_mode == _DownloadMode.full) ...[
-            const SizedBox(height: 2),
-            GestureDetector(
-              onTap: () => setState(() => _withOverlay = !_withOverlay),
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-                child: Row(
-                  children: [
-                    _CheckBox(on: _withOverlay),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Burn in scoreboard overlay',
-                        style: TextStyle(fontSize: 13, color: T.ink),
-                      ),
+          const SizedBox(height: 2),
+          GestureDetector(
+            onTap: () => setState(() => _withOverlay = !_withOverlay),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+              child: Row(
+                children: [
+                  _CheckBox(on: _withOverlay),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _mode == _DownloadMode.full
+                          ? 'Burn in scoreboard overlay'
+                          : 'Clip from the overlaid game',
+                      style: const TextStyle(fontSize: 13, color: T.ink),
                     ),
-                    const Text(
-                      'rendered on camera',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: T.ink3,
-                        fontFamily: T.mono,
-                      ),
+                  ),
+                  const Text(
+                    'rendered on camera',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: T.ink3,
+                      fontFamily: T.mono,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
           const SizedBox(height: 8),
           Row(
             children: [

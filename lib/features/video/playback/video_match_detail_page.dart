@@ -4,9 +4,7 @@ import 'package:video_player/video_player.dart';
 
 import 'dart:io';
 
-import '../../../core/models/overlay.dart' as app_overlay;
 import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
-import '../overlay_helper.dart' show buildOverlayStates;
 import '../video_state.dart'
     show
         libraryMatchProvider,
@@ -15,10 +13,8 @@ import '../video_state.dart'
         LibraryMatch,
         LibraryEvent;
 import '../../../core/theme/tokens.dart';
-import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
-import '../../../core/widgets/wf_chip.dart';
 import 'download_sheet.dart';
 
 class VideoMatchDetailPage extends ConsumerStatefulWidget {
@@ -31,10 +27,6 @@ class VideoMatchDetailPage extends ConsumerStatefulWidget {
 }
 
 class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
-  bool _scoreOverlayOn = true;
-  bool _eventsOverlayOn = true;
-  bool _lastScoreOn = true; // restored when master toggle goes ON
-  bool _lastEventsOn = true; // restored when master toggle goes ON
   late Set<int> _selected;
   double _playheadFraction = 0.0;
 
@@ -43,19 +35,11 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
   bool _playerInitialized = false;
   bool _isPlaying = false;
   int _matchDurationSeconds = 0;
-  List<app_overlay.OverlayState> _overlayStates = [];
-  app_overlay.OverlayState _currentOverlay = const app_overlay.OverlayState(
-    timeSeconds: 0,
-    homeScore: 0,
-    awayScore: 0,
-    period: 1,
-    recentEventLabel: null,
-  );
 
   // Throttle for _onPlayerStateChange to avoid 60 Hz setState calls.
-  DateTime? _lastOverlayUpdate;
+  DateTime? _lastPlayheadUpdate;
 
-  // Guards: overlays built once; player started once when on-device is confirmed.
+  // Guards: duration computed once; player started once when on-device confirmed.
   bool _initStarted = false;
   bool _playerInitStarted = false;
 
@@ -69,21 +53,13 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     };
   }
 
-  /// Builds overlay states once on first non-null match. Player init is
-  /// triggered reactively from [build] when [isOnDeviceProvider] resolves true.
+  /// Seeds the scrubber's duration once on first non-null match (refined to the
+  /// real video duration once the player initializes). Player init is triggered
+  /// reactively from [build] when [isOnDeviceProvider] resolves true.
   void _maybeStartInit(LibraryMatch match) {
     if (_initStarted) return;
     _initStarted = true;
-    _buildOverlayStates(match);
-  }
-
-  void _buildOverlayStates(LibraryMatch match) {
     _matchDurationSeconds = _parseDuration(match.fullDuration);
-    _overlayStates = buildOverlayStates(
-      match.events,
-      periodLengthSeconds: match.periodLengthSeconds,
-      homeShortName: match.teamShortName,
-    );
   }
 
   /// Starts the video player. Called from [build] once [isOnDeviceProvider]
@@ -127,12 +103,12 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     if (ctrl == null || !mounted) return;
     // Throttle to ~250 ms so we don't call setState on every video frame.
     final now = DateTime.now();
-    if (_lastOverlayUpdate != null &&
-        now.difference(_lastOverlayUpdate!) <
+    if (_lastPlayheadUpdate != null &&
+        now.difference(_lastPlayheadUpdate!) <
             const Duration(milliseconds: 250)) {
       return;
     }
-    _lastOverlayUpdate = now;
+    _lastPlayheadUpdate = now;
     final playing = ctrl.value.isPlaying;
     final posSecs = ctrl.value.position.inSeconds;
     final fraction = _matchDurationSeconds > 0
@@ -141,10 +117,6 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
     setState(() {
       _isPlaying = playing;
       _playheadFraction = fraction;
-      _currentOverlay = app_overlay.OverlayState.atTime(
-        _overlayStates,
-        posSecs,
-      );
     });
   }
 
@@ -214,12 +186,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         children: [
           _Player(
             match: match,
-            scoreOverlayOn: _scoreOverlayOn,
-            eventsOverlayOn: _eventsOverlayOn,
             playheadFraction: _playheadFraction,
             playerController: _playerInitialized ? _playerController : null,
             notOnDevice: !isOnDevice,
-            currentOverlay: _currentOverlay,
             onDownload: () => _showDownloadSheet(context, match),
             retrievalLocked: retrievalLocked,
             isPlaying: _isPlaying,
@@ -234,39 +203,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                 _playheadFraction = v;
                 if (_matchDurationSeconds > 0) {
                   final secs = (v * _matchDurationSeconds).round();
-                  _currentOverlay = app_overlay.OverlayState.atTime(
-                    _overlayStates,
-                    secs,
-                  );
                   _playerController?.seekTo(Duration(seconds: secs));
-                }
-              });
-            },
-          ),
-          _OverlayToggleRow(
-            scoreOn: _scoreOverlayOn,
-            eventsOn: _eventsOverlayOn,
-            onScoreChanged: (v) => setState(() {
-              _scoreOverlayOn = v;
-              _lastScoreOn = v;
-            }),
-            onEventsChanged: (v) => setState(() {
-              _eventsOverlayOn = v;
-              _lastEventsOn = v;
-            }),
-            onMasterChanged: (value) {
-              setState(() {
-                if (value) {
-                  _scoreOverlayOn = _lastScoreOn;
-                  _eventsOverlayOn = _lastEventsOn;
-                  // If both saved states are false, restore sensible defaults.
-                  if (!_scoreOverlayOn && !_eventsOverlayOn) {
-                    _scoreOverlayOn = true;
-                    _eventsOverlayOn = true;
-                  }
-                } else {
-                  _scoreOverlayOn = false;
-                  _eventsOverlayOn = false;
                 }
               });
             },
@@ -296,13 +233,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
                   onJump: () {
                     if (_matchDurationSeconds == 0) return;
                     final fraction = e.timeSeconds / _matchDurationSeconds;
-                    setState(() {
-                      _playheadFraction = fraction;
-                      _currentOverlay = app_overlay.OverlayState.atTime(
-                        _overlayStates,
-                        e.timeSeconds,
-                      );
-                    });
+                    setState(() => _playheadFraction = fraction);
                     _playerController?.seekTo(Duration(seconds: e.timeSeconds));
                   },
                 );
@@ -356,34 +287,12 @@ int _parseDuration(String hms) {
   return parts[0] * 60 + parts[1];
 }
 
-/// Returns the period abbreviation for a sport.
-/// Soccer/Rugby → H (Half), Basketball → Q (Quarter),
-/// Hockey → P (Period), Volleyball → S (Set), Other → P.
-String _periodAbbr(String sport) {
-  switch (sport) {
-    case 'Soccer':
-    case 'Rugby':
-      return 'H';
-    case 'Basketball':
-      return 'Q';
-    case 'Hockey':
-      return 'P';
-    case 'Volleyball':
-      return 'S';
-    default:
-      return 'P';
-  }
-}
-
 class _Player extends StatelessWidget {
   const _Player({
     required this.match,
-    required this.scoreOverlayOn,
-    required this.eventsOverlayOn,
     required this.playheadFraction,
     required this.playerController,
     required this.notOnDevice,
-    required this.currentOverlay,
     required this.onDownload,
     required this.retrievalLocked,
     required this.isPlaying,
@@ -391,14 +300,11 @@ class _Player extends StatelessWidget {
   });
 
   final LibraryMatch match;
-  final bool scoreOverlayOn;
-  final bool eventsOverlayOn;
   final double playheadFraction;
   final VideoPlayerController? playerController;
 
   /// True when the recording is not yet on this device.
   final bool notOnDevice;
-  final app_overlay.OverlayState currentOverlay;
   final VoidCallback onDownload;
 
   /// True while a match is live — disables the on-frame download CTA.
@@ -432,107 +338,10 @@ class _Player extends StatelessWidget {
                 ),
               ),
             ),
-          if (scoreOverlayOn)
-            Positioned(
-              top: 8,
-              left: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: T.bg.withValues(alpha: 0.85),
-                  border: Border.all(color: T.hair),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      match.teamShortName,
-                      style: const TextStyle(
-                        fontSize: 9,
-                        color: T.ink2,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${currentOverlay.homeScore}',
-                      style: const TextStyle(
-                        fontFamily: T.mono,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: T.ink,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${currentOverlay.period}${_periodAbbr(match.sport)}',
-                      style: const TextStyle(
-                        fontFamily: T.mono,
-                        fontSize: 9,
-                        color: T.ink3,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      () {
-                        final t = currentOverlay.timeSeconds;
-                        final mm = (t ~/ 60).toString().padLeft(2, '0');
-                        final ss = (t % 60).toString().padLeft(2, '0');
-                        return '$mm:$ss';
-                      }(),
-                      style: const TextStyle(
-                        fontFamily: T.mono,
-                        fontSize: 9,
-                        color: T.ink3,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${currentOverlay.awayScore}',
-                      style: const TextStyle(
-                        fontFamily: T.mono,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: T.ink,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      match.opponent.split(' ').first,
-                      style: const TextStyle(
-                        fontSize: 9,
-                        color: T.ink2,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          if (eventsOverlayOn &&
-              currentOverlay.recentEventLabel != null &&
-              currentOverlay.recentEventLabel!.isNotEmpty)
-            Positioned(
-              top: 8,
-              right: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                color: T.accent,
-                child: Text(
-                  currentOverlay.recentEventLabel!,
-                  style: const TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: T.accentInk,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-              ),
-            ),
+          // No app-drawn overlay here (#6 A6a playback half): the overlay is
+          // baked into the video by the camera on demand. A clean download has
+          // no scoreboard; an overlaid download already carries the camera's.
+          // The app must NOT draw its own, or it would double / diverge.
         ],
       ),
     );
@@ -688,54 +497,6 @@ class _Scrubber extends StatelessWidget {
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OverlayToggleRow extends StatelessWidget {
-  const _OverlayToggleRow({
-    required this.scoreOn,
-    required this.eventsOn,
-    required this.onScoreChanged,
-    required this.onEventsChanged,
-    required this.onMasterChanged,
-  });
-
-  final bool scoreOn;
-  final bool eventsOn;
-  final ValueChanged<bool> onScoreChanged;
-  final ValueChanged<bool> onEventsChanged;
-  final ValueChanged<bool> onMasterChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final masterOn = scoreOn || eventsOn;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-      decoration: const Border(
-        bottom: BorderSide(color: T.rule),
-      ).toBoxDecoration(),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Text(
-              'Overlays',
-              style: TextStyle(fontSize: 11, color: T.ink2),
-            ),
-          ),
-          GestureDetector(
-            onTap: () => onScoreChanged(!scoreOn),
-            child: WfChip(label: 'Score', active: scoreOn),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => onEventsChanged(!eventsOn),
-            child: WfChip(label: 'Events', active: eventsOn),
-          ),
-          const SizedBox(width: 8),
-          WfSwitch(value: masterOn, onChanged: onMasterChanged),
         ],
       ),
     );
