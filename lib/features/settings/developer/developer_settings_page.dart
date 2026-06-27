@@ -144,43 +144,49 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
           const _SectionHeader('Diagnostics'),
           WfCard(
             padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                ListTile(
-                  title: const Text(
-                    'Logs',
-                    style: TextStyle(color: T.ink, fontSize: 14),
-                  ),
-                  subtitle: const Text(
-                    'In-app debugPrint capture — copy/share without adb.',
-                    style: TextStyle(color: T.ink2, fontSize: 12),
-                  ),
-                  trailing: const Icon(Icons.chevron_right, color: T.ink3),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const LogViewerPage()),
-                  ),
-                ),
-                // Database browser + reset. Lives here (visible) rather than
-                // behind the old long-press-About gesture. Injected via
-                // devNavigationProvider so it stays out of prod builds.
-                if (devNav.debugPage != null) ...[
-                  const Divider(height: 1, color: T.rule),
+            // ListTiles paint their ink/splashes on the nearest Material; the
+            // WfCard's coloured DecoratedBox would hide them (and newer Flutter
+            // asserts on it). Give the tiles their own transparent Material.
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                children: [
                   ListTile(
                     title: const Text(
-                      'Database browser',
+                      'Logs',
                       style: TextStyle(color: T.ink, fontSize: 14),
                     ),
                     subtitle: const Text(
-                      'Inspect users/teams/matches/clips; reset + reseed.',
+                      'In-app debugPrint capture — copy/share without adb.',
                       style: TextStyle(color: T.ink2, fontSize: 12),
                     ),
                     trailing: const Icon(Icons.chevron_right, color: T.ink3),
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => devNav.debugPage!()),
+                      MaterialPageRoute(builder: (_) => const LogViewerPage()),
                     ),
                   ),
+                  // Database browser + reset. Lives here (visible) rather than
+                  // behind the old long-press-About gesture. Injected via
+                  // devNavigationProvider so it stays out of prod builds.
+                  if (devNav.debugPage != null) ...[
+                    const Divider(height: 1, color: T.rule),
+                    ListTile(
+                      title: const Text(
+                        'Database browser',
+                        style: TextStyle(color: T.ink, fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        'Inspect users/teams/matches/clips; reset + reseed.',
+                        style: TextStyle(color: T.ink2, fontSize: 12),
+                      ),
+                      trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => devNav.debugPage!()),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
