@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
+
+import 'log_viewer_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
@@ -135,6 +137,27 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
             ),
             const SizedBox(height: 12),
           ],
+
+          // Diagnostics
+          const _SectionHeader('Diagnostics'),
+          WfCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              title: const Text(
+                'Logs',
+                style: TextStyle(color: T.ink, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'In-app debugPrint capture — copy/share without adb.',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+              trailing: const Icon(Icons.chevron_right, color: T.ink3),
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const LogViewerPage())),
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // Seed app data
           const _SectionHeader('Seed app data'),

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/config/env.dart';
 import 'core/config/shipped_overrides.dart';
+import 'core/services/log_service.dart';
 
 /// Shipped entry-point for BOTH published variants (dev and prod APKs). The
 /// backend is always the real impl; dev tooling is gated on the compile-time
@@ -13,6 +14,10 @@ import 'core/config/shipped_overrides.dart';
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+
+  // Capture debugPrint into an in-app ring buffer so the developer Logs viewer
+  // works without adb (the Settings > Developer > Logs surface is stage-only).
+  LogService.instance.attach();
 
   final container = ProviderContainer(overrides: shippedOverrides(kAppEnv));
 
