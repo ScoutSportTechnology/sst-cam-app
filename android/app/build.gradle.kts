@@ -93,6 +93,17 @@ android {
             }
             // Variant identity (applicationId suffix, app name, icon) is handled
             // by the dev/prod product flavors above.
+            //
+            // R8 disabled on release so the shipped dex matches what `flutter run`
+            // (debug, never minified) produces — no build-type divergence. R8's
+            // tree-shaking removed JNI-only classes (libVLC's
+            // org.videolan.libvlc.interfaces.IMedia$Track, referenced solely via
+            // native FindClass) ONLY in release, so libVLC called System.exit(1)
+            // and the app closed on Live Preview while debug worked. Keeping R8
+            // off is the simplest guarantee of local==CI behaviour; the VLC libs
+            // dominate APK size, so the dex shrink R8 offered is negligible here.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 
