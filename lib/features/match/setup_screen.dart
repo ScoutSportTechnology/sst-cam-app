@@ -327,8 +327,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       numPeriods: periods,
       periodLengthSeconds: periodLengthSeconds,
       rtmpUrl: rtmpUrl,
-      videoOutputPath: '/data/video/$userUuid/$matchUuid/',
-      thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
+      // Root these under the firmware's provisioned storage (chowned to the
+      // non-root sst-cam service user, and the dir the DownloadServer enumerates).
+      // The old /data/video|/data/thumbnail roots don't exist on the device and
+      // aren't writable, so mkdir failed -> "Failed to configure camera", and any
+      // recording there would also be invisible to downloads.
+      videoOutputPath: '/var/lib/sst/cam/videos/$userUuid/$matchUuid/',
+      thumbnailOutputPath: '/var/lib/sst/cam/thumbnails/$userUuid/$matchUuid/',
       teamAId: widget.match.team.id,
       // The opponent has no team record/UUID, so its display name doubles as the
       // stable team B identifier. ScoreUpdateCommand for the away team sends the
