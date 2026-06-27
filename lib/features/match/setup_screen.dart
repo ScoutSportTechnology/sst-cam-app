@@ -340,8 +340,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       // stable team B identifier. ScoreUpdateCommand for the away team sends the
       // same value (see session_screen) so the firmware routes goals correctly.
       teamBId: opponentName,
-      teamAName: widget.match.team.name,
-      teamBName: opponentName,
+      // The scoreboard bug is compact — show short codes (home short-name,
+      // a derived 3-letter code for the opponent), standardised in length.
+      teamAName: widget.match.team.shortName,
+      teamBName: _shortCode(opponentName),
       teamAColorHex: widget.match.team.colorHex,
     );
 
@@ -442,6 +444,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 String _stripSportPrefix(String name, String sport) {
   final pref = '$sport · ';
   return name.startsWith(pref) ? name.substring(pref.length) : name;
+}
+
+/// A compact, scoreboard-friendly code for a free-text opponent name (which has
+/// no short-name field): the first three letters, uppercased — "Eastfield FC"
+/// → "EAS". Falls back to the trimmed name when it has no letters.
+String _shortCode(String name) {
+  final letters = name.replaceAll(RegExp('[^A-Za-z]'), '');
+  if (letters.isEmpty) return name.trim().toUpperCase();
+  return letters
+      .substring(0, letters.length < 3 ? letters.length : 3)
+      .toUpperCase();
 }
 
 // ---------------------------------------------------------------------------

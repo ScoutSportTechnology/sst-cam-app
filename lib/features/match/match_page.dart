@@ -3,11 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ble/ble_providers.dart' show bleServiceProvider;
+import '../../core/models/overlay_layout.dart';
+import '../camera/camera_state.dart' show activeCameraIdProvider;
 import 'landing_screen.dart';
 import 'match_state.dart';
 import 'session/session_screen.dart';
 import 'session/session_state.dart';
 import 'setup_screen.dart';
+
+/// An empty overlay pushed to the camera when a match session ends, so the
+/// firmware stops compositing the (now-stale) scoreboard onto the preview.
+const _clearOverlayLayout = OverlayLayout(
+  canvasWidth: 1280,
+  canvasHeight: 720,
+  elements: [],
+  templates: [],
+);
 
 /// The Match tab routes between Landing → Setup → Session based on user
 /// selection. The Session screen unifies the old pre-match and live views
@@ -70,11 +82,26 @@ class _MatchPageState extends ConsumerState<MatchPage> {
   /// so there is nothing to remove here. Deleting it (the old behavior, when
   /// matches weren't persisted as recordings) would destroy the library entry.
   void _leave() {
+    _clearCameraOverlay();
     ref.read(liveMatchProvider.notifier).reset();
     setState(() {
       _selected = null;
       _setupConfirmed = false;
     });
+  }
+
+  /// Tell the camera to drop the scoreboard when the user leaves the match —
+  /// the firmware caches the last rendered overlay and would otherwise keep it
+  /// on the preview after the match ends and into the next match.
+  void _clearCameraOverlay() {
+    final deviceId = ref.read(activeCameraIdProvider);
+    if (deviceId == null) return;
+    unawaited(
+      ref
+          .read(bleServiceProvider)
+          .pushOverlayLayout(deviceId, _clearOverlayLayout)
+          .catchError((Object _) {}),
+    );
   }
 
   @override

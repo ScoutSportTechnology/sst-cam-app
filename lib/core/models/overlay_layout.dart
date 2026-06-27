@@ -134,11 +134,11 @@ OverlayLayout defaultScoreboardLayout({
   final homeColor = homeColorHex ?? '#9AA3B2';
   final awayColor = awayColorHex ?? '#9AA3B2';
 
-  // Bug geometry on a 1280×720 canvas. Bottom-left, 52px tall.
+  // Bug geometry on a 1280×720 canvas. Top-left (soccer standard), 52px tall.
   // x: 24 [tab8] 32 [home108] 140 [score132] 272 [away108] 380 [tab8] 388
   //    [clock cell 76] 464
-  const top = 648.0;
-  const bot = 700.0;
+  const top = 24.0;
+  const bot = 76.0;
 
   // ---- Persistent elements (z>0; z=0 is the video itself) ----
   const bg = OverlayElement(
@@ -177,7 +177,7 @@ OverlayLayout defaultScoreboardLayout({
   const homeNameElement = OverlayElement(
     id: 'home_name',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 42, y1: 656, x2: 140, y2: 692, z: 3),
+    bounds: OverlayRect(x1: 42, y1: 32, x2: 140, y2: 68, z: 3),
     style: OverlayStyle(
       textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.left,
@@ -191,7 +191,7 @@ OverlayLayout defaultScoreboardLayout({
   const score = OverlayElement(
     id: 'score',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 140, y1: 652, x2: 272, y2: 698, z: 3),
+    bounds: OverlayRect(x1: 140, y1: 28, x2: 272, y2: 74, z: 3),
     style: OverlayStyle(
       textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.center,
@@ -205,7 +205,7 @@ OverlayLayout defaultScoreboardLayout({
   const awayNameElement = OverlayElement(
     id: 'away_name',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 274, y1: 656, x2: 378, y2: 692, z: 3),
+    bounds: OverlayRect(x1: 274, y1: 32, x2: 378, y2: 68, z: 3),
     style: OverlayStyle(
       textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.left,
@@ -219,7 +219,7 @@ OverlayLayout defaultScoreboardLayout({
   const clock = OverlayElement(
     id: 'clock',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 388, y1: 652, x2: 464, y2: 678, z: 3),
+    bounds: OverlayRect(x1: 388, y1: 28, x2: 464, y2: 54, z: 3),
     style: OverlayStyle(
       textColor: '#FFFFFF',
       textAlign: OverlayTextAlign.center,
@@ -233,7 +233,7 @@ OverlayLayout defaultScoreboardLayout({
   const period = OverlayElement(
     id: 'period',
     shape: OverlayShape.text,
-    bounds: OverlayRect(x1: 388, y1: 678, x2: 464, y2: 698, z: 3),
+    bounds: OverlayRect(x1: 388, y1: 54, x2: 464, y2: 74, z: 3),
     style: OverlayStyle(
       textColor: '#AEB6C4',
       textAlign: OverlayTextAlign.center,
