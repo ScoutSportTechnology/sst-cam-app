@@ -483,6 +483,34 @@ class WifiServiceImpl implements WifiService {
   Future<bool> checkCameraHasRecording(String uuid) => Future.value(true);
 
   @override
+  Future<String?> fetchThumbnail(String deviceId, String uuid) async {
+    final group = _currentGroups[deviceId];
+    if (group == null) return null; // not joined — can't reach the camera
+    final url = '${group.downloadBaseUrl()}/thumbnails/$uuid';
+    try {
+      final resp = await _dio.get<List<int>>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          // 404 (no thumbnail) is an expected miss, not an exception.
+          validateStatus: (s) => s != null && s < 500,
+        ),
+      );
+      final bytes = resp.data;
+      if (resp.statusCode != 200 || bytes == null || bytes.isEmpty) {
+        return null;
+      }
+      final savePath = await _videoPathService.thumbnailPath(uuid);
+      await File(savePath).writeAsBytes(bytes, flush: true);
+      debugPrint('WIFI: cached thumbnail for $uuid (${bytes.length} bytes)');
+      return savePath;
+    } catch (e) {
+      debugPrint('WIFI: thumbnail fetch failed for $uuid: $e');
+      return null;
+    }
+  }
+
+  @override
   Future<VideoDownloadHandle> downloadRecording(
     String deviceId,
     String uuid,

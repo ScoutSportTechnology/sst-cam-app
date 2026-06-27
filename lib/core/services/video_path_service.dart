@@ -24,9 +24,20 @@ class VideoPathService {
     return p.join(dir.path, '${recordingId}_clip_$clipId.mp4');
   }
 
-  Future<Directory> _videosDir() async {
+  /// Returns the local cache path for a recording's thumbnail (the camera's
+  /// `<matchId>.jpg`). The file may not exist yet — callers fetch it once over
+  /// WiFi and cache it here for offline display.
+  Future<String> thumbnailPath(String recordingId) async {
+    final dir = await _thumbnailsDir();
+    return p.join(dir.path, '$recordingId.jpg');
+  }
+
+  Future<Directory> _videosDir() => _subdir('videos');
+  Future<Directory> _thumbnailsDir() => _subdir('thumbnails');
+
+  Future<Directory> _subdir(String name) async {
     final support = await getApplicationSupportDirectory();
-    final dir = Directory(p.join(support.path, 'videos'));
+    final dir = Directory(p.join(support.path, name));
     if (!dir.existsSync()) {
       await dir.create(recursive: true);
     }

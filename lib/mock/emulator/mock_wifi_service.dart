@@ -369,6 +369,12 @@ class MockWifiService implements WifiService {
   Future<bool> checkCameraHasRecording(String uuid) => Future.value(true);
 
   @override
+  Future<String?> fetchThumbnail(String deviceId, String uuid) =>
+      // The emulated camera serves no thumbnails — the library shows the
+      // placeholder badge. Real thumbnails arrive only against real firmware.
+      Future.value(null);
+
+  @override
   Future<VideoDownloadHandle> downloadRecording(
     String deviceId,
     String uuid,

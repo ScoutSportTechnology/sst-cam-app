@@ -10,6 +10,7 @@ import '../../core/ble/ble_providers.dart' show telemetryProvider;
 import '../../core/db/daos/teams_dao.dart';
 import '../../core/models/team.dart';
 import '../../core/state/db_providers.dart';
+import '../../core/wifi/wifi_providers.dart' show wifiServiceProvider;
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../match/session/session_state.dart' show liveMatchProvider, RecState;
 import '../teams/teams_state.dart' show teamsControllerProvider;
@@ -33,6 +34,27 @@ final liveSessionActiveProvider = Provider<bool>((ref) {
   final tele = ref.watch(telemetryProvider(camId)).valueOrNull;
   if (tele == null) return false;
   return tele.isRecording || tele.isStreaming || tele.isRawCapturing;
+});
+
+/// Local cache path for a match's camera-rendered thumbnail, or null when none
+/// is available yet. Cache-first: returns the cached `<matchId>.jpg` if present;
+/// otherwise fetches it once over WiFi when a camera is connected and no live
+/// session is active (retrieval is blocked mid-match, per
+/// [liveSessionActiveProvider]). Null while offline with no cache → the card
+/// falls back to its team-badge placeholder.
+final matchThumbnailProvider = FutureProvider.family<String?, String>((
+  ref,
+  matchId,
+) async {
+  final pathSvc = ref.watch(videoPathServiceProvider);
+  final cachePath = await pathSvc.thumbnailPath(matchId);
+  if (File(cachePath).existsSync()) return cachePath;
+
+  // Not cached — only reach the camera when connected and not mid-match.
+  if (ref.watch(liveSessionActiveProvider)) return null;
+  final camId = ref.watch(activeCameraIdProvider);
+  if (camId == null) return null;
+  return ref.watch(wifiServiceProvider).fetchThumbnail(camId, matchId);
 });
 
 class LibraryEvent {
