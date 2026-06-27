@@ -284,8 +284,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     );
   }
 
-  // Fix 17: UUID v4 format regex used to validate UUIDs before interpolating
-  // them into output paths.
+  // matchUuid is the team_match id — a v4 UUID by contract (ids are minted with
+  // Uuid().v4()). It is interpolated into the camera filesystem path, so enforce
+  // the UUID shape here: it both upholds the "ids are UUIDs, never strings" rule
+  // and guarantees the value can't contain a '/'/'.'/'..' that escapes the dir.
   static final _uuidRegex = RegExp(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
   );
@@ -349,10 +351,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     });
 
     try {
-      // Validate matchUuid against the UUID format before interpolating it into
-      // the camera filesystem path. matchUuid is the team_match id, which is
-      // minted as a v4 UUID; this guard defends the path against any legacy or
-      // non-UUID id slipping through.
+      // matchUuid (the team_match id) is interpolated into the camera
+      // filesystem path; reject anything that isn't a safe path segment before
+      // it gets there, so a malformed id can't escape the per-match directory.
       _validateUuid(matchUuid, 'matchUuid');
 
       final ble = ref.read(bleServiceProvider);

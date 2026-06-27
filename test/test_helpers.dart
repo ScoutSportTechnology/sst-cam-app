@@ -71,6 +71,16 @@ List<Override> dbOverrides(Object db) {
   return [appDatabaseProvider.overrideWithValue(database)];
 }
 
+// Match ids are v4 UUIDs, per the app's "ids are UUIDs, not magic strings"
+// rule: the match id is interpolated into the camera recording path and is
+// validated as a UUID when a match starts. Teams/users keep their readable
+// fixture ids (they never reach that path).
+const seedMatchUp1Id = '11111111-1111-4111-8111-111111111111';
+const seedMatchUp2Id = '22222222-2222-4222-8222-222222222222';
+const seedMatchM1Id = '33333333-3333-4333-8333-333333333333';
+const seedMatchM2Id = '44444444-4444-4444-8444-444444444444';
+const seedMatchM3Id = '55555555-5555-4555-8555-555555555555';
+
 // ---------------------------------------------------------------------------
 // Seed helpers — mirrors DevDataStore._seed() exactly.
 // ---------------------------------------------------------------------------
@@ -152,7 +162,7 @@ Future<void> _seedInMemoryDb(AppDatabase db) async {
   // Team matches under nr-u14
   await db.teamsDao.insertTeamMatch(
     TeamMatchesTableCompanion.insert(
-      id: 'nr-u14-up1',
+      id: seedMatchUp1Id,
       teamId: 'nr-u14',
       opponent: 'vs Eastfield FC',
       date: 'May 11',
@@ -164,7 +174,7 @@ Future<void> _seedInMemoryDb(AppDatabase db) async {
   );
   await db.teamsDao.insertTeamMatch(
     TeamMatchesTableCompanion.insert(
-      id: 'nr-u14-up2',
+      id: seedMatchUp2Id,
       teamId: 'nr-u14',
       opponent: 'vs Lakeside',
       date: 'May 18',
@@ -176,7 +186,7 @@ Future<void> _seedInMemoryDb(AppDatabase db) async {
   );
   await db.teamsDao.insertTeamMatch(
     TeamMatchesTableCompanion.insert(
-      id: 'nr-u14-m1',
+      id: seedMatchM1Id,
       teamId: 'nr-u14',
       opponent: 'vs Eastfield FC',
       date: 'Mar 12',
@@ -190,7 +200,7 @@ Future<void> _seedInMemoryDb(AppDatabase db) async {
   );
   await db.teamsDao.insertTeamMatch(
     TeamMatchesTableCompanion.insert(
-      id: 'nr-u14-m2',
+      id: seedMatchM2Id,
       teamId: 'nr-u14',
       opponent: 'vs Riverdale Utd',
       date: 'Mar 05',
@@ -204,7 +214,7 @@ Future<void> _seedInMemoryDb(AppDatabase db) async {
   );
   await db.teamsDao.insertTeamMatch(
     TeamMatchesTableCompanion.insert(
-      id: 'nr-u14-m3',
+      id: seedMatchM3Id,
       teamId: 'nr-u14',
       opponent: 'vs Lakeside',
       date: 'Feb 26',

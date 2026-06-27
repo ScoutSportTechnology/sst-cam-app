@@ -153,6 +153,9 @@ Widget _buildSheet({
     overrides: [
       appDatabaseProvider.overrideWithValue(db),
       bleServiceProvider.overrideWithValue(_newBle()),
+      // The sheet fetches real recording metadata on build; stub it so the
+      // mock's delayed listRecordings timer isn't left pending at teardown.
+      deviceRecordingProvider.overrideWith((ref, matchId) => null),
       activeUserProvider.overrideWith((_) => 'user-1'),
       wifiServiceProvider.overrideWithValue(wifiSvc),
       videoPathServiceProvider.overrideWithValue(
