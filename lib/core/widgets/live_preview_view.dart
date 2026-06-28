@@ -209,21 +209,28 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final stats = ref.watch(previewStatsProvider(deviceId)).valueOrNull;
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
-    // Spin up / replace the VLC controller whenever the descriptor URL changes.
-    // A paused (off-tab) surface releases its client so only the visible surface
-    // holds one — two clients on the single-stream RTSP server stall the second.
-    if (previewEnabled && !widget.paused) {
+    final wifiConnected = wifiState == WifiDirectState.connected;
+
+    // Spin up / replace the VLC controller only while it can actually attach +
+    // play: preview on, this surface visible (not paused), and WiFi connected
+    // with a descriptor URL. Creating a controller before WiFi is up (or on an
+    // off-tab surface) yields an ORPHAN that never mounts a platform view — its
+    // dispose then throws a LateInitializationError on `_viewId` and the preview
+    // can get stuck on the placeholder. A paused/disconnected surface releases
+    // its client (and the active, reconnected one auto-recreates here), so only
+    // the visible surface holds a client on the single-stream RTSP server.
+    final shouldStream = previewEnabled && !widget.paused && wifiConnected;
+    if (shouldStream) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
         _swapVlcController(url);
       } else if (url == null && _vlc != null) {
         _tearDownVlc();
       }
-    } else if (widget.paused && _vlc != null) {
+    } else if (_vlc != null) {
       _tearDownVlc();
     }
 
-    final wifiConnected = wifiState == WifiDirectState.connected;
     final showVlc = wifiConnected && _vlc != null && !_vlcError;
     // Liveness is driven by VLC actually decoding frames, not by the
     // previewFrameProvider heartbeat — the real backend's previewFrames() stream
