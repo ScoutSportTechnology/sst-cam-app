@@ -59,9 +59,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    // The camera applied it: the success SnackBar shows and the status flips up.
+    // The camera applied it: the success SnackBar shows and the live address
+    // (ip/mask only, no verbose status) is displayed.
     expect(find.text('Network config applied'), findsOneWidget);
-    expect(find.textContaining('Up —'), findsOneWidget);
+    expect(find.textContaining('10.10.1.30'), findsOneWidget);
 
     await mock.dispose();
   });

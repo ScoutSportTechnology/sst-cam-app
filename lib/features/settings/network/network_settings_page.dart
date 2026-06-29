@@ -94,12 +94,15 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   void _apply(NetworkConfigResult result) {
     final config = result.config;
     setState(() {
-      _ethEnabled = config.ethernet.enabled;
+      // The toggle reflects whether the interface is actually a live uplink — the
+      // configured intent OR the real link state (the camera's NM-managed
+      // ethernet can be up even when the firmware config has it disabled).
+      _ethEnabled = config.ethernet.enabled || result.ethernetUp;
       _ethDhcp = config.ethernet.ip.dhcp;
       _ethAddress.text = config.ethernet.ip.address;
       _ethGateway.text = config.ethernet.ip.gateway;
       _ethDns.text = config.ethernet.ip.dns;
-      _wifiEnabled = config.wifi.enabled;
+      _wifiEnabled = config.wifi.enabled || result.wifiUp;
       _wifiDhcp = config.wifi.ip.dhcp;
       _wifiSsid.text = config.wifi.ssid;
       _wifiPassword.text = config.wifi.password;
@@ -203,9 +206,10 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       enabled: _ethEnabled,
       onEnabledChanged: (v) => setState(() => _ethEnabled = v),
       statusUp: _status?.ethernetUp ?? false,
+      // Green dot = up; show only the address when up, nothing otherwise.
       statusText: (_status?.ethernetUp ?? false)
-          ? 'Up — ${_status?.ethernetAddress ?? ''}'
-          : 'Down',
+          ? (_status?.ethernetAddress ?? '')
+          : '',
       children: [
         _DhcpToggle(
           dhcp: _ethDhcp,
@@ -226,9 +230,9 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       enabled: _wifiEnabled,
       onEnabledChanged: (v) => setState(() => _wifiEnabled = v),
       statusUp: _status?.wifiUp ?? false,
-      statusText: (_status?.wifiStatus.isNotEmpty ?? false)
-          ? _status!.wifiStatus
-          : (_wifiEnabled ? 'Pending' : 'Off'),
+      // Only show the address when the wifi uplink is actually up; no verbose
+      // status text (the gated "unavailable" message was too long).
+      statusText: (_status?.wifiUp ?? false) ? (_status?.wifiStatus ?? '') : '',
       children: [
         _field('SSID', _wifiSsid),
         _field('Password', _wifiPassword, obscure: true),
@@ -303,7 +307,8 @@ class _UplinkSection extends StatelessWidget {
                 Switch(value: enabled, onChanged: onEnabledChanged),
               ],
             ),
-            Text(statusText, style: Theme.of(context).textTheme.bodySmall),
+            if (statusText.isNotEmpty)
+              Text(statusText, style: Theme.of(context).textTheme.bodySmall),
             if (enabled) ...children,
           ],
         ),
