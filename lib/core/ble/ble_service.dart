@@ -1,6 +1,7 @@
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/network_config.dart';
 import '../models/export_job.dart';
 import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
@@ -120,6 +121,18 @@ abstract class BleService {
   /// Poll a running overlayed-export job. The READY result carries the
   /// one-shot L2 [DownloadToken]; FAILED carries an error message.
   Future<ExportJob> pollOverlayExport(String deviceId, String jobId);
+
+  /// Set the camera's internet uplink config (ethernet / wifi STA) — the
+  /// cloud-streaming path, separate from the WiFi-Direct preview link. The
+  /// firmware persists + applies it and replies with the echoed config + live
+  /// per-interface status.
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  );
+
+  /// Read the camera's current uplink config + live status.
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

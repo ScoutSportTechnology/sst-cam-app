@@ -1,6 +1,7 @@
 // Dart-side command types — map 1:1 to proto Command.payload variants.
 // RealBleService translates these to/from protobuf bytes on the wire.
 
+import 'network_config.dart';
 import 'overlay_layout.dart';
 import 'preview_layout.dart';
 
@@ -243,6 +244,18 @@ class PollExportCommand extends BleCommand {
   PollExportCommand({required this.jobId});
   final String jobId;
 }
+
+/// Set the camera's internet uplink config (ethernet / wifi STA) — persisted +
+/// applied by the firmware. Replies with [NetworkConfigResult] (echoed config +
+/// live status).
+class SetNetworkConfigCommand extends BleCommand {
+  SetNetworkConfigCommand({required this.config});
+  final NetworkConfig config;
+}
+
+/// Read the camera's current uplink config + live status. Replies with
+/// [NetworkConfigResult].
+class GetNetworkConfigCommand extends BleCommand {}
 
 // ---------------------------------------------------------------------------
 

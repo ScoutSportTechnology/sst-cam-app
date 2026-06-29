@@ -9,6 +9,7 @@ import 'package:sst_cam_app/core/db/app_database.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/match.dart';
+import 'package:sst_cam_app/core/models/network_config.dart';
 import 'package:sst_cam_app/core/models/overlay_layout.dart';
 import 'package:sst_cam_app/core/models/export_job.dart';
 import 'package:sst_cam_app/core/models/preview_layout.dart';
@@ -104,6 +105,14 @@ class _StubBleService implements BleService {
   @override
   Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async =>
       const ExportJob(jobId: 'export-1', state: ExportJobState.failed);
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) async => throw UnimplementedError();
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async =>
+      throw UnimplementedError();
   @override
   Future<void> dispose() async {}
 }
