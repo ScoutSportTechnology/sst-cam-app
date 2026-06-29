@@ -494,6 +494,11 @@ class BleServiceImpl implements BleService {
   ) async {
     final resp = await sendCommand<NetworkConfigResult>(deviceId, command);
     if (!resp.isOk) {
+      if (resp.isUnsupported) {
+        // Old firmware predating the NetworkConfig command surface — surface a
+        // distinct, actionable exception rather than a generic failure.
+        throw BleNetworkConfigUnsupportedException(resp.errorMessage);
+      }
       throw BleConnectionException('$label failed: ${resp.errorMessage}');
     }
     final result = resp.payload;

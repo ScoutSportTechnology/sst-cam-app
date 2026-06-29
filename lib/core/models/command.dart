@@ -280,6 +280,12 @@ class BleCommandResponse<T> {
   /// status rather than substring-matching the firmware's human message.
   bool get isLiveSessionActive => status == BleResponseStatus.liveSessionActive;
 
+  /// The firmware does not implement this command (`ResponseStatus.UNSUPPORTED`)
+  /// — typically a camera running firmware older than the one that introduced
+  /// the command. Distinct from a generic error so callers can surface
+  /// actionable "update the camera firmware" guidance.
+  bool get isUnsupported => status == BleResponseStatus.unsupported;
+
   factory BleCommandResponse.ok([T? payload]) =>
       BleCommandResponse(status: BleResponseStatus.ok, payload: payload);
 

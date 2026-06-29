@@ -157,6 +157,19 @@ class BleConnectionException implements Exception {
   String toString() => 'BleConnectionException: $message';
 }
 
+/// Raised when the camera's firmware does not implement a NetworkConfig
+/// command (it answered `ResponseStatus.UNSUPPORTED`). The command surface is
+/// additive, so an older firmware predating it has no way to honour the request
+/// — callers surface "update the camera firmware" rather than a generic error.
+class BleNetworkConfigUnsupportedException implements Exception {
+  const BleNetworkConfigUnsupportedException([this.message]);
+  final String? message;
+
+  @override
+  String toString() =>
+      'BleNetworkConfigUnsupportedException: ${message ?? 'firmware too old'}';
+}
+
 /// Raised when the firmware's reported `protocol_version` does not match the
 /// version this app build was compiled against. The session must be refused —
 /// the wire contract may have diverged in incompatible ways.
