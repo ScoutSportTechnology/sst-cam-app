@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter/services.dart';
 
 /// Saves media files to the device gallery.
@@ -10,6 +10,17 @@ import 'package:flutter/services.dart';
 /// iOS: no-op for now — Photos framework integration is future work.
 class GalleryService {
   static const _channel = MethodChannel('com.sst.sstcam/media');
+
+  /// Test seam. When set, [saveVideo] delegates here instead of touching the
+  /// platform channel — the real path is gated on [Platform.isAndroid], which is
+  /// false on the test host, so the success branch is otherwise unreachable in
+  /// unit tests. Production leaves this null.
+  @visibleForTesting
+  static Future<String?> Function({
+    required String sourcePath,
+    required String displayName,
+  })?
+  debugSaver;
 
   /// Copies the file at [sourcePath] into the device gallery under
   /// [displayName]. Returns the gallery URI/path on success, null on failure
@@ -21,6 +32,10 @@ class GalleryService {
     required String sourcePath,
     required String displayName,
   }) async {
+    final override = debugSaver;
+    if (override != null) {
+      return override(sourcePath: sourcePath, displayName: displayName);
+    }
     if (!Platform.isAndroid) return null;
     try {
       return await _channel.invokeMethod<String>('saveVideoToGallery', {

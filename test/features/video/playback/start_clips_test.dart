@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/core/services/clip_service.dart';
+import 'package:sst_cam_app/core/services/gallery_service.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:sst_cam_app/core/wifi/wifi_providers.dart';
@@ -119,6 +120,50 @@ Future<void> _insertMatch(AppDatabase db) async {
   );
 }
 
+const _match = LibraryMatch(
+  id: _matchId,
+  teamId: 'nr-u14',
+  teamName: 'Northside Rovers U14',
+  teamShortName: 'NRA',
+  date: 'Jan 1',
+  opponent: 'Opp',
+  result: 'W 1-0',
+  sport: 'Soccer',
+  fullDuration: '01:10:00',
+  fullSizeMb: 100,
+  periodLengthSeconds: 2100,
+  events: [],
+  downloadState: 'all-local',
+);
+
+List<Override> _overrides({
+  required AppDatabase db,
+  required _FakeClipSvc clipSvc,
+  required bool isOnDevice,
+}) => [
+  appDatabaseProvider.overrideWithValue(db),
+  bleServiceProvider.overrideWithValue(
+    MockBleService(
+      scanDeviceAppearDelays: const [Duration.zero],
+      connectionDelay: Duration.zero,
+      failureRate: 0.0,
+      randomSeed: 42,
+    ),
+  ),
+  // The sheet fetches real recording metadata on build; stub it so the
+  // mock's delayed listRecordings timer isn't left pending at teardown.
+  deviceRecordingProvider.overrideWith((ref, matchId) => null),
+  liveSessionActiveProvider.overrideWithValue(false),
+  activeUserProvider.overrideWith((_) => 'user-1'),
+  wifiServiceProvider.overrideWithValue(_FakeWifi()),
+  videoPathServiceProvider.overrideWithValue(_AbsentPathSvc()),
+  clipServiceProvider.overrideWithValue(clipSvc),
+  activeCameraIdProvider.overrideWith((_) => 'cam-001'),
+  // Override isOnDeviceProvider so _startClips finds a quickly-resolved
+  // Future instead of going through the full async FutureProvider chain.
+  isOnDeviceProvider.overrideWith((ref, id) => Future<bool>.value(isOnDevice)),
+];
+
 Widget _buildSheet({
   required AppDatabase db,
   required _FakeClipSvc clipSvc,
@@ -126,51 +171,47 @@ Widget _buildSheet({
   required bool isOnDevice,
 }) {
   return ProviderScope(
-    overrides: [
-      appDatabaseProvider.overrideWithValue(db),
-      bleServiceProvider.overrideWithValue(
-        MockBleService(
-          scanDeviceAppearDelays: const [Duration.zero],
-          connectionDelay: Duration.zero,
-          failureRate: 0.0,
-          randomSeed: 42,
-        ),
-      ),
-      // The sheet fetches real recording metadata on build; stub it so the
-      // mock's delayed listRecordings timer isn't left pending at teardown.
-      deviceRecordingProvider.overrideWith((ref, matchId) => null),
-      liveSessionActiveProvider.overrideWithValue(false),
-      activeUserProvider.overrideWith((_) => 'user-1'),
-      wifiServiceProvider.overrideWithValue(_FakeWifi()),
-      videoPathServiceProvider.overrideWithValue(_AbsentPathSvc()),
-      clipServiceProvider.overrideWithValue(clipSvc),
-      activeCameraIdProvider.overrideWith((_) => 'cam-001'),
-      // Override isOnDeviceProvider so _startClips finds a quickly-resolved
-      // Future instead of going through the full async FutureProvider chain.
-      isOnDeviceProvider.overrideWith(
-        (ref, id) => Future<bool>.value(isOnDevice),
-      ),
-    ],
+    overrides: _overrides(db: db, clipSvc: clipSvc, isOnDevice: isOnDevice),
     child: MaterialApp(
       home: Scaffold(
         body: DownloadSheet(
-          match: const LibraryMatch(
-            id: _matchId,
-            teamId: 'nr-u14',
-            teamName: 'Northside Rovers U14',
-            teamShortName: 'NRA',
-            date: 'Jan 1',
-            opponent: 'Opp',
-            result: 'W 1-0',
-            sport: 'Soccer',
-            fullDuration: '01:10:00',
-            fullSizeMb: 100,
-            periodLengthSeconds: 2100,
-            events: [],
-            downloadState: 'all-local',
-          ),
+          match: _match,
           allEvents: allEvents,
           selectedEvents: const [],
+        ),
+      ),
+    ),
+  );
+}
+
+// Presents the sheet as a modal over a host Scaffold (as in the real app), so
+// the success path's Navigator.pop() returns to the host and its SnackBar — the
+// "N saved / K failed" accounting — renders on the host's ScaffoldMessenger.
+Widget _buildHosted({
+  required AppDatabase db,
+  required _FakeClipSvc clipSvc,
+  required List<LibraryEvent> allEvents,
+  required bool isOnDevice,
+}) {
+  return ProviderScope(
+    overrides: _overrides(db: db, clipSvc: clipSvc, isOnDevice: isOnDevice),
+    child: MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => Center(
+            child: ElevatedButton(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => DownloadSheet(
+                  match: _match,
+                  allEvents: allEvents,
+                  selectedEvents: const [],
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
         ),
       ),
     ),
@@ -251,6 +292,87 @@ void main() {
         );
         expect(clipSvc.calls[0]['label'], 'Goal');
         expect(clipSvc.calls[1]['label'], 'Foul');
+      },
+    );
+
+    const twoEvents = [
+      LibraryEvent(timeSeconds: 60, label: 'Goal', team: 'NRA', kind: 'goal'),
+      LibraryEvent(timeSeconds: 120, label: 'Foul', team: 'OPP', kind: 'foul'),
+    ];
+
+    testWidgets(
+      '"All highlights": every gallery save succeeds → "N clips saved to gallery"',
+      (tester) async {
+        await largeScreen(tester);
+        // GalleryService.saveVideo returns null off-Android; use the test seam so
+        // the success-accounting path (otherwise unreachable on the test host) runs.
+        GalleryService.debugSaver =
+            ({required sourcePath, required displayName}) async =>
+                'content://saved';
+        addTearDown(() => GalleryService.debugSaver = null);
+
+        final clipSvc = _FakeClipSvc(db.value);
+        await tester.pumpWidget(
+          _buildHosted(
+            db: db.value,
+            clipSvc: clipSvc,
+            allEvents: twoEvents,
+            isOnDevice: true,
+          ),
+        );
+        await tester.pump();
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('All highlights'));
+        await tester.pump();
+        await tester.tap(find.text('Start download'));
+        await tester.pump(); // start the async clip loop
+        await tester.pump(
+          const Duration(milliseconds: 200),
+        ); // trims + gallery saves
+        await tester.pump(
+          const Duration(milliseconds: 400),
+        ); // modal pop + snackbar enter
+
+        expect(find.textContaining('2 clips saved to gallery'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '"All highlights": a failed gallery save is reported honestly (N of M · K failed)',
+      (tester) async {
+        await largeScreen(tester);
+        // Save the first clip, fail (null) the second.
+        var calls = 0;
+        GalleryService.debugSaver =
+            ({required sourcePath, required displayName}) async =>
+                calls++ == 0 ? 'content://saved' : null;
+        addTearDown(() => GalleryService.debugSaver = null);
+
+        final clipSvc = _FakeClipSvc(db.value);
+        await tester.pumpWidget(
+          _buildHosted(
+            db: db.value,
+            clipSvc: clipSvc,
+            allEvents: twoEvents,
+            isOnDevice: true,
+          ),
+        );
+        await tester.pump();
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('All highlights'));
+        await tester.pump();
+        await tester.tap(find.text('Start download'));
+        await tester.pump(); // start the async clip loop
+        await tester.pump(
+          const Duration(milliseconds: 200),
+        ); // trims + gallery saves
+        await tester.pump(
+          const Duration(milliseconds: 400),
+        ); // modal pop + snackbar enter
+
+        expect(find.textContaining('1 of 2 clipped'), findsOneWidget);
       },
     );
 
@@ -344,8 +466,61 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.textContaining('Clip failed'), findsOneWidget);
+      // No clips reached the gallery → sheet stays open with the reason.
+      expect(find.textContaining('No clips saved'), findsOneWidget);
       expect(find.textContaining('FFmpeg failed'), findsOneWidget);
+    });
+
+    testWidgets('a failing clip does not abort the remaining clips', (
+      tester,
+    ) async {
+      await largeScreen(tester);
+
+      const events = [
+        LibraryEvent(
+          timeSeconds: 60,
+          label: 'Goal1',
+          team: 'NRA',
+          kind: 'goal',
+        ),
+        LibraryEvent(
+          timeSeconds: 120,
+          label: 'Goal2',
+          team: 'NRA',
+          kind: 'goal',
+        ),
+      ];
+
+      final clipSvc = _FakeClipSvc(db.value);
+      // Only the FIRST trim throws (throwOnNextTrim auto-resets).
+      clipSvc.throwOnNextTrim(const ClipTrimException('first one boom'));
+
+      await tester.pumpWidget(
+        _buildSheet(
+          db: db.value,
+          clipSvc: clipSvc,
+          allEvents: events,
+          isOnDevice: true,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('All highlights'));
+      await tester.pump();
+
+      await tester.tap(find.text('Start download'));
+      await tester.pump();
+      await tester.pump();
+
+      // Both events were attempted — the first failing must NOT abort the loop
+      // (regression: a goal near the end used to kill clipping for every later
+      // event, so only the first goal got a clip).
+      expect(
+        clipSvc.calls.length,
+        2,
+        reason: 'loop must continue past a failed clip',
+      );
+      expect(clipSvc.calls[1]['label'], 'Goal2');
     });
   });
 }

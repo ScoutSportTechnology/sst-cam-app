@@ -6,7 +6,9 @@ import 'package:uuid/uuid.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/export_job.dart';
 import '../models/overlay_layout.dart';
+import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 import '../models/wifi.dart';
@@ -238,6 +240,12 @@ class BleProtocol {
               ? resp.errorMessage
               : 'Command not supported by firmware',
         );
+      case proto.ResponseStatus.LIVE_SESSION_ACTIVE:
+        return BleCommandResponse<T>.liveSessionActive(
+          resp.errorMessage.isNotEmpty
+              ? resp.errorMessage
+              : 'Cannot do this while a match is live',
+        );
       default:
         return BleCommandResponse.error(
           resp.errorMessage.isNotEmpty
@@ -364,6 +372,20 @@ class BleProtocol {
         layout: _dartLayoutToProto(layout),
       ),
     ),
+    SetPreviewLayoutCommand(:final layout) => proto.Command(
+      correlationId: correlationId,
+      setPreviewLayout: proto.SetPreviewLayoutCommand(
+        layout: _dartPreviewLayoutToProto(layout),
+      ),
+    ),
+    ExportOverlayedCommand(:final recordingId) => proto.Command(
+      correlationId: correlationId,
+      exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
+    ),
+    PollExportCommand(:final jobId) => proto.Command(
+      correlationId: correlationId,
+      pollExport: proto.PollExportCommand(jobId: jobId),
+    ),
     StartWifiDirectCommand() => proto.Command(
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
@@ -465,11 +487,41 @@ class BleProtocol {
               as T?,
         );
       case proto.CommandResponse_Payload.previewLayout:
+        // #6 A6b dual-preview: the active layout + the geometry the firmware now
+        // composites, so the app can size its preview box.
+        final pl = resp.previewLayout;
+        return BleCommandResponse.ok(
+          PreviewLayoutResult(
+                layout: _protoPreviewLayout(pl.layout),
+                width: pl.width,
+                height: pl.height,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.exportJob:
-        // #6 preview-layout / overlayed-export responses. The app does not
-        // consume these yet (A6b/A6c is future work); OK with null until the
-        // dual-preview + on-demand-burn flows are wired.
-        return BleCommandResponse.ok(null as T?);
+        // #6 A6c overlayed-export job: state + (when READY) the one-shot L2
+        // download token nested in the response.
+        final job = resp.exportJob;
+        return BleCommandResponse.ok(
+          ExportJob(
+                jobId: job.jobId,
+                state: _protoExportState(job.state),
+                token: job.hasToken()
+                    ? DownloadToken(
+                        recordingId: job.token.recordingId,
+                        httpUrl: job.token.httpUrl,
+                        authToken: job.token.authToken,
+                        expiresAt: DateTime.fromMillisecondsSinceEpoch(
+                          job.token.expiresAt.toInt() * 1000,
+                        ),
+                      )
+                    : null,
+                errorMessage: resp.errorMessage.isEmpty
+                    ? null
+                    : resp.errorMessage,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
         // match control, score/banner events, overlay/session push). If T is a
@@ -503,6 +555,33 @@ class BleProtocol {
     proto.WifiState.WIFI_CONNECTED => WifiState.connected,
     _ => WifiState.unknown,
   };
+
+  // ---------------------------------------------------------------------------
+  // Preview layout ↔ proto helpers (#6 A6b)
+  // ---------------------------------------------------------------------------
+
+  static proto.PreviewLayout _dartPreviewLayoutToProto(PreviewLayout layout) =>
+      switch (layout) {
+        PreviewLayout.single => proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+        PreviewLayout.sideBySide =>
+          proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE,
+      };
+
+  static PreviewLayout _protoPreviewLayout(proto.PreviewLayout layout) =>
+      switch (layout) {
+        proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE =>
+          PreviewLayout.sideBySide,
+        _ => PreviewLayout.single,
+      };
+
+  static ExportJobState _protoExportState(proto.ExportJobState state) =>
+      switch (state) {
+        proto.ExportJobState.EXPORT_JOB_PENDING => ExportJobState.pending,
+        proto.ExportJobState.EXPORT_JOB_RUNNING => ExportJobState.running,
+        proto.ExportJobState.EXPORT_JOB_READY => ExportJobState.ready,
+        proto.ExportJobState.EXPORT_JOB_FAILED => ExportJobState.failed,
+        _ => ExportJobState.unknown,
+      };
 
   // ---------------------------------------------------------------------------
   // Overlay layout → proto helpers

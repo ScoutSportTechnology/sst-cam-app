@@ -2,6 +2,7 @@
 // RealBleService translates these to/from protobuf bytes on the wire.
 
 import 'overlay_layout.dart';
+import 'preview_layout.dart';
 
 sealed class BleCommand {}
 
@@ -222,9 +223,30 @@ class PushOverlayLayoutCommand extends BleCommand {
   final OverlayLayout layout;
 }
 
+/// Switch the live preview composition between single-camera (overlay baked in)
+/// and side-by-side dual-camera (clean). Replies with [PreviewLayoutResult].
+class SetPreviewLayoutCommand extends BleCommand {
+  SetPreviewLayoutCommand({required this.layout});
+  final PreviewLayout layout;
+}
+
+/// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies
+/// with an [ExportJob] in the PENDING state; poll it with [PollExportCommand].
+class ExportOverlayedCommand extends BleCommand {
+  ExportOverlayedCommand({required this.recordingId});
+  final String recordingId;
+}
+
+/// Poll a running overlayed-export job. Replies with the job's current
+/// [ExportJob] state (READY carries the L2 download token).
+class PollExportCommand extends BleCommand {
+  PollExportCommand({required this.jobId});
+  final String jobId;
+}
+
 // ---------------------------------------------------------------------------
 
-enum BleResponseStatus { ok, error, timeout, unsupported }
+enum BleResponseStatus { ok, error, timeout, unsupported, liveSessionActive }
 
 class BleCommandResponse<T> {
   const BleCommandResponse({
@@ -239,6 +261,12 @@ class BleCommandResponse<T> {
 
   bool get isOk => status == BleResponseStatus.ok;
 
+  /// The firmware refused the command because a match is live
+  /// (`ResponseStatus.LIVE_SESSION_ACTIVE`). Distinct from a generic error so
+  /// callers can surface the "end the match first" guidance off the typed
+  /// status rather than substring-matching the firmware's human message.
+  bool get isLiveSessionActive => status == BleResponseStatus.liveSessionActive;
+
   factory BleCommandResponse.ok([T? payload]) =>
       BleCommandResponse(status: BleResponseStatus.ok, payload: payload);
 
@@ -246,6 +274,12 @@ class BleCommandResponse<T> {
     status: BleResponseStatus.error,
     errorMessage: message,
   );
+
+  factory BleCommandResponse.liveSessionActive(String message) =>
+      BleCommandResponse(
+        status: BleResponseStatus.liveSessionActive,
+        errorMessage: message,
+      );
 
   factory BleCommandResponse.timeout() =>
       BleCommandResponse(status: BleResponseStatus.timeout);

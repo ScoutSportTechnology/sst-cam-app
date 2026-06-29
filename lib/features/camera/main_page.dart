@@ -7,11 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/device.dart';
 import '../../core/models/telemetry.dart';
-import 'camera_state.dart' show activeCameraIdProvider, activeTabProvider;
+import 'camera_state.dart'
+    show activeCameraIdProvider, activeTabProvider, AppTab;
 import '../../core/ble/ble_providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
 import '../../core/widgets/live_preview_view.dart';
+import '../../core/widgets/preview_layout_toggle.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
@@ -87,6 +89,10 @@ class _HeroCameraCard extends ConsumerWidget {
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(deviceId));
+    // Only the visible tab's preview surface holds an RTSP/VLC client (two on
+    // one single-stream server stalls the second — home vs match both stay
+    // mounted in the shell's IndexedStack).
+    final onMainTab = ref.watch(activeTabProvider) == AppTab.main;
 
     return Container(
       decoration: BoxDecoration(
@@ -101,6 +107,7 @@ class _HeroCameraCard extends ConsumerWidget {
             deviceId: deviceId,
             label: 'LIVE THUMBNAIL',
             showButtons: false,
+            paused: !onMainTab,
           ),
           Padding(
             padding: const EdgeInsets.all(14),
@@ -161,6 +168,24 @@ class _HeroCameraCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 14),
                 if (connected) ...[
+                  if (previewOn) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'PREVIEW VIEW',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                            color: T.ink3,
+                          ),
+                        ),
+                        PreviewLayoutToggle(deviceId: deviceId),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   // Primary: open match tab.
                   WfButton(
                     label: 'Open match',

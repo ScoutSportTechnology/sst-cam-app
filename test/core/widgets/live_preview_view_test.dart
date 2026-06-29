@@ -93,6 +93,22 @@ void main() {
     );
 
     testWidgets(
+      'preview on + WiFi down (re-form) → RECONNECTING… placeholder, no VlcPlayer',
+      (tester) async {
+        await tester.pumpWidget(
+          _buildHarness(connectionState: WifiDirectState.failed),
+        );
+        await tester.pump();
+
+        // Lean model: a dropped-but-stable group reads as reconnecting (the OS
+        // rejoins), not as a failure — and VLC stays torn down until it's back.
+        expect(find.byType(VlcPlayer), findsNothing);
+        expect(find.text('RECONNECTING…'), findsOneWidget);
+        expect(find.text('WIFI · FAILED'), findsNothing);
+      },
+    );
+
+    testWidgets(
       'deviceId null → ThumbPlaceholder with NO CAMERA label, no VlcPlayer',
       (tester) async {
         await tester.pumpWidget(_buildHarness(deviceId: null));

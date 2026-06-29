@@ -110,6 +110,7 @@ class MainActivity : FlutterActivity() {
             val buffer = ByteBuffer.allocate(maxInputSize)
             val info = MediaCodec.BufferInfo()
             var baseUs = -1L
+            var samplesWritten = 0
             while (true) {
                 val size = extractor.readSampleData(buffer, 0)
                 if (size < 0) break
@@ -121,10 +122,28 @@ class MainActivity : FlutterActivity() {
                     info.offset = 0
                     info.size = size
                     info.presentationTimeUs = (sampleTime - baseUs).coerceAtLeast(0)
-                    info.flags = extractor.sampleFlags
+                    // Map MediaExtractor sample flags to MediaMuxer BufferInfo
+                    // flags explicitly. Passing extractor.sampleFlags raw is a bug:
+                    // SAMPLE_FLAG_PARTIAL_FRAME (4) has the same bit as
+                    // BUFFER_FLAG_END_OF_STREAM (4), which would cut the copy short.
+                    info.flags =
+                        if (extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) {
+                            MediaCodec.BUFFER_FLAG_KEY_FRAME
+                        } else {
+                            0
+                        }
                     muxer.writeSampleData(dst, buffer, info)
+                    samplesWritten++
                 }
                 extractor.advance()
+            }
+            // muxer.stop() throws an opaque IllegalStateException if nothing was
+            // written (e.g. the requested window is past the end of the recording).
+            // Surface a clear, per-clip reason instead so the caller can skip it.
+            if (samplesWritten == 0) {
+                throw IllegalStateException(
+                    "no frames in the requested window (clip start may be past the end of the recording)"
+                )
             }
             muxer.stop()
             return output

@@ -307,23 +307,6 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // overlayStateStream
-  // ---------------------------------------------------------------------------
-
-  group('overlayStateStream', () {
-    test('emits an OverlayState within 1.5 seconds', () async {
-      final state = await svc
-          .overlayStateStream('device-1')
-          .first
-          .timeout(const Duration(milliseconds: 1500));
-
-      expect(state.homeScore, 0);
-      expect(state.awayScore, 0);
-      expect(state.period, 1);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
   // startDownload (existing method — regression)
   // ---------------------------------------------------------------------------
 

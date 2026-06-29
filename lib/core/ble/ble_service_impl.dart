@@ -9,7 +9,9 @@ import '../async/seeded_broadcast.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/export_job.dart';
 import '../models/overlay_layout.dart';
+import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
 import 'ble_protocol.dart';
@@ -443,6 +445,80 @@ class BleServiceImpl implements BleService {
         'pushOverlayLayout failed: ${resp.errorMessage}',
       );
     }
+  }
+
+  @override
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  ) async {
+    final resp = await sendCommand<PreviewLayoutResult>(
+      deviceId,
+      SetPreviewLayoutCommand(layout: layout),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setPreviewLayout failed: ${resp.errorMessage}',
+      );
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw const BleConnectionException(
+        'setPreviewLayout: firmware returned no PreviewLayoutResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ExportJob> requestOverlayExport(
+    String deviceId,
+    String recordingId,
+  ) async {
+    final resp = await sendCommand<ExportJob>(
+      deviceId,
+      ExportOverlayedCommand(recordingId: recordingId),
+    );
+    if (!resp.isOk) {
+      // Carry the stable LIVE_SESSION_ACTIVE token (derived from the typed
+      // response status, NOT the firmware's free-form message) so the UI can
+      // recognise the live-session case regardless of wording.
+      if (resp.isLiveSessionActive) {
+        throw const BleConnectionException(
+          'overlay export request failed: LIVE_SESSION_ACTIVE',
+        );
+      }
+      throw BleConnectionException(
+        'overlay export request failed: ${resp.errorMessage}',
+      );
+    }
+    final job = resp.payload;
+    if (job == null) {
+      throw const BleConnectionException(
+        'overlay export: firmware returned no ExportJobResponse',
+      );
+    }
+    return job;
+  }
+
+  @override
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async {
+    final resp = await sendCommand<ExportJob>(
+      deviceId,
+      PollExportCommand(jobId: jobId),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'overlay export poll failed: ${resp.errorMessage}',
+      );
+    }
+    final job = resp.payload;
+    if (job == null) {
+      throw const BleConnectionException(
+        'overlay export poll: firmware returned no ExportJobResponse',
+      );
+    }
+    return job;
   }
 
   // ---------------------------------------------------------------------------

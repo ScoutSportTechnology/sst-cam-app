@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,6 +57,24 @@ final deviceRecordingProvider =
 // Assumed sustained WiFi-Direct throughput for the download-time estimate.
 const double _kWifiBytesPerSecond = 2.5 * 1024 * 1024;
 
+// On-demand overlay burn (#6 A6c): how often to poll the camera's export job,
+// and how long to wait before giving up (a software H.264 burn of a full match
+// takes a while on the no-NVENC Orin Nano).
+const Duration _kExportPollInterval = Duration(seconds: 1);
+const Duration _kExportTimeout = Duration(minutes: 10);
+
+/// Verify-before-action: how long to wait (polling reachability) for the phone
+/// to rejoin the camera's saved WiFi network before giving up on a download.
+const Duration _kReachablePollInterval = Duration(seconds: 1);
+const Duration _kReachableWaitBudget = Duration(seconds: 20);
+const _kUnreachable =
+    "Couldn't reach the camera. Make sure you're near it and connected, then try again.";
+
+/// How many consecutive poll round-trips may fail before we abandon an
+/// in-flight overlay export. A single dropped BLE exchange over a multi-minute
+/// burn is expected; only a sustained run of failures means the job is lost.
+const int _kMaxConsecutivePollErrors = 5;
+
 String _fmtSize(int bytes) {
   const mb = 1024 * 1024;
   if (bytes >= mb) {
@@ -107,6 +126,18 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   StreamSubscription<VideoDownloadProgress>? _subscription;
   _DownloadMode _mode = _DownloadMode.full;
 
+  /// Full-game only (#6 A6c): burn the scoreboard overlay into the downloaded
+  /// copy. The camera renders it on demand from the stored overlay timeline.
+  bool _withOverlay = false;
+
+  /// True while the camera is rendering the overlaid L2 (before the download
+  /// itself starts). Drives the "Rendering overlay…" surface.
+  bool _exporting = false;
+
+  /// True while waiting for the phone to (re)join the camera's WiFi link before
+  /// a download can start. Drives the "Reconnecting…" surface.
+  bool _reconnecting = false;
+
   @override
   void dispose() {
     _subscription?.cancel();
@@ -124,12 +155,46 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     }
 
     if (_mode == _DownloadMode.full) {
-      await _startFullDownload();
+      if (_withOverlay) {
+        await _startOverlayDownload();
+      } else {
+        await _startFullDownload();
+      }
     } else {
       await _startClips(
         _mode == _DownloadMode.all ? widget.allEvents : widget.selectedEvents,
       );
     }
+  }
+
+  /// Verify-before-action: confirm the camera link is up, waiting (polling) if
+  /// the phone hasn't rejoined the saved network yet. Returns false (and sets a
+  /// clear [_error]) if it never becomes reachable within the budget. The phone
+  /// OS owns rejoining the saved network; we only observe whether it happened.
+  Future<bool> _ensureReachable(String deviceId) async {
+    final wifi = ref.read(wifiServiceProvider);
+    if (await wifi.isCameraReachable(deviceId)) return true;
+    if (!mounted) return false;
+    setState(() => _reconnecting = true);
+    // Count polls rather than wall-clock so the wait is driven purely by timers
+    // (deterministic under fake-async tests; identical budget in production).
+    final maxPolls =
+        _kReachableWaitBudget.inMilliseconds ~/
+        _kReachablePollInterval.inMilliseconds;
+    try {
+      for (var i = 0; i < maxPolls; i++) {
+        await Future<void>.delayed(_kReachablePollInterval);
+        if (!mounted) return false;
+        if (await wifi.isCameraReachable(deviceId)) {
+          setState(() => _reconnecting = false);
+          return true;
+        }
+      }
+    } finally {
+      if (mounted && _reconnecting) setState(() => _reconnecting = false);
+    }
+    if (mounted) setState(() => _error = _kUnreachable);
+    return false;
   }
 
   Future<void> _startFullDownload() async {
@@ -138,12 +203,14 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       setState(() => _error = 'Connect a camera first');
       return;
     }
-
-    // Capture references before the async call so the onDone callback can
-    // run correctly even if the sheet has already been dismissed (mounted=false).
+    // Capture references before any await so the onDone callback can run
+    // correctly even if the sheet has already been dismissed (mounted=false),
+    // and so the BuildContext isn't used across the reachability wait.
     final matchId = widget.match.id;
     final pathSvc = ref.read(videoPathServiceProvider);
     final container = ProviderScope.containerOf(context);
+
+    if (!await _ensureReachable(deviceId)) return;
 
     try {
       final handle = await ref
@@ -179,20 +246,129 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     }
   }
 
+  /// #6 A6c: ask the camera to burn the overlay into an L2, poll until ready,
+  /// then download that overlaid copy (kept distinct from the clean L1).
+  Future<void> _startOverlayDownload() async {
+    final deviceId = ref.read(activeCameraIdProvider);
+    if (deviceId == null) {
+      setState(() => _error = 'Connect a camera first');
+      return;
+    }
+    final matchId = widget.match.id;
+    final ble = ref.read(bleServiceProvider);
+    final wifi = ref.read(wifiServiceProvider);
+    final pathSvc = ref.read(videoPathServiceProvider);
+    final container = ProviderScope.containerOf(context);
+
+    setState(() => _exporting = true);
+    try {
+      var job = await ble.requestOverlayExport(deviceId, matchId);
+      final deadline = DateTime.now().add(_kExportTimeout);
+      var consecutivePollErrors = 0;
+      while (!job.isTerminal) {
+        if (DateTime.now().isAfter(deadline)) {
+          throw TimeoutException('overlay render timed out', _kExportTimeout);
+        }
+        await Future<void>.delayed(_kExportPollInterval);
+        // Stop polling if the sheet was dismissed mid-render — otherwise this
+        // loop keeps firing a BLE round-trip every interval until the deadline.
+        if (!mounted) return;
+        try {
+          job = await ble.pollOverlayExport(deviceId, job.jobId);
+          consecutivePollErrors = 0;
+        } on Exception {
+          // Tolerate a few dropped polls before giving up — a momentary BLE
+          // blip during a long burn should not abort the whole export.
+          if (++consecutivePollErrors >= _kMaxConsecutivePollErrors) rethrow;
+        }
+      }
+      if (job.isUnknown) {
+        throw const WifiDirectException(
+          'the camera lost track of the render job (did it restart?)',
+        );
+      }
+      if (job.isFailed || job.token == null) {
+        throw WifiDirectException(
+          job.errorMessage ?? 'the camera could not render the overlay',
+        );
+      }
+
+      final overlayPath = await pathSvc.overlayRecordingPath(matchId);
+      // Burn done — drop the "rendering" surface, then make sure the link is up
+      // before pulling the L2 (the long burn may have outlasted the WiFi join).
+      if (mounted) setState(() => _exporting = false);
+      if (!await _ensureReachable(deviceId)) return;
+      final handle = await wifi.startDownload(
+        deviceId,
+        job.token!,
+        saveAs: overlayPath,
+      );
+      if (!mounted) return;
+      setState(() => _handle = handle);
+      _subscription = handle.progress.listen(
+        (p) {
+          if (mounted) setState(() => _progress = p);
+        },
+        onDone: () async {
+          if (_progress?.status != DownloadStatus.completed) return;
+          container.invalidate(isOnDeviceProvider(matchId));
+          await GalleryService.saveVideo(
+            sourcePath: overlayPath,
+            displayName: '${matchId}_overlay.mp4',
+          );
+        },
+        onError: (e) {
+          if (mounted) setState(() => _error = _mapDownloadError(e));
+        },
+        cancelOnError: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _exporting = false;
+        _error = _mapDownloadError(e);
+      });
+    }
+  }
+
   Future<void> _startClips(List<LibraryEvent> events) async {
     if (events.isEmpty) {
       setState(() => _error = 'No events selected');
       return;
     }
-    final onDevice = await ref.read(isOnDeviceProvider(widget.match.id).future);
-    if (!onDevice) {
-      if (mounted) setState(() => _error = 'Download the full game first');
-      return;
-    }
     final clipSvc = ref.read(clipServiceProvider);
     final videoPathSvc = ref.read(videoPathServiceProvider);
-    final sourcePath = await videoPathSvc.recordingPath(widget.match.id);
-    int created = 0;
+    // Clips are sliced locally from a full game already on device — the camera
+    // has no per-clip burn. With the overlay option we slice from the overlaid
+    // full game (L2, must be downloaded first); otherwise from the clean L1.
+    final String sourcePath;
+    if (_withOverlay) {
+      sourcePath = await videoPathSvc.overlayRecordingPath(widget.match.id);
+      if (!await File(sourcePath).exists()) {
+        if (mounted) {
+          setState(
+            () => _error =
+                'Download the full game with the overlay first, then clip it',
+          );
+        }
+        return;
+      }
+    } else {
+      final onDevice = await ref.read(
+        isOnDeviceProvider(widget.match.id).future,
+      );
+      if (!onDevice) {
+        if (mounted) setState(() => _error = 'Download the full game first');
+        return;
+      }
+      sourcePath = await videoPathSvc.recordingPath(widget.match.id);
+    }
+    // Process every selected event independently — one clip failing must NOT
+    // abort the rest (a goal near the end of the recording, etc.). Track trims
+    // vs gallery saves separately so the report is honest, and collect the
+    // per-event reasons for anything that didn't make it.
+    var savedToGallery = 0;
+    final failures = <String>[];
     for (final event in events) {
       try {
         final startSeconds = (event.timeSeconds - 15)
@@ -205,40 +381,55 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
           durationSeconds: 30,
           label: event.label,
         );
-        created++;
-        // Export to the device gallery so the clip is actually visible to the
-        // user — trim() only writes it to app-private storage + the clips DB.
-        // Best-effort: a gallery-export failure must not drop the clip (it's
-        // already trimmed and recorded).
-        try {
-          final name = '${widget.match.opponent}_${event.label}_$created.mp4'
-              .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-          await GalleryService.saveVideo(
-            sourcePath: clipPath,
-            displayName: name,
-          );
-        } catch (_) {}
+        // Export to the device gallery so the clip is actually visible — trim()
+        // only writes it to app-private storage + the clips DB. A gallery-export
+        // failure is reported (it was previously swallowed, so a clip could be
+        // "saved" yet never appear in the gallery).
+        final name =
+            '${widget.match.opponent}_${event.label}_${savedToGallery + 1}.mp4'
+                .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+        // saveVideo swallows its own errors and returns null on failure — check
+        // the result rather than relying on a throw, so a gallery-insert failure
+        // is reported instead of silently counted as "saved".
+        final savedUri = await GalleryService.saveVideo(
+          sourcePath: clipPath,
+          displayName: name,
+        );
+        if (savedUri != null) {
+          savedToGallery++;
+        } else {
+          failures.add('${event.label}: clipped but not added to the gallery');
+        }
       } on ClipTrimException catch (e) {
-        if (mounted) setState(() => _error = 'Clip failed: ${e.message}');
-        return;
+        failures.add('${event.label}: ${e.message}');
       } catch (e) {
-        if (mounted) setState(() => _error = 'Clip failed: $e');
-        return;
+        failures.add('${event.label}: $e');
       }
     }
-    if (mounted) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$created clip${created == 1 ? '' : 's'} saved'),
-        ),
+    if (!mounted) return;
+    // Nothing made it to the gallery — keep the sheet open and show why.
+    if (savedToGallery == 0) {
+      setState(
+        () => _error = failures.isEmpty
+            ? 'No clips could be saved'
+            : 'No clips saved — ${failures.first}',
       );
+      return;
     }
+    Navigator.of(context).pop();
+    final summary = failures.isEmpty
+        ? '$savedToGallery clip${savedToGallery == 1 ? '' : 's'} saved to gallery'
+        : '$savedToGallery of ${events.length} clipped · ${failures.length} failed';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(summary)));
   }
 
   @override
   Widget build(BuildContext context) {
     final running = _handle != null;
+    if (_reconnecting) return _buildReconnecting();
+    if (_exporting) return _buildExporting();
     if (running) return _buildProgress();
     // Overlay the camera-reported real size/duration when available; fall back
     // to the library row's scheduled values when offline.
@@ -359,6 +550,36 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
               ),
             );
           }),
+          const SizedBox(height: 2),
+          GestureDetector(
+            onTap: () => setState(() => _withOverlay = !_withOverlay),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+              child: Row(
+                children: [
+                  _CheckBox(on: _withOverlay),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _mode == _DownloadMode.full
+                          ? 'Burn in scoreboard overlay'
+                          : 'Clip from the overlaid game',
+                      style: const TextStyle(fontSize: 13, color: T.ink),
+                    ),
+                  ),
+                  const Text(
+                    'rendered on camera',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: T.ink3,
+                      fontFamily: T.mono,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -521,6 +742,81 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       ),
     );
   }
+
+  Widget _buildExporting() => _buildBusy(
+    'Rendering overlay on camera…',
+    'The camera is burning the scoreboard into a copy. This can take a '
+        'few minutes for a full match.',
+  );
+
+  Widget _buildReconnecting() => _buildBusy(
+    'Reconnecting to camera…',
+    "Waiting for the WiFi link to come back. Make sure you're near the "
+        'camera — this clears on its own once it reconnects.',
+  );
+
+  /// Shared spinner surface for the pre-download busy states (rendering an
+  /// overlay, or waiting for the WiFi link). [title] is the bold headline,
+  /// [subtitle] the muted explanation.
+  Widget _buildBusy(String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: T.fillMid,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  valueColor: AlwaysStoppedAnimation<Color>(T.accent),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: T.ink,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(subtitle, style: const TextStyle(fontSize: 12, color: T.ink2)),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(fontSize: 12, color: T.danger),
+            ),
+          ],
+          const SizedBox(height: 18),
+          WfButton(
+            label: 'Cancel',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Opt {
@@ -528,6 +824,28 @@ class _Opt {
   final _DownloadMode key;
   final String label;
   final String sub;
+}
+
+class _CheckBox extends StatelessWidget {
+  const _CheckBox({required this.on});
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        color: on ? T.accent : Colors.transparent,
+        border: Border.all(color: on ? T.accent : T.hair, width: 2),
+      ),
+      alignment: Alignment.center,
+      child: on
+          ? const Icon(Icons.check_rounded, size: 13, color: T.accentInk)
+          : null,
+    );
+  }
 }
 
 class _Radio extends StatelessWidget {
