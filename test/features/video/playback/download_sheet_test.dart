@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sst_cam_app/core/ble/ble_service.dart' show BleService;
+import 'package:sst_cam_app/core/models/export_job.dart';
 import 'package:sst_cam_app/core/models/recording.dart' show DownloadToken;
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
@@ -54,6 +56,14 @@ class _ControlledWifiService extends MockWifiService {
   String? lastDeviceId;
   String? lastUuid;
   Exception? _throwOnDownload;
+
+  /// Reachability gate (verify-before-action). Default reachable so the existing
+  /// download tests — which never call connectGroup — pass the gate immediately.
+  /// Flip to false to drive the "reconnecting…" wait.
+  bool reachable = true;
+
+  @override
+  Future<bool> isCameraReachable(String deviceId) async => reachable;
 
   void throwOnNextDownload(Exception e) => _throwOnDownload = e;
 
@@ -174,17 +184,53 @@ MockBleService _newBle() => MockBleService(
   randomSeed: 42,
 );
 
+/// BLE stub with a configurable overlay-export poll result, so tests can drive
+/// the FAILED / UNKNOWN terminal states the real firmware can return.
+class _ControlledBleService extends MockBleService {
+  _ControlledBleService()
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        failureRate: 0.0,
+        randomSeed: 42,
+      );
+
+  ExportJob _pollResult = ExportJob(
+    jobId: 'job-1',
+    state: ExportJobState.ready,
+    token: DownloadToken(
+      recordingId: _matchId,
+      httpUrl: 'http://127.0.0.1/x',
+      authToken: 'tok',
+      expiresAt: DateTime.fromMillisecondsSinceEpoch(0),
+    ),
+  );
+
+  set pollResult(ExportJob job) => _pollResult = job;
+
+  @override
+  Future<ExportJob> requestOverlayExport(
+    String deviceId,
+    String recordingId,
+  ) async => const ExportJob(jobId: 'job-1', state: ExportJobState.pending);
+
+  @override
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async =>
+      _pollResult;
+}
+
 Widget _buildSheet({
   required AppDatabase db,
   required LibraryMatch match,
   required _ControlledWifiService wifiSvc,
   VideoPathService? videoPathSvc,
+  BleService? bleSvc,
   String? activeCameraId = 'cam-001',
 }) {
   return ProviderScope(
     overrides: [
       appDatabaseProvider.overrideWithValue(db),
-      bleServiceProvider.overrideWithValue(_newBle()),
+      bleServiceProvider.overrideWithValue(bleSvc ?? _newBle()),
       // The sheet fetches real recording metadata on build; stub it so the
       // mock's delayed listRecordings timer isn't left pending at teardown.
       deviceRecordingProvider.overrideWith((ref, matchId) => null),
@@ -316,6 +362,68 @@ void main() {
         // Progress view shown.
         expect(find.byType(LinearProgressIndicator), findsOneWidget);
         expect(find.text('Downloading'), findsOneWidget);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // U4: verify-before-action — reachability gate before a download starts.
+  // ---------------------------------------------------------------------------
+
+  group('verify-before-action (U4)', () {
+    testWidgets(
+      'Covers AE1. unreachable then reachable → shows reconnecting, then downloads',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(db.value);
+
+        final wifiSvc = _ControlledWifiService()..reachable = false;
+        await tester.pumpWidget(
+          _buildSheet(db: db.value, match: _makeMatch(), wifiSvc: wifiSvc),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Start download'));
+        await tester.pump(); // first probe fails → reconnecting surface
+
+        expect(find.text('Reconnecting to camera…'), findsOneWidget);
+        expect(wifiSvc.downloadCalled, isFalse);
+
+        // Phone rejoins the saved network; the next poll succeeds.
+        wifiSvc.reachable = true;
+        await tester.pump(const Duration(seconds: 1)); // fire one poll
+        await tester.pump(); // flush the download start
+
+        expect(wifiSvc.downloadCalled, isTrue);
+        expect(find.text('Reconnecting to camera…'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Covers AE2. stays unreachable past the budget → clear error, no download',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(db.value);
+
+        final wifiSvc = _ControlledWifiService()..reachable = false;
+        await tester.pumpWidget(
+          _buildSheet(db: db.value, match: _makeMatch(), wifiSvc: wifiSvc),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Start download'));
+        await tester.pump();
+        expect(find.text('Reconnecting to camera…'), findsOneWidget);
+
+        // Elapse the whole wait budget — every poll fails.
+        await tester.pump(const Duration(seconds: 21));
+        await tester.pump();
+
+        expect(wifiSvc.downloadCalled, isFalse);
+        expect(
+          find.textContaining("Couldn't reach the camera"),
+          findsOneWidget,
+        );
       },
     );
   });
@@ -612,6 +720,82 @@ void main() {
         expect(wifiSvc.lastSaveAs, contains('_overlay.mp4'));
         expect(wifiSvc.lastToken!.authToken, 'mock-export-token');
         expect(wifiSvc.lastToken!.recordingId, _matchId);
+      },
+    );
+
+    testWidgets(
+      'export FAILED surfaces the firmware error and skips download',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(db.value);
+
+        final wifiSvc = _ControlledWifiService();
+        final ble = _ControlledBleService()
+          ..pollResult = const ExportJob(
+            jobId: 'job-1',
+            state: ExportJobState.failed,
+            errorMessage: 'encoder exploded',
+          );
+        await tester.pumpWidget(
+          _buildSheet(
+            db: db.value,
+            match: _makeMatch(),
+            wifiSvc: wifiSvc,
+            bleSvc: ble,
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Burn in scoreboard overlay'));
+        await tester.pump();
+        await tester.tap(find.text('Start download'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120)); // request
+        await tester.pump(const Duration(seconds: 1)); // poll interval
+        await tester.pump(const Duration(milliseconds: 120)); // poll → FAILED
+        await tester.pump();
+
+        expect(find.textContaining('encoder exploded'), findsOneWidget);
+        expect(wifiSvc.startDownloadCalled, isFalse);
+      },
+    );
+
+    testWidgets(
+      'export UNKNOWN (lost job) surfaces a clear error and skips download',
+      (tester) async {
+        await largeScreen(tester);
+        await _insertMatch(db.value);
+
+        final wifiSvc = _ControlledWifiService();
+        final ble = _ControlledBleService()
+          ..pollResult = const ExportJob(
+            jobId: 'job-1',
+            state: ExportJobState.unknown,
+          );
+        await tester.pumpWidget(
+          _buildSheet(
+            db: db.value,
+            match: _makeMatch(),
+            wifiSvc: wifiSvc,
+            bleSvc: ble,
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Burn in scoreboard overlay'));
+        await tester.pump();
+        await tester.tap(find.text('Start download'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump(const Duration(milliseconds: 120));
+        await tester.pump();
+
+        expect(
+          find.textContaining('lost track of the render job'),
+          findsOneWidget,
+        );
+        expect(wifiSvc.startDownloadCalled, isFalse);
       },
     );
 

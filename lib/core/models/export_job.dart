@@ -23,5 +23,10 @@ class ExportJob {
 
   bool get isReady => state == ExportJobState.ready;
   bool get isFailed => state == ExportJobState.failed;
-  bool get isTerminal => isReady || isFailed;
+
+  /// The camera has no record of this job — typically the firmware restarted
+  /// since the request. Terminal: there is nothing left to poll for.
+  bool get isUnknown => state == ExportJobState.unknown;
+
+  bool get isTerminal => isReady || isFailed || isUnknown;
 }

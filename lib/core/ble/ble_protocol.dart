@@ -240,6 +240,12 @@ class BleProtocol {
               ? resp.errorMessage
               : 'Command not supported by firmware',
         );
+      case proto.ResponseStatus.LIVE_SESSION_ACTIVE:
+        return BleCommandResponse<T>.liveSessionActive(
+          resp.errorMessage.isNotEmpty
+              ? resp.errorMessage
+              : 'Cannot do this while a match is live',
+        );
       default:
         return BleCommandResponse.error(
           resp.errorMessage.isNotEmpty

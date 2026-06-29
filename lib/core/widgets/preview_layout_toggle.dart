@@ -14,10 +14,19 @@ import '../wifi/wifi_providers.dart';
 /// preview surface picks up from the stream descriptor. Optimistic: flips the
 /// provider immediately and reverts if the firmware rejects the switch.
 class PreviewLayoutToggle extends ConsumerWidget {
-  const PreviewLayoutToggle({super.key, required this.deviceId});
+  const PreviewLayoutToggle({
+    super.key,
+    required this.deviceId,
+    this.full = false,
+  });
 
   /// Null when no camera is connected — the toggle renders disabled.
   final String? deviceId;
+
+  /// When true the two segments stretch to fill the available width (each takes
+  /// half), so the control lines up edge-to-edge with a sibling button. Default
+  /// is compact (intrinsic width), used inline on the main camera card.
+  final bool full;
 
   Future<void> _select(
     BuildContext context,
@@ -26,7 +35,7 @@ class PreviewLayoutToggle extends ConsumerWidget {
   ) async {
     final id = deviceId;
     if (id == null) return;
-    final notifier = ref.read(previewLayoutProvider(deviceId).notifier);
+    final notifier = ref.read(previewLayoutProvider(id).notifier);
     final previous = notifier.state;
     if (previous == target) return;
 
@@ -48,6 +57,21 @@ class PreviewLayoutToggle extends ConsumerWidget {
     final selected = ref.watch(previewLayoutProvider(deviceId));
     final enabled = deviceId != null;
 
+    final single = _Segment(
+      icon: Icons.crop_portrait_rounded,
+      label: 'Single',
+      active: selected == PreviewLayout.single,
+      onTap: enabled ? () => _select(context, ref, PreviewLayout.single) : null,
+    );
+    final both = _Segment(
+      icon: Icons.splitscreen_rounded,
+      label: 'Both',
+      active: selected == PreviewLayout.sideBySide,
+      onTap: enabled
+          ? () => _select(context, ref, PreviewLayout.sideBySide)
+          : null,
+    );
+
     return Opacity(
       opacity: enabled ? 1 : 0.4,
       child: DecoratedBox(
@@ -57,25 +81,10 @@ class PreviewLayoutToggle extends ConsumerWidget {
           border: Border.all(color: T.hair),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _Segment(
-              icon: Icons.crop_portrait_rounded,
-              label: 'Single',
-              active: selected == PreviewLayout.single,
-              onTap: enabled
-                  ? () => _select(context, ref, PreviewLayout.single)
-                  : null,
-            ),
-            _Segment(
-              icon: Icons.splitscreen_rounded,
-              label: 'Both',
-              active: selected == PreviewLayout.sideBySide,
-              onTap: enabled
-                  ? () => _select(context, ref, PreviewLayout.sideBySide)
-                  : null,
-            ),
-          ],
+          mainAxisSize: full ? MainAxisSize.max : MainAxisSize.min,
+          children: full
+              ? [Expanded(child: single), Expanded(child: both)]
+              : [single, both],
         ),
       ),
     );
@@ -109,6 +118,7 @@ class _Segment extends StatelessWidget {
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 14, color: active ? T.accentInk : T.ink2),
             const SizedBox(width: 5),

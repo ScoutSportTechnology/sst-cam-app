@@ -72,30 +72,56 @@ class SessionScreen extends ConsumerWidget {
                   ? onLeave
                   : null,
             ),
-            _LiveThumb(matchState: state, isLive: isPeriodActive),
-            // Preview toggle — sits below the feed surface, not overlaid on it.
-            // Only shown when a camera is connected.
+            // Inset the preview to the same horizontal margin as the controls
+            // below, so its edges line up with the Mark event / phase buttons.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: _LiveThumb(matchState: state, isLive: isPeriodActive),
+            ),
+            // Preview controls — below the feed (not overlaid). The Single|Both
+            // mode toggle sits next to the Preview button, matching the main
+            // camera card's layout. Only shown when a camera is connected.
             if (activeId != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-                child: WfButton(
-                  label: previewOn ? 'Stop preview' : 'Preview',
-                  variant: WfButtonVariant.outline,
-                  size: WfButtonSize.sm,
-                  full: true,
-                  leading: previewOn
-                      ? null
-                      : const Icon(
-                          Icons.play_arrow_rounded,
-                          size: 13,
-                          color: T.ink,
-                        ),
-                  onPressed: () {
-                    ref
-                            .read(livePreviewEnabledProvider(activeId).notifier)
-                            .state =
-                        !previewOn;
-                  },
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                // Two columns mirroring the Mark event / phase action row below,
+                // so the Preview button's width and right edge line up with the
+                // Mark event button. The Single|Both toggle sits in the right
+                // column (right-aligned), empty when preview is off.
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: WfButton(
+                        label: previewOn ? 'Stop preview' : 'Preview',
+                        variant: WfButtonVariant.outline,
+                        size: WfButtonSize.sm,
+                        full: true,
+                        leading: previewOn
+                            ? null
+                            : const Icon(
+                                Icons.play_arrow_rounded,
+                                size: 13,
+                                color: T.ink,
+                              ),
+                        onPressed: () {
+                          ref
+                                  .read(
+                                    livePreviewEnabledProvider(
+                                      activeId,
+                                    ).notifier,
+                                  )
+                                  .state =
+                              !previewOn;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: previewOn
+                          ? PreviewLayoutToggle(deviceId: activeId, full: true)
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
               ),
             _PrimaryActionRow(
@@ -671,7 +697,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'Kickoff',
           variant: WfButtonVariant.primary,
-          size: WfButtonSize.lg,
+          size: WfButtonSize.md,
           full: true,
           onPressed: onKickoff,
         );
@@ -679,7 +705,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'End period ${state.currentPeriod}',
           variant: WfButtonVariant.danger,
-          size: WfButtonSize.lg,
+          size: WfButtonSize.md,
           full: true,
           onPressed: onEndPeriod,
         );
@@ -688,14 +714,14 @@ class _PrimaryActionRow extends StatelessWidget {
             ? WfButton(
                 label: 'End match',
                 variant: WfButtonVariant.danger,
-                size: WfButtonSize.lg,
+                size: WfButtonSize.md,
                 full: true,
                 onPressed: onEndMatch,
               )
             : WfButton(
                 label: 'Start period ${state.currentPeriod + 1}',
                 variant: WfButtonVariant.primary,
-                size: WfButtonSize.lg,
+                size: WfButtonSize.md,
                 full: true,
                 onPressed: onStartNextPeriod,
               );
@@ -703,13 +729,13 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = const WfButton(
           label: 'Match ended',
           variant: WfButtonVariant.outline,
-          size: WfButtonSize.lg,
+          size: WfButtonSize.md,
           full: true,
         );
     }
 
     return Padding(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       child: Row(
         children: [
           Expanded(
@@ -718,7 +744,7 @@ class _PrimaryActionRow extends StatelessWidget {
               variant: onMarkEvent != null
                   ? WfButtonVariant.primary
                   : WfButtonVariant.outline,
-              size: WfButtonSize.lg,
+              size: WfButtonSize.md,
               leading: const _Square(color: T.accentInk),
               onPressed: onMarkEvent,
             ),
@@ -784,7 +810,7 @@ class _BottomControls extends StatelessWidget {
     final timerEnabled = state.phase == MatchPhase.period;
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
       decoration: const Border(
         top: BorderSide(color: T.rule),
       ).toBoxDecoration(),
@@ -800,6 +826,7 @@ class _BottomControls extends StatelessWidget {
                     label: state.timer == MatchTimer.running
                         ? 'Pause'
                         : 'Resume',
+                    size: WfButtonSize.sm,
                     leading: state.timer == MatchTimer.running
                         ? const _PauseGlyph()
                         : const _PlayGlyph(),
@@ -828,6 +855,7 @@ class _BottomControls extends StatelessWidget {
                         : state.rec == RecState.paused
                         ? 'Resume'
                         : 'Record',
+                    size: WfButtonSize.sm,
                     leading: state.rec == RecState.recording
                         ? const _PauseGlyph()
                         : const _Dot(color: T.danger),
@@ -848,6 +876,7 @@ class _BottomControls extends StatelessWidget {
               variant: state.streaming
                   ? WfButtonVariant.danger
                   : WfButtonVariant.outline,
+              size: WfButtonSize.sm,
               full: true,
               onPressed: onStreamToggle,
             ),
@@ -972,16 +1001,10 @@ class _LiveThumb extends ConsumerWidget {
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
             paused: !onMatchTab,
+            isStreaming: matchState.streaming,
           ),
-        // Single | side-by-side dual-camera composition toggle (#6 A6b). Hidden
-        // when the preview surface is unavailable (WiFi Direct failed) or no
-        // camera is connected.
-        if (!wifiFailed && activeId != null)
-          Positioned(
-            right: 8,
-            top: 8,
-            child: PreviewLayoutToggle(deviceId: activeId),
-          ),
+        // The Single|Both toggle now lives below the feed next to the Preview
+        // button (see the parent layout), not overlaid on the feed.
       ],
     );
   }
@@ -1173,7 +1196,7 @@ class _ControlGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      padding: const EdgeInsets.fromLTRB(10, 5, 10, 7),
       decoration: BoxDecoration(border: Border.all(color: T.rule)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1206,7 +1229,7 @@ class _ControlGroup extends StatelessWidget {
               ],
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 5),
           body,
         ],
       ),

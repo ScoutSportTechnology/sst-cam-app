@@ -1,9 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/device.dart';
-import '../models/wifi.dart' show WifiDirectState;
 import '../../features/camera/camera_state.dart' show activeCameraIdProvider;
 import '../ble/ble_providers.dart';
 import 'wifi_providers.dart';
@@ -17,6 +17,15 @@ import 'wifi_providers.dart';
 /// `WifiDirectGroupResponse` in proto/wifi.proto. There is no hardcoded
 /// fallback.
 ///
+/// **Lean recovery model.** The app does NOT drive WiFi reconnection. The
+/// firmware's group has a stable, persistent SSID/PSK, so once the phone has
+/// joined it the OS owns rejoining the saved network across re-forms (a new
+/// match, a firmware restart, a transient drop). This controller therefore runs
+/// no reconnect timers and does not re-form the group in response to wifi-state
+/// transitions — that reactive loop was the source of the SSID-flap storm.
+/// Reachability is verified lazily, right before a WiFi action (download / live
+/// preview), by the consumer via [WifiService.isCameraReachable].
+///
 /// This Notifier exposes no state to the UI; it only runs side effects.
 /// Mount it once at the root of the widget tree (see lib/app.dart) so it
 /// stays alive for the app's lifetime — Notifiers are lazy and won't run
@@ -24,18 +33,7 @@ import 'wifi_providers.dart';
 class WifiHandoffController extends Notifier<void> {
   String? _activeId;
   CameraConnectionState? _lastBleState;
-  WifiDirectState? _lastWifiState;
   Timer? _debounce;
-
-  /// Bounded WiFi-group recovery. The P2P group can drop on its own — the OS
-  /// tears it down when the app backgrounds, the screen locks, or the GO cycles
-  /// — while BLE stays connected. Because the handoff is otherwise BLE-driven,
-  /// such a WiFi-only drop had no recovery path and the live preview stuck on
-  /// the placeholder. Re-form the group, but cap attempts so a GO that
-  /// genuinely can't form doesn't spin connectGroup forever; the budget resets
-  /// once the group is back up.
-  int _wifiRecoveryAttempts = 0;
-  static const _maxWifiRecoveryAttempts = 3;
 
   /// How long a connection state must hold before we act on it. Rapid
   /// connect/disconnect flaps would otherwise churn the WiFi group
@@ -46,7 +44,9 @@ class WifiHandoffController extends Notifier<void> {
 
   @override
   void build() {
-    ref.onDispose(() => _debounce?.cancel());
+    ref.onDispose(() {
+      _debounce?.cancel();
+    });
 
     final id = ref.watch(activeCameraIdProvider);
 
@@ -54,62 +54,62 @@ class WifiHandoffController extends Notifier<void> {
       final prev = _activeId;
       _activeId = id;
       _lastBleState = null;
-      _lastWifiState = null;
-      _wifiRecoveryAttempts = 0;
       _debounce?.cancel();
       if (prev != null) {
-        unawaited(ref.read(wifiServiceProvider).disconnectGroup(prev));
+        unawaited(
+          ref
+              .read(wifiServiceProvider)
+              .disconnectGroup(prev)
+              .catchError(
+                (Object e) => debugPrint(
+                  '[wifi-handoff] disconnectGroup(prev) failed: $e',
+                ),
+              ),
+        );
       }
     }
     if (id == null) return;
 
     final wifi = ref.read(wifiServiceProvider);
     final bleState = ref.watch(connectionStateProvider(id)).valueOrNull;
-    final wifiState = ref.watch(wifiConnectionStateProvider(id)).valueOrNull;
 
-    // BLE-driven group lifecycle (unchanged): bring WiFi up when BLE connects,
-    // tear it down when BLE disconnects. A BLE transition supersedes WiFi
-    // recovery this build.
+    // BLE-driven group lifecycle: bring WiFi up when BLE connects, tear it down
+    // when BLE disconnects. That is the controller's whole job — rejoining a
+    // dropped-but-stable group is the OS's responsibility (lean model).
     if (bleState != _lastBleState) {
       _lastBleState = bleState;
       _debounce?.cancel();
       switch (bleState) {
         case CameraConnectionState.connected:
-          _wifiRecoveryAttempts = 0; // fresh session
-          _debounce = Timer(
-            _debounceDelay,
-            () => unawaited(wifi.connectGroup(id)),
-          );
+          // Swallow + log a bring-up failure. The Android P2P join can fail
+          // transiently (WifiP2p connect failed) and connectGroup THROWS on a
+          // failed join; an unawaited throw is an unhandled async error that
+          // crashes the app. A failed bring-up should just leave the preview on
+          // its reconnect placeholder, not take the whole app down.
+          _debounce = Timer(_debounceDelay, () {
+            unawaited(
+              wifi
+                  .connectGroup(id)
+                  .then<void>(
+                    (_) {},
+                    onError: (Object e) =>
+                        debugPrint('[wifi-handoff] connectGroup failed: $e'),
+                  ),
+            );
+          });
         case CameraConnectionState.disconnected:
-          _debounce = Timer(
-            _debounceDelay,
-            () => unawaited(wifi.disconnectGroup(id)),
-          );
+          _debounce = Timer(_debounceDelay, () {
+            unawaited(
+              wifi
+                  .disconnectGroup(id)
+                  .catchError(
+                    (Object e) =>
+                        debugPrint('[wifi-handoff] disconnectGroup failed: $e'),
+                  ),
+            );
+          });
         default:
           break;
-      }
-      return;
-    }
-
-    // WiFi-drop recovery: BLE is up but the group fell from connected to a
-    // non-running state on its own — re-form it (bounded).
-    if (wifiState != _lastWifiState) {
-      final wasConnected = _lastWifiState == WifiDirectState.connected;
-      _lastWifiState = wifiState;
-      if (wifiState == WifiDirectState.connected) {
-        _wifiRecoveryAttempts = 0; // recovered — restore the budget
-      } else if (bleState == CameraConnectionState.connected &&
-          wasConnected &&
-          (wifiState == WifiDirectState.failed ||
-              wifiState == WifiDirectState.idle ||
-              wifiState == WifiDirectState.stopping) &&
-          _wifiRecoveryAttempts < _maxWifiRecoveryAttempts) {
-        _wifiRecoveryAttempts++;
-        _debounce?.cancel();
-        _debounce = Timer(
-          _debounceDelay,
-          () => unawaited(wifi.connectGroup(id)),
-        );
       }
     }
   }

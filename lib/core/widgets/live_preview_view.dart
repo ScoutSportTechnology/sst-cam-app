@@ -33,6 +33,7 @@ class LivePreviewView extends ConsumerStatefulWidget {
     this.autoStart = false,
     this.showButtons = true,
     this.paused = false,
+    this.isStreaming = false,
   });
 
   final String? deviceId;
@@ -40,6 +41,11 @@ class LivePreviewView extends ConsumerStatefulWidget {
   final double? height;
   final double? aspect;
   final bool autoStart;
+
+  /// Whether the camera is actively live-streaming (RTMP egress). The LIVE badge
+  /// is shown ONLY in this case — for a plain local preview you can already tell
+  /// it's live from the moving feed, so no badge is drawn.
+  final bool isStreaming;
 
   /// Whether to render Preview / Stop toggle buttons inside this surface.
   /// Set false when the parent provides external controls.
@@ -205,7 +211,6 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final wifiState = ref
         .watch(wifiConnectionStateProvider(deviceId))
         .valueOrNull;
-    final frame = ref.watch(previewFrameProvider(deviceId)).valueOrNull;
     final stats = ref.watch(previewStatsProvider(deviceId)).valueOrNull;
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
@@ -237,7 +242,9 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // is empty (pending firmware wiring), so frame is always null and the preview
     // stayed pinned at "WAITING FOR FRAMES" even while video was playing.
     final vlcPlaying = showVlc && _vlcPlaying;
-    final liveBadgeOn = vlcPlaying;
+    // The LIVE badge means "broadcasting", not "preview is moving" — show it only
+    // while actually streaming and decoding frames.
+    final showStreamBadge = widget.isStreaming && vlcPlaying;
 
     // Drive the surface aspect from the stream's real geometry (the descriptor
     // carries width/height); a hardcoded 16:9 stretched non-16:9 streams.
@@ -245,12 +252,19 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         ? descriptor.width / descriptor.height
         : null;
 
+    // Lean recovery: the app never re-forms the group; the phone OS rejoins the
+    // stable saved network on its own and `wifiState` flips back to connected,
+    // which re-arms `shouldStream` above and auto-resumes VLC. So a transient
+    // down state (the GO cycling, a re-form on a new match) is a *reconnecting*
+    // wait, not an error — label it that way instead of a scary "FAILED", and it
+    // clears itself once the OS is back. `idle`/null is the pre-connect initial
+    // state (preview just turned on), kept distinct from a reconnect.
     final statusLabel = widget.paused
         ? (widget.label ?? 'PREVIEW')
         : switch (wifiState) {
-            WifiDirectState.starting => 'WIFI · LINKING',
-            WifiDirectState.failed => 'WIFI · FAILED',
-            WifiDirectState.stopping => 'WIFI · STOPPING',
+            WifiDirectState.starting ||
+            WifiDirectState.failed ||
+            WifiDirectState.stopping => 'RECONNECTING…',
             WifiDirectState.idle || null => widget.label ?? 'WIFI · IDLE',
             WifiDirectState.connected =>
               vlcPlaying ? 'LIVE' : 'WIFI · WAITING FOR FRAMES',
@@ -266,15 +280,10 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
             placeholder: const ThumbPlaceholder(),
           )
         else
-          ThumbPlaceholder(label: liveBadgeOn ? null : statusLabel),
-        if (liveBadgeOn)
-          Positioned(left: 8, top: 8, child: _LiveBadge(stats: stats)),
-        if (liveBadgeOn && frame != null)
-          Positioned(
-            right: 8,
-            top: 8,
-            child: _FrameCounter(sequence: frame.sequence),
-          ),
+          ThumbPlaceholder(label: statusLabel),
+        // LIVE badge: top-right, only while live-streaming (not for plain preview).
+        if (showStreamBadge)
+          Positioned(right: 8, top: 8, child: _LiveBadge(stats: stats)),
         if (widget.showButtons)
           Positioned(
             right: 8,
@@ -341,26 +350,6 @@ class _LiveBadge extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _FrameCounter extends StatelessWidget {
-  const _FrameCounter({required this.sequence});
-  final int sequence;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: T.bg.withValues(alpha: 0.85),
-        border: Border.all(color: T.hair),
-      ),
-      child: Text(
-        '#${sequence.toString().padLeft(5, '0')}',
-        style: const TextStyle(fontFamily: T.mono, fontSize: 9, color: T.ink2),
       ),
     );
   }

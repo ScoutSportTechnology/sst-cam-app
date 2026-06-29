@@ -452,6 +452,33 @@ class WifiServiceImpl implements WifiService {
   @override
   WifiDirectGroup? currentGroup(String deviceId) => _currentGroups[deviceId];
 
+  // A reachability probe is a quick TCP connect — long enough to cross the P2P
+  // link, short enough not to stall the UI when the phone hasn't rejoined yet.
+  static const _kReachabilityTimeout = Duration(seconds: 2);
+
+  @override
+  Future<bool> isCameraReachable(String deviceId) async {
+    final group = _currentGroups[deviceId];
+    if (group == null ||
+        group.groupOwnerIp.isEmpty ||
+        group.downloadPort <= 0) {
+      return false;
+    }
+    try {
+      final socket = await Socket.connect(
+        group.groupOwnerIp,
+        group.downloadPort,
+        timeout: _kReachabilityTimeout,
+      );
+      socket.destroy();
+      return true;
+    } on Exception {
+      // No route to host, connection refused, timeout — all mean "not reachable
+      // yet", never an error to surface.
+      return false;
+    }
+  }
+
   @override
   Stream<WifiDirectState> connectionStateStream(String deviceId) =>
       _stateController(deviceId).stream;
@@ -560,18 +587,6 @@ class WifiServiceImpl implements WifiService {
     // Mock: overlays ignored — camera-side rendering is not implemented
     return downloadRecording(deviceId, uuid);
   }
-
-  @override
-  Stream<OverlayState> overlayStateStream(String deviceId) => Stream.periodic(
-    const Duration(seconds: 1),
-    (i) => const OverlayState(
-      timeSeconds: 0,
-      homeScore: 0,
-      awayScore: 0,
-      period: 1,
-      recentEventLabel: null,
-    ),
-  );
 
   // ---------------------------------------------------------------------------
   // Real streamed-to-disk HTTP download (Bearer + Content-Length progress)

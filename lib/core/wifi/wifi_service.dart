@@ -33,6 +33,17 @@ abstract class WifiService {
   /// Broadcast stream of WiFi Direct state for [deviceId].
   Stream<WifiDirectState> connectionStateStream(String deviceId);
 
+  /// Quick reachability check of the camera's data plane (the WiFi-Direct group
+  /// owner). Returns true if a connection to the camera host:port succeeds
+  /// within a short timeout, false otherwise — no active group, no route to the
+  /// GO (the phone hasn't rejoined yet), or a timeout. Never throws.
+  ///
+  /// Callers use this to verify-before-action: confirm the link is actually
+  /// usable before starting a download or the live preview, rather than failing
+  /// hard on a raw "no route to host". The phone OS owns rejoining the saved
+  /// network; this only observes whether that has happened yet.
+  Future<bool> isCameraReachable(String deviceId);
+
   // ---------------------------------------------------------------------------
   // Live preview
   // ---------------------------------------------------------------------------
@@ -100,11 +111,6 @@ abstract class WifiService {
     List<OverlayState> overlays,
     OverlayConfig config,
   );
-
-  /// Broadcast stream of the current overlay state at ~1 Hz.
-  /// Used by live-match surfaces (Match tab / Live tab).
-  /// The video review page does NOT consume this — it derives overlay from DB events.
-  Stream<OverlayState> overlayStateStream(String deviceId);
 
   // ---------------------------------------------------------------------------
   // Lifecycle

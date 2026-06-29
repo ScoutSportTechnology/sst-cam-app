@@ -480,8 +480,14 @@ class BleServiceImpl implements BleService {
       ExportOverlayedCommand(recordingId: recordingId),
     );
     if (!resp.isOk) {
-      // A LIVE_SESSION_ACTIVE rejection surfaces here as an error with the
-      // firmware's status in the message — the UI maps it to a clear message.
+      // Carry the stable LIVE_SESSION_ACTIVE token (derived from the typed
+      // response status, NOT the firmware's free-form message) so the UI can
+      // recognise the live-session case regardless of wording.
+      if (resp.isLiveSessionActive) {
+        throw const BleConnectionException(
+          'overlay export request failed: LIVE_SESSION_ACTIVE',
+        );
+      }
       throw BleConnectionException(
         'overlay export request failed: ${resp.errorMessage}',
       );

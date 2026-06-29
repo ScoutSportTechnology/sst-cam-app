@@ -63,6 +63,18 @@ const double _kWifiBytesPerSecond = 2.5 * 1024 * 1024;
 const Duration _kExportPollInterval = Duration(seconds: 1);
 const Duration _kExportTimeout = Duration(minutes: 10);
 
+/// Verify-before-action: how long to wait (polling reachability) for the phone
+/// to rejoin the camera's saved WiFi network before giving up on a download.
+const Duration _kReachablePollInterval = Duration(seconds: 1);
+const Duration _kReachableWaitBudget = Duration(seconds: 20);
+const _kUnreachable =
+    "Couldn't reach the camera. Make sure you're near it and connected, then try again.";
+
+/// How many consecutive poll round-trips may fail before we abandon an
+/// in-flight overlay export. A single dropped BLE exchange over a multi-minute
+/// burn is expected; only a sustained run of failures means the job is lost.
+const int _kMaxConsecutivePollErrors = 5;
+
 String _fmtSize(int bytes) {
   const mb = 1024 * 1024;
   if (bytes >= mb) {
@@ -122,6 +134,10 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   /// itself starts). Drives the "Rendering overlay…" surface.
   bool _exporting = false;
 
+  /// True while waiting for the phone to (re)join the camera's WiFi link before
+  /// a download can start. Drives the "Reconnecting…" surface.
+  bool _reconnecting = false;
+
   @override
   void dispose() {
     _subscription?.cancel();
@@ -151,18 +167,50 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     }
   }
 
+  /// Verify-before-action: confirm the camera link is up, waiting (polling) if
+  /// the phone hasn't rejoined the saved network yet. Returns false (and sets a
+  /// clear [_error]) if it never becomes reachable within the budget. The phone
+  /// OS owns rejoining the saved network; we only observe whether it happened.
+  Future<bool> _ensureReachable(String deviceId) async {
+    final wifi = ref.read(wifiServiceProvider);
+    if (await wifi.isCameraReachable(deviceId)) return true;
+    if (!mounted) return false;
+    setState(() => _reconnecting = true);
+    // Count polls rather than wall-clock so the wait is driven purely by timers
+    // (deterministic under fake-async tests; identical budget in production).
+    final maxPolls =
+        _kReachableWaitBudget.inMilliseconds ~/
+        _kReachablePollInterval.inMilliseconds;
+    try {
+      for (var i = 0; i < maxPolls; i++) {
+        await Future<void>.delayed(_kReachablePollInterval);
+        if (!mounted) return false;
+        if (await wifi.isCameraReachable(deviceId)) {
+          setState(() => _reconnecting = false);
+          return true;
+        }
+      }
+    } finally {
+      if (mounted && _reconnecting) setState(() => _reconnecting = false);
+    }
+    if (mounted) setState(() => _error = _kUnreachable);
+    return false;
+  }
+
   Future<void> _startFullDownload() async {
     final deviceId = ref.read(activeCameraIdProvider);
     if (deviceId == null) {
       setState(() => _error = 'Connect a camera first');
       return;
     }
-
-    // Capture references before the async call so the onDone callback can
-    // run correctly even if the sheet has already been dismissed (mounted=false).
+    // Capture references before any await so the onDone callback can run
+    // correctly even if the sheet has already been dismissed (mounted=false),
+    // and so the BuildContext isn't used across the reachability wait.
     final matchId = widget.match.id;
     final pathSvc = ref.read(videoPathServiceProvider);
     final container = ProviderScope.containerOf(context);
+
+    if (!await _ensureReachable(deviceId)) return;
 
     try {
       final handle = await ref
@@ -216,12 +264,28 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     try {
       var job = await ble.requestOverlayExport(deviceId, matchId);
       final deadline = DateTime.now().add(_kExportTimeout);
+      var consecutivePollErrors = 0;
       while (!job.isTerminal) {
         if (DateTime.now().isAfter(deadline)) {
           throw TimeoutException('overlay render timed out', _kExportTimeout);
         }
         await Future<void>.delayed(_kExportPollInterval);
-        job = await ble.pollOverlayExport(deviceId, job.jobId);
+        // Stop polling if the sheet was dismissed mid-render — otherwise this
+        // loop keeps firing a BLE round-trip every interval until the deadline.
+        if (!mounted) return;
+        try {
+          job = await ble.pollOverlayExport(deviceId, job.jobId);
+          consecutivePollErrors = 0;
+        } on Exception {
+          // Tolerate a few dropped polls before giving up — a momentary BLE
+          // blip during a long burn should not abort the whole export.
+          if (++consecutivePollErrors >= _kMaxConsecutivePollErrors) rethrow;
+        }
+      }
+      if (job.isUnknown) {
+        throw const WifiDirectException(
+          'the camera lost track of the render job (did it restart?)',
+        );
       }
       if (job.isFailed || job.token == null) {
         throw WifiDirectException(
@@ -230,16 +294,17 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       }
 
       final overlayPath = await pathSvc.overlayRecordingPath(matchId);
+      // Burn done — drop the "rendering" surface, then make sure the link is up
+      // before pulling the L2 (the long burn may have outlasted the WiFi join).
+      if (mounted) setState(() => _exporting = false);
+      if (!await _ensureReachable(deviceId)) return;
       final handle = await wifi.startDownload(
         deviceId,
         job.token!,
         saveAs: overlayPath,
       );
       if (!mounted) return;
-      setState(() {
-        _exporting = false;
-        _handle = handle;
-      });
+      setState(() => _handle = handle);
       _subscription = handle.progress.listen(
         (p) {
           if (mounted) setState(() => _progress = p);
@@ -363,6 +428,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   @override
   Widget build(BuildContext context) {
     final running = _handle != null;
+    if (_reconnecting) return _buildReconnecting();
     if (_exporting) return _buildExporting();
     if (running) return _buildProgress();
     // Overlay the camera-reported real size/duration when available; fall back
@@ -677,7 +743,22 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
     );
   }
 
-  Widget _buildExporting() {
+  Widget _buildExporting() => _buildBusy(
+    'Rendering overlay on camera…',
+    'The camera is burning the scoreboard into a copy. This can take a '
+        'few minutes for a full match.',
+  );
+
+  Widget _buildReconnecting() => _buildBusy(
+    'Reconnecting to camera…',
+    "Waiting for the WiFi link to come back. Make sure you're near the "
+        'camera — this clears on its own once it reconnects.',
+  );
+
+  /// Shared spinner surface for the pre-download busy states (rendering an
+  /// overlay, or waiting for the WiFi link). [title] is the bold headline,
+  /// [subtitle] the muted explanation.
+  Widget _buildBusy(String title, String subtitle) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
       child: Column(
@@ -695,9 +776,9 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
             ),
           ),
           const SizedBox(height: 18),
-          const Row(
+          Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
@@ -705,11 +786,11 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
                   valueColor: AlwaysStoppedAnimation<Color>(T.accent),
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Rendering overlay on camera…',
-                  style: TextStyle(
+                  title,
+                  style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: T.ink,
@@ -719,11 +800,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            'The camera is burning the scoreboard into a copy. This can take a '
-            'few minutes for a full match.',
-            style: TextStyle(fontSize: 12, color: T.ink2),
-          ),
+          Text(subtitle, style: const TextStyle(fontSize: 12, color: T.ink2)),
           if (_error != null) ...[
             const SizedBox(height: 10),
             Text(

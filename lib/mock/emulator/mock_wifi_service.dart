@@ -184,6 +184,16 @@ class MockWifiService implements WifiService {
   @override
   WifiDirectGroup? currentGroup(String deviceId) => _groups[deviceId]?.group;
 
+  /// Test seam for [isCameraReachable]: flip to simulate a phone that hasn't
+  /// rejoined the saved network yet. Reachable by default once a group exists.
+  bool mockReachable = true;
+
+  @override
+  Future<bool> isCameraReachable(String deviceId) async {
+    if (_groups[deviceId] == null) return false;
+    return mockReachable;
+  }
+
   @override
   Stream<WifiDirectState> connectionStateStream(String deviceId) {
     final s = _state(deviceId);
@@ -535,18 +545,6 @@ class MockWifiService implements WifiService {
     // Mock: overlays ignored — camera-side rendering is not implemented
     return downloadRecording(deviceId, uuid);
   }
-
-  @override
-  Stream<OverlayState> overlayStateStream(String deviceId) => Stream.periodic(
-    const Duration(seconds: 1),
-    (i) => const OverlayState(
-      timeSeconds: 0,
-      homeScore: 0,
-      awayScore: 0,
-      period: 1,
-      recentEventLabel: null,
-    ),
-  );
 
   @override
   List<VideoDownloadProgress> activeDownloads() =>

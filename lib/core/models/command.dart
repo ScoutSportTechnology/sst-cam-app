@@ -246,7 +246,7 @@ class PollExportCommand extends BleCommand {
 
 // ---------------------------------------------------------------------------
 
-enum BleResponseStatus { ok, error, timeout, unsupported }
+enum BleResponseStatus { ok, error, timeout, unsupported, liveSessionActive }
 
 class BleCommandResponse<T> {
   const BleCommandResponse({
@@ -261,6 +261,12 @@ class BleCommandResponse<T> {
 
   bool get isOk => status == BleResponseStatus.ok;
 
+  /// The firmware refused the command because a match is live
+  /// (`ResponseStatus.LIVE_SESSION_ACTIVE`). Distinct from a generic error so
+  /// callers can surface the "end the match first" guidance off the typed
+  /// status rather than substring-matching the firmware's human message.
+  bool get isLiveSessionActive => status == BleResponseStatus.liveSessionActive;
+
   factory BleCommandResponse.ok([T? payload]) =>
       BleCommandResponse(status: BleResponseStatus.ok, payload: payload);
 
@@ -268,6 +274,12 @@ class BleCommandResponse<T> {
     status: BleResponseStatus.error,
     errorMessage: message,
   );
+
+  factory BleCommandResponse.liveSessionActive(String message) =>
+      BleCommandResponse(
+        status: BleResponseStatus.liveSessionActive,
+        errorMessage: message,
+      );
 
   factory BleCommandResponse.timeout() =>
       BleCommandResponse(status: BleResponseStatus.timeout);

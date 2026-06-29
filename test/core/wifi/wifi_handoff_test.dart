@@ -1,8 +1,10 @@
 // Tests for WifiHandoffController — the single owner of the WiFi Direct group
-// lifecycle. Regression focus: a WiFi-only group drop (BLE still connected)
-// must auto-reconnect, because the OS can tear down the P2P group on its own
-// (backgrounding / screen lock / GO cycling) and the preview otherwise sticks
-// on the placeholder forever.
+// lifecycle. Lean recovery model: the controller brings the group up on BLE
+// connect and tears it down on BLE disconnect, and does NOTHING in response to
+// wifi-state transitions. Rejoining a dropped-but-stable group is the phone
+// OS's job; the app must not re-form the group (that reactive loop was the
+// SSID-flap storm). The key regression here is the inverse of the old behavior:
+// a WiFi-only drop must NOT trigger an app-driven reconnect.
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -76,77 +78,72 @@ Future<void> _settle() =>
     Future<void>.delayed(const Duration(milliseconds: 550));
 
 void main() {
-  test('a WiFi-only group drop reconnects while BLE stays connected', () async {
+  test('BLE connect brings the WiFi group up exactly once', () async {
     final ble = _FakeBle();
     final wifi = _FakeWifi();
     final container = _container(ble, wifi);
     addTearDown(container.dispose);
 
-    // BLE connects → the group is brought up.
+    ble.ctrl.add(CameraConnectionState.connected);
+    await _settle();
+
+    expect(wifi.connectCalls, 1);
+    expect(wifi.disconnectCalls, 0);
+  });
+
+  test('a WiFi-only drop while BLE stays connected does NOT reconnect', () async {
+    // Lean model: the OS owns rejoining the stable saved network. The app must
+    // not re-form the group on wifi-state transitions (the old flap source).
+    final ble = _FakeBle();
+    final wifi = _FakeWifi();
+    final container = _container(ble, wifi);
+    addTearDown(container.dispose);
+
     ble.ctrl.add(CameraConnectionState.connected);
     await _settle();
     expect(wifi.connectCalls, 1);
 
-    // The group reaches connected, then drops on its own (BLE still up).
+    // The group reaches connected, then drops on its own (BLE still up). None of
+    // these transitions may trigger an app-driven reconnect.
     wifi.ctrl.add(WifiDirectState.connected);
     await Future<void>.delayed(const Duration(milliseconds: 30));
     wifi.ctrl.add(WifiDirectState.failed);
-    await _settle();
-
-    expect(
-      wifi.connectCalls,
-      2,
-      reason: 'a WiFi-only drop must trigger an automatic reconnect',
-    );
-  });
-
-  test('a failed INITIAL connect is not treated as a drop-recovery', () async {
-    final ble = _FakeBle();
-    final wifi = _FakeWifi();
-    final container = _container(ble, wifi);
-    addTearDown(container.dispose);
-
-    ble.ctrl.add(CameraConnectionState.connected);
-    await _settle();
-    expect(wifi.connectCalls, 1);
-
-    // Never reached connected — idle → starting → failed. The recovery only
-    // fires on a drop FROM connected, so no extra connectGroup here.
+    await Future<void>.delayed(const Duration(milliseconds: 30));
     wifi.ctrl.add(WifiDirectState.idle);
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    wifi.ctrl.add(WifiDirectState.starting);
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    wifi.ctrl.add(WifiDirectState.failed);
-    await _settle();
-
-    expect(wifi.connectCalls, 1, reason: 'no recovery without a prior connect');
-  });
-
-  test('no WiFi recovery once BLE has disconnected', () async {
-    final ble = _FakeBle();
-    final wifi = _FakeWifi();
-    final container = _container(ble, wifi);
-    addTearDown(container.dispose);
-
-    ble.ctrl.add(CameraConnectionState.connected);
-    await _settle();
-    wifi.ctrl.add(WifiDirectState.connected);
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-
-    // BLE drops → the handoff tears the group down; a subsequent WiFi-state
-    // change must not re-form a group for a camera that's no longer connected.
-    ble.ctrl.add(CameraConnectionState.disconnected);
-    await _settle();
-    final afterBleDrop = wifi.connectCalls;
-
-    wifi.ctrl.add(WifiDirectState.failed);
     await _settle();
 
     expect(
       wifi.connectCalls,
-      afterBleDrop,
-      reason: 'BLE is down — no reconnect',
+      1,
+      reason: 'a WiFi-only drop must NOT re-form the group (lean model)',
     );
-    expect(wifi.disconnectCalls, greaterThanOrEqualTo(1));
   });
+
+  test(
+    'BLE disconnect tears the group down; later wifi churn does nothing',
+    () async {
+      final ble = _FakeBle();
+      final wifi = _FakeWifi();
+      final container = _container(ble, wifi);
+      addTearDown(container.dispose);
+
+      ble.ctrl.add(CameraConnectionState.connected);
+      await _settle();
+      expect(wifi.connectCalls, 1);
+
+      ble.ctrl.add(CameraConnectionState.disconnected);
+      await _settle();
+      expect(wifi.disconnectCalls, greaterThanOrEqualTo(1));
+
+      final connectsAfterDrop = wifi.connectCalls;
+      wifi.ctrl.add(WifiDirectState.failed);
+      await _settle();
+
+      expect(
+        wifi.connectCalls,
+        connectsAfterDrop,
+        reason: 'BLE is down — no reconnect',
+      );
+    },
+  );
 }
