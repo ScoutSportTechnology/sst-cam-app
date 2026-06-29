@@ -109,6 +109,9 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
         ],
       ),
     );
+    // The page may have been popped (e.g. Android back gesture) while the
+    // dialog was open — don't act on a disposed widget.
+    if (!mounted) return;
     if (confirmed == true) {
       await SystemNavigator.pop();
     }
