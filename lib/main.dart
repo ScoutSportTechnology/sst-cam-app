@@ -91,8 +91,22 @@ Future<void> main() async {
       previewBaseUrl: devConfig.previewBaseUrl,
       downloadBaseUrl: devConfig.downloadBaseUrl,
     );
-    overrides.add(bleServiceProvider.overrideWithValue(bleMock));
-    overrides.add(wifiServiceProvider.overrideWithValue(wifiMock));
+    // Use overrideWith (not overrideWithValue) so Riverpod runs the factory and
+    // honours ref.onDispose — otherwise the mocks' scan timers/streams leak on
+    // hot-restart (the provider's own dispose hook never registers for a value
+    // override).
+    overrides.add(
+      bleServiceProvider.overrideWith((ref) {
+        ref.onDispose(bleMock.dispose);
+        return bleMock;
+      }),
+    );
+    overrides.add(
+      wifiServiceProvider.overrideWith((ref) {
+        ref.onDispose(wifiMock.dispose);
+        return wifiMock;
+      }),
+    );
   }
 
   final container = ProviderContainer(overrides: overrides);
