@@ -7,6 +7,7 @@ import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
 import '../models/export_job.dart';
+import '../models/network_config.dart';
 import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
 import '../models/recording.dart';
@@ -394,7 +395,40 @@ class BleProtocol {
       correlationId: correlationId,
       stopWifiDirect: proto.StopWifiDirectCommand(),
     ),
+    SetNetworkConfigCommand(:final config) => proto.Command(
+      correlationId: correlationId,
+      setNetworkConfig: proto.SetNetworkConfigCommand(
+        config: _dartNetworkConfigToProto(config),
+      ),
+    ),
+    GetNetworkConfigCommand() => proto.Command(
+      correlationId: correlationId,
+      getNetworkConfig: proto.GetNetworkConfigCommand(),
+    ),
   };
+
+  /// Maps the dart [NetworkConfig] view model to the wire `proto.NetworkConfig`
+  /// (flat scalars). Static IP fields ride along regardless of [UplinkIp.dhcp];
+  /// the firmware ignores them when dhcp is true.
+  static proto.NetworkConfig _dartNetworkConfigToProto(NetworkConfig config) =>
+      proto.NetworkConfig(
+        ethernet: proto.EthernetUplinkConfig(
+          enabled: config.ethernet.enabled,
+          dhcp: config.ethernet.ip.dhcp,
+          address: config.ethernet.ip.address,
+          gateway: config.ethernet.ip.gateway,
+          dns: config.ethernet.ip.dns,
+        ),
+        wifi: proto.WifiUplinkConfig(
+          enabled: config.wifi.enabled,
+          ssid: config.wifi.ssid,
+          password: config.wifi.password,
+          dhcp: config.wifi.ip.dhcp,
+          address: config.wifi.ip.address,
+          gateway: config.wifi.ip.gateway,
+          dns: config.wifi.ip.dns,
+        ),
+      );
 
   /// Maps an OK [proto.CommandResponse] to a typed [BleCommandResponse] by
   /// switching on the actual `whichPayload()` variant the firmware sent. A
@@ -522,6 +556,20 @@ class BleProtocol {
               )
               as T?,
         );
+      case proto.CommandResponse_Payload.networkConfig:
+        // Uplink config echoed back + live per-interface status (Settings →
+        // Network reads this to show what the camera actually applied).
+        final nc = resp.networkConfig;
+        return BleCommandResponse.ok(
+          NetworkConfigResult(
+                config: _protoNetworkConfig(nc.config),
+                ethernetUp: nc.ethernetUp,
+                ethernetAddress: nc.ethernetAddress,
+                wifiUp: nc.wifiUp,
+                wifiStatus: nc.wifiStatus,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
         // match control, score/banner events, overlay/session push). If T is a
@@ -530,6 +578,30 @@ class BleProtocol {
         return BleCommandResponse.ok(null as T?);
     }
   }
+
+  static NetworkConfig _protoNetworkConfig(proto.NetworkConfig p) =>
+      NetworkConfig(
+        ethernet: EthernetUplink(
+          enabled: p.ethernet.enabled,
+          ip: UplinkIp(
+            dhcp: p.ethernet.dhcp,
+            address: p.ethernet.address,
+            gateway: p.ethernet.gateway,
+            dns: p.ethernet.dns,
+          ),
+        ),
+        wifi: WifiUplink(
+          enabled: p.wifi.enabled,
+          ssid: p.wifi.ssid,
+          password: p.wifi.password,
+          ip: UplinkIp(
+            dhcp: p.wifi.dhcp,
+            address: p.wifi.address,
+            gateway: p.wifi.gateway,
+            dns: p.wifi.dns,
+          ),
+        ),
+      );
 
   static DeviceTelemetry _dartTelemetry(proto.DeviceTelemetry p) =>
       DeviceTelemetry(

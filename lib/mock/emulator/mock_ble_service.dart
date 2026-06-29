@@ -11,6 +11,7 @@ import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/match.dart';
 import '../../core/models/export_job.dart';
+import '../../core/models/network_config.dart';
 import '../../core/models/overlay_layout.dart';
 import '../../core/models/preview_layout.dart';
 import '../../core/models/recording.dart';
@@ -789,6 +790,12 @@ class MockBleService implements BleService {
       correlationId: correlationId,
       stopWifiDirect: proto.StopWifiDirectCommand(),
     ),
+    // Uplink config uses the dedicated set/getNetworkConfig methods, not the
+    // generic sendCommand round-trip the emulator's encode path serves.
+    SetNetworkConfigCommand() ||
+    GetNetworkConfigCommand() => throw UnsupportedError(
+      'network config uses the direct set/getNetworkConfig path',
+    ),
   };
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
@@ -957,6 +964,10 @@ class MockBleService implements BleService {
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
       ),
+      SetNetworkConfigCommand() ||
+      GetNetworkConfigCommand() => throw UnsupportedError(
+        'network config uses the direct set/getNetworkConfig path',
+      ),
     };
   }
 
@@ -1101,6 +1112,10 @@ class MockBleService implements BleService {
             as T?,
       ),
       StopWifiDirectCommand() => BleCommandResponse.ok(null as T?),
+      SetNetworkConfigCommand() ||
+      GetNetworkConfigCommand() => throw UnsupportedError(
+        'network config uses the direct set/getNetworkConfig path',
+      ),
     };
   }
 
@@ -1345,6 +1360,42 @@ class MockBleService implements BleService {
       ),
     );
   }
+
+  NetworkConfig _uplinkConfig = const NetworkConfig();
+
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 60));
+    _uplinkConfig = config;
+    return _uplinkStatus(config);
+  }
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 40));
+    return _uplinkStatus(_uplinkConfig);
+  }
+
+  // Emulated firmware status: ethernet reports "up" with a stock address when
+  // enabled; wifi-STA is gated unavailable (single radio = WiFi-Direct GO),
+  // matching the real firmware's NmcliUplinkConfigurator.
+  NetworkConfigResult _uplinkStatus(NetworkConfig config) =>
+      NetworkConfigResult(
+        config: config,
+        ethernetUp: config.ethernet.enabled,
+        ethernetAddress: config.ethernet.enabled
+            ? (config.ethernet.ip.dhcp
+                  ? '10.10.1.30/24'
+                  : config.ethernet.ip.address)
+            : '',
+        wifiUp: false,
+        wifiStatus: config.wifi.enabled
+            ? 'unavailable: single radio is dedicated to the WiFi-Direct GO'
+            : '',
+      );
 
   // Maps a proto ExportJobResponse to the dart ExportJob (used by the
   // sendCommand round-trip path; the public methods above bypass this).

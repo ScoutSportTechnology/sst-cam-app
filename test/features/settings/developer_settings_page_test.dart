@@ -153,6 +153,56 @@ void main() {
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.byType(DeveloperSettingsPage), findsOneWidget);
     });
+
+    testWidgets('confirming restart after the page is popped does not throw '
+        '(mounted guard)', (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [devConfigProvider.overrideWithValue(const DevConfig())],
+          child: MaterialApp(
+            navigatorKey: navKey,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const DeveloperSettingsPage(),
+                    ),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Make a change so the restart button is enabled, then open the dialog.
+      await tester.tap(find.byKey(const Key('seedDataSwitch')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close & restart'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      // Pop the underlying DeveloperSettingsPage route out from under the
+      // dialog, then confirm. The mounted guard must swallow this safely
+      // (SystemNavigator.pop would otherwise fire on a disposed widget).
+      navKey.currentState!.removeRoute(
+        ModalRoute.of(tester.element(find.byType(DeveloperSettingsPage)))!,
+      );
+      await tester.tap(find.text('Restart'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('DeveloperSettingsNotifier', () {

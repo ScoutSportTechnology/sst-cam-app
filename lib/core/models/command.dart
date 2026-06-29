@@ -1,6 +1,7 @@
 // Dart-side command types — map 1:1 to proto Command.payload variants.
 // RealBleService translates these to/from protobuf bytes on the wire.
 
+import 'network_config.dart';
 import 'overlay_layout.dart';
 import 'preview_layout.dart';
 
@@ -244,6 +245,18 @@ class PollExportCommand extends BleCommand {
   final String jobId;
 }
 
+/// Set the camera's internet uplink config (ethernet / wifi STA) — persisted +
+/// applied by the firmware. Replies with [NetworkConfigResult] (echoed config +
+/// live status).
+class SetNetworkConfigCommand extends BleCommand {
+  SetNetworkConfigCommand({required this.config});
+  final NetworkConfig config;
+}
+
+/// Read the camera's current uplink config + live status. Replies with
+/// [NetworkConfigResult].
+class GetNetworkConfigCommand extends BleCommand {}
+
 // ---------------------------------------------------------------------------
 
 enum BleResponseStatus { ok, error, timeout, unsupported, liveSessionActive }
@@ -266,6 +279,12 @@ class BleCommandResponse<T> {
   /// callers can surface the "end the match first" guidance off the typed
   /// status rather than substring-matching the firmware's human message.
   bool get isLiveSessionActive => status == BleResponseStatus.liveSessionActive;
+
+  /// The firmware does not implement this command (`ResponseStatus.UNSUPPORTED`)
+  /// — typically a camera running firmware older than the one that introduced
+  /// the command. Distinct from a generic error so callers can surface
+  /// actionable "update the camera firmware" guidance.
+  bool get isUnsupported => status == BleResponseStatus.unsupported;
 
   factory BleCommandResponse.ok([T? payload]) =>
       BleCommandResponse(status: BleResponseStatus.ok, payload: payload);

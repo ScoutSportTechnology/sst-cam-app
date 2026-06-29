@@ -109,6 +109,9 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
         ],
       ),
     );
+    // The page may have been popped (e.g. Android back gesture) while the
+    // dialog was open — don't act on a disposed widget.
+    if (!mounted) return;
     if (confirmed == true) {
       await SystemNavigator.pop();
     }
@@ -223,7 +226,6 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
                     key: const Key('seedDataSwitch'),
                     value: staged.seedData,
                     onChanged: notifier.setSeedData,
-                    activeThumbColor: T.accent,
                   ),
                 ],
               ),
@@ -259,7 +261,6 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
                         key: const Key('cameraEmulationSwitch'),
                         value: staged.cameraEmulation,
                         onChanged: notifier.setCameraEmulation,
-                        activeThumbColor: T.accent,
                       ),
                     ],
                   ),

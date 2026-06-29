@@ -57,37 +57,59 @@ Future<void> main() async {
     );
   }
 
-  final bleMock = MockBleService(
-    advertiseDevices: devConfig.cameraEmulation,
-    downloadBaseUrl: devConfig.downloadBaseUrl,
-    failureRate: 0,
-  );
-  final wifiMock = MockWifiService(
-    previewBaseUrl: devConfig.previewBaseUrl,
-    downloadBaseUrl: devConfig.downloadBaseUrl,
-  );
+  // The "Emulate camera" dev toggle picks the BACKEND, not just whether fake
+  // devices advertise: ON → mock BLE/WiFi (emulated camera); OFF → fall through
+  // to the real BleServiceImpl/WifiServiceImpl provider defaults, so a dev build
+  // with emulation off behaves like a stage build (real backend) but keeps the
+  // dev tools + seedable data. Takes effect on the next app start (the toggle is
+  // staged + applied like the others).
+  final overrides = <Override>[
+    appDatabaseProvider.overrideWithValue(db),
+    devConfigProvider.overrideWithValue(devConfig),
+    devReseedProvider.overrideWithValue(
+      () async => applySeedData(
+        db,
+        seed: devConfig.seedData,
+        downloadBaseUrl: devConfig.downloadBaseUrl,
+      ),
+    ),
+    devNavigationProvider.overrideWithValue(
+      DevNavigation(
+        debugPage: () => const DebugPage(),
+        developerSettings: () => const DeveloperSettingsPage(),
+      ),
+    ),
+  ];
 
-  final container = ProviderContainer(
-    overrides: [
-      appDatabaseProvider.overrideWithValue(db),
-      bleServiceProvider.overrideWithValue(bleMock),
-      wifiServiceProvider.overrideWithValue(wifiMock),
-      devConfigProvider.overrideWithValue(devConfig),
-      devReseedProvider.overrideWithValue(
-        () async => applySeedData(
-          db,
-          seed: devConfig.seedData,
-          downloadBaseUrl: devConfig.downloadBaseUrl,
-        ),
-      ),
-      devNavigationProvider.overrideWithValue(
-        DevNavigation(
-          debugPage: () => const DebugPage(),
-          developerSettings: () => const DeveloperSettingsPage(),
-        ),
-      ),
-    ],
-  );
+  if (devConfig.cameraEmulation) {
+    final bleMock = MockBleService(
+      advertiseDevices: true,
+      downloadBaseUrl: devConfig.downloadBaseUrl,
+      failureRate: 0,
+    );
+    final wifiMock = MockWifiService(
+      previewBaseUrl: devConfig.previewBaseUrl,
+      downloadBaseUrl: devConfig.downloadBaseUrl,
+    );
+    // Use overrideWith (not overrideWithValue) so Riverpod runs the factory and
+    // honours ref.onDispose — otherwise the mocks' scan timers/streams leak on
+    // hot-restart (the provider's own dispose hook never registers for a value
+    // override).
+    overrides.add(
+      bleServiceProvider.overrideWith((ref) {
+        ref.onDispose(bleMock.dispose);
+        return bleMock;
+      }),
+    );
+    overrides.add(
+      wifiServiceProvider.overrideWith((ref) {
+        ref.onDispose(wifiMock.dispose);
+        return wifiMock;
+      }),
+    );
+  }
+
+  final container = ProviderContainer(overrides: overrides);
 
   runApp(
     UncontrolledProviderScope(container: container, child: const SstCamApp()),

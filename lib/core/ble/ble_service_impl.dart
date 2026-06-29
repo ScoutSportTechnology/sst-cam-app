@@ -9,6 +9,7 @@ import '../async/seeded_broadcast.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/network_config.dart';
 import '../models/export_job.dart';
 import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
@@ -465,6 +466,45 @@ class BleServiceImpl implements BleService {
     if (result == null) {
       throw const BleConnectionException(
         'setPreviewLayout: firmware returned no PreviewLayoutResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) => _networkConfig(
+    deviceId,
+    SetNetworkConfigCommand(config: config),
+    'setNetworkConfig',
+  );
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) =>
+      _networkConfig(deviceId, GetNetworkConfigCommand(), 'getNetworkConfig');
+
+  // Shared round-trip for Set/GetNetworkConfig — both reply with the same
+  // NetworkConfigResult (echoed config + live status).
+  Future<NetworkConfigResult> _networkConfig(
+    String deviceId,
+    BleCommand command,
+    String label,
+  ) async {
+    final resp = await sendCommand<NetworkConfigResult>(deviceId, command);
+    if (!resp.isOk) {
+      if (resp.isUnsupported) {
+        // Old firmware predating the NetworkConfig command surface — surface a
+        // distinct, actionable exception rather than a generic failure.
+        throw BleNetworkConfigUnsupportedException(resp.errorMessage);
+      }
+      throw BleConnectionException('$label failed: ${resp.errorMessage}');
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw BleConnectionException(
+        '$label: firmware returned no NetworkConfigResponse',
       );
     }
     return result;

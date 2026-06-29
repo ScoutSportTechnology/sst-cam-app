@@ -17,6 +17,7 @@ import 'data/data_settings_page.dart';
 import '../discovery/diagnostics_page.dart';
 import '../discovery/discovery_page.dart';
 import 'sport_presets/sport_presets_page.dart';
+import 'network/network_settings_page.dart';
 import 'streaming/streaming_destinations_page.dart';
 import 'users/users_settings_page.dart';
 
@@ -93,6 +94,17 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 const Divider(height: 1, color: T.rule),
                 const _StreamingRow(),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
+                  leading: const Icon(Icons.lan_outlined),
+                  label: 'Network',
+                  sub: 'Camera internet uplink (ethernet / wifi)',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const NetworkSettingsPage(),
+                    ),
+                  ),
+                ),
                 const Divider(height: 1, color: T.rule),
                 _NavRow(
                   leading: const Icon(Icons.storage_outlined),
