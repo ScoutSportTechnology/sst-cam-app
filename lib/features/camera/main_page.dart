@@ -94,6 +94,18 @@ class _HeroCameraCard extends ConsumerWidget {
     // mounted in the shell's IndexedStack).
     final onMainTab = ref.watch(activeTabProvider) == AppTab.main;
 
+    // Real camera state from telemetry flags, not connection alone. The dot was
+    // green "LIVE" whenever connected even while idle — misleading. Precedence
+    // Streaming > Recording > Preview > Standby > Disconnected.
+    final telemetry = deviceId == null
+        ? null
+        : ref.watch(telemetryProvider(deviceId!)).valueOrNull;
+    final (camLabel, camColor) = cameraHeroState(
+      connected: connected,
+      previewOn: previewOn,
+      telemetry: telemetry,
+    );
+
     return Container(
       decoration: BoxDecoration(
         color: T.surface,
@@ -148,17 +160,17 @@ class _HeroCameraCard extends ConsumerWidget {
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: connected ? T.accent : T.ink3,
+                            color: camColor,
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          connected ? 'LIVE' : 'IDLE',
+                          camLabel.toUpperCase(),
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: connected ? T.accent : T.ink3,
+                            color: camColor,
                             letterSpacing: 0.6,
                           ),
                         ),
@@ -168,39 +180,9 @@ class _HeroCameraCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 14),
                 if (connected) ...[
-                  if (previewOn) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'PREVIEW VIEW',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                            color: T.ink3,
-                          ),
-                        ),
-                        PreviewLayoutToggle(deviceId: deviceId),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  // Primary: open match tab.
-                  WfButton(
-                    label: 'Open match',
-                    variant: WfButtonVariant.primary,
-                    full: true,
-                    // The shell is a NavigationBar + IndexedStack driven by
-                    // activeTabProvider — there is no DefaultTabController in the
-                    // tree, so maybeOf() returned null and the button no-op'd.
-                    // Match is tab index 2; its landing offers "Schedule a match"
-                    // when none exist.
-                    onPressed: () =>
-                        ref.read(activeTabProvider.notifier).state = 2,
-                  ),
-                  const SizedBox(height: 8),
-                  // Secondary row: Preview/Stop + Disconnect.
+                  // Preview controls inline — Preview button + Single|Both mode
+                  // toggle in two equal columns, mirroring the match session
+                  // screen so widths and right edges line up.
                   Row(
                     children: [
                       Expanded(
@@ -208,6 +190,7 @@ class _HeroCameraCard extends ConsumerWidget {
                           label: previewOn ? 'Stop preview' : 'Preview',
                           variant: WfButtonVariant.outline,
                           size: WfButtonSize.sm,
+                          full: true,
                           leading: previewOn
                               ? null
                               : const Icon(
@@ -228,16 +211,39 @@ class _HeroCameraCard extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      WfButton(
-                        label: 'Disconnect',
-                        size: WfButtonSize.sm,
-                        onPressed: () {
-                          ref.read(bleServiceProvider).disconnect(deviceId!);
-                          ref.read(activeCameraIdProvider.notifier).state =
-                              null;
-                        },
+                      Expanded(
+                        child: previewOn
+                            ? PreviewLayoutToggle(deviceId: deviceId, full: true)
+                            : const SizedBox.shrink(),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  // Primary: open match tab. Full-width md — equal height/width
+                  // with Disconnect below.
+                  WfButton(
+                    label: 'Open match',
+                    variant: WfButtonVariant.primary,
+                    full: true,
+                    // The shell is a NavigationBar + IndexedStack driven by
+                    // activeTabProvider — there is no DefaultTabController in the
+                    // tree, so maybeOf() returned null and the button no-op'd.
+                    // Match is tab index 2; its landing offers "Schedule a match"
+                    // when none exist.
+                    onPressed: () =>
+                        ref.read(activeTabProvider.notifier).state = 2,
+                  ),
+                  const SizedBox(height: 8),
+                  // Disconnect — danger (red), full-width: equal height/width
+                  // with Open match (the unequal-button fix from the match card).
+                  WfButton(
+                    label: 'Disconnect',
+                    variant: WfButtonVariant.danger,
+                    full: true,
+                    onPressed: () {
+                      ref.read(bleServiceProvider).disconnect(deviceId!);
+                      ref.read(activeCameraIdProvider.notifier).state = null;
+                    },
                   ),
                 ] else
                   WfButton(
@@ -259,6 +265,22 @@ class _HeroCameraCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Maps connection + preview + telemetry flags to the hero-card status label and
+/// color. Precedence: Streaming > Recording > Preview > Standby > Disconnected.
+/// Connection gates all live states, so an inconsistent flag combination (e.g.
+/// recording reported while disconnected) resolves to Disconnected.
+(String, Color) cameraHeroState({
+  required bool connected,
+  required bool previewOn,
+  required DeviceTelemetry? telemetry,
+}) {
+  if (!connected) return ('Disconnected', T.ink3);
+  if (telemetry?.isStreaming ?? false) return ('Streaming', T.ok);
+  if (telemetry?.isRecording ?? false) return ('Recording', T.danger);
+  if (previewOn) return ('Preview', T.accent);
+  return ('Standby', T.warn);
 }
 
 class _TelemetryGrid extends StatelessWidget {
