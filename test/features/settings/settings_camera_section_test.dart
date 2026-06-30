@@ -176,6 +176,41 @@ void main() {
       },
     );
 
+    testWidgets('confirming the Reboot dialog sends the command and shows the '
+        'restarting snackbar', (tester) async {
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+
+      await tester.pumpWidget(
+        buildHarness(service: mock, activeCameraId: _kFakeDeviceId),
+      );
+      await tester.pumpAndSettle();
+
+      // Open the confirm dialog…
+      await tester.tap(find.text('Reboot'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reboot camera?'), findsOneWidget);
+
+      // …and confirm it (the dialog's Reboot action, not the card button).
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(TextButton, 'Reboot'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Dialog dismissed; the success snackbar is shown. Both the OK reply
+      // and a dropped-link timeout/throw map to this same "sent" copy — the
+      // camera goes down right after dispatch, so a non-error outcome is
+      // success.
+      expect(find.text('Reboot camera?'), findsNothing);
+      expect(
+        find.text('Reboot sent — the camera is restarting.'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
       'tapping Diagnostics pushes a route whose first page is DiagnosticsPage',
       (tester) async {
