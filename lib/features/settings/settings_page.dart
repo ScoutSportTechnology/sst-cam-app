@@ -321,7 +321,7 @@ class _CameraCard extends ConsumerWidget {
                 child: Tooltip(
                   message: 'Coming soon — firmware integration',
                   child: WfButton(
-                    label: 'Update fw',
+                    label: 'Upgrade',
                     size: WfButtonSize.sm,
                     onPressed: null,
                   ),
@@ -334,6 +334,7 @@ class _CameraCard extends ConsumerWidget {
           // row (Settings → Diagnostics), not buried on the camera card.
           WfButton(
             label: 'Disconnect',
+            variant: WfButtonVariant.danger,
             size: WfButtonSize.sm,
             full: true,
             onPressed: () => _disconnect(ref, deviceId),

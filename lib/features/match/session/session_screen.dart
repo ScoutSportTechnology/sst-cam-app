@@ -21,7 +21,11 @@ import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart'
     show activeCameraIdProvider, activeTabProvider, AppTab;
+import '../../../core/models/streaming.dart'
+    show RtmpConfig, RtspConfig, StreamingDestinationDraft;
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
+import '../../settings/streaming/streaming_destination_form_sheet.dart'
+    show showStreamingDestinationFormSheet;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
 import 'session_state.dart';
@@ -258,18 +262,21 @@ class SessionScreen extends ConsumerWidget {
 
     if (wireUrl == null) {
       if (!context.mounted) return;
-      final entered = await _promptStreamCredential(context);
-      if (entered == null) return; // cancelled — start nothing
+      // Same URL+key (and RTSP) form as setup — entered fresh for this match.
+      final draft = await showStreamingDestinationFormSheet(context);
+      if (draft == null) return; // cancelled — start nothing
+      final resolved = _draftToWire(draft);
+      if (resolved == null) return;
       if (matchId != null) {
         await ref
             .read(teamsDaoProvider)
             .setMatchStreamingCredential(
               matchId,
-              rtmpUrl: entered,
-              streamKey: null,
+              rtmpUrl: resolved.storeUrl,
+              streamKey: resolved.storeKey,
             );
       }
-      wireUrl = entered;
+      wireUrl = resolved.wireUrl;
     }
 
     _sendIfConnected(
@@ -744,7 +751,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'Kickoff',
           variant: WfButtonVariant.primary,
-          size: WfButtonSize.md,
+          size: WfButtonSize.sm,
           full: true,
           onPressed: onKickoff,
         );
@@ -752,7 +759,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'End period ${state.currentPeriod}',
           variant: WfButtonVariant.danger,
-          size: WfButtonSize.md,
+          size: WfButtonSize.sm,
           full: true,
           onPressed: onEndPeriod,
         );
@@ -761,14 +768,14 @@ class _PrimaryActionRow extends StatelessWidget {
             ? WfButton(
                 label: 'End match',
                 variant: WfButtonVariant.danger,
-                size: WfButtonSize.md,
+                size: WfButtonSize.sm,
                 full: true,
                 onPressed: onEndMatch,
               )
             : WfButton(
                 label: 'Start period ${state.currentPeriod + 1}',
                 variant: WfButtonVariant.primary,
-                size: WfButtonSize.md,
+                size: WfButtonSize.sm,
                 full: true,
                 onPressed: onStartNextPeriod,
               );
@@ -776,7 +783,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = const WfButton(
           label: 'Match ended',
           variant: WfButtonVariant.outline,
-          size: WfButtonSize.md,
+          size: WfButtonSize.sm,
           full: true,
         );
     }
@@ -791,7 +798,8 @@ class _PrimaryActionRow extends StatelessWidget {
               variant: onMarkEvent != null
                   ? WfButtonVariant.primary
                   : WfButtonVariant.outline,
-              size: WfButtonSize.md,
+              size: WfButtonSize.sm,
+              full: true,
               leading: const _Square(color: T.accentInk),
               onPressed: onMarkEvent,
             ),
@@ -1444,106 +1452,27 @@ String _joinRtmp(String base, String key) {
   return base.endsWith('/') ? '$base$key' : '$base/$key';
 }
 
-/// Non-dismissible mid-match streaming credential prompt. Returns the full RTMP
-/// ingest URL, or null when cancelled (start nothing). `isDismissible` and
-/// `enableDrag` are false so an accidental tap-outside can't leave streaming
-/// half-started; only an explicit Cancel/Start resolves it.
-Future<String?> _promptStreamCredential(BuildContext context) {
-  final controller = TextEditingController();
-  String? error;
-  return showModalBottomSheet<String>(
-    context: context,
-    backgroundColor: T.bg,
-    isScrollControlled: true,
-    isDismissible: false,
-    enableDrag: false,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setSt) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Start streaming',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    color: T.ink,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'No streaming destination set for this match. Paste a full '
-                  'RTMP URL (including the stream key) to start now.',
-                  style: TextStyle(fontSize: 11, color: T.ink2, height: 1.4),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  decoration: BoxDecoration(
-                    color: T.fillSoft,
-                    border: Border.all(color: T.hair),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: TextField(
-                    controller: controller,
-                    autofocus: true,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      hintText: 'rtmp://stream.example.com/app/key',
-                      hintStyle: TextStyle(color: T.ink3, fontSize: 13),
-                      border: InputBorder.none,
-                      isCollapsed: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    style: const TextStyle(color: T.ink, fontSize: 13),
-                  ),
-                ),
-                if (error != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    error!,
-                    style: const TextStyle(color: T.danger, fontSize: 12),
-                  ),
-                ],
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: WfButton(
-                        label: 'Cancel',
-                        onPressed: () => Navigator.of(ctx).pop(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: WfButton(
-                        label: 'Start streaming',
-                        variant: WfButtonVariant.primary,
-                        onPressed: () {
-                          final url = controller.text.trim();
-                          if (!url.startsWith('rtmp://') &&
-                              !url.startsWith('rtmps://')) {
-                            setSt(
-                              () => error =
-                                  'URL must start with rtmp:// or rtmps://',
-                            );
-                            return;
-                          }
-                          Navigator.of(ctx).pop(url);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
+/// A resolved mid-match stream selection from a form draft.
+typedef _WireStream = ({String wireUrl, String storeUrl, String? storeKey});
+
+/// Resolve a streaming-destination draft into the wire URL + the values to
+/// persist on the match. RTMP combines URL + key; RTSP folds creds into the URL.
+_WireStream? _draftToWire(StreamingDestinationDraft d) {
+  final cfg = d.config;
+  if (cfg is RtmpConfig) {
+    return (
+      wireUrl: _joinRtmp(cfg.url, cfg.streamKey),
+      storeUrl: cfg.url,
+      storeKey: cfg.streamKey,
+    );
+  }
+  if (cfg is RtspConfig) {
+    final u = cfg.username;
+    final creds = (u != null && u.isNotEmpty)
+        ? '$u:${cfg.password ?? ''}@'
+        : '';
+    final wire = cfg.url.replaceFirst('://', '://$creds');
+    return (wireUrl: wire, storeUrl: wire, storeKey: null);
+  }
+  return null;
 }

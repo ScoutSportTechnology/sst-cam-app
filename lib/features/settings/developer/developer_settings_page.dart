@@ -4,6 +4,7 @@ import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
+import '../../../core/config/env.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -143,12 +144,11 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
           // Logs + Database browser moved to Settings → (camera) Diagnostics so
           // app diagnostics sit alongside the camera's. See diagnostics_page.dart.
 
-          // Mock/seed controls. The emulator advertising and mock preview/
-          // download endpoints only take effect on the mock backend (dev
-          // entry); on a real-backend build they are inert but kept visible
-          // for reference. The Database browser above (reset + reseed) is the
-          // data tool that works against any backend.
-          ...[
+          // Mock/seed controls — only meaningful on the mock backend (dev
+          // entry). On a real-backend build (stage/prod) seeding and camera
+          // emulation do nothing, so the switches are hidden rather than shown
+          // misleadingly ON. Gated on kAppEnv.isDevBackend.
+          if (kAppEnv.isDevBackend) ...[
             const _SectionHeader('Seed app data'),
             WfCard(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

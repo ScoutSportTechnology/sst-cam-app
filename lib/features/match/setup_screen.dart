@@ -16,6 +16,8 @@ import '../../core/models/overlay_layout.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../settings/sport_presets/sport_presets_state.dart'
     show sportPresetsForSportProvider, SportPreset;
+import '../settings/streaming/streaming_destination_form_sheet.dart'
+    show showStreamingDestinationFormSheet;
 import '../settings/streaming/streaming_state.dart'
     show streamingDestinationsControllerProvider;
 import '../settings/users/users_state.dart' show activeUserProvider;
@@ -457,21 +459,36 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   }
 
   Future<void> _addOneOff() async {
-    final initial = _stream?.label == 'One-off' ? _stream!.wireUrl : '';
-    final url = await _showCustomRtmpModal(context, initial: initial);
-    if (url == null) return;
-    setState(() {
-      if (url.isEmpty) {
-        if (_stream?.label == 'One-off') _stream = null;
-      } else {
-        _stream = (
-          wireUrl: url,
-          storeUrl: url,
-          storeKey: null,
-          label: 'One-off',
-        );
-      }
-    });
+    // Reuse the streaming-destination form (URL + key fields, RTMP/RTMPS/RTSP)
+    // for a per-match one-off — same UX as Settings, just not saved globally.
+    final draft = await showStreamingDestinationFormSheet(context);
+    if (draft == null) return;
+    final sel = _draftToSelection(draft);
+    if (sel == null) return;
+    setState(() => _stream = sel);
+  }
+
+  /// Resolve a form draft into a per-match selection: RTMP combines URL + key
+  /// into the ingest URL; RTSP folds username/password into the rtsp:// URL.
+  _StreamSelection? _draftToSelection(StreamingDestinationDraft d) {
+    final cfg = d.config;
+    if (cfg is RtmpConfig) {
+      return (
+        wireUrl: _joinRtmp(cfg.url, cfg.streamKey),
+        storeUrl: cfg.url,
+        storeKey: cfg.streamKey,
+        label: 'One-off',
+      );
+    }
+    if (cfg is RtspConfig) {
+      final u = cfg.username;
+      final creds = (u != null && u.isNotEmpty)
+          ? '$u:${cfg.password ?? ''}@'
+          : '';
+      final wire = cfg.url.replaceFirst('://', '://$creds');
+      return (wireUrl: wire, storeUrl: wire, storeKey: null, label: 'One-off');
+    }
+    return null;
   }
 
   Future<void> _editCustom(BuildContext context) async {
@@ -688,135 +705,6 @@ Future<String?> _promptStreamKey(
         ),
       ),
     ),
-  );
-}
-
-// ---------------------------------------------------------------------------
-// CUSTOM RTMP MODAL (top-level helper, setup only)
-// ---------------------------------------------------------------------------
-
-Future<String?> _showCustomRtmpModal(
-  BuildContext context, {
-  required String initial,
-}) {
-  final controller = TextEditingController(text: initial);
-  String? error;
-  return showModalBottomSheet<String>(
-    context: context,
-    backgroundColor: T.bg,
-    isScrollControlled: true,
-    builder: (ctx) {
-      return StatefulBuilder(
-        builder: (ctx, setSt) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: T.fillMid,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Custom RTMP',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      color: T.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Full RTMP URL including stream key. Stored on the camera, '
-                    'never logged by the app.',
-                    style: TextStyle(fontSize: 11, color: T.ink2, height: 1.4),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: T.fillSoft,
-                      border: Border.all(color: T.hair),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: TextField(
-                      controller: controller,
-                      autofocus: true,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        hintText: 'rtmp://stream.example.com/app/key',
-                        hintStyle: TextStyle(color: T.ink3, fontSize: 13),
-                        border: InputBorder.none,
-                        isCollapsed: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      style: const TextStyle(color: T.ink, fontSize: 13),
-                    ),
-                  ),
-                  if (error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      error!,
-                      style: const TextStyle(color: T.danger, fontSize: 12),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      if (initial.isNotEmpty)
-                        Expanded(
-                          child: WfButton(
-                            label: 'Remove',
-                            variant: WfButtonVariant.danger,
-                            onPressed: () => Navigator.of(ctx).pop(''),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: WfButton(
-                            label: 'Cancel',
-                            onPressed: () => Navigator.of(ctx).pop(),
-                          ),
-                        ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: WfButton(
-                          label: 'Save',
-                          variant: WfButtonVariant.primary,
-                          onPressed: () {
-                            final url = controller.text.trim();
-                            if (!url.startsWith('rtmp://') &&
-                                !url.startsWith('rtmps://')) {
-                              setSt(
-                                () => error =
-                                    'URL must start with rtmp:// or rtmps://',
-                              );
-                              return;
-                            }
-                            Navigator.of(ctx).pop(url);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    },
   );
 }
 
