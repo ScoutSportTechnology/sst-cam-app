@@ -39,10 +39,18 @@ class DeviceInfoResponse {
 /// [DeviceInfoResponse.protocolVersion] on connect; a mismatch must surface a
 /// clean version-skew signal and refuse the session (see proto contract
 /// DeviceInfoResponse.protocol_version comment).
-const int kAppProtocolVersion = 1;
+///
+/// v3: proto U6 (RebootCommand + record/stream quality + supported_modes).
+/// Bumped with the firmware (device.handler kProtocolVersion) as a coordinated
+/// release — a connected camera is therefore always exactly this version, so
+/// the Reboot action gates on connection alone.
+const int kAppProtocolVersion = 3;
 
 // Device
 class GetDeviceInfoCommand extends BleCommand {}
+
+// Reboot the camera (U7/U11). Parameterless; gated on protocol_version >= 3.
+class RebootCommand extends BleCommand {}
 
 // Telemetry — app polls at ~1 Hz
 class GetTelemetryCommand extends BleCommand {}

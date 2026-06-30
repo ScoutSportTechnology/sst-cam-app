@@ -9,6 +9,7 @@ import 'streaming/streaming_state.dart'
 import 'users/users_state.dart'
     show activeUserProvider, usersControllerProvider;
 import '../../core/ble/ble_providers.dart';
+import '../../core/models/command.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/version/version_info.dart';
@@ -305,26 +306,25 @@ class _CameraCard extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Row(
-            children: const [
+            children: [
               Expanded(
-                child: Tooltip(
-                  message: 'Coming soon — firmware integration',
-                  child: WfButton(
-                    label: 'Reboot',
-                    size: WfButtonSize.sm,
-                    onPressed: null,
-                  ),
+                child: WfButton(
+                  label: 'Reboot',
+                  size: WfButtonSize.sm,
+                  // Connected => protocol 3 (exact-match version gate), so the
+                  // reboot command surface is guaranteed present. Disabled only
+                  // while DeviceInfo is still loading.
+                  onPressed: info == null
+                      ? null
+                      : () => _confirmReboot(context, ref),
                 ),
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(
-                child: Tooltip(
-                  message: 'Coming soon — firmware integration',
-                  child: WfButton(
-                    label: 'Upgrade',
-                    size: WfButtonSize.sm,
-                    onPressed: null,
-                  ),
+                child: WfButton(
+                  label: 'Upgrade',
+                  size: WfButtonSize.sm,
+                  onPressed: () => _showUpgradeInfo(context),
                 ),
               ),
             ],
@@ -350,6 +350,73 @@ class _CameraCard extends ConsumerWidget {
   Future<void> _disconnect(WidgetRef ref, String deviceId) async {
     await ref.read(bleServiceProvider).disconnect(deviceId);
     ref.read(activeCameraIdProvider.notifier).state = null;
+  }
+
+  /// Confirm, then send RebootCommand (U11). The camera replies OK and then
+  /// goes down, so a timeout here is success (the link dropped), not failure.
+  Future<void> _confirmReboot(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reboot camera?'),
+        content: const Text(
+          'The camera will restart and briefly disconnect. Any recording or '
+          'streaming in progress will stop.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reboot'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    String message;
+    try {
+      final resp = await ref
+          .read(bleServiceProvider)
+          .sendCommand<void>(deviceId, RebootCommand());
+      final reached =
+          resp.status == BleResponseStatus.ok ||
+          resp.status == BleResponseStatus.timeout;
+      message = reached
+          ? 'Reboot sent — the camera is restarting.'
+          : 'Camera could not reboot (${resp.status.name}).';
+    } catch (_) {
+      // A dropped link mid-send is the camera going down — treat as sent.
+      message = 'Reboot sent — the camera is restarting.';
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// OTA firmware upgrade isn't built yet (R14); point at the on-device path.
+  void _showUpgradeInfo(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Firmware upgrade'),
+        content: const Text(
+          'Over-the-air upgrade is not available yet. Update the camera '
+          'firmware on the Jetson with deploy/install.sh (see the firmware repo).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
