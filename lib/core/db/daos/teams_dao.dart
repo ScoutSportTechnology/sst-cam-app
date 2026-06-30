@@ -109,6 +109,25 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
   Future<void> insertTeamMatch(TeamMatchesTableCompanion companion) =>
       into(teamMatchesTable).insert(companion);
 
+  /// Fetch a single match row by id (used to read the per-match streaming
+  /// credential mid-match). Null when no such match.
+  Future<TeamMatchesTableData?> getMatchById(String matchId) => (select(
+    teamMatchesTable,
+  )..where((m) => m.id.equals(matchId))).getSingleOrNull();
+
+  /// Set (or clear, with nulls) the per-match streaming credential (U5).
+  /// Scoped to this match only — never added to streaming_destinations.
+  Future<void> setMatchStreamingCredential(
+    String matchId, {
+    required String? rtmpUrl,
+    required String? streamKey,
+  }) => (update(teamMatchesTable)..where((m) => m.id.equals(matchId))).write(
+    TeamMatchesTableCompanion(
+      rtmpUrl: Value(rtmpUrl),
+      streamKey: Value(streamKey),
+    ),
+  );
+
   /// Delete a team match by id.
   Future<int> deleteTeamMatch(String matchId) =>
       (delete(teamMatchesTable)..where((m) => m.id.equals(matchId))).go();

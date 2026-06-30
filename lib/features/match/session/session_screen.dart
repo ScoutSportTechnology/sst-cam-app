@@ -203,19 +203,7 @@ class SessionScreen extends ConsumerWidget {
                     }
                   : null,
               onStreamToggle: connected
-                  ? () {
-                      final newStreaming = !state.streaming;
-                      _sendIfConnected(
-                        ref,
-                        StreamingControlCommand(
-                          action: newStreaming
-                              ? StreamingControlAction.start
-                              : StreamingControlAction.stop,
-                          rtmpUrl: null,
-                        ),
-                      );
-                      ctl.setStreaming(newStreaming);
-                    }
+                  ? () => _toggleStream(context, ref, ctl, state)
                   : null,
             ),
           ],
@@ -233,6 +221,65 @@ class SessionScreen extends ConsumerWidget {
       separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
       itemBuilder: (_, i) => _EventLogRow(e: visible[i]),
     );
+  }
+
+  /// Toggle streaming mid-match. Stopping is unconditional. Starting resolves
+  /// the per-match credential: use the one stored at setup, or — if none — prompt
+  /// for a one-off, store it on the match, then start. Cancelling the prompt
+  /// starts nothing and leaves the session unchanged.
+  Future<void> _toggleStream(
+    BuildContext context,
+    WidgetRef ref,
+    LiveMatchController ctl,
+    LiveMatchState state,
+  ) async {
+    if (state.streaming) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(
+          action: StreamingControlAction.stop,
+          rtmpUrl: null,
+        ),
+      );
+      ctl.setStreaming(false);
+      return;
+    }
+
+    final matchId = ref.read(liveMatchProvider.notifier).matchId;
+    String? wireUrl;
+    if (matchId != null) {
+      final m = await ref.read(teamsDaoProvider).getMatchById(matchId);
+      final url = m?.rtmpUrl;
+      if (url != null && url.isNotEmpty) {
+        final key = m!.streamKey;
+        wireUrl = (key == null || key.isEmpty) ? url : _joinRtmp(url, key);
+      }
+    }
+
+    if (wireUrl == null) {
+      if (!context.mounted) return;
+      final entered = await _promptStreamCredential(context);
+      if (entered == null) return; // cancelled — start nothing
+      if (matchId != null) {
+        await ref
+            .read(teamsDaoProvider)
+            .setMatchStreamingCredential(
+              matchId,
+              rtmpUrl: entered,
+              streamKey: null,
+            );
+      }
+      wireUrl = entered;
+    }
+
+    _sendIfConnected(
+      ref,
+      StreamingControlCommand(
+        action: StreamingControlAction.start,
+        rtmpUrl: wireUrl,
+      ),
+    );
+    ctl.setStreaming(true);
   }
 
   Future<void> _kickoff(
@@ -1389,5 +1436,114 @@ void _finalizeMatchToLibrary(WidgetRef ref) {
         .catchError((Object e) {
           debugPrint('[finalize] ERROR $e');
         }),
+  );
+}
+
+String _joinRtmp(String base, String key) {
+  if (key.isEmpty) return base;
+  return base.endsWith('/') ? '$base$key' : '$base/$key';
+}
+
+/// Non-dismissible mid-match streaming credential prompt. Returns the full RTMP
+/// ingest URL, or null when cancelled (start nothing). `isDismissible` and
+/// `enableDrag` are false so an accidental tap-outside can't leave streaming
+/// half-started; only an explicit Cancel/Start resolves it.
+Future<String?> _promptStreamCredential(BuildContext context) {
+  final controller = TextEditingController();
+  String? error;
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: T.bg,
+    isScrollControlled: true,
+    isDismissible: false,
+    enableDrag: false,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setSt) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Start streaming',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: T.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'No streaming destination set for this match. Paste a full '
+                  'RTMP URL (including the stream key) to start now.',
+                  style: TextStyle(fontSize: 11, color: T.ink2, height: 1.4),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  decoration: BoxDecoration(
+                    color: T.fillSoft,
+                    border: Border.all(color: T.hair),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      hintText: 'rtmp://stream.example.com/app/key',
+                      hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                      border: InputBorder.none,
+                      isCollapsed: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    style: const TextStyle(color: T.ink, fontSize: 13),
+                  ),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    error!,
+                    style: const TextStyle(color: T.danger, fontSize: 12),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: WfButton(
+                        label: 'Cancel',
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: WfButton(
+                        label: 'Start streaming',
+                        variant: WfButtonVariant.primary,
+                        onPressed: () {
+                          final url = controller.text.trim();
+                          if (!url.startsWith('rtmp://') &&
+                              !url.startsWith('rtmps://')) {
+                            setSt(
+                              () => error =
+                                  'URL must start with rtmp:// or rtmps://',
+                            );
+                            return;
+                          }
+                          Navigator.of(ctx).pop(url);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }

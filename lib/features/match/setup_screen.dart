@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
+import '../../core/models/streaming.dart';
+import '../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
@@ -14,6 +16,8 @@ import '../../core/models/overlay_layout.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../settings/sport_presets/sport_presets_state.dart'
     show sportPresetsForSportProvider, SportPreset;
+import '../settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
 import '../settings/users/users_state.dart' show activeUserProvider;
 import 'match_state.dart' show UpcomingMatch;
 import 'session/session_state.dart' show liveMatchProvider;
@@ -28,15 +32,20 @@ enum _Quality {
   final String label;
 }
 
-enum _StreamMethod {
-  youtube('YouTube Live', 'NR U14 channel · 1080p'),
-  instagram('Instagram Live', 'Connected account · 720p'),
-  local('Local network', 'mDNS · for parents on WiFi'),
-  custom('Custom RTMP', '');
+/// A resolved per-match streaming selection. [wireUrl] is the full ingest URL
+/// sent to the camera (base + key). [storeUrl]/[storeKey] persist on the match
+/// row (a saved destination keeps base + key split; a one-off keeps the full URL
+/// with a null key).
+typedef _StreamSelection = ({
+  String wireUrl,
+  String storeUrl,
+  String? storeKey,
+  String label,
+});
 
-  const _StreamMethod(this.label, this.defaultSub);
-  final String label;
-  final String defaultSub;
+String _joinRtmp(String base, String key) {
+  if (key.isEmpty) return base;
+  return base.endsWith('/') ? '$base$key' : '$base/$key';
 }
 
 class SetupScreen extends ConsumerStatefulWidget {
@@ -62,9 +71,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   int _customPeriodSeconds = 35 * 60;
   bool _initialized = false;
 
-  // Streaming destinations.
-  final Set<_StreamMethod> _streamMethods = {};
-  String _customRtmpUrl = '';
+  // Streaming destination for this match: a saved persistent destination or a
+  // per-match one-off. Null = record without streaming.
+  _StreamSelection? _stream;
 
   // Session push state (U9).
   bool _pushing = false;
@@ -191,33 +200,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const WfNote('DESTINATIONS'),
+                  const WfNote('DESTINATION'),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final m in _StreamMethod.values)
-                        GestureDetector(
-                          onTap: () => _toggleStreamMethod(m),
-                          child: WfChip(
-                            label:
-                                m == _StreamMethod.custom &&
-                                    _customRtmpUrl.isNotEmpty
-                                ? 'Custom RTMP · configured'
-                                : m.label,
-                            active: _streamMethods.contains(m),
-                          ),
-                        ),
-                    ],
+                  _buildStreamChips(),
+                  const SizedBox(height: 8),
+                  WfNote(
+                    _stream == null
+                        ? 'Recording only — no live stream. Pick a saved '
+                              'destination or add a one-off for this match.'
+                        : 'Streaming this match to ${_stream!.label}.',
                   ),
-                  if (_streamMethods.isEmpty) ...[
-                    const SizedBox(height: 8),
-                    const WfNote(
-                      'Pick one or more destinations to stream to. You can '
-                      'still record without streaming.',
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -311,11 +303,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     _matchUuid ??= widget.match.match.id;
     final matchUuid = _matchUuid!;
 
-    final rtmpUrl =
-        _streamMethods.contains(_StreamMethod.custom) &&
-            _customRtmpUrl.isNotEmpty
-        ? _customRtmpUrl
-        : null;
+    // The selected destination's full ingest URL (saved or one-off), or null to
+    // record without streaming. Fixes the old gap where saved destinations were
+    // ignored and only a raw custom URL ever reached the camera.
+    final rtmpUrl = _stream?.wireUrl;
 
     final opponentName = widget.match.match.opponent.startsWith('vs ')
         ? widget.match.match.opponent.substring(3)
@@ -364,6 +355,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       await ble.pushSessionConfig(deviceId, config);
       if (!mounted) return;
 
+      // Persist the per-match streaming credential (scoped to this match only;
+      // mid-match start reuses it). Clears the columns when no destination set.
+      await ref
+          .read(teamsDaoProvider)
+          .setMatchStreamingCredential(
+            matchUuid,
+            rtmpUrl: _stream?.storeUrl,
+            streamKey: _stream?.storeKey,
+          );
+
       // Step 2: build and push overlay layout.
       final opponent = widget.match.match.opponent;
       final awayName = opponent.startsWith('vs ')
@@ -397,27 +398,69 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
   }
 
-  Future<void> _toggleStreamMethod(_StreamMethod method) async {
-    final isOn = _streamMethods.contains(method);
-    if (method == _StreamMethod.custom) {
-      final url = await _showCustomRtmpModal(context, initial: _customRtmpUrl);
-      if (url == null) return;
-      setState(() {
-        if (url.isEmpty) {
-          _streamMethods.remove(_StreamMethod.custom);
-          _customRtmpUrl = '';
-        } else {
-          _streamMethods.add(_StreamMethod.custom);
-          _customRtmpUrl = url;
-        }
-      });
-      return;
-    }
+  /// Saved persistent RTMP destinations (custom-RTMP entries from Settings) plus
+  /// a one-off chip. Single-select — the camera streams one ingest per match.
+  Widget _buildStreamChips() {
+    final dests =
+        ref.watch(streamingDestinationsControllerProvider).valueOrNull ??
+        const <StreamingDestination>[];
+    final rtmpDests = dests
+        .where((d) => d.config is RtmpConfig)
+        .toList(growable: false);
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final d in rtmpDests)
+          GestureDetector(
+            onTap: () => _selectSaved(d),
+            child: WfChip(label: d.name, active: _stream?.label == d.name),
+          ),
+        GestureDetector(
+          onTap: _addOneOff,
+          child: WfChip(
+            label: _stream?.label == 'One-off'
+                ? 'One-off · configured'
+                : 'One-off RTMP',
+            active: _stream?.label == 'One-off',
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _selectSaved(StreamingDestination d) {
+    final cfg = d.config;
+    if (cfg is! RtmpConfig) return;
     setState(() {
-      if (isOn) {
-        _streamMethods.remove(method);
+      if (_stream?.label == d.name) {
+        _stream = null; // toggle off
       } else {
-        _streamMethods.add(method);
+        _stream = (
+          wireUrl: _joinRtmp(cfg.url, cfg.streamKey),
+          storeUrl: cfg.url,
+          storeKey: cfg.streamKey,
+          label: d.name,
+        );
+      }
+    });
+  }
+
+  Future<void> _addOneOff() async {
+    final initial = _stream?.label == 'One-off' ? _stream!.wireUrl : '';
+    final url = await _showCustomRtmpModal(context, initial: initial);
+    if (url == null) return;
+    setState(() {
+      if (url.isEmpty) {
+        if (_stream?.label == 'One-off') _stream = null;
+      } else {
+        _stream = (
+          wireUrl: url,
+          storeUrl: url,
+          storeKey: null,
+          label: 'One-off',
+        );
       }
     });
   }

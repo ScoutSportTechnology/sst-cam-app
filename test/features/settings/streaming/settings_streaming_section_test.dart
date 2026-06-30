@@ -241,7 +241,7 @@ void main() {
   });
 
   group('Add destination happy path (AE7)', () {
-    testWidgets('FAB → form → YouTube + URL + key → new row appears', (
+    testWidgets('FAB → custom form → name + URL + key → new row appears', (
       tester,
     ) async {
       await tester.pumpWidget(buildHarness());
@@ -251,9 +251,14 @@ void main() {
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
+      // Custom-only form — a name is required (no provider auto-fill).
+      await tester.enterText(
+        find.byKey(const Key('streaming-name-field')),
+        'Field cam',
+      );
       await tester.enterText(
         find.byKey(const Key('streaming-url-field')),
-        'rtmp://a.rtmp.youtube.com/live2',
+        'rtmp://a.example.com/live2',
       );
       await tester.enterText(
         find.byKey(const Key('streaming-key-field')),
@@ -263,12 +268,13 @@ void main() {
       await tester.tap(find.text('Add destination').last);
       await tester.pumpAndSettle();
 
-      expect(find.text('YouTube'), findsAtLeastNWidgets(1));
+      expect(find.text('Field cam'), findsAtLeastNWidgets(1));
       expect(find.text('RTMP'), findsOneWidget);
 
-      // Verify via DAO that the destination was persisted.
+      // Verify via DAO that the destination was persisted as custom.
       final rows = await db.value.streamingDestinationsDao.getForUser('user-1');
       expect(rows, hasLength(1));
+      expect(rows.single.provider, 'custom');
     });
   });
 
