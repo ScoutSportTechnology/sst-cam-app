@@ -6,10 +6,12 @@ import '../../core/db/app_database.dart';
 import '../../features/settings/users/users_state.dart' show activeUserProvider;
 import '../../core/state/db_providers.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/wf_button.dart';
+import '../../core/widgets/wf_card.dart';
 
 /// Developer-only screen for inspecting the local Drift database.
-/// Entry point: long-press the About row in Settings (wired via
-/// [devNavigationProvider] in main.dart). Provides a table browser and Reset.
+/// Entry point: Settings → Developer → Database browser (wired via
+/// [devNavigationProvider]; dev/stage builds only). Table browser + Reset.
 class DebugPage extends ConsumerStatefulWidget {
   const DebugPage({super.key});
 
@@ -32,6 +34,31 @@ class _DebugPageState extends ConsumerState<DebugPage>
   void dispose() {
     _tabs.dispose();
     super.dispose();
+  }
+
+  Future<void> _confirmReset() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: T.surface,
+        title: const Text('Reset database?', style: TextStyle(color: T.ink)),
+        content: const Text(
+          'Wipes all local data and re-applies the base seed. Cannot be undone.',
+          style: TextStyle(color: T.ink2),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset', style: TextStyle(color: T.danger)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _reset();
   }
 
   Future<void> _reset() async {
@@ -83,7 +110,7 @@ class _DebugPageState extends ConsumerState<DebugPage>
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(
-        title: const Text('Debug — DB Browser'),
+        title: const Text('Database'),
         backgroundColor: T.bg,
         bottom: TabBar(
           controller: _tabs,
@@ -108,7 +135,7 @@ class _DebugPageState extends ConsumerState<DebugPage>
               ],
             ),
           ),
-          _ResetBar(resetting: _resetting, onReset: _reset),
+          _ResetBar(resetting: _resetting, onReset: _confirmReset),
         ],
       ),
     );
@@ -195,7 +222,28 @@ class _StreamTab<R> extends StatelessWidget {
         if (snap.hasError) return _Empty('Error: ${snap.error}');
         final rows = snap.data ?? [];
         if (rows.isEmpty) return _Empty(empty);
-        return ListView(children: rows.map(rowBuilder).toList());
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          children: [
+            WfSection(
+              '${rows.length} ${rows.length == 1 ? 'row' : 'rows'}',
+              padding: const EdgeInsets.only(bottom: 8),
+            ),
+            // One card holding hairline-separated rows — matches the rest of the
+            // app's list vocabulary instead of raw Material ListTiles.
+            WfCard(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  for (var i = 0; i < rows.length; i++) ...[
+                    if (i > 0) const Divider(height: 1, color: T.rule),
+                    rowBuilder(rows[i]),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
       },
     );
   }
@@ -212,12 +260,30 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      dense: true,
-      title: Text(primary, style: const TextStyle(color: T.ink, fontSize: 13)),
-      subtitle: Text(
-        secondary,
-        style: const TextStyle(color: T.ink2, fontSize: 11),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            primary,
+            style: const TextStyle(
+              color: T.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 2),
+          // Data face (mono) for ids / numeric fields, matching diagnostics.
+          Text(
+            secondary,
+            style: const TextStyle(
+              color: T.ink2,
+              fontSize: 11,
+              fontFamily: T.mono,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -228,11 +294,7 @@ class _Empty extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(message, style: const TextStyle(color: T.ink2)),
-    );
-  }
+  Widget build(BuildContext context) => Center(child: WfNote(message));
 }
 
 class _ResetBar extends StatelessWidget {
@@ -243,26 +305,18 @@ class _ResetBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      color: T.surface,
+      padding: const EdgeInsets.all(14),
+      decoration: const BoxDecoration(
+        color: T.surface,
+        border: Border(top: BorderSide(color: T.hair)),
+      ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: resetting ? null : onReset,
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-            child: resetting
-                ? const SizedBox(
-                    height: 16,
-                    width: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Text('Reset Database'),
-          ),
+        child: WfButton(
+          label: resetting ? 'Resetting…' : 'Reset database',
+          variant: WfButtonVariant.danger,
+          full: true,
+          onPressed: resetting ? null : onReset,
         ),
       ),
     );

@@ -21,7 +21,10 @@ import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart'
     show activeCameraIdProvider, activeTabProvider, AppTab;
+import '../../../core/models/streaming.dart' show resolveWireStream, joinRtmp;
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
+import '../../settings/streaming/streaming_destination_form_sheet.dart'
+    show showStreamingDestinationFormSheet;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
 import 'session_state.dart';
@@ -203,19 +206,7 @@ class SessionScreen extends ConsumerWidget {
                     }
                   : null,
               onStreamToggle: connected
-                  ? () {
-                      final newStreaming = !state.streaming;
-                      _sendIfConnected(
-                        ref,
-                        StreamingControlCommand(
-                          action: newStreaming
-                              ? StreamingControlAction.start
-                              : StreamingControlAction.stop,
-                          rtmpUrl: null,
-                        ),
-                      );
-                      ctl.setStreaming(newStreaming);
-                    }
+                  ? () => _toggleStream(context, ref, ctl, state)
                   : null,
             ),
           ],
@@ -233,6 +224,88 @@ class SessionScreen extends ConsumerWidget {
       separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
       itemBuilder: (_, i) => _EventLogRow(e: visible[i]),
     );
+  }
+
+  /// Toggle streaming mid-match. Stopping is unconditional. Starting resolves
+  /// the per-match credential: use the one stored at setup, or — if none — prompt
+  /// for a one-off, store it on the match, then start. Cancelling the prompt
+  /// starts nothing and leaves the session unchanged.
+  Future<void> _toggleStream(
+    BuildContext context,
+    WidgetRef ref,
+    LiveMatchController ctl,
+    LiveMatchState state,
+  ) async {
+    if (state.streaming) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(
+          action: StreamingControlAction.stop,
+          rtmpUrl: null,
+        ),
+      );
+      ctl.setStreaming(false);
+      return;
+    }
+
+    final matchId = ref.read(liveMatchProvider.notifier).matchId;
+    String? wireUrl;
+    try {
+      if (matchId != null) {
+        final m = await ref.read(teamsDaoProvider).getMatchById(matchId);
+        final url = m?.rtmpUrl;
+        if (url != null && url.isNotEmpty) {
+          final key = m!.streamKey;
+          wireUrl = (key == null || key.isEmpty) ? url : joinRtmp(url, key);
+        }
+      }
+
+      if (wireUrl == null) {
+        if (!context.mounted) return;
+        // Same URL+key (and RTSP) form as setup — entered fresh for this match.
+        final draft = await showStreamingDestinationFormSheet(context);
+        if (draft == null) return; // cancelled — start nothing
+        final resolved = resolveWireStream(draft.config);
+        if (resolved == null) return;
+        if (matchId != null) {
+          await ref
+              .read(teamsDaoProvider)
+              .setMatchStreamingCredential(
+                matchId,
+                rtmpUrl: resolved.storeUrl,
+                streamKey: resolved.storeKey,
+              );
+        }
+        wireUrl = resolved.wireUrl;
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start streaming.')),
+        );
+      }
+      return;
+    }
+
+    final sent = _sendIfConnected(
+      ref,
+      StreamingControlCommand(
+        action: StreamingControlAction.start,
+        rtmpUrl: wireUrl,
+      ),
+    );
+    // Only reflect streaming in the UI when the start actually dispatched — a
+    // mid-await disconnect would otherwise show "streaming" while the camera
+    // never received the command.
+    if (sent) {
+      ctl.setStreaming(true);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera disconnected — streaming not started.'),
+        ),
+      );
+    }
   }
 
   Future<void> _kickoff(
@@ -697,7 +770,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'Kickoff',
           variant: WfButtonVariant.primary,
-          size: WfButtonSize.md,
+          size: WfButtonSize.sm,
           full: true,
           onPressed: onKickoff,
         );
@@ -705,7 +778,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'End period ${state.currentPeriod}',
           variant: WfButtonVariant.danger,
-          size: WfButtonSize.md,
+          size: WfButtonSize.sm,
           full: true,
           onPressed: onEndPeriod,
         );
@@ -714,14 +787,14 @@ class _PrimaryActionRow extends StatelessWidget {
             ? WfButton(
                 label: 'End match',
                 variant: WfButtonVariant.danger,
-                size: WfButtonSize.md,
+                size: WfButtonSize.sm,
                 full: true,
                 onPressed: onEndMatch,
               )
             : WfButton(
                 label: 'Start period ${state.currentPeriod + 1}',
                 variant: WfButtonVariant.primary,
-                size: WfButtonSize.md,
+                size: WfButtonSize.sm,
                 full: true,
                 onPressed: onStartNextPeriod,
               );
@@ -729,7 +802,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = const WfButton(
           label: 'Match ended',
           variant: WfButtonVariant.outline,
-          size: WfButtonSize.md,
+          size: WfButtonSize.sm,
           full: true,
         );
     }
@@ -744,7 +817,8 @@ class _PrimaryActionRow extends StatelessWidget {
               variant: onMarkEvent != null
                   ? WfButtonVariant.primary
                   : WfButtonVariant.outline,
-              size: WfButtonSize.md,
+              size: WfButtonSize.sm,
+              full: true,
               leading: const _Square(color: T.accentInk),
               onPressed: onMarkEvent,
             ),
@@ -1359,12 +1433,17 @@ extension on Border {
 // BLE HELPER — fire-and-forget command when a camera is connected
 // ---------------------------------------------------------------------------
 
-void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
+/// Sends [cmd] only when a camera is connected. Returns true when the command
+/// was dispatched, false when skipped (no device / not connected) — callers that
+/// mutate UI state on the back of a send (e.g. streaming on/off) gate on this so
+/// app and camera don't diverge.
+bool _sendIfConnected(WidgetRef ref, BleCommand cmd) {
   final id = ref.read(activeCameraIdProvider);
-  if (id == null) return;
+  if (id == null) return false;
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
-  if (connState != CameraConnectionState.connected) return;
+  if (connState != CameraConnectionState.connected) return false;
   unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
+  return true;
 }
 
 /// Persist the just-ended match into the Library: flips its team_match row to

@@ -46,6 +46,8 @@ class _StubBleService implements BleService {
 
   // Unused for backup tests — minimal no-op implementations below.
   @override
+  Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async => null;
+  @override
   bool get isScanning => false;
   @override
   Stream<List<SstDevice>> get discoveredDevices => const Stream.empty();

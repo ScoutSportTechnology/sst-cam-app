@@ -192,3 +192,50 @@ class StreamingDestinationDraft {
   final StreamingProtocol protocol;
   final StreamingConfig config;
 }
+
+// ---------------------------------------------------------------------------
+// Wire-URL resolution (shared by match setup + mid-match session). Kept here,
+// not duplicated per-screen, so RTMP/RTSP encoding rules live in one place.
+// ---------------------------------------------------------------------------
+
+/// A streaming config resolved for use: [wireUrl] is the full ingest URL sent
+/// to the camera; [storeUrl]/[storeKey] are persisted on the match (RTMP keeps
+/// base+key split; RTSP folds creds into the URL with a null key).
+typedef WireStream = ({String wireUrl, String storeUrl, String? storeKey});
+
+/// Joins an RTMP base URL and stream key into one ingest URL.
+String joinRtmp(String base, String key) {
+  if (key.isEmpty) return base;
+  return base.endsWith('/') ? '$base$key' : '$base/$key';
+}
+
+/// Resolves a [StreamingConfig] into the wire URL plus the match-persist values.
+/// RTMP combines base + key. RTSP folds **percent-encoded** username/password
+/// into the URL's userInfo via [Uri] so special characters (`@`, `:`, `/`) in a
+/// password don't shift the authority boundary. Returns null for unsupported
+/// configs.
+WireStream? resolveWireStream(StreamingConfig cfg) {
+  if (cfg is RtmpConfig) {
+    return (
+      wireUrl: joinRtmp(cfg.url, cfg.streamKey),
+      storeUrl: cfg.url,
+      storeKey: cfg.streamKey,
+    );
+  }
+  if (cfg is RtspConfig) {
+    final user = cfg.username;
+    if (user == null || user.isEmpty) {
+      return (wireUrl: cfg.url, storeUrl: cfg.url, storeKey: null);
+    }
+    final userInfo =
+        '${Uri.encodeComponent(user)}:${Uri.encodeComponent(cfg.password ?? '')}';
+    String wire;
+    try {
+      wire = Uri.parse(cfg.url).replace(userInfo: userInfo).toString();
+    } catch (_) {
+      wire = cfg.url; // unparseable — fall back to the bare URL
+    }
+    return (wireUrl: wire, storeUrl: wire, storeKey: null);
+  }
+  return null;
+}

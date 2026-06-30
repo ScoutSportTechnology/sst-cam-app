@@ -86,7 +86,9 @@ class _DestinationFormState extends State<_DestinationForm> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _provider = e?.provider ?? StreamingProvider.youtube;
+    // Custom-RTMP only — new destinations are always custom; an existing
+    // platform destination still loads its own provider for editing.
+    _provider = e?.provider ?? StreamingProvider.custom;
     _protocol = e?.protocol ?? StreamingProtocol.rtmp;
     _name = TextEditingController(text: e?.name ?? _defaultName(_provider));
     _url = TextEditingController(
@@ -117,22 +119,6 @@ class _DestinationFormState extends State<_DestinationForm> {
     _username.dispose();
     _password.dispose();
     super.dispose();
-  }
-
-  void _onProviderChanged(StreamingProvider next) {
-    setState(() {
-      _provider = next;
-      // Known providers are RTMP-only; force protocol when leaving custom.
-      if (next != StreamingProvider.custom) {
-        _protocol = StreamingProtocol.rtmp;
-      }
-      // Default-name behavior: if name is empty or matches any provider's
-      // default label, swap to the new provider's default.
-      final defaults = StreamingProvider.values.map(_defaultName).toSet();
-      if (_name.text.trim().isEmpty || defaults.contains(_name.text.trim())) {
-        _name.text = _defaultName(next);
-      }
-    });
   }
 
   void _onProtocolChanged(StreamingProtocol next) {
@@ -188,7 +174,6 @@ class _DestinationFormState extends State<_DestinationForm> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
-    final isCustom = _provider == StreamingProvider.custom;
     final showStreamKey =
         _protocol == StreamingProtocol.rtmp ||
         _protocol == StreamingProtocol.rtmps;
@@ -221,41 +206,24 @@ class _DestinationFormState extends State<_DestinationForm> {
               ),
             ),
             const SizedBox(height: 14),
-            // Provider picker.
-            const WfNote('PROVIDER'),
+            // Custom-RTMP destinations only — per-platform (YouTube/Instagram/…)
+            // workflows were dropped (no OAuth/API integration). Streaming
+            // credentials are entered manually here or per-match at setup.
+            const WfNote('PROTOCOL'),
             const SizedBox(height: 6),
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: StreamingProvider.values
+              children: StreamingProtocol.values
                   .map(
                     (p) => _PickerChip(
                       label: p.displayLabel,
-                      selected: _provider == p,
-                      onTap: () => _onProviderChanged(p),
+                      selected: _protocol == p,
+                      onTap: () => _onProtocolChanged(p),
                     ),
                   )
                   .toList(),
             ),
-            // Protocol picker — only when provider == custom.
-            if (isCustom) ...[
-              const SizedBox(height: 14),
-              const WfNote('PROTOCOL'),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: StreamingProtocol.values
-                    .map(
-                      (p) => _PickerChip(
-                        label: p.displayLabel,
-                        selected: _protocol == p,
-                        onTap: () => _onProtocolChanged(p),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ],
             const SizedBox(height: 14),
             // Name — always.
             _LabeledField(

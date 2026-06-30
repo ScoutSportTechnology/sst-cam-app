@@ -8,7 +8,14 @@ import '../../../core/theme/tokens.dart';
 /// copy-all puts the whole buffer on the clipboard (paste into a bug report)
 /// since adb isn't always available. adb/logcat stays the primary path.
 class LogViewerPage extends StatelessWidget {
-  const LogViewerPage({super.key});
+  const LogViewerPage({super.key, this.title = 'Logs', this.filter});
+
+  /// App-bar title — distinguishes the App vs Camera-link views.
+  final String title;
+
+  /// Optional line predicate. When set, only matching lines render/export —
+  /// used for the live "Camera link" view (the BLE/WiFi comms the app captures).
+  final bool Function(String)? filter;
 
   @override
   Widget build(BuildContext context) {
@@ -16,13 +23,17 @@ class LogViewerPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(
-        title: const Text('Logs'),
+        title: Text(title),
         actions: [
           IconButton(
             tooltip: 'Copy all',
             icon: const Icon(Icons.copy_all),
             onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: log.export()));
+              final f = filter;
+              final text = f == null
+                  ? log.export()
+                  : log.lines.where(f).join('\n');
+              await Clipboard.setData(ClipboardData(text: text));
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Logs copied to clipboard')),
@@ -40,7 +51,10 @@ class LogViewerPage extends StatelessWidget {
       body: ValueListenableBuilder<int>(
         valueListenable: log.revision,
         builder: (context, _, _) {
-          final lines = log.lines;
+          final f = filter;
+          final lines = f == null
+              ? log.lines
+              : log.lines.where(f).toList(growable: false);
           if (lines.isEmpty) {
             return const Center(
               child: Text(

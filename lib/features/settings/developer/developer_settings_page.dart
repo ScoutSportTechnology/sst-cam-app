@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
 
-import 'log_viewer_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
 import '../../../core/config/dev_navigation.dart';
+import '../../../core/config/env.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -143,62 +143,38 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
             const SizedBox(height: 12),
           ],
 
-          // Diagnostics
-          const _SectionHeader('Diagnostics'),
-          WfCard(
-            padding: EdgeInsets.zero,
-            // ListTiles paint their ink/splashes on the nearest Material; the
-            // WfCard's coloured DecoratedBox would hide them (and newer Flutter
-            // asserts on it). Give the tiles their own transparent Material.
-            child: Material(
-              type: MaterialType.transparency,
-              child: Column(
-                children: [
-                  ListTile(
-                    title: const Text(
-                      'Logs',
-                      style: TextStyle(color: T.ink, fontSize: 14),
-                    ),
-                    subtitle: const Text(
-                      'In-app debugPrint capture — copy/share without adb.',
-                      style: TextStyle(color: T.ink2, fontSize: 12),
-                    ),
-                    trailing: const Icon(Icons.chevron_right, color: T.ink3),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const LogViewerPage()),
-                    ),
+          // App logs (+ camera-link logs) live in Settings → Diagnostics; the
+          // database browser stays here in Developer settings.
+          if (devNav.debugPage != null) ...[
+            const _SectionHeader('Database'),
+            WfCard(
+              padding: EdgeInsets.zero,
+              child: Material(
+                type: MaterialType.transparency,
+                child: ListTile(
+                  title: const Text(
+                    'Database browser',
+                    style: TextStyle(color: T.ink, fontSize: 14),
                   ),
-                  // Database browser + reset. Lives here (visible) rather than
-                  // behind the old long-press-About gesture. Injected via
-                  // devNavigationProvider so it stays out of prod builds.
-                  if (devNav.debugPage != null) ...[
-                    const Divider(height: 1, color: T.rule),
-                    ListTile(
-                      title: const Text(
-                        'Database browser',
-                        style: TextStyle(color: T.ink, fontSize: 14),
-                      ),
-                      subtitle: const Text(
-                        'Inspect users/teams/matches/clips; reset + reseed.',
-                        style: TextStyle(color: T.ink2, fontSize: 12),
-                      ),
-                      trailing: const Icon(Icons.chevron_right, color: T.ink3),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => devNav.debugPage!()),
-                      ),
-                    ),
-                  ],
-                ],
+                  subtitle: const Text(
+                    'Inspect users/teams/matches/clips; reset + reseed.',
+                    style: TextStyle(color: T.ink2, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => devNav.debugPage!()),
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
+          ],
 
-          // Mock/seed controls. The emulator advertising and mock preview/
-          // download endpoints only take effect on the mock backend (dev
-          // entry); on a real-backend build they are inert but kept visible
-          // for reference. The Database browser above (reset + reseed) is the
-          // data tool that works against any backend.
+          // Mock/seed controls — only meaningful on the mock backend (dev
+          // entry). On a real-backend build (stage/prod) seeding and camera
+          // emulation do nothing, so the switches stay visible but are forced
+          // OFF and disabled (see the switch value/onChanged below) instead of
+          // showing a misleading ON.
           ...[
             const _SectionHeader('Seed app data'),
             WfCard(
@@ -224,8 +200,11 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
                   ),
                   Switch(
                     key: const Key('seedDataSwitch'),
-                    value: staged.seedData,
-                    onChanged: notifier.setSeedData,
+                    // Real backend (stage/prod) → forced off + disabled.
+                    value: kAppEnv.isDevBackend && staged.seedData,
+                    onChanged: kAppEnv.isDevBackend
+                        ? notifier.setSeedData
+                        : null,
                   ),
                 ],
               ),
@@ -259,8 +238,11 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
                       ),
                       Switch(
                         key: const Key('cameraEmulationSwitch'),
-                        value: staged.cameraEmulation,
-                        onChanged: notifier.setCameraEmulation,
+                        // Real backend (stage/prod) → forced off + disabled.
+                        value: kAppEnv.isDevBackend && staged.cameraEmulation,
+                        onChanged: kAppEnv.isDevBackend
+                            ? notifier.setCameraEmulation
+                            : null,
                       ),
                     ],
                   ),

@@ -62,7 +62,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -124,6 +124,16 @@ class AppDatabase extends _$AppDatabase {
           await customStatement(
             'CREATE INDEX idx_raw_recordings_capture_group_id '
             'ON raw_recordings(capture_group_id)',
+          );
+        }
+        if (from < 5) {
+          // v4→v5: per-match streaming credential (U5). Nullable — existing
+          // matches have no credential.
+          await customStatement(
+            'ALTER TABLE team_matches ADD COLUMN rtmp_url TEXT',
+          );
+          await customStatement(
+            'ALTER TABLE team_matches ADD COLUMN stream_key TEXT',
           );
         }
       });

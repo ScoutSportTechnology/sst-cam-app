@@ -1,8 +1,8 @@
 // U7 — Settings camera-section + empty-state CTA state machine.
 //
 // Two surface areas under test:
-//   1. The connected-state camera card: 4-button grid (Reboot, Update fw,
-//      Disconnect, Diagnostics), Reboot/Update fw disabled with the
+//   1. The connected-state camera card: 4-button grid (Reboot, Upgrade,
+//      Disconnect, Diagnostics), Reboot/Upgrade disabled with the
 //      "Coming soon" tooltip, Diagnostics push, Disconnect clearing
 //      `activeCameraIdProvider`.
 //   2. The empty-state CTA state machine: with no persisted last id it
@@ -120,7 +120,7 @@ void main() {
 
   group('Camera card — connected state', () {
     testWidgets(
-      'renders 2x2 button grid with Reboot, Update fw, Disconnect, Diagnostics',
+      'renders 2x2 button grid with Reboot, Upgrade, Disconnect, Diagnostics',
       (tester) async {
         final mock = _newMock();
         addTearDown(mock.dispose);
@@ -131,7 +131,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Reboot'), findsOneWidget);
-        expect(find.text('Update fw'), findsOneWidget);
+        expect(find.text('Upgrade'), findsOneWidget);
         expect(find.text('Disconnect'), findsOneWidget);
         expect(find.text('Diagnostics'), findsOneWidget);
 
@@ -142,7 +142,7 @@ void main() {
     );
 
     testWidgets(
-      'Reboot and Update fw show "Coming soon" tooltip and are disabled',
+      'Reboot and Upgrade show "Coming soon" tooltip and are disabled',
       (tester) async {
         final mock = _newMock();
         addTearDown(mock.dispose);

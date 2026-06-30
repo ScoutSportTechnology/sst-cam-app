@@ -297,7 +297,7 @@ jobs:
       # 32-bit/x86 ABIs cuts build time and APK size. Matches release-beta.yml.
       - name: Build developer APK
         if: steps.ver.outputs.released == 'true'
-        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage --target-platform android-arm64
+        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage --dart-define=APP_VERSION=${{ steps.ver.outputs.tag }} --dart-define=APP_CHANNEL=alpha --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
 
       - name: Rename developer APK
         if: steps.ver.outputs.released == 'true'

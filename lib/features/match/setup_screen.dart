@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
+import '../../core/models/streaming.dart';
+import '../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
@@ -14,6 +16,10 @@ import '../../core/models/overlay_layout.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../settings/sport_presets/sport_presets_state.dart'
     show sportPresetsForSportProvider, SportPreset;
+import '../settings/streaming/streaming_destination_form_sheet.dart'
+    show showStreamingDestinationFormSheet;
+import '../settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
 import '../settings/users/users_state.dart' show activeUserProvider;
 import 'match_state.dart' show UpcomingMatch;
 import 'session/session_state.dart' show liveMatchProvider;
@@ -28,16 +34,16 @@ enum _Quality {
   final String label;
 }
 
-enum _StreamMethod {
-  youtube('YouTube Live', 'NR U14 channel · 1080p'),
-  instagram('Instagram Live', 'Connected account · 720p'),
-  local('Local network', 'mDNS · for parents on WiFi'),
-  custom('Custom RTMP', '');
-
-  const _StreamMethod(this.label, this.defaultSub);
-  final String label;
-  final String defaultSub;
-}
+/// A resolved per-match streaming selection. [wireUrl] is the full ingest URL
+/// sent to the camera (base + key). [storeUrl]/[storeKey] persist on the match
+/// row (a saved destination keeps base + key split; a one-off keeps the full URL
+/// with a null key).
+typedef _StreamSelection = ({
+  String wireUrl,
+  String storeUrl,
+  String? storeKey,
+  String label,
+});
 
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({
@@ -62,9 +68,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   int _customPeriodSeconds = 35 * 60;
   bool _initialized = false;
 
-  // Streaming destinations.
-  final Set<_StreamMethod> _streamMethods = {};
-  String _customRtmpUrl = '';
+  // Streaming destination for this match: a saved persistent destination or a
+  // per-match one-off. Null = record without streaming.
+  _StreamSelection? _stream;
 
   // Session push state (U9).
   bool _pushing = false;
@@ -191,33 +197,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const WfNote('DESTINATIONS'),
+                  const WfNote('DESTINATION'),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final m in _StreamMethod.values)
-                        GestureDetector(
-                          onTap: () => _toggleStreamMethod(m),
-                          child: WfChip(
-                            label:
-                                m == _StreamMethod.custom &&
-                                    _customRtmpUrl.isNotEmpty
-                                ? 'Custom RTMP · configured'
-                                : m.label,
-                            active: _streamMethods.contains(m),
-                          ),
-                        ),
-                    ],
+                  _buildStreamChips(),
+                  const SizedBox(height: 8),
+                  WfNote(
+                    _stream == null
+                        ? 'Recording only — no live stream. Pick a saved '
+                              'destination or add a one-off for this match.'
+                        : 'Streaming this match to ${_stream!.label}.',
                   ),
-                  if (_streamMethods.isEmpty) ...[
-                    const SizedBox(height: 8),
-                    const WfNote(
-                      'Pick one or more destinations to stream to. You can '
-                      'still record without streaming.',
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -311,11 +300,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     _matchUuid ??= widget.match.match.id;
     final matchUuid = _matchUuid!;
 
-    final rtmpUrl =
-        _streamMethods.contains(_StreamMethod.custom) &&
-            _customRtmpUrl.isNotEmpty
-        ? _customRtmpUrl
-        : null;
+    // The selected destination's full ingest URL (saved or one-off), or null to
+    // record without streaming. Fixes the old gap where saved destinations were
+    // ignored and only a raw custom URL ever reached the camera.
+    final rtmpUrl = _stream?.wireUrl;
 
     final opponentName = widget.match.match.opponent.startsWith('vs ')
         ? widget.match.match.opponent.substring(3)
@@ -364,6 +352,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       await ble.pushSessionConfig(deviceId, config);
       if (!mounted) return;
 
+      // Persist the per-match streaming credential (scoped to this match only;
+      // mid-match start reuses it). Clears the columns when no destination set.
+      await ref
+          .read(teamsDaoProvider)
+          .setMatchStreamingCredential(
+            matchUuid,
+            rtmpUrl: _stream?.storeUrl,
+            streamKey: _stream?.storeKey,
+          );
+
       // Step 2: build and push overlay layout.
       final opponent = widget.match.match.opponent;
       final awayName = opponent.startsWith('vs ')
@@ -397,28 +395,78 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
   }
 
-  Future<void> _toggleStreamMethod(_StreamMethod method) async {
-    final isOn = _streamMethods.contains(method);
-    if (method == _StreamMethod.custom) {
-      final url = await _showCustomRtmpModal(context, initial: _customRtmpUrl);
-      if (url == null) return;
-      setState(() {
-        if (url.isEmpty) {
-          _streamMethods.remove(_StreamMethod.custom);
-          _customRtmpUrl = '';
-        } else {
-          _streamMethods.add(_StreamMethod.custom);
-          _customRtmpUrl = url;
-        }
-      });
+  /// Saved persistent RTMP destinations (custom-RTMP entries from Settings) plus
+  /// a one-off chip. Single-select — the camera streams one ingest per match.
+  Widget _buildStreamChips() {
+    final dests =
+        ref.watch(streamingDestinationsControllerProvider).valueOrNull ??
+        const <StreamingDestination>[];
+    final rtmpDests = dests
+        .where((d) => d.config is RtmpConfig)
+        .toList(growable: false);
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final d in rtmpDests)
+          GestureDetector(
+            onTap: () => _selectSaved(d),
+            child: WfChip(label: d.name, active: _stream?.label == d.name),
+          ),
+        GestureDetector(
+          onTap: _addOneOff,
+          child: WfChip(
+            label: _stream?.label == 'One-off'
+                ? 'One-off · configured'
+                : 'One-off RTMP',
+            active: _stream?.label == 'One-off',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _selectSaved(StreamingDestination d) async {
+    final cfg = d.config;
+    if (cfg is! RtmpConfig) return;
+    if (_stream?.label == d.name) {
+      setState(() => _stream = null); // tapping the active one toggles it off
       return;
     }
+    // Ask for the stream key — it's per-match for platforms like YouTube. Prefill
+    // with the saved key (reusable platforms like Twitch can just confirm it).
+    final key = await _promptStreamKey(
+      context,
+      destName: d.name,
+      baseUrl: cfg.url,
+      initialKey: cfg.streamKey,
+    );
+    if (key == null) return; // cancelled
     setState(() {
-      if (isOn) {
-        _streamMethods.remove(method);
-      } else {
-        _streamMethods.add(method);
-      }
+      _stream = (
+        wireUrl: joinRtmp(cfg.url, key),
+        storeUrl: cfg.url,
+        storeKey: key,
+        label: d.name,
+      );
+    });
+  }
+
+  Future<void> _addOneOff() async {
+    // Reuse the streaming-destination form (URL + key fields, RTMP/RTMPS/RTSP)
+    // for a per-match one-off — same UX as Settings, just not saved globally.
+    final draft = await showStreamingDestinationFormSheet(context);
+    if (draft == null) return;
+    final w = resolveWireStream(draft.config);
+    if (w == null) return;
+    setState(() {
+      _stream = (
+        wireUrl: w.wireUrl,
+        storeUrl: w.storeUrl,
+        storeKey: w.storeKey,
+        label: 'One-off',
+      );
     });
   }
 
@@ -546,131 +594,96 @@ class _DropdownRow<V> extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// CUSTOM RTMP MODAL (top-level helper, setup only)
+// STREAM KEY PROMPT — shown when a saved destination is picked. The stream key
+// is per-match for platforms like YouTube, so it's entered/confirmed at setup
+// even for a saved base URL. Returns the key, or null on cancel.
 // ---------------------------------------------------------------------------
 
-Future<String?> _showCustomRtmpModal(
+Future<String?> _promptStreamKey(
   BuildContext context, {
-  required String initial,
+  required String destName,
+  required String baseUrl,
+  required String initialKey,
 }) {
-  final controller = TextEditingController(text: initial);
-  String? error;
+  final controller = TextEditingController(text: initialKey);
   return showModalBottomSheet<String>(
     context: context,
     backgroundColor: T.bg,
     isScrollControlled: true,
-    builder: (ctx) {
-      return StatefulBuilder(
-        builder: (ctx, setSt) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+    builder: (ctx) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                destName,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: T.ink,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$baseUrl — enter the stream key for this match.',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: T.ink2,
+                  height: 1.4,
+                  fontFamily: T.mono,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                decoration: BoxDecoration(
+                  color: T.fillSoft,
+                  border: Border.all(color: T.hair),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: TextField(
+                  controller: controller,
+                  autofocus: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: const InputDecoration(
+                    hintText: 'stream key',
+                    hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  style: const TextStyle(color: T.ink, fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
                 children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: T.fillMid,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                  Expanded(
+                    child: WfButton(
+                      label: 'Cancel',
+                      onPressed: () => Navigator.of(ctx).pop(),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Custom RTMP',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      color: T.ink,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: WfButton(
+                      label: 'Use destination',
+                      variant: WfButtonVariant.primary,
+                      onPressed: () =>
+                          Navigator.of(ctx).pop(controller.text.trim()),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Full RTMP URL including stream key. Stored on the camera, '
-                    'never logged by the app.',
-                    style: TextStyle(fontSize: 11, color: T.ink2, height: 1.4),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: T.fillSoft,
-                      border: Border.all(color: T.hair),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: TextField(
-                      controller: controller,
-                      autofocus: true,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        hintText: 'rtmp://stream.example.com/app/key',
-                        hintStyle: TextStyle(color: T.ink3, fontSize: 13),
-                        border: InputBorder.none,
-                        isCollapsed: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      style: const TextStyle(color: T.ink, fontSize: 13),
-                    ),
-                  ),
-                  if (error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      error!,
-                      style: const TextStyle(color: T.danger, fontSize: 12),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      if (initial.isNotEmpty)
-                        Expanded(
-                          child: WfButton(
-                            label: 'Remove',
-                            variant: WfButtonVariant.danger,
-                            onPressed: () => Navigator.of(ctx).pop(''),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: WfButton(
-                            label: 'Cancel',
-                            onPressed: () => Navigator.of(ctx).pop(),
-                          ),
-                        ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: WfButton(
-                          label: 'Save',
-                          variant: WfButtonVariant.primary,
-                          onPressed: () {
-                            final url = controller.text.trim();
-                            if (!url.startsWith('rtmp://') &&
-                                !url.startsWith('rtmps://')) {
-                              setSt(
-                                () => error =
-                                    'URL must start with rtmp:// or rtmps://',
-                              );
-                              return;
-                            }
-                            Navigator.of(ctx).pop(url);
-                          },
-                        ),
-                      ),
-                    ],
                   ),
                 ],
               ),
-            ),
+            ],
           ),
         ),
-      );
-    },
+      ),
+    ),
   );
 }
 

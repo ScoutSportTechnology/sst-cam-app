@@ -304,7 +304,7 @@ jobs:
       # Stable inherits this (it promotes these beta bytes). Re-add ABIs here if a
       # 32-bit / x86 target is ever needed.
       - name: Build ${{ matrix.kind }} APK
-        run: flutter build apk --release --flavor ${{ matrix.flavor }} -t lib/main_prod.dart --dart-define=APP_ENV=${{ matrix.app_env }} --target-platform android-arm64
+        run: flutter build apk --release --flavor ${{ matrix.flavor }} -t lib/main_prod.dart --dart-define=APP_ENV=${{ matrix.app_env }} --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} --dart-define=APP_CHANNEL=beta --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
 
       - name: Stage APK artifact
         env:
