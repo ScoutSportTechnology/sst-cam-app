@@ -213,7 +213,10 @@ class _HeroCameraCard extends ConsumerWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: previewOn
-                            ? PreviewLayoutToggle(deviceId: deviceId, full: true)
+                            ? PreviewLayoutToggle(
+                                deviceId: deviceId,
+                                full: true,
+                              )
                             : const SizedBox.shrink(),
                       ),
                     ],

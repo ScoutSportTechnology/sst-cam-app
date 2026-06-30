@@ -12,6 +12,16 @@
 
 set shell := ["bash", "-uc"]
 
+# --- version defines (U4) -------------------------------------------------
+# In-app version display is git-derived, never a hardcoded literal. APP_VERSION
+# is `git describe`; APP_CHANNEL maps the branch onto the maturity ladder
+# (development→alpha, release/*→beta, main→stable, else dev); PROTO_VERSION is
+# the proto submodule's tag. CI overrides these with resolve-version.sh values.
+app_version := `git describe --tags --always --dirty 2>/dev/null || echo dev`
+app_channel := `b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo dev); case "$b" in development) echo alpha;; release/*) echo beta;; main) echo stable;; *) echo dev;; esac`
+proto_version := `git -C proto describe --tags --always 2>/dev/null || echo dev`
+version_defines := "--dart-define=APP_VERSION=" + app_version + " --dart-define=APP_CHANNEL=" + app_channel + " --dart-define=PROTO_VERSION=" + proto_version
+
 # List recipes.
 default:
     @just --list
@@ -60,19 +70,19 @@ ci: format-check analyze test
 
 # Build a debug APK (mock backend, lib/main.dart) on the dev flavor.
 build-android: gen-icons
-    @just _run "flutter build apk --debug --flavor dev"
+    @just _run "flutter build apk --debug --flavor dev {{version_defines}}"
 
 # Build the dev variant APK (real backend + tooling): dev flavor + APP_ENV=stage.
 build-android-dev: gen-icons
-    @just _run "flutter build apk --release --flavor dev --target=lib/main_prod.dart --dart-define=APP_ENV=stage"
+    @just _run "flutter build apk --release --flavor dev --target=lib/main_prod.dart --dart-define=APP_ENV=stage {{version_defines}}"
 
 # Build the prod variant APK (real backend, tooling compiled out): prod flavor + APP_ENV=prod.
 build-android-prod: gen-icons
-    @just _run "flutter build apk --release --flavor prod --target=lib/main_prod.dart --dart-define=APP_ENV=prod"
+    @just _run "flutter build apk --release --flavor prod --target=lib/main_prod.dart --dart-define=APP_ENV=prod {{version_defines}}"
 
 # Run the app on a connected device (mock backend, dev flavor).
 run: gen-icons
-    @just _run "flutter run --flavor dev"
+    @just _run "flutter run --flavor dev {{version_defines}}"
 
 # --- phone iteration loop (real backend, hot reload) ----------------------
 # adb runs on the HOST: the container's adb crashes during the Android-11+ TLS

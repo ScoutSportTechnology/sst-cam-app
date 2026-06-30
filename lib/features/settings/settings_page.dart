@@ -11,6 +11,7 @@ import 'users/users_state.dart'
 import '../../core/ble/ble_providers.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/version/version_info.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import 'data/data_settings_page.dart';
@@ -166,14 +167,7 @@ class SettingsPage extends ConsumerWidget {
                 const Divider(height: 1, color: T.rule),
                 // The DB debug browser used to hide behind a long-press here;
                 // it now has a visible row in Settings → Developer.
-                const _RowItem(
-                  leading: Icon(Icons.info_outline),
-                  label: 'About',
-                  trailing: Text(
-                    '0.3.2',
-                    style: TextStyle(color: T.ink2, fontSize: 12),
-                  ),
-                ),
+                const _AboutRow(),
               ],
             ),
           ),
@@ -213,10 +207,32 @@ class _StreamingRow extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
+// About row — real app version (git-derived define, package metadata fallback)
+// plus channel, replacing the old hardcoded literal.
+// ---------------------------------------------------------------------------
+
+class _AboutRow extends ConsumerWidget {
+  const _AboutRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final version = ref.watch(appVersionProvider).valueOrNull ?? '—';
+    return _RowItem(
+      leading: const Icon(Icons.info_outline),
+      label: 'About',
+      trailing: Text(
+        version,
+        style: const TextStyle(color: T.ink2, fontSize: 12),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Camera card. Reboot and Update fw remain visual placeholders until
 // firmware lands; they render disabled with a tooltip explaining that.
-// fw / proto values are placeholder strings — pipe them from the
-// SstDevice / telemetry stream when that data is reachable here.
+// fw / proto values are now real: firmware from the device's firmwareVersion,
+// proto from the built-against repo tag + the wire protocol_version.
 // ---------------------------------------------------------------------------
 
 class _CameraCard extends ConsumerWidget {
@@ -226,6 +242,20 @@ class _CameraCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Real fw + proto versions: firmware from the device's reported
+    // firmwareVersion; proto = the built-against repo tag + the wire
+    // protocol_version the device advertises. No more hardcoded strings.
+    final device = ref
+        .watch(discoveredDevicesProvider)
+        .valueOrNull
+        ?.where((d) => d.id == deviceId)
+        .firstOrNull;
+    final fwRaw = device?.firmwareVersion ?? '';
+    final fw = fwRaw.isEmpty ? '—' : fwRaw;
+    final protoLine = protoVersionDisplay(
+      wireProtocolVersion: device?.protocolVersion,
+    );
+
     return WfCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -247,9 +277,9 @@ class _CameraCard extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    const Text(
-                      'fw 0.3.2 · proto v0.3',
-                      style: TextStyle(
+                    Text(
+                      'fw $fw · $protoLine',
+                      style: const TextStyle(
                         fontFamily: T.mono,
                         fontSize: 11,
                         color: T.ink2,

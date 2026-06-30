@@ -8,21 +8,19 @@ import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/theme/tokens.dart';
 import 'package:sst_cam_app/features/camera/main_page.dart';
 
-DeviceTelemetry _telemetry({
-  bool recording = false,
-  bool streaming = false,
-}) => DeviceTelemetry(
-  storageFreeBytes: 1000,
-  storageTotalBytes: 2000,
-  wifiState: WifiState.connected,
-  internetReachable: false,
-  tempCelsius: 40,
-  ramUsedPct: 10,
-  cpuUsedPct: 10,
-  uptimeSeconds: 100,
-  isRecording: recording,
-  isStreaming: streaming,
-);
+DeviceTelemetry _telemetry({bool recording = false, bool streaming = false}) =>
+    DeviceTelemetry(
+      storageFreeBytes: 1000,
+      storageTotalBytes: 2000,
+      wifiState: WifiState.connected,
+      internetReachable: false,
+      tempCelsius: 40,
+      ramUsedPct: 10,
+      cpuUsedPct: 10,
+      uptimeSeconds: 100,
+      isRecording: recording,
+      isStreaming: streaming,
+    );
 
 void main() {
   test('AE1: connected + idle telemetry → Standby (not LIVE)', () {
