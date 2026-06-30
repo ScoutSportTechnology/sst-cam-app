@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ble/ble_providers.dart';
-import '../../core/config/dev_navigation.dart';
 import '../../core/models/command.dart' show DeviceInfoResponse;
 import '../../core/models/telemetry.dart';
 import '../../core/theme/tokens.dart';
@@ -215,7 +214,6 @@ class _AppDiagnostics extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final version = ref.watch(appVersionProvider).valueOrNull ?? '—';
-    final devNav = ref.watch(devNavigationProvider);
 
     return WfCard(
       padding: EdgeInsets.zero,
@@ -277,25 +275,6 @@ class _AppDiagnostics extends ConsumerWidget {
                 ),
               ),
             ),
-            // DB browser — dev builds only, injected via devNavigationProvider so
-            // it stays out of prod (same gate as developer settings).
-            if (devNav.debugPage != null) ...[
-              const Divider(height: 1, color: T.rule),
-              ListTile(
-                title: const Text(
-                  'Database browser',
-                  style: TextStyle(color: T.ink, fontSize: 14),
-                ),
-                subtitle: const Text(
-                  'Inspect users/teams/matches/clips; reset + reseed.',
-                  style: TextStyle(color: T.ink2, fontSize: 12),
-                ),
-                trailing: const Icon(Icons.chevron_right, color: T.ink3),
-                onTap: () => Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => devNav.debugPage!())),
-              ),
-            ],
           ],
         ),
       ),

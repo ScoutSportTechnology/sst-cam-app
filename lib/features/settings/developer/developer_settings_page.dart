@@ -4,6 +4,7 @@ import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
+import '../../../core/config/dev_navigation.dart';
 import '../../../core/config/env.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
@@ -121,6 +122,7 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
     final state = ref.watch(developerSettingsProvider);
     final notifier = ref.read(developerSettingsProvider.notifier);
     final staged = state.stagedConfig;
+    final devNav = ref.watch(devNavigationProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -141,14 +143,39 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
             const SizedBox(height: 12),
           ],
 
-          // Logs + Database browser moved to Settings → (camera) Diagnostics so
-          // app diagnostics sit alongside the camera's. See diagnostics_page.dart.
+          // App logs (+ camera-link logs) live in Settings → Diagnostics; the
+          // database browser stays here in Developer settings.
+          if (devNav.debugPage != null) ...[
+            const _SectionHeader('Database'),
+            WfCard(
+              padding: EdgeInsets.zero,
+              child: Material(
+                type: MaterialType.transparency,
+                child: ListTile(
+                  title: const Text(
+                    'Database browser',
+                    style: TextStyle(color: T.ink, fontSize: 14),
+                  ),
+                  subtitle: const Text(
+                    'Inspect users/teams/matches/clips; reset + reseed.',
+                    style: TextStyle(color: T.ink2, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => devNav.debugPage!()),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // Mock/seed controls — only meaningful on the mock backend (dev
           // entry). On a real-backend build (stage/prod) seeding and camera
-          // emulation do nothing, so the switches are hidden rather than shown
-          // misleadingly ON. Gated on kAppEnv.isDevBackend.
-          if (kAppEnv.isDevBackend) ...[
+          // emulation do nothing, so the switches stay visible but are forced
+          // OFF and disabled (see the switch value/onChanged below) instead of
+          // showing a misleading ON.
+          ...[
             const _SectionHeader('Seed app data'),
             WfCard(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -173,8 +200,11 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
                   ),
                   Switch(
                     key: const Key('seedDataSwitch'),
-                    value: staged.seedData,
-                    onChanged: notifier.setSeedData,
+                    // Real backend (stage/prod) → forced off + disabled.
+                    value: kAppEnv.isDevBackend && staged.seedData,
+                    onChanged: kAppEnv.isDevBackend
+                        ? notifier.setSeedData
+                        : null,
                   ),
                 ],
               ),
@@ -208,8 +238,11 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
                       ),
                       Switch(
                         key: const Key('cameraEmulationSwitch'),
-                        value: staged.cameraEmulation,
-                        onChanged: notifier.setCameraEmulation,
+                        // Real backend (stage/prod) → forced off + disabled.
+                        value: kAppEnv.isDevBackend && staged.cameraEmulation,
+                        onChanged: kAppEnv.isDevBackend
+                            ? notifier.setCameraEmulation
+                            : null,
                       ),
                     ],
                   ),
