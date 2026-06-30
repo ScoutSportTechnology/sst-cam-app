@@ -264,6 +264,10 @@ class BleProtocol {
       correlationId: correlationId,
       getDeviceInfo: proto.GetDeviceInfoCommand(),
     ),
+    RebootCommand() => proto.Command(
+      correlationId: correlationId,
+      reboot: proto.RebootCommand(),
+    ),
     GetTelemetryCommand() => proto.Command(
       correlationId: correlationId,
       getTelemetry: proto.GetTelemetryCommand(),

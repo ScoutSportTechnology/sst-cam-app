@@ -668,6 +668,10 @@ class MockBleService implements BleService {
       correlationId: correlationId,
       getDeviceInfo: proto.GetDeviceInfoCommand(),
     ),
+    RebootCommand() => proto.Command(
+      correlationId: correlationId,
+      reboot: proto.RebootCommand(),
+    ),
     GetTelemetryCommand() => proto.Command(
       correlationId: correlationId,
       getTelemetry: proto.GetTelemetryCommand(),
@@ -847,6 +851,11 @@ class MockBleService implements BleService {
           // session as a version skew (see kAppProtocolVersion).
           protocolVersion: kAppProtocolVersion,
         ),
+      ),
+      // Mock acks the reboot (obviously without rebooting anything).
+      RebootCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
       ),
       GetTelemetryCommand() => proto.CommandResponse(
         correlationId: correlationId,
@@ -1037,6 +1046,7 @@ class MockBleService implements BleService {
       GetDeviceInfoCommand() => BleCommandResponse.ok(
         DeviceInfoResponse(deviceId: resp.deviceInfo.deviceId) as T?,
       ),
+      RebootCommand() => BleCommandResponse.ok(null as T?),
       GetTelemetryCommand() => BleCommandResponse.ok(
         _dartTelemetry(resp.telemetry) as T?,
       ),

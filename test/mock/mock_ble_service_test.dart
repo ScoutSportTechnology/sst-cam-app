@@ -509,6 +509,11 @@ void main() {
       expect(svc.lastMatchControlAction, BleMatchControlAction.kickoff);
     });
 
+    test('RebootCommand (U11) round-trips and returns ok', () async {
+      final resp = await svc.sendCommand<void>('SST-CAM-001', RebootCommand());
+      expect(resp.isOk, isTrue);
+    });
+
     test('periodEnd records correct action', () async {
       await svc.sendCommand<void>(
         'SST-CAM-001',

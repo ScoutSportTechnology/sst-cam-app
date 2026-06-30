@@ -142,7 +142,7 @@ void main() {
     );
 
     testWidgets(
-      'Reboot and Upgrade show "Coming soon" tooltip and are disabled',
+      'Reboot opens a confirm dialog; Upgrade opens the install.sh info dialog',
       (tester) async {
         final mock = _newMock();
         addTearDown(mock.dispose);
@@ -152,17 +152,27 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Both placeholders are wrapped in a Tooltip with the placeholder
-        // copy. The Settings page only renders that exact tooltip on the
-        // two firmware-pending buttons.
-        final tooltips = tester.widgetList<Tooltip>(
+        // Both are now wired (no "Coming soon" placeholder tooltip).
+        expect(
           find.byWidgetPredicate(
             (w) =>
                 w is Tooltip &&
                 w.message == 'Coming soon — firmware integration',
           ),
+          findsNothing,
         );
-        expect(tooltips.length, 2);
+
+        // Reboot → confirmation dialog (does not send until confirmed).
+        await tester.tap(find.text('Reboot'));
+        await tester.pumpAndSettle();
+        expect(find.text('Reboot camera?'), findsOneWidget);
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        // Upgrade → on-device install.sh info dialog.
+        await tester.tap(find.text('Upgrade'));
+        await tester.pumpAndSettle();
+        expect(find.text('Firmware upgrade'), findsOneWidget);
       },
     );
 
