@@ -85,7 +85,12 @@ class _HeroCameraCard extends ConsumerWidget {
     final connected = deviceId != null && isLive;
     final name = device?.name ?? 'No camera';
     final id = deviceId ?? '—';
-    final fwRaw = device?.firmwareVersion ?? '';
+    // Real firmware from the connected camera's DeviceInfo — the scan-time
+    // SstDevice carries an empty firmwareVersion (matches the settings card).
+    final info = deviceId == null
+        ? null
+        : ref.watch(connectedDeviceInfoProvider(deviceId!)).valueOrNull;
+    final fwRaw = info?.firmwareVersion ?? '';
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(deviceId));

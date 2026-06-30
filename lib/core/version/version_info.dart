@@ -37,13 +37,6 @@ String assembleAppVersion({
       : '$packageVersion+$packageBuild';
 }
 
-/// The proto version display: repo SemVer tag plus, when a device is connected,
-/// the wire `protocol_version` integer it reports (two distinct axes).
-String protoVersionDisplay({int? wireProtocolVersion}) =>
-    wireProtocolVersion == null
-    ? 'proto $protoRepoVersion'
-    : 'proto $protoRepoVersion · wire v$wireProtocolVersion';
-
 /// App version string, resolved from defines + package metadata.
 final appVersionProvider = FutureProvider<String>((ref) async {
   final info = await PackageInfo.fromPlatform();

@@ -10,8 +10,8 @@ import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 
 /// Developer-only screen for inspecting the local Drift database.
-/// Entry point: long-press the About row in Settings (wired via
-/// [devNavigationProvider] in main.dart). Provides a table browser and Reset.
+/// Entry point: Settings → Developer → Database browser (wired via
+/// [devNavigationProvider]; dev/stage builds only). Table browser + Reset.
 class DebugPage extends ConsumerStatefulWidget {
   const DebugPage({super.key});
 

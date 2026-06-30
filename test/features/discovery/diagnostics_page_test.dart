@@ -51,12 +51,9 @@ Future<void> _pump(
 }
 
 void main() {
-  test('placeholder removed — no fabricated MTU/command-log symbols', () {
-    // Guard against the old mock page creeping back.
-    expect(true, isTrue);
-  });
-
-  testWidgets('renders real telemetry values', (tester) async {
+  testWidgets('renders real telemetry; no fabricated mock-page symbols', (
+    tester,
+  ) async {
     await _pump(
       tester,
       overrides: [
@@ -71,6 +68,9 @@ void main() {
     expect(find.text('1h 2m'), findsOneWidget);
     expect(find.text('SST-AP'), findsOneWidget);
     expect(find.text('Online'), findsOneWidget);
+    // The old all-mock page is gone — no fabricated MTU / command-log content.
+    expect(find.text('MTU'), findsNothing);
+    expect(find.text('Recent commands'), findsNothing);
   });
 
   testWidgets('battery + RSSI unavailable render "—", never zero', (

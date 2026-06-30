@@ -45,11 +45,6 @@ typedef _StreamSelection = ({
   String label,
 });
 
-String _joinRtmp(String base, String key) {
-  if (key.isEmpty) return base;
-  return base.endsWith('/') ? '$base$key' : '$base/$key';
-}
-
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({
     super.key,
@@ -450,7 +445,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     if (key == null) return; // cancelled
     setState(() {
       _stream = (
-        wireUrl: _joinRtmp(cfg.url, key),
+        wireUrl: joinRtmp(cfg.url, key),
         storeUrl: cfg.url,
         storeKey: key,
         label: d.name,
@@ -463,32 +458,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     // for a per-match one-off — same UX as Settings, just not saved globally.
     final draft = await showStreamingDestinationFormSheet(context);
     if (draft == null) return;
-    final sel = _draftToSelection(draft);
-    if (sel == null) return;
-    setState(() => _stream = sel);
-  }
-
-  /// Resolve a form draft into a per-match selection: RTMP combines URL + key
-  /// into the ingest URL; RTSP folds username/password into the rtsp:// URL.
-  _StreamSelection? _draftToSelection(StreamingDestinationDraft d) {
-    final cfg = d.config;
-    if (cfg is RtmpConfig) {
-      return (
-        wireUrl: _joinRtmp(cfg.url, cfg.streamKey),
-        storeUrl: cfg.url,
-        storeKey: cfg.streamKey,
+    final w = resolveWireStream(draft.config);
+    if (w == null) return;
+    setState(() {
+      _stream = (
+        wireUrl: w.wireUrl,
+        storeUrl: w.storeUrl,
+        storeKey: w.storeKey,
         label: 'One-off',
       );
-    }
-    if (cfg is RtspConfig) {
-      final u = cfg.username;
-      final creds = (u != null && u.isNotEmpty)
-          ? '$u:${cfg.password ?? ''}@'
-          : '';
-      final wire = cfg.url.replaceFirst('://', '://$creds');
-      return (wireUrl: wire, storeUrl: wire, storeKey: null, label: 'One-off');
-    }
-    return null;
+    });
   }
 
   Future<void> _editCustom(BuildContext context) async {

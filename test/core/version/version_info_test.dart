@@ -36,19 +36,6 @@ void main() {
     });
   });
 
-  group('protoVersionDisplay', () {
-    test('disconnected: repo tag only', () {
-      expect(protoVersionDisplay(), 'proto dev');
-    });
-
-    test('connected: repo tag + wire protocol_version', () {
-      expect(
-        protoVersionDisplay(wireProtocolVersion: 2),
-        'proto dev · wire v2',
-      );
-    });
-  });
-
   test(
     'appVersionProvider resolves from package metadata when no define set',
     () {

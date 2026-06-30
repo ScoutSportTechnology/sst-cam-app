@@ -21,8 +21,7 @@ import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart'
     show activeCameraIdProvider, activeTabProvider, AppTab;
-import '../../../core/models/streaming.dart'
-    show RtmpConfig, RtspConfig, StreamingDestinationDraft;
+import '../../../core/models/streaming.dart' show resolveWireStream, joinRtmp;
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../settings/streaming/streaming_destination_form_sheet.dart'
     show showStreamingDestinationFormSheet;
@@ -251,42 +250,62 @@ class SessionScreen extends ConsumerWidget {
 
     final matchId = ref.read(liveMatchProvider.notifier).matchId;
     String? wireUrl;
-    if (matchId != null) {
-      final m = await ref.read(teamsDaoProvider).getMatchById(matchId);
-      final url = m?.rtmpUrl;
-      if (url != null && url.isNotEmpty) {
-        final key = m!.streamKey;
-        wireUrl = (key == null || key.isEmpty) ? url : _joinRtmp(url, key);
-      }
-    }
-
-    if (wireUrl == null) {
-      if (!context.mounted) return;
-      // Same URL+key (and RTSP) form as setup — entered fresh for this match.
-      final draft = await showStreamingDestinationFormSheet(context);
-      if (draft == null) return; // cancelled — start nothing
-      final resolved = _draftToWire(draft);
-      if (resolved == null) return;
+    try {
       if (matchId != null) {
-        await ref
-            .read(teamsDaoProvider)
-            .setMatchStreamingCredential(
-              matchId,
-              rtmpUrl: resolved.storeUrl,
-              streamKey: resolved.storeKey,
-            );
+        final m = await ref.read(teamsDaoProvider).getMatchById(matchId);
+        final url = m?.rtmpUrl;
+        if (url != null && url.isNotEmpty) {
+          final key = m!.streamKey;
+          wireUrl = (key == null || key.isEmpty) ? url : joinRtmp(url, key);
+        }
       }
-      wireUrl = resolved.wireUrl;
+
+      if (wireUrl == null) {
+        if (!context.mounted) return;
+        // Same URL+key (and RTSP) form as setup — entered fresh for this match.
+        final draft = await showStreamingDestinationFormSheet(context);
+        if (draft == null) return; // cancelled — start nothing
+        final resolved = resolveWireStream(draft.config);
+        if (resolved == null) return;
+        if (matchId != null) {
+          await ref
+              .read(teamsDaoProvider)
+              .setMatchStreamingCredential(
+                matchId,
+                rtmpUrl: resolved.storeUrl,
+                streamKey: resolved.storeKey,
+              );
+        }
+        wireUrl = resolved.wireUrl;
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start streaming.')),
+        );
+      }
+      return;
     }
 
-    _sendIfConnected(
+    final sent = _sendIfConnected(
       ref,
       StreamingControlCommand(
         action: StreamingControlAction.start,
         rtmpUrl: wireUrl,
       ),
     );
-    ctl.setStreaming(true);
+    // Only reflect streaming in the UI when the start actually dispatched — a
+    // mid-await disconnect would otherwise show "streaming" while the camera
+    // never received the command.
+    if (sent) {
+      ctl.setStreaming(true);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera disconnected — streaming not started.'),
+        ),
+      );
+    }
   }
 
   Future<void> _kickoff(
@@ -1414,12 +1433,17 @@ extension on Border {
 // BLE HELPER — fire-and-forget command when a camera is connected
 // ---------------------------------------------------------------------------
 
-void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
+/// Sends [cmd] only when a camera is connected. Returns true when the command
+/// was dispatched, false when skipped (no device / not connected) — callers that
+/// mutate UI state on the back of a send (e.g. streaming on/off) gate on this so
+/// app and camera don't diverge.
+bool _sendIfConnected(WidgetRef ref, BleCommand cmd) {
   final id = ref.read(activeCameraIdProvider);
-  if (id == null) return;
+  if (id == null) return false;
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
-  if (connState != CameraConnectionState.connected) return;
+  if (connState != CameraConnectionState.connected) return false;
   unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
+  return true;
 }
 
 /// Persist the just-ended match into the Library: flips its team_match row to
@@ -1445,34 +1469,4 @@ void _finalizeMatchToLibrary(WidgetRef ref) {
           debugPrint('[finalize] ERROR $e');
         }),
   );
-}
-
-String _joinRtmp(String base, String key) {
-  if (key.isEmpty) return base;
-  return base.endsWith('/') ? '$base$key' : '$base/$key';
-}
-
-/// A resolved mid-match stream selection from a form draft.
-typedef _WireStream = ({String wireUrl, String storeUrl, String? storeKey});
-
-/// Resolve a streaming-destination draft into the wire URL + the values to
-/// persist on the match. RTMP combines URL + key; RTSP folds creds into the URL.
-_WireStream? _draftToWire(StreamingDestinationDraft d) {
-  final cfg = d.config;
-  if (cfg is RtmpConfig) {
-    return (
-      wireUrl: _joinRtmp(cfg.url, cfg.streamKey),
-      storeUrl: cfg.url,
-      storeKey: cfg.streamKey,
-    );
-  }
-  if (cfg is RtspConfig) {
-    final u = cfg.username;
-    final creds = (u != null && u.isNotEmpty)
-        ? '$u:${cfg.password ?? ''}@'
-        : '';
-    final wire = cfg.url.replaceFirst('://', '://$creds');
-    return (wireUrl: wire, storeUrl: wire, storeKey: null);
-  }
-  return null;
 }
