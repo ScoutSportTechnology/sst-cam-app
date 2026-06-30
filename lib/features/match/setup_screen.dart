@@ -430,20 +430,29 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     );
   }
 
-  void _selectSaved(StreamingDestination d) {
+  Future<void> _selectSaved(StreamingDestination d) async {
     final cfg = d.config;
     if (cfg is! RtmpConfig) return;
+    if (_stream?.label == d.name) {
+      setState(() => _stream = null); // tapping the active one toggles it off
+      return;
+    }
+    // Ask for the stream key — it's per-match for platforms like YouTube. Prefill
+    // with the saved key (reusable platforms like Twitch can just confirm it).
+    final key = await _promptStreamKey(
+      context,
+      destName: d.name,
+      baseUrl: cfg.url,
+      initialKey: cfg.streamKey,
+    );
+    if (key == null) return; // cancelled
     setState(() {
-      if (_stream?.label == d.name) {
-        _stream = null; // toggle off
-      } else {
-        _stream = (
-          wireUrl: _joinRtmp(cfg.url, cfg.streamKey),
-          storeUrl: cfg.url,
-          storeKey: cfg.streamKey,
-          label: d.name,
-        );
-      }
+      _stream = (
+        wireUrl: _joinRtmp(cfg.url, key),
+        storeUrl: cfg.url,
+        storeKey: key,
+        label: d.name,
+      );
     });
   }
 
@@ -586,6 +595,100 @@ class _DropdownRow<V> extends StatelessWidget {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// STREAM KEY PROMPT — shown when a saved destination is picked. The stream key
+// is per-match for platforms like YouTube, so it's entered/confirmed at setup
+// even for a saved base URL. Returns the key, or null on cancel.
+// ---------------------------------------------------------------------------
+
+Future<String?> _promptStreamKey(
+  BuildContext context, {
+  required String destName,
+  required String baseUrl,
+  required String initialKey,
+}) {
+  final controller = TextEditingController(text: initialKey);
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: T.bg,
+    isScrollControlled: true,
+    builder: (ctx) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                destName,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: T.ink,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$baseUrl — enter the stream key for this match.',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: T.ink2,
+                  height: 1.4,
+                  fontFamily: T.mono,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                decoration: BoxDecoration(
+                  color: T.fillSoft,
+                  border: Border.all(color: T.hair),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: TextField(
+                  controller: controller,
+                  autofocus: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: const InputDecoration(
+                    hintText: 'stream key',
+                    hintStyle: TextStyle(color: T.ink3, fontSize: 13),
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  style: const TextStyle(color: T.ink, fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: WfButton(
+                      label: 'Cancel',
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: WfButton(
+                      label: 'Use destination',
+                      variant: WfButtonVariant.primary,
+                      onPressed: () =>
+                          Navigator.of(ctx).pop(controller.text.trim()),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------

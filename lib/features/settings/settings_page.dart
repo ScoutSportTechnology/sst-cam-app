@@ -115,6 +115,17 @@ class SettingsPage extends ConsumerWidget {
                     MaterialPageRoute(builder: (_) => const DataSettingsPage()),
                   ),
                 ),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
+                  leading: const Icon(Icons.monitor_heart_outlined),
+                  label: 'Diagnostics',
+                  sub: 'Camera telemetry · app build · live logs',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => DiagnosticsPage(deviceId: activeId),
+                    ),
+                  ),
+                ),
                 Builder(
                   builder: (ctx) {
                     final devNav = ref.watch(devNavigationProvider);
@@ -242,19 +253,13 @@ class _CameraCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Real fw + proto versions: firmware from the device's reported
-    // firmwareVersion; proto = the built-against repo tag + the wire
-    // protocol_version the device advertises. No more hardcoded strings.
-    final device = ref
-        .watch(discoveredDevicesProvider)
-        .valueOrNull
-        ?.where((d) => d.id == deviceId)
-        .firstOrNull;
-    final fwRaw = device?.firmwareVersion ?? '';
+    // Real firmware version from the connected camera's DeviceInfo (the
+    // scan-time SstDevice carries empty fw). proto = the built-against repo tag.
+    // The wire protocol_version is technical — it lives in Diagnostics, not here.
+    final info = ref.watch(connectedDeviceInfoProvider(deviceId)).valueOrNull;
+    final fwRaw = info?.firmwareVersion ?? '';
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
-    final protoLine = protoVersionDisplay(
-      wireProtocolVersion: device?.protocolVersion,
-    );
+    final protoLine = 'proto $protoRepoVersion';
 
     return WfCard(
       child: Column(
@@ -325,31 +330,13 @@ class _CameraCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 8),
-          // Bottom button row: Disconnect · Diagnostics — both wired.
-          Row(
-            children: [
-              Expanded(
-                child: WfButton(
-                  label: 'Disconnect',
-                  size: WfButtonSize.sm,
-                  onPressed: () => _disconnect(ref, deviceId),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: WfButton(
-                  label: 'Diagnostics',
-                  size: WfButtonSize.sm,
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => DiagnosticsPage(deviceId: deviceId),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
+          // Disconnect — Diagnostics now lives in the Settings list as its own
+          // row (Settings → Diagnostics), not buried on the camera card.
+          WfButton(
+            label: 'Disconnect',
+            size: WfButtonSize.sm,
+            full: true,
+            onPressed: () => _disconnect(ref, deviceId),
           ),
         ],
       ),

@@ -46,6 +46,12 @@ abstract class BleService {
   /// Live connection state for [deviceId].
   Stream<CameraConnectionState> connectionStateStream(String deviceId);
 
+  /// The connected camera's real DeviceInfo (firmware version, wire
+  /// protocol_version, model). Fetched on demand post-connect — the scan-time
+  /// [SstDevice] carries empty firmware/0 protocol. Returns null when unreachable.
+  /// Concrete default so existing fakes don't need to implement it.
+  Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async => null;
+
   // ---------------------------------------------------------------------------
   // Telemetry (pushed by firmware ~1 Hz after connect)
   // ---------------------------------------------------------------------------

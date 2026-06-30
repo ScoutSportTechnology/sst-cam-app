@@ -55,24 +55,13 @@ class LandingScreen extends ConsumerWidget {
                     child: WfNote('No matches match your filters'),
                   );
                 }
+                // With matches present, the standalone training button is gone —
+                // the "+" FAB offers Training session / Match instead.
                 return Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 2),
-                      child: WfButton(
-                        label: 'Record a training session',
-                        full: true,
-                        leading: const Icon(
-                          Icons.fiber_manual_record,
-                          size: 14,
-                          color: T.danger,
-                        ),
-                        onPressed: () => _startTraining(context, ref),
-                      ),
-                    ),
                     WfSection(
                       'Upcoming · ${filtered.length}',
-                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
                     ),
                     Expanded(
                       child: ListView.separated(
@@ -95,7 +84,7 @@ class LandingScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: null,
-        onPressed: () => _schedule(context, ref),
+        onPressed: () => _chooseAdd(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,
         elevation: 0,
@@ -105,6 +94,51 @@ class LandingScreen extends ConsumerWidget {
         child: const Icon(Icons.add, size: 28),
       ),
     );
+  }
+
+  /// The "+" FAB chooser: training session (one-tap record) or a scheduled
+  /// match. Shown when matches already exist (the empty state has its own
+  /// dedicated buttons).
+  Future<void> _chooseAdd(BuildContext context, WidgetRef ref) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: T.bg,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.fiber_manual_record, color: T.danger),
+              title: const Text(
+                'Training session',
+                style: TextStyle(color: T.ink),
+              ),
+              subtitle: const Text(
+                'One-tap record now',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+              onTap: () => Navigator.of(ctx).pop('training'),
+            ),
+            const Divider(height: 1, color: T.rule),
+            ListTile(
+              leading: const Icon(Icons.event_outlined, color: T.ink),
+              title: const Text('Match', style: TextStyle(color: T.ink)),
+              subtitle: const Text(
+                'Schedule a match',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+              onTap: () => Navigator.of(ctx).pop('match'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted || choice == null) return;
+    if (choice == 'training') {
+      await _startTraining(context, ref);
+    } else {
+      await _schedule(context, ref);
+    }
   }
 
   Future<void> _schedule(BuildContext context, WidgetRef ref) async {

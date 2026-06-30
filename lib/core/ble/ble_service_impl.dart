@@ -485,6 +485,15 @@ class BleServiceImpl implements BleService {
   Future<NetworkConfigResult> getNetworkConfig(String deviceId) =>
       _networkConfig(deviceId, GetNetworkConfigCommand(), 'getNetworkConfig');
 
+  @override
+  Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async {
+    final r = await sendCommand<DeviceInfoResponse>(
+      deviceId,
+      GetDeviceInfoCommand(),
+    );
+    return (r.isOk) ? r.payload : null;
+  }
+
   // Shared round-trip for Set/GetNetworkConfig — both reply with the same
   // NetworkConfigResult (echoed config + live status).
   Future<NetworkConfigResult> _networkConfig(

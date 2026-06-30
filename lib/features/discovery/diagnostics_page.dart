@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ble/ble_providers.dart';
 import '../../core/config/dev_navigation.dart';
+import '../../core/models/command.dart' show DeviceInfoResponse;
 import '../../core/models/telemetry.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/version/version_info.dart';
@@ -15,14 +16,55 @@ import '../settings/developer/log_viewer_page.dart';
 /// the live telemetry poll; nothing here is invented. Fields the firmware does
 /// not report yet (battery without a sensor, wifi RSSI) render "—" rather than a
 /// fake number.
-class DiagnosticsPage extends ConsumerWidget {
-  const DiagnosticsPage({super.key, required this.deviceId});
+/// Lines the live "Camera link" log view keeps — the BLE/WiFi comms the app
+/// captures (commands, responses, preview, streaming, p2p). Interim until the
+/// firmware streams its own logs over the wire.
+bool isCameraLinkLog(String line) {
+  final l = line.toLowerCase();
+  const needles = [
+    'ble',
+    'gatt',
+    'mtu',
+    'wifi',
+    'p2p',
+    'rtmp',
+    'rtsp',
+    'preview',
+    'telemetry',
+    'command',
+    'connect',
+    'session',
+    'handoff',
+    'finalize',
+    'overlay',
+    'stream',
+    'camera',
+    'dnsmasq',
+    'download',
+  ];
+  for (final n in needles) {
+    if (l.contains(n)) return true;
+  }
+  return false;
+}
 
-  final String deviceId;
+class DiagnosticsPage extends ConsumerWidget {
+  const DiagnosticsPage({super.key, this.deviceId});
+
+  /// Connected camera id, or null when opened with no camera connected (the
+  /// top-level Settings → Diagnostics entry). The App section always renders;
+  /// the Camera section shows a connect prompt when null.
+  final String? deviceId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final telemetry = ref.watch(telemetryProvider(deviceId)).valueOrNull;
+    final id = deviceId;
+    final telemetry = id == null
+        ? null
+        : ref.watch(telemetryProvider(id)).valueOrNull;
+    final info = id == null
+        ? null
+        : ref.watch(connectedDeviceInfoProvider(id)).valueOrNull;
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -31,7 +73,7 @@ class DiagnosticsPage extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
           const WfSection('Camera', padding: EdgeInsets.only(bottom: 8)),
-          _CameraDiagnostics(telemetry: telemetry),
+          _CameraDiagnostics(telemetry: telemetry, info: info),
           const SizedBox(height: 18),
           const WfSection('App', padding: EdgeInsets.only(bottom: 8)),
           const _AppDiagnostics(),
@@ -42,8 +84,9 @@ class DiagnosticsPage extends ConsumerWidget {
 }
 
 class _CameraDiagnostics extends StatelessWidget {
-  const _CameraDiagnostics({required this.telemetry});
+  const _CameraDiagnostics({required this.telemetry, required this.info});
   final DeviceTelemetry? telemetry;
+  final DeviceInfoResponse? info;
 
   @override
   Widget build(BuildContext context) {
@@ -55,9 +98,25 @@ class _CameraDiagnostics extends StatelessWidget {
       );
     }
 
+    final fw = (info?.firmwareVersion.isNotEmpty ?? false)
+        ? info!.firmwareVersion
+        : '—';
+    // The wire protocol_version (a skew counter) lives here, not on the camera
+    // card — it's a technical value, not user-facing version info.
+    final wire = info == null ? '—' : 'v${info!.protocolVersion}';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        WfCard(
+          child: Row(
+            children: [
+              Expanded(child: _kv('Firmware', fw)),
+              Expanded(child: _kv('Wire proto', wire)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
         GridView.count(
           crossAxisCount: 2,
           crossAxisSpacing: 8,
@@ -131,6 +190,23 @@ class _CameraDiagnostics extends StatelessWidget {
     final ssid = t.wifiSsid;
     return (ssid == null || ssid.isEmpty) ? 'Connected' : ssid;
   }
+
+  Widget _kv(String label, String value) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      WfNote(label),
+      const SizedBox(height: 2),
+      Text(
+        value,
+        style: const TextStyle(
+          fontFamily: T.mono,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: T.ink,
+        ),
+      ),
+    ],
+  );
 }
 
 class _AppDiagnostics extends ConsumerWidget {
@@ -166,17 +242,40 @@ class _AppDiagnostics extends ConsumerWidget {
             const Divider(height: 1, color: T.rule),
             ListTile(
               title: const Text(
-                'Logs',
+                'App logs',
                 style: TextStyle(color: T.ink, fontSize: 14),
               ),
               subtitle: const Text(
-                'In-app debugPrint capture — copy/share without adb.',
+                'Live in-app capture — copy/share without adb.',
                 style: TextStyle(color: T.ink2, fontSize: 12),
               ),
               trailing: const Icon(Icons.chevron_right, color: T.ink3),
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const LogViewerPage())),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const LogViewerPage(title: 'App logs'),
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: T.rule),
+            ListTile(
+              title: const Text(
+                'Camera link logs',
+                style: TextStyle(color: T.ink, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'Live BLE/WiFi comms with the camera (interim — firmware-side '
+                'logs land in a later phase).',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+              trailing: const Icon(Icons.chevron_right, color: T.ink3),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const LogViewerPage(
+                    title: 'Camera link',
+                    filter: isCameraLinkLog,
+                  ),
+                ),
+              ),
             ),
             // DB browser — dev builds only, injected via devNavigationProvider so
             // it stays out of prod (same gate as developer settings).

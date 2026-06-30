@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ble_service.dart';
 import 'ble_service_impl.dart';
+import '../models/command.dart' show DeviceInfoResponse;
 import '../models/device.dart';
 import '../models/telemetry.dart';
 import '../models/match.dart';
@@ -42,6 +43,16 @@ final telemetryProvider = StreamProvider.family<DeviceTelemetry, String>((
 ) {
   return ref.watch(bleServiceProvider).telemetryStream(deviceId);
 });
+
+/// The connected camera's real DeviceInfo (firmware version + wire
+/// protocol_version). Null until connected — the scan-time SstDevice carries
+/// empty firmware/0 protocol. Re-fetches when connection state changes.
+final connectedDeviceInfoProvider =
+    FutureProvider.family<DeviceInfoResponse?, String>((ref, deviceId) async {
+      final state = ref.watch(connectionStateProvider(deviceId)).valueOrNull;
+      if (state != CameraConnectionState.connected) return null;
+      return ref.read(bleServiceProvider).getDeviceInfo(deviceId);
+    });
 
 final matchStateProvider = StreamProvider.family<MatchState, String>((
   ref,

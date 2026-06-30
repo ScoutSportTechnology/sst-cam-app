@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
+import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/version/version_info.dart';
 import 'package:sst_cam_app/features/discovery/diagnostics_page.dart';
@@ -32,7 +33,17 @@ Future<void> _pump(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: overrides,
+      overrides: [
+        // Real DeviceInfo so the fw/wire row shows values, not extra "—".
+        connectedDeviceInfoProvider(_deviceId).overrideWith(
+          (ref) async => const DeviceInfoResponse(
+            deviceId: _deviceId,
+            firmwareVersion: '0.1.0',
+            protocolVersion: 2,
+          ),
+        ),
+        ...overrides,
+      ],
       child: const MaterialApp(home: DiagnosticsPage(deviceId: _deviceId)),
     ),
   );

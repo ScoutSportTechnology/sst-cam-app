@@ -436,6 +436,16 @@ class MockBleService implements BleService {
   bool get isScanning => _isScanning;
 
   @override
+  Future<DeviceInfoResponse> getDeviceInfo(String deviceId) async =>
+      DeviceInfoResponse(
+        deviceId: deviceId,
+        name: 'SST Cam (mock)',
+        firmwareVersion: '0.1.0',
+        model: 'v1',
+        protocolVersion: kAppProtocolVersion,
+      );
+
+  @override
   Stream<List<SstDevice>> get discoveredDevices async* {
     // Emit current snapshot immediately so callers get the initial empty state
     // before any scan has started. Subsequent updates come from the controller.
