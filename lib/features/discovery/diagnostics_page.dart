@@ -1,102 +1,217 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ble/ble_providers.dart';
+import '../../core/config/dev_navigation.dart';
+import '../../core/models/telemetry.dart';
 import '../../core/theme/tokens.dart';
-import '../../core/widgets/wf_button.dart';
+import '../../core/version/version_info.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
+import '../settings/developer/log_viewer_page.dart';
 
-/// BLE link + proto state. Targeted at firmware integrators.
-class DiagnosticsPage extends StatelessWidget {
-  const DiagnosticsPage({super.key});
+/// Diagnostics — real camera telemetry + app build info, side by side. Replaces
+/// the old mock page (fabricated MTU/RSSI/command-log). Camera metrics come from
+/// the live telemetry poll; nothing here is invented. Fields the firmware does
+/// not report yet (battery without a sensor, wifi RSSI) render "—" rather than a
+/// fake number.
+class DiagnosticsPage extends ConsumerWidget {
+  const DiagnosticsPage({super.key, required this.deviceId});
+
+  final String deviceId;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final telemetry = ref.watch(telemetryProvider(deviceId)).valueOrNull;
+
     return Scaffold(
       backgroundColor: T.bg,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text('Diagnostics'),
-            Text(
-              'sst-cam-01 · BLE link',
-              style: TextStyle(fontSize: 11, color: T.ink2),
-            ),
-          ],
-        ),
-      ),
+      appBar: AppBar(title: const Text('Diagnostics')),
       body: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-            child: GridView.count(
-              crossAxisCount: 2,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              childAspectRatio: 2.4,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              children: const [
-                _StatCard(label: 'MTU', value: '247'),
-                _StatCard(label: 'RSSI', value: '−54 dBm'),
-                _StatCard(label: 'Phy', value: '2M LE'),
-                _StatCard(label: 'Conn int.', value: '15 ms'),
-              ],
-            ),
-          ),
-          const WfSection('Recent commands'),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
-            child: _CommandLog(),
-          ),
-          const WfSection('Implementation'),
-          const _ImplRow(
-            title: 'BLE service',
-            subtitle: 'BleServiceImpl · flutter_blue_plus',
-            trailing: WfChip(label: 'Live', active: true),
-          ),
-          const Divider(height: 1, color: T.rule),
-          const _ImplRow(
-            title: 'Proto bindings',
-            subtitle: 'lib/models/proto · gen-proto',
-            trailing: Text(
-              'v0.3',
-              style: TextStyle(color: T.ink2, fontSize: 12),
-            ),
-          ),
-          const WfSection('Actions'),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 24),
-            child: GridView(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 3,
-              ),
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              children: const [
-                WfButton(label: 'Export logs'),
-                WfButton(label: 'Run self-test'),
-                WfButton(label: 'Reconnect BLE'),
-                WfButton(label: 'Reset pairing'),
-              ],
-            ),
-          ),
+          const WfSection('Camera', padding: EdgeInsets.only(bottom: 8)),
+          _CameraDiagnostics(telemetry: telemetry),
+          const SizedBox(height: 18),
+          const WfSection('App', padding: EdgeInsets.only(bottom: 8)),
+          const _AppDiagnostics(),
         ],
       ),
     );
   }
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({required this.label, required this.value});
+class _CameraDiagnostics extends StatelessWidget {
+  const _CameraDiagnostics({required this.telemetry});
+  final DeviceTelemetry? telemetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = telemetry;
+    if (t == null) {
+      // Disconnected / no telemetry yet — a single note, not a grid of zeros.
+      return const WfCard(
+        child: WfNote('Connect to a camera to view diagnostics'),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 2.4,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            _StatTile(label: 'Storage free', value: _storage(t)),
+            _StatTile(
+              label: 'Temperature',
+              value: '${t.tempCelsius.toStringAsFixed(0)} °C',
+            ),
+            _StatTile(
+              label: 'CPU',
+              value: '${t.cpuUsedPct.toStringAsFixed(0)} %',
+            ),
+            _StatTile(
+              label: 'RAM',
+              value: '${t.ramUsedPct.toStringAsFixed(0)} %',
+            ),
+            _StatTile(label: 'Uptime', value: _uptime(t.uptimeSeconds)),
+            _StatTile(label: 'Battery', value: _battery(t)),
+            _StatTile(label: 'WiFi', value: _wifi(t)),
+            _StatTile(label: 'WiFi RSSI', value: _rssi(t)),
+            _StatTile(
+              label: 'Internet',
+              value: t.internetReachable ? 'Online' : 'Offline',
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        WfCard(
+          child: Row(
+            children: [
+              const Expanded(child: WfNote('Activity')),
+              WfChip(label: 'Rec', active: t.isRecording),
+              const SizedBox(width: 6),
+              WfChip(label: 'Stream', active: t.isStreaming),
+              const SizedBox(width: 6),
+              WfChip(label: 'Raw', active: t.isRawCapturing),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _storage(DeviceTelemetry t) {
+    final freeGb = t.storageFreeBytes / (1024 * 1024 * 1024);
+    final totalGb = t.storageTotalBytes / (1024 * 1024 * 1024);
+    return '${freeGb.toStringAsFixed(0)} / ${totalGb.toStringAsFixed(0)} GB';
+  }
+
+  String _uptime(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    return h > 0 ? '${h}h ${m}m' : '${m}m';
+  }
+
+  // Battery / RSSI are null when the firmware does not report them (no sensor /
+  // not wired) — render "—", never a fabricated value (R6).
+  String _battery(DeviceTelemetry t) =>
+      t.batteryLevelPct == null ? '—' : '${t.batteryLevelPct} %';
+
+  String _rssi(DeviceTelemetry t) =>
+      t.wifiSignalDbm == null ? '—' : '${t.wifiSignalDbm} dBm';
+
+  String _wifi(DeviceTelemetry t) {
+    if (t.wifiState != WifiState.connected) return 'Off';
+    final ssid = t.wifiSsid;
+    return (ssid == null || ssid.isEmpty) ? 'Connected' : ssid;
+  }
+}
+
+class _AppDiagnostics extends ConsumerWidget {
+  const _AppDiagnostics();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final version = ref.watch(appVersionProvider).valueOrNull ?? '—';
+    final devNav = ref.watch(devNavigationProvider);
+
+    return WfCard(
+      padding: EdgeInsets.zero,
+      // ListTiles paint ink on the nearest Material; give them a transparent one
+      // over the WfCard's coloured box.
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          children: [
+            ListTile(
+              title: const Text(
+                'Version',
+                style: TextStyle(color: T.ink, fontSize: 14),
+              ),
+              trailing: Text(
+                version,
+                style: const TextStyle(
+                  color: T.ink2,
+                  fontSize: 12,
+                  fontFamily: T.mono,
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: T.rule),
+            ListTile(
+              title: const Text(
+                'Logs',
+                style: TextStyle(color: T.ink, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'In-app debugPrint capture — copy/share without adb.',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+              trailing: const Icon(Icons.chevron_right, color: T.ink3),
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const LogViewerPage())),
+            ),
+            // DB browser — dev builds only, injected via devNavigationProvider so
+            // it stays out of prod (same gate as developer settings).
+            if (devNav.debugPage != null) ...[
+              const Divider(height: 1, color: T.rule),
+              ListTile(
+                title: const Text(
+                  'Database browser',
+                  style: TextStyle(color: T.ink, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Inspect users/teams/matches/clips; reset + reseed.',
+                  style: TextStyle(color: T.ink2, fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                onTap: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => devNav.debugPage!())),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile({required this.label, required this.value});
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
+    final unavailable = value == '—';
     return WfCard(
       padding: const EdgeInsets.all(10),
       child: Column(
@@ -106,132 +221,16 @@ class _StatCard extends StatelessWidget {
           WfNote(label),
           Text(
             value,
-            style: const TextStyle(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
               fontFamily: T.mono,
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: T.ink,
+              // Muted when unavailable so a "—" never reads as a real reading.
+              color: unavailable ? T.ink3 : T.ink,
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommandLog extends StatelessWidget {
-  const _CommandLog();
-
-  @override
-  Widget build(BuildContext context) {
-    const rows = <(String, String, String, String)>[
-      ('09:30:14', 'GetTelemetry', 'OK', '12 ms'),
-      ('09:30:13', 'GetMatchState', 'OK', '18 ms'),
-      ('09:30:13', 'GetTelemetry', 'OK', '11 ms'),
-      ('09:30:12', 'StartRecording', 'OK', '34 ms'),
-      ('09:30:11', 'GetTelemetry', 'TIMEOUT', '—'),
-      ('09:30:10', 'GetTelemetry', 'OK', '14 ms'),
-    ];
-    return Column(
-      children: rows.asMap().entries.map((e) {
-        final r = e.value;
-        return Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            border: e.key < rows.length - 1
-                ? const Border(bottom: BorderSide(color: T.rule))
-                : null,
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 60,
-                child: Text(
-                  r.$1,
-                  style: const TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 11,
-                    color: T.ink3,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  r.$2,
-                  style: const TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: T.ink,
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 70,
-                child: Text(
-                  r.$3,
-                  style: TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: r.$3 == 'OK' ? T.accent : T.danger,
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 50,
-                child: Text(
-                  r.$4,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    fontFamily: T.mono,
-                    fontSize: 11,
-                    color: T.ink2,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _ImplRow extends StatelessWidget {
-  const _ImplRow({
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-  });
-  final String title;
-  final String subtitle;
-  final Widget trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: T.ink,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                WfNote(subtitle),
-              ],
-            ),
-          ),
-          trailing,
         ],
       ),
     );

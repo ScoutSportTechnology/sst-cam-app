@@ -343,7 +343,7 @@ class _CameraCard extends ConsumerWidget {
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => const DiagnosticsPage(),
+                        builder: (_) => DiagnosticsPage(deviceId: deviceId),
                       ),
                     );
                   },
