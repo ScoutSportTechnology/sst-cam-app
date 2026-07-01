@@ -26,6 +26,23 @@ import 'session/session_state.dart' show liveMatchProvider;
 /// advertised mode when this exact mode isn't offered.
 const _preferredDefaultMode = VideoMode(width: 1920, height: 1080, fps: 30);
 
+/// The dropdown value for a (possibly stale) held selection against the CURRENT
+/// firmware-advertised [modes]. A held pick is used only while it's still
+/// offered; otherwise — and when nothing is held — it falls back to the default
+/// (the preferred mode when advertised, else the first). Empty modes → null.
+///
+/// This keeps the DropdownButton value ALWAYS present in its items: a held value
+/// that isn't in `modes` (firmware re-advertised a different set on reconnect /
+/// camera switch) trips DropdownButton's value-in-items assertion and crashes
+/// the build.
+VideoMode? effectiveVideoMode(VideoMode? held, List<VideoMode> modes) {
+  if (modes.isEmpty) return null;
+  if (held != null && modes.contains(held)) return held;
+  return modes.contains(_preferredDefaultMode)
+      ? _preferredDefaultMode
+      : modes.first;
+}
+
 /// Per-match streaming destination protocol. `none` = record without streaming.
 /// The others map onto [StreamingProtocol]; the operator enters the URL (and a
 /// stream key for RTMP/RTMPS) inline. NOTE: the firmware egress pushes over
@@ -400,19 +417,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         const [];
   }
 
-  /// The default selection for an advertised mode set: the preferred mode when
-  /// offered, else the first advertised mode, else null (no modes).
-  VideoMode? _defaultMode(List<VideoMode> modes) {
-    if (modes.isEmpty) return null;
-    return modes.contains(_preferredDefaultMode)
-        ? _preferredDefaultMode
-        : modes.first;
-  }
-
   VideoMode? _effectiveRecord(List<VideoMode> modes) =>
-      _recordMode ?? _defaultMode(modes);
+      effectiveVideoMode(_recordMode, modes);
   VideoMode? _effectiveStream(List<VideoMode> modes) =>
-      _streamMode ?? _defaultMode(modes);
+      effectiveVideoMode(_streamMode, modes);
 
   Future<void> _startMatch(int periods, int periodLengthSeconds) async {
     final deviceId = ref.read(activeCameraIdProvider);
