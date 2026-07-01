@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/overlay_layout.dart';
+import '../../../core/models/video_mode.dart';
 
 enum MatchPhase { idle, period, periodBreak, ended }
 
@@ -54,6 +55,8 @@ class LiveMatchState {
     this.homeColorHex,
     this.awayColorHex,
     this.overlayLayout,
+    this.recordQuality,
+    this.streamQuality,
   });
 
   final MatchPhase phase;
@@ -77,6 +80,13 @@ class LiveMatchState {
   final String? homeColorHex;
   final String? awayColorHex;
   final OverlayLayout? overlayLayout;
+
+  /// Operator-selected record/stream quality from setup. Attached to the
+  /// RecordingControl / StreamingControl start commands so the firmware applies
+  /// them at session start (independent — record may differ from stream). Null =>
+  /// firmware default (no advertised modes / older firmware).
+  final VideoMode? recordQuality;
+  final VideoMode? streamQuality;
 
   bool get isPeriodActive => phase == MatchPhase.period;
   bool get isLastPeriod => currentPeriod == numPeriods && numPeriods > 0;
@@ -127,6 +137,8 @@ class LiveMatchState {
     String? homeColorHex,
     String? awayColorHex,
     Object? overlayLayout = _sentinel,
+    VideoMode? recordQuality,
+    VideoMode? streamQuality,
   }) {
     return LiveMatchState(
       phase: phase ?? this.phase,
@@ -147,6 +159,8 @@ class LiveMatchState {
       overlayLayout: identical(overlayLayout, _sentinel)
           ? this.overlayLayout
           : overlayLayout as OverlayLayout?,
+      recordQuality: recordQuality ?? this.recordQuality,
+      streamQuality: streamQuality ?? this.streamQuality,
     );
   }
 
@@ -377,6 +391,12 @@ class LiveMatchController extends Notifier<LiveMatchState> {
 
   void setTeamColors(String? home, String? away) {
     state = state.copyWith(homeColorHex: home, awayColorHex: away);
+  }
+
+  /// Record the operator's setup-time quality choices so the record/stream start
+  /// commands can carry them. Null args leave the existing selection untouched.
+  void setQuality({VideoMode? record, VideoMode? stream}) {
+    state = state.copyWith(recordQuality: record, streamQuality: stream);
   }
 
   void reset() {

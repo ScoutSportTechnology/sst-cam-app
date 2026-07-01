@@ -186,6 +186,7 @@ class SessionScreen extends ConsumerWidget {
                           ref,
                           RecordingControlCommand(
                             action: RecordingControlAction.start,
+                            quality: state.recordQuality,
                           ),
                         );
                       } else if (currentRec == RecState.recording) {
@@ -292,6 +293,7 @@ class SessionScreen extends ConsumerWidget {
       StreamingControlCommand(
         action: StreamingControlAction.start,
         rtmpUrl: wireUrl,
+        quality: state.streamQuality,
       ),
     );
     // Only reflect streaming in the UI when the start actually dispatched — a
@@ -360,13 +362,19 @@ class SessionScreen extends ConsumerWidget {
     if (choice.$1 == true) {
       _sendIfConnected(
         ref,
-        RecordingControlCommand(action: RecordingControlAction.start),
+        RecordingControlCommand(
+          action: RecordingControlAction.start,
+          quality: state.recordQuality,
+        ),
       );
     }
     if (choice.$2 == true) {
       _sendIfConnected(
         ref,
-        StreamingControlCommand(action: StreamingControlAction.start),
+        StreamingControlCommand(
+          action: StreamingControlAction.start,
+          quality: state.streamQuality,
+        ),
       );
     }
     ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);

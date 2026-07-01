@@ -16,10 +16,20 @@ import '../../core/models/overlay_layout.dart';
 import '../../core/models/preview_layout.dart';
 import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
+import '../../core/models/video_mode.dart';
 import '../../core/models/wifi.dart';
 import '../../core/ble/ble_service.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../mock_video_fetcher.dart';
+
+/// The record/stream modes the mock camera advertises — mirrors the firmware's
+/// kSupportedVideoModes so the setup quality pickers exercise a real shape.
+const _kMockSupportedModes = <VideoMode>[
+  VideoMode(width: 1920, height: 1080, fps: 30),
+  VideoMode(width: 1920, height: 1080, fps: 60),
+  VideoMode(width: 1280, height: 720, fps: 30),
+  VideoMode(width: 1280, height: 720, fps: 60),
+];
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [
@@ -443,6 +453,7 @@ class MockBleService implements BleService {
         firmwareVersion: '0.1.0',
         model: 'v1',
         protocolVersion: kAppProtocolVersion,
+        supportedModes: _kMockSupportedModes,
       );
 
   @override
@@ -815,18 +826,24 @@ class MockBleService implements BleService {
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
     // Apply side effects for stateful commands before building the response.
     switch (cmd) {
-      case RecordingControlCommand(:final action):
+      case RecordingControlCommand(:final action, :final quality):
         isRecordingActive =
             action == RecordingControlAction.start ||
             action == RecordingControlAction.resume;
         lastRecordingAction = action;
+        if (action == RecordingControlAction.start) {
+          lastRecordingQuality = quality;
+        }
       case RawCaptureControlCommand(:final action, :final captureGroupId):
         isRawCapturingActive = action == RecordingControlAction.start;
         if (action == RecordingControlAction.start) {
           lastRawCaptureGroupId = captureGroupId;
         }
-      case StreamingControlCommand(:final action):
+      case StreamingControlCommand(:final action, :final quality):
         isStreamingActive = action == StreamingControlAction.start;
+        if (action == StreamingControlAction.start) {
+          lastStreamingQuality = quality;
+        }
       case MatchControlCommand(:final action):
         lastMatchControlAction = action;
       case BannerEventCommand():
@@ -850,6 +867,17 @@ class MockBleService implements BleService {
           // Must match the app's expected version or decodeResponse rejects the
           // session as a version skew (see kAppProtocolVersion).
           protocolVersion: kAppProtocolVersion,
+          // Mirror the firmware's advertised record/stream modes so the setup
+          // quality pickers are exercised against a real contract shape.
+          supportedModes: _kMockSupportedModes
+              .map(
+                (m) => proto.VideoQuality(
+                  width: m.width,
+                  height: m.height,
+                  fps: m.fps,
+                ),
+              )
+              .toList(),
         ),
       ),
       // Mock acks the reboot (obviously without rebooting anything).
@@ -1276,6 +1304,12 @@ class MockBleService implements BleService {
 
   /// Tracks the last recording action applied via [RecordingControlCommand].
   RecordingControlAction? lastRecordingAction;
+
+  /// Record quality carried on the last recording START (U12); null if none.
+  VideoMode? lastRecordingQuality;
+
+  /// Stream quality carried on the last streaming START (U12); null if none.
+  VideoMode? lastStreamingQuality;
 
   /// True when recording is active (toggled by [RecordingControlCommand]).
   bool isRecordingActive = false;

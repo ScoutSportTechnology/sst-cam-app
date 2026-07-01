@@ -7,6 +7,7 @@ import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/streaming.dart';
+import '../../core/models/video_mode.dart';
 import '../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
@@ -24,15 +25,10 @@ import '../settings/users/users_state.dart' show activeUserProvider;
 import 'match_state.dart' show UpcomingMatch;
 import 'session/session_state.dart' show liveMatchProvider;
 
-enum _Quality {
-  hd720p30('720p · 30 fps'),
-  fhd1080p30('1080p · 30 fps'),
-  fhd1080p60('1080p · 60 fps'),
-  uhd4k30('4K · 30 fps');
-
-  const _Quality(this.label);
-  final String label;
-}
+/// The preferred default record/stream mode when the firmware advertises it:
+/// 1080p30 is a sensible middle of the ladder. Falls back to the first
+/// advertised mode when this exact mode isn't offered.
+const _preferredDefaultMode = VideoMode(width: 1920, height: 1080, fps: 30);
 
 /// A resolved per-match streaming selection. [wireUrl] is the full ingest URL
 /// sent to the camera (base + key). [storeUrl]/[storeKey] persist on the match
@@ -61,7 +57,11 @@ class SetupScreen extends ConsumerStatefulWidget {
 }
 
 class _SetupScreenState extends ConsumerState<SetupScreen> {
-  _Quality _quality = _Quality.fhd1080p30;
+  // Independent record + stream quality selections (R15). Null until the operator
+  // picks — an unset selection defaults to the preferred advertised mode. Empty
+  // advertised-modes list (older/disconnected firmware) disables the pickers.
+  VideoMode? _recordMode;
+  VideoMode? _streamMode;
   // null = Custom (use _customPeriods + _customMinutes from match init).
   SportPreset? _preset;
   int _customPeriods = 2;
@@ -89,6 +89,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
+
+    // Firmware-advertised capture modes (R16). Empty when disconnected or on
+    // firmware that predates supported_modes → the quality pickers render
+    // disabled.
+    final modes = activeId == null
+        ? const <VideoMode>[]
+        : ref
+                  .watch(connectedDeviceInfoProvider(activeId))
+                  .valueOrNull
+                  ?.supportedModes ??
+              const <VideoMode>[];
 
     if (!_initialized) {
       _customPeriods = m.numPeriods > 0 ? m.numPeriods : 2;
@@ -175,17 +186,48 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               ],
             ),
           ),
-          const WfSection('Recording'),
+          const WfSection('Quality'),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
             child: WfCard(
               padding: EdgeInsets.zero,
-              child: _DropdownRow<_Quality>(
-                label: 'Quality',
-                value: _quality,
-                items: _Quality.values,
-                labelOf: (q) => q.label,
-                onChanged: (v) => setState(() => _quality = v),
+              child: Column(
+                children: [
+                  // Record and stream quality are independent (R15) and offered
+                  // only from firmware-advertised modes (R16). No modes (older /
+                  // disconnected firmware) → shown but disabled with a hint.
+                  _DropdownRow<VideoMode>(
+                    label: 'Record quality',
+                    value: modes.isEmpty ? null : _effectiveRecord(modes),
+                    items: modes,
+                    labelOf: (mode) => mode.label,
+                    hint: 'Unavailable',
+                    onChanged: modes.isEmpty
+                        ? null
+                        : (v) => setState(() => _recordMode = v),
+                  ),
+                  const Divider(height: 1, color: T.rule),
+                  _DropdownRow<VideoMode>(
+                    label: 'Stream quality',
+                    value: modes.isEmpty ? null : _effectiveStream(modes),
+                    items: modes,
+                    labelOf: (mode) => mode.label,
+                    hint: 'Unavailable',
+                    onChanged: modes.isEmpty
+                        ? null
+                        : (v) => setState(() => _streamMode = v),
+                  ),
+                  if (modes.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(14, 0, 14, 12),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: WfNote(
+                          'Connect to camera to load available modes',
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -287,6 +329,31 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
   }
 
+  /// Firmware-advertised modes, or empty when disconnected / unsupported.
+  List<VideoMode> _advertisedModes() {
+    final activeId = ref.read(activeCameraIdProvider);
+    if (activeId == null) return const [];
+    return ref
+            .read(connectedDeviceInfoProvider(activeId))
+            .valueOrNull
+            ?.supportedModes ??
+        const [];
+  }
+
+  /// The default selection for an advertised mode set: the preferred mode when
+  /// offered, else the first advertised mode, else null (no modes).
+  VideoMode? _defaultMode(List<VideoMode> modes) {
+    if (modes.isEmpty) return null;
+    return modes.contains(_preferredDefaultMode)
+        ? _preferredDefaultMode
+        : modes.first;
+  }
+
+  VideoMode? _effectiveRecord(List<VideoMode> modes) =>
+      _recordMode ?? _defaultMode(modes);
+  VideoMode? _effectiveStream(List<VideoMode> modes) =>
+      _streamMode ?? _defaultMode(modes);
+
   Future<void> _startMatch(int periods, int periodLengthSeconds) async {
     final deviceId = ref.read(activeCameraIdProvider);
     if (deviceId == null) return;
@@ -377,10 +444,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       await ble.pushOverlayLayout(deviceId, layout);
       if (!mounted) return;
 
-      // Store layout + colors in live session state.
+      // Store layout + colors + the independent record/stream quality in live
+      // session state so the record/stream start commands carry them (R15). Null
+      // when no modes are advertised → firmware default.
       final ctl = ref.read(liveMatchProvider.notifier);
       ctl.setOverlayLayout(layout);
       ctl.setTeamColors(widget.match.team.colorHex, null);
+      final modes = _advertisedModes();
+      ctl.setQuality(
+        record: _effectiveRecord(modes),
+        stream: _effectiveStream(modes),
+      );
 
       setState(() {
         _pushing = false;
@@ -548,15 +622,22 @@ class _DropdownRow<V> extends StatelessWidget {
     required this.items,
     required this.labelOf,
     required this.onChanged,
+    this.hint,
   });
   final String label;
-  final V value;
+
+  /// Null renders the [hint] placeholder — used for the disabled state.
+  final V? value;
   final List<V> items;
   final String Function(V) labelOf;
-  final ValueChanged<V> onChanged;
+
+  /// Null disables the dropdown (greyed, non-interactive).
+  final ValueChanged<V>? onChanged;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onChanged != null;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(
@@ -564,9 +645,9 @@ class _DropdownRow<V> extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
-                color: T.ink,
+                color: enabled ? T.ink : T.ink2,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -577,14 +658,26 @@ class _DropdownRow<V> extends StatelessWidget {
               isDense: true,
               dropdownColor: T.surface,
               style: const TextStyle(fontSize: 13, color: T.ink),
-              icon: const Icon(Icons.expand_more, size: 16, color: T.ink2),
+              icon: Icon(
+                Icons.expand_more,
+                size: 16,
+                color: enabled ? T.ink2 : T.ink3,
+              ),
+              hint: hint == null
+                  ? null
+                  : Text(
+                      hint!,
+                      style: const TextStyle(fontSize: 13, color: T.ink3),
+                    ),
               items: [
                 for (final item in items)
                   DropdownMenuItem(value: item, child: Text(labelOf(item))),
               ],
-              onChanged: (v) {
-                if (v != null) onChanged(v);
-              },
+              onChanged: enabled
+                  ? (v) {
+                      if (v != null) onChanged!(v);
+                    }
+                  : null,
             ),
           ),
         ],
