@@ -85,12 +85,14 @@ void main() {
     // One shown per dropdown (record + stream both default to 1080p30).
     expect(find.text('1080p · 30 fps'), findsWidgets);
 
-    // Open a dropdown: it offers the advertised ladder and NOT 4K.
+    // Open a dropdown: it offers the advertised ladder (720p60 for high fps) and
+    // NOT 4K, nor 1080p60 (unsustainable in software encode — see firmware).
     await tester.tap(find.text('1080p · 30 fps').first);
     await tester.pumpAndSettle();
     expect(find.text('720p · 30 fps'), findsWidgets);
-    expect(find.text('1080p · 60 fps'), findsWidgets);
+    expect(find.text('720p · 60 fps'), findsWidgets);
     expect(find.text('4K · 30 fps'), findsNothing);
+    expect(find.text('1080p · 60 fps'), findsNothing);
   });
 
   testWidgets('disconnected: pickers disabled with connect hint', (

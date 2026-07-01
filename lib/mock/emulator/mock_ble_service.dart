@@ -24,11 +24,12 @@ import '../mock_video_fetcher.dart';
 
 /// The record/stream modes the mock camera advertises — mirrors the firmware's
 /// kSupportedVideoModes so the setup quality pickers exercise a real shape.
+/// (1080p60 is deliberately excluded — the Orin Nano's software encoder can't
+/// sustain it; see firmware video-quality.hpp.)
 const _kMockSupportedModes = <VideoMode>[
   VideoMode(width: 1920, height: 1080, fps: 30),
-  VideoMode(width: 1920, height: 1080, fps: 60),
-  VideoMode(width: 1280, height: 720, fps: 30),
   VideoMode(width: 1280, height: 720, fps: 60),
+  VideoMode(width: 1280, height: 720, fps: 30),
 ];
 
 // Minimal 1×1 white JPEG
