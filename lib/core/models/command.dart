@@ -4,6 +4,7 @@
 import 'network_config.dart';
 import 'overlay_layout.dart';
 import 'preview_layout.dart';
+import 'video_mode.dart';
 
 sealed class BleCommand {}
 
@@ -24,6 +25,7 @@ class DeviceInfoResponse {
     this.firmwareVersion = '',
     this.model = '',
     this.protocolVersion = 0,
+    this.supportedModes = const [],
   });
   final String deviceId;
   final String name;
@@ -33,6 +35,11 @@ class DeviceInfoResponse {
   /// Firmware's reported wire-contract version. The app compares this against
   /// [kAppProtocolVersion]; a mismatch is a version-skew error.
   final int protocolVersion;
+
+  /// The record/stream capture modes the firmware actually supports. The setup
+  /// screen offers only these (R16). Empty on firmware that predates the field
+  /// (the quality pickers then render disabled).
+  final List<VideoMode> supportedModes;
 }
 
 /// The wire-contract version this app build implements. Compared against
@@ -182,8 +189,12 @@ enum BleMatchControlAction {
 // ---------------------------------------------------------------------------
 
 class RecordingControlCommand extends BleCommand {
-  RecordingControlCommand({required this.action});
+  RecordingControlCommand({required this.action, this.quality});
   final RecordingControlAction action;
+
+  /// Record resolution/fps, applied by firmware at session start (independent of
+  /// the stream quality). Null => firmware default. Only meaningful on a start.
+  final VideoMode? quality;
 }
 
 /// Independent raw dual-camera capture, distinct from [RecordingControlCommand].
@@ -197,9 +208,14 @@ class RawCaptureControlCommand extends BleCommand {
 }
 
 class StreamingControlCommand extends BleCommand {
-  StreamingControlCommand({required this.action, this.rtmpUrl});
+  StreamingControlCommand({required this.action, this.rtmpUrl, this.quality});
   final StreamingControlAction action;
   final String? rtmpUrl;
+
+  /// Stream resolution/fps, applied by firmware at stream start (independent of
+  /// the record quality — e.g. record 1080p while streaming 720p). Null =>
+  /// firmware default. Only meaningful on a start.
+  final VideoMode? quality;
 }
 
 class MatchControlCommand extends BleCommand {

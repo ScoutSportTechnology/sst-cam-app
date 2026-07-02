@@ -12,8 +12,15 @@ import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
+import '../models/video_mode.dart';
 import '../models/wifi.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
+
+/// Maps a nullable domain [VideoMode] onto the optional wire `VideoQuality`.
+/// Returns null (so the proto field stays unset) when no quality is pinned.
+proto.VideoQuality? _toProtoQuality(VideoMode? mode) => mode == null
+    ? null
+    : proto.VideoQuality(width: mode.width, height: mode.height, fps: mode.fps);
 
 const _uuid = Uuid();
 
@@ -293,7 +300,7 @@ class BleProtocol {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(:final action) => proto.Command(
+    RecordingControlCommand(:final action, :final quality) => proto.Command(
       correlationId: correlationId,
       recordingControl: proto.RecordingControlCommand(
         action: switch (action) {
@@ -303,6 +310,8 @@ class BleProtocol {
           RecordingControlAction.resume =>
             proto.RecordingAction.RECORDING_RESUME,
         },
+        // proto3 optional — omitted unless the app pinned a record quality.
+        quality: _toProtoQuality(quality),
       ),
     ),
     RawCaptureControlCommand(:final action, :final captureGroupId) =>
@@ -322,16 +331,20 @@ class BleProtocol {
           captureGroupId: captureGroupId,
         ),
       ),
-    StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
-      correlationId: correlationId,
-      streamingControl: proto.StreamingControlCommand(
-        action: switch (action) {
-          StreamingControlAction.start => proto.StreamingAction.STREAMING_START,
-          StreamingControlAction.stop => proto.StreamingAction.STREAMING_STOP,
-        },
-        destination: rtmpUrl ?? '',
+    StreamingControlCommand(:final action, :final rtmpUrl, :final quality) =>
+      proto.Command(
+        correlationId: correlationId,
+        streamingControl: proto.StreamingControlCommand(
+          action: switch (action) {
+            StreamingControlAction.start =>
+              proto.StreamingAction.STREAMING_START,
+            StreamingControlAction.stop => proto.StreamingAction.STREAMING_STOP,
+          },
+          destination: rtmpUrl ?? '',
+          // proto3 optional — omitted unless the app pinned a stream quality.
+          quality: _toProtoQuality(quality),
+        ),
       ),
-    ),
     MatchControlCommand(:final action, :final period) => proto.Command(
       correlationId: correlationId,
       matchControl: proto.MatchControlCommand(
@@ -458,6 +471,15 @@ class BleProtocol {
                 firmwareVersion: info.firmwareVersion,
                 model: info.model,
                 protocolVersion: info.protocolVersion,
+                supportedModes: info.supportedModes
+                    .map(
+                      (q) => VideoMode(
+                        width: q.width,
+                        height: q.height,
+                        fps: q.fps,
+                      ),
+                    )
+                    .toList(),
               )
               as T?,
         );
