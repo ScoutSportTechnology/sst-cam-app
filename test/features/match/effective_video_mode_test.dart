@@ -6,23 +6,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/models/video_mode.dart';
 import 'package:sst_cam_app/features/match/setup_screen.dart';
 
-const _1080p30 = VideoMode(width: 1920, height: 1080, fps: 30);
-const _720p60 = VideoMode(width: 1280, height: 720, fps: 60);
-const _720p30 = VideoMode(width: 1280, height: 720, fps: 30);
-const _advertised = [_1080p30, _720p60, _720p30];
+const _mode1080p30 = VideoMode(width: 1920, height: 1080, fps: 30);
+const _mode720p60 = VideoMode(width: 1280, height: 720, fps: 60);
+const _mode720p30 = VideoMode(width: 1280, height: 720, fps: 30);
+const _advertised = [_mode1080p30, _mode720p60, _mode720p30];
 
 void main() {
   test('empty modes → null (no selection possible)', () {
-    expect(effectiveVideoMode(_1080p30, const []), isNull);
+    expect(effectiveVideoMode(_mode1080p30, const []), isNull);
     expect(effectiveVideoMode(null, const []), isNull);
   });
 
   test('held pick is kept while still advertised', () {
-    expect(effectiveVideoMode(_720p60, _advertised), _720p60);
+    expect(effectiveVideoMode(_mode720p60, _advertised), _mode720p60);
   });
 
   test('no held pick → default (preferred 1080p30 when advertised)', () {
-    expect(effectiveVideoMode(null, _advertised), _1080p30);
+    expect(effectiveVideoMode(null, _advertised), _mode1080p30);
   });
 
   test(
@@ -34,14 +34,14 @@ void main() {
       final result = effectiveVideoMode(stale, _advertised);
       expect(result, isNot(stale));
       expect(_advertised.contains(result), isTrue);
-      expect(result, _1080p30); // preferred is advertised
+      expect(result, _mode1080p30); // preferred is advertised
     },
   );
 
   test('default falls back to first when preferred not advertised', () {
-    const modes = [_720p60, _720p30]; // no 1080p30
-    expect(effectiveVideoMode(null, modes), _720p60);
+    const modes = [_mode720p60, _mode720p30]; // no 1080p30
+    expect(effectiveVideoMode(null, modes), _mode720p60);
     // A stale 1080p30 also falls back to first here.
-    expect(effectiveVideoMode(_1080p30, modes), _720p60);
+    expect(effectiveVideoMode(_mode1080p30, modes), _mode720p60);
   });
 }
