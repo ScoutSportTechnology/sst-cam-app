@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/ble/ble_providers.dart';
-import '../../../core/models/preview_layout.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -12,7 +11,7 @@ import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 
 /// Diagnostic → Calibration → Camera: tune the postprocessor white-balance gains
-/// against the live both-camera preview to neutralize the IMX477 magenta cast.
+/// against the live preview to neutralize the IMX477 magenta cast.
 /// Slider drags are debounced and pushed to the firmware live (it applies them on
 /// the next frame and logs the values so a dialed-in setting can be persisted as
 /// the shipping default). Gains multiply the BGR channels; 1.0 = identity.
@@ -36,15 +35,14 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
   @override
   void initState() {
     super.initState();
-    // Force the both-camera layout so tuning is verified on both sensors at once.
+    // Just enable the live preview in whatever layout is already active — the
+    // magenta cast is module-uniform, so a single-camera preview is a sufficient
+    // reference. Forcing a layout switch here renegotiates the RTSP pipeline
+    // mid-startup and the player loops on "reconnecting".
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final id = ref.read(activeCameraIdProvider);
       if (id == null) return;
       ref.read(livePreviewEnabledProvider(id).notifier).state = true;
-      ref
-          .read(bleServiceProvider)
-          .setPreviewLayout(id, PreviewLayout.sideBySide)
-          .ignore();
     });
   }
 
@@ -102,93 +100,98 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                 ),
               ),
             )
-          : ListView(
-              padding: const EdgeInsets.all(12),
+          : Column(
               children: [
-                // Both-camera live preview — the reference for tuning.
+                // Full-width live preview — same presentation as the camera hero
+                // card (no aspect override), so it's large enough to judge colour.
                 LivePreviewView(
                   deviceId: id,
-                  label: 'Both cameras',
-                  aspect: 32 / 9,
+                  label: 'Live preview',
                   autoStart: true,
                   showButtons: false,
                 ),
-                const SizedBox(height: 12),
-                WfCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.all(12),
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'White balance',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
+                      WfCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'White balance',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Switch(
+                                  value: _enabled,
+                                  onChanged: (v) {
+                                    setState(() => _enabled = v);
+                                    _push();
+                                  },
+                                ),
+                              ],
                             ),
-                          ),
-                          Switch(
-                            value: _enabled,
-                            onChanged: (v) {
-                              setState(() => _enabled = v);
-                              _push();
-                            },
-                          ),
-                        ],
-                      ),
-                      Text(
-                        'Drag until the preview looks neutral (no pink / green '
-                        'tint). 1.00 = no change.',
-                        style: TextStyle(color: T.ink2, fontSize: 12),
+                            Text(
+                              'Drag until the preview looks neutral (no pink / green '
+                              'tint). 1.00 = no change.',
+                              style: TextStyle(color: T.ink2, fontSize: 12),
+                            ),
+                            const SizedBox(height: 8),
+                            _GainSlider(
+                              label: 'Red',
+                              color: const Color(0xFFE0564E),
+                              value: _r,
+                              enabled: _enabled,
+                              onChanged: (v) {
+                                setState(() => _r = v);
+                                _push();
+                              },
+                            ),
+                            _GainSlider(
+                              label: 'Green',
+                              color: const Color(0xFF4FAF5A),
+                              value: _g,
+                              enabled: _enabled,
+                              onChanged: (v) {
+                                setState(() => _g = v);
+                                _push();
+                              },
+                            ),
+                            _GainSlider(
+                              label: 'Blue',
+                              color: const Color(0xFF4E7BE0),
+                              value: _b,
+                              enabled: _enabled,
+                              onChanged: (v) {
+                                setState(() => _b = v);
+                                _push();
+                              },
+                            ),
+                            const SizedBox(height: 4),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _enabled ? _reset : null,
+                                child: const Text('Reset to 1.00'),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      _GainSlider(
-                        label: 'Red',
-                        color: const Color(0xFFE0564E),
-                        value: _r,
-                        enabled: _enabled,
-                        onChanged: (v) {
-                          setState(() => _r = v);
-                          _push();
-                        },
-                      ),
-                      _GainSlider(
-                        label: 'Green',
-                        color: const Color(0xFF4FAF5A),
-                        value: _g,
-                        enabled: _enabled,
-                        onChanged: (v) {
-                          setState(() => _g = v);
-                          _push();
-                        },
-                      ),
-                      _GainSlider(
-                        label: 'Blue',
-                        color: const Color(0xFF4E7BE0),
-                        value: _b,
-                        enabled: _enabled,
-                        onChanged: (v) {
-                          setState(() => _b = v);
-                          _push();
-                        },
-                      ),
-                      const SizedBox(height: 4),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: _enabled ? _reset : null,
-                          child: const Text('Reset to 1.00'),
-                        ),
+                      Text(
+                        'The camera logs the applied gains — read them from the '
+                        'console to bake a tuned setting as the saved default.',
+                        style: TextStyle(color: T.ink2, fontSize: 11),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'The camera logs the applied gains — read them from the console '
-                  'to bake a tuned setting as the saved default.',
-                  style: TextStyle(color: T.ink2, fontSize: 11),
                 ),
               ],
             ),
