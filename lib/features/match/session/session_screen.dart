@@ -188,7 +188,9 @@ class SessionScreen extends ConsumerWidget {
                           RecordingControlCommand(
                             action: RecordingControlAction.start,
                             quality: state.recordQuality,
-                            captureGroupId: const Uuid().v4(),
+                            captureGroupId:
+                                ref.read(liveMatchProvider.notifier).matchId ??
+                                const Uuid().v4(),
                           ),
                         );
                       } else if (currentRec == RecState.recording) {
@@ -369,7 +371,8 @@ class SessionScreen extends ConsumerWidget {
         RecordingControlCommand(
           action: RecordingControlAction.start,
           quality: state.recordQuality,
-          captureGroupId: const Uuid().v4(),
+          captureGroupId:
+              ref.read(liveMatchProvider.notifier).matchId ?? const Uuid().v4(),
         ),
       );
     }
