@@ -100,6 +100,14 @@ class _StubBleService implements BleService {
     height: 720,
   );
   @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+  }) async {}
+  @override
   Future<ExportJob> requestOverlayExport(
     String deviceId,
     String recordingId,

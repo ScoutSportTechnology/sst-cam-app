@@ -472,6 +472,30 @@ class BleServiceImpl implements BleService {
   }
 
   @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+  }) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      SetCameraCalibrationCommand(
+        rGain: rGain,
+        gGain: gGain,
+        bGain: bGain,
+        enabled: enabled,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setCameraCalibration failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
   Future<NetworkConfigResult> setNetworkConfig(
     String deviceId,
     NetworkConfig config,

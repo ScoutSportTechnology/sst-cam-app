@@ -405,6 +405,21 @@ class BleProtocol {
         layout: _dartPreviewLayoutToProto(layout),
       ),
     ),
+    SetCameraCalibrationCommand(
+      :final rGain,
+      :final gGain,
+      :final bGain,
+      :final enabled,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        setCameraCalibration: proto.SetCameraCalibrationCommand(
+          rGain: rGain,
+          gGain: gGain,
+          bGain: bGain,
+          enabled: enabled,
+        ),
+      ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
       exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
@@ -609,6 +624,10 @@ class BleProtocol {
         // Motorized-focus response (U8): mode + position + autofocus_available.
         // Not decoded app-side yet — the focus control UI (U8 app) will map it.
         // OK with null for now so the exhaustive switch stays complete.
+        return BleCommandResponse.ok(null as T?);
+      case proto.CommandResponse_Payload.cameraCalibration:
+        // WB calibration echo — the sliders are the source of truth, so we don't
+        // decode the gains back; OK with null keeps the switch exhaustive.
         return BleCommandResponse.ok(null as T?);
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/

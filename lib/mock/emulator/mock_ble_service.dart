@@ -806,6 +806,21 @@ class MockBleService implements BleService {
             : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
       ),
     ),
+    SetCameraCalibrationCommand(
+      :final rGain,
+      :final gGain,
+      :final bGain,
+      :final enabled,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        setCameraCalibration: proto.SetCameraCalibrationCommand(
+          rGain: rGain,
+          gGain: gGain,
+          bGain: bGain,
+          enabled: enabled,
+        ),
+      ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
       exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
@@ -972,6 +987,22 @@ class MockBleService implements BleService {
           height: 720,
         ),
       ),
+      SetCameraCalibrationCommand(
+        :final rGain,
+        :final gGain,
+        :final bGain,
+        :final enabled,
+      ) =>
+        proto.CommandResponse(
+          correlationId: correlationId,
+          status: proto.ResponseStatus.OK,
+          cameraCalibration: proto.CameraCalibrationResponse(
+            rGain: rGain,
+            gGain: gGain,
+            bGain: bGain,
+            enabled: enabled,
+          ),
+        ),
       ExportOverlayedCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
@@ -1137,6 +1168,7 @@ class MockBleService implements BleService {
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
       BannerEventCommand() => BleCommandResponse.ok(null as T?),
       PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
+      SetCameraCalibrationCommand() => BleCommandResponse.ok(null as T?),
       SetPreviewLayoutCommand() => BleCommandResponse.ok(
         PreviewLayoutResult(
               layout:
@@ -1294,6 +1326,7 @@ class MockBleService implements BleService {
 
   /// The last layout requested via [setPreviewLayout] (#6 A6b).
   PreviewLayout lastPreviewLayout = PreviewLayout.single;
+  ({double r, double g, double b, bool enabled})? lastCameraCalibration;
 
   /// When true the next [setPreviewLayout] call throws [BleTimeoutException].
   bool failNextSetPreviewLayout = false;
@@ -1385,6 +1418,18 @@ class MockBleService implements BleService {
         height: 720,
       ),
     };
+  }
+
+  @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastCameraCalibration = (r: rGain, g: gGain, b: bGain, enabled: enabled);
   }
 
   @override

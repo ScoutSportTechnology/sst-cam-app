@@ -118,6 +118,19 @@ abstract class BleService {
     PreviewLayout layout,
   );
 
+  /// Apply live per-channel white-balance gains to the camera's postprocessor
+  /// (diagnostic Calibration → Camera sliders, to neutralize the IMX477 magenta
+  /// cast). Fire-and-forget: the correction takes effect on the next preview
+  /// frame. Gains multiply the BGR channels (1.0 = identity); [enabled] false
+  /// bypasses correction.
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled,
+  });
+
   /// Request an on-demand overlayed burn (#6 A6c) of the clean recording
   /// [recordingId]. Returns an [ExportJob] in the PENDING state; poll it with
   /// [pollOverlayExport]. Throws on a `LIVE_SESSION_ACTIVE` rejection (a burn

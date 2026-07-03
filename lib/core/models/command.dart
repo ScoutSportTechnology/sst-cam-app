@@ -265,6 +265,24 @@ class SetPreviewLayoutCommand extends BleCommand {
   final PreviewLayout layout;
 }
 
+/// Live per-channel white-balance gain calibration for the camera's
+/// postprocessor — the diagnostic Calibration → Camera screen drives these with
+/// sliders against the live preview to neutralize the IMX477 magenta cast.
+/// Gains multiply the BGR channels (1.0 = identity); [enabled] false bypasses
+/// correction. Fire-and-forget: applied live, no meaningful payload back.
+class SetCameraCalibrationCommand extends BleCommand {
+  SetCameraCalibrationCommand({
+    required this.rGain,
+    required this.gGain,
+    required this.bGain,
+    this.enabled = true,
+  });
+  final double rGain;
+  final double gGain;
+  final double bGain;
+  final bool enabled;
+}
+
 /// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies
 /// with an [ExportJob] in the PENDING state; poll it with [PollExportCommand].
 class ExportOverlayedCommand extends BleCommand {
