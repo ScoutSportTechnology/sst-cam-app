@@ -81,8 +81,9 @@ class _DebugPageState extends ConsumerState<DebugPage>
         await db.delete(db.usersTable).go();
       });
 
-      // Re-apply base seed and optional mock fixtures.
-      await db.seedBaseData();
+      // Re-apply base seed and optional mock fixtures. This is a DEV reset, so
+      // pin the seeded user to kDefaultUserId to match the mock fixtures below.
+      await db.seedBaseData(userId: kDefaultUserId);
       await ref.read(devReseedProvider)();
 
       // Reset the active user to the default so all provider scopes

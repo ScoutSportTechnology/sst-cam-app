@@ -66,8 +66,9 @@ Future<void> _wipeToBaseData(
     await db.delete(db.usersTable).go();
   });
   // Re-seed the base scaffolding (default user + built-in presets) so provider
-  // scopes that require an active user keep working.
-  await db.seedBaseData();
+  // scopes that require an active user keep working. Pin to kDefaultUserId here
+  // (dev/mock) so the emulator fixtures — which reference that id — line up.
+  await db.seedBaseData(userId: kDefaultUserId);
 
   // Delete the on-device video files for the wiped past matches.
   for (final id in onDeviceIds) {
