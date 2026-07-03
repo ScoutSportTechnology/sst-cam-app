@@ -25,14 +25,14 @@ class CameraCalibrationPage extends ConsumerStatefulWidget {
 }
 
 class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
-  // Seeded at the firmware's shipping default (mild magenta correction) so the
-  // sliders reflect what the camera is already applying.
-  double _r = 0.82;
-  double _g = 1.0;
+  // Seeded at the firmware's shipping defaults so the sliders reflect what the
+  // camera is already applying (dialed in on-device against the RBPCV3 IMX477).
+  double _r = 0.86;
+  double _g = 0.94;
   double _b = 0.84;
-  double _saturation = 1.0;
-  double _contrast = 1.0;
-  double _brightness = 0.0;
+  double _saturation = 1.10;
+  double _contrast = 1.20;
+  double _brightness = -0.05;
   bool _enabled = true;
   Timer? _debounce;
 
