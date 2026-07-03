@@ -140,6 +140,19 @@ abstract class BleService {
   /// the firmware couldn't measure (too dark / no frame).
   Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId);
 
+  /// Motorized-focus control (ArduCAM VCM). [mode] auto = continuous autofocus;
+  /// manual holds [position] (0–1000 VCM code). [cameraIndex] null = both cameras.
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  });
+
+  /// Manual tracking — pick which camera (0/1) feeds the record/stream/preview
+  /// output. The human override of the future AI camera decision.
+  Future<void> setActiveCamera(String deviceId, int cameraIndex);
+
   /// Request an on-demand overlayed burn (#6 A6c) of the clean recording
   /// [recordingId]. Returns an [ExportJob] in the PENDING state; poll it with
   /// [pollOverlayExport]. Throws on a `LIVE_SESSION_ACTIVE` rejection (a burn

@@ -518,6 +518,41 @@ class BleServiceImpl implements BleService {
   }
 
   @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      CameraFocusCommand(
+        mode: mode,
+        position: position,
+        cameraIndex: cameraIndex,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setCameraFocus failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      SetActiveCameraCommand(cameraIndex: cameraIndex),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setActiveCamera failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
   Future<NetworkConfigResult> setNetworkConfig(
     String deviceId,
     NetworkConfig config,

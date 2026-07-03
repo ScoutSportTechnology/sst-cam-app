@@ -430,6 +430,21 @@ class BleProtocol {
       correlationId: correlationId,
       autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
     ),
+    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
+      proto.Command(
+        correlationId: correlationId,
+        cameraFocus: proto.CameraFocusControlCommand(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          cameraIndex: cameraIndex,
+        ),
+      ),
+    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
+      correlationId: correlationId,
+      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
+    ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
       exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
@@ -632,8 +647,10 @@ class BleProtocol {
         );
       case proto.CommandResponse_Payload.cameraFocus:
         // Motorized-focus response (U8): mode + position + autofocus_available.
-        // Not decoded app-side yet — the focus control UI (U8 app) will map it.
-        // OK with null for now so the exhaustive switch stays complete.
+        // Fire-and-forget from the UI (optimistic); OK with null.
+        return BleCommandResponse.ok(null as T?);
+      case proto.CommandResponse_Payload.activeCamera:
+        // Manual tracking ack — the toggle is optimistic; OK with null.
         return BleCommandResponse.ok(null as T?);
       case proto.CommandResponse_Payload.cameraCalibration:
         // The firmware-applied gains — auto-white-balance uses them to seed the

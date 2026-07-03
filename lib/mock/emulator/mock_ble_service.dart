@@ -825,6 +825,21 @@ class MockBleService implements BleService {
       correlationId: correlationId,
       autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
     ),
+    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
+      proto.Command(
+        correlationId: correlationId,
+        cameraFocus: proto.CameraFocusControlCommand(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          cameraIndex: cameraIndex,
+        ),
+      ),
+    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
+      correlationId: correlationId,
+      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
+    ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
       exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
@@ -1018,6 +1033,22 @@ class MockBleService implements BleService {
           enabled: true,
         ),
       ),
+      CameraFocusCommand(:final mode, :final position) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        cameraFocus: proto.CameraFocusResponse(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          autofocusAvailable: true,
+        ),
+      ),
+      SetActiveCameraCommand(:final cameraIndex) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        activeCamera: proto.ActiveCameraResponse(cameraIndex: cameraIndex),
+      ),
       ExportOverlayedCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
@@ -1201,6 +1232,8 @@ class MockBleService implements BleService {
             )
             as T?,
       ),
+      CameraFocusCommand() => BleCommandResponse.ok(null as T?),
+      SetActiveCameraCommand() => BleCommandResponse.ok(null as T?),
       SetPreviewLayoutCommand() => BleCommandResponse.ok(
         PreviewLayoutResult(
               layout:
@@ -1485,6 +1518,26 @@ class MockBleService implements BleService {
       enabled: result.enabled,
     );
     return result;
+  }
+
+  ({CameraFocusMode mode, int? position, int? cameraIndex})? lastFocus;
+  int lastActiveCamera = 0;
+
+  @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastFocus = (mode: mode, position: position, cameraIndex: cameraIndex);
+  }
+
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastActiveCamera = cameraIndex;
   }
 
   @override

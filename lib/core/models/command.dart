@@ -297,6 +297,26 @@ class AutoWhiteBalanceCommand extends BleCommand {
   AutoWhiteBalanceCommand();
 }
 
+enum CameraFocusMode { auto, manual }
+
+/// Motorized-focus control for the ArduCAM VCM lens. [mode] auto hands the camera
+/// to continuous autofocus; manual holds [position] (0–1000 VCM code). [cameraIndex]
+/// null = both cameras.
+class CameraFocusCommand extends BleCommand {
+  CameraFocusCommand({required this.mode, this.position, this.cameraIndex});
+  final CameraFocusMode mode;
+  final int? position;
+  final int? cameraIndex;
+}
+
+/// Manual camera selection (manual tracking) — picks which camera feeds the
+/// record/stream/single-preview output. The human override of the future AI
+/// camera decision. [cameraIndex] 0 or 1.
+class SetActiveCameraCommand extends BleCommand {
+  SetActiveCameraCommand({required this.cameraIndex});
+  final int cameraIndex;
+}
+
 /// Firmware-applied white-balance gains — returned by [AutoWhiteBalanceCommand]
 /// (and echoed by SetCameraCalibration) so the calibration sliders can reflect
 /// what the camera is actually applying.

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/ble/ble_providers.dart';
+import '../../../core/models/command.dart' show CameraFocusMode;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/widgets/wf_button.dart';
@@ -36,6 +37,12 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
   bool _enabled = true;
   Timer? _debounce;
 
+  // Focus (U8) + manual tracking.
+  bool _autofocus = false;
+  double _focus = 320;
+  Timer? _focusDebounce;
+  int _activeCamera = 0;
+
   @override
   void initState() {
     super.initState();
@@ -53,7 +60,31 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _focusDebounce?.cancel();
     super.dispose();
+  }
+
+  void _pushFocus() {
+    final id = ref.read(activeCameraIdProvider);
+    if (id == null) return;
+    _focusDebounce?.cancel();
+    _focusDebounce = Timer(const Duration(milliseconds: 120), () {
+      ref
+          .read(bleServiceProvider)
+          .setCameraFocus(
+            id,
+            mode: _autofocus ? CameraFocusMode.auto : CameraFocusMode.manual,
+            position: _autofocus ? null : _focus.round(),
+          )
+          .ignore();
+    });
+  }
+
+  void _setActiveCamera(int index) {
+    final id = ref.read(activeCameraIdProvider);
+    if (id == null) return;
+    setState(() => _activeCamera = index);
+    ref.read(bleServiceProvider).setActiveCamera(id, index).ignore();
   }
 
   void _push() {
@@ -274,6 +305,95 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                           ],
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      // Focus (U8) — motorized VCM lens.
+                      WfCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Autofocus',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Switch(
+                                  value: _autofocus,
+                                  onChanged: (v) {
+                                    setState(() => _autofocus = v);
+                                    _pushFocus();
+                                  },
+                                ),
+                              ],
+                            ),
+                            Text(
+                              _autofocus
+                                  ? 'Continuous autofocus is on.'
+                                  : 'Manual focus — drag to set both lenses '
+                                        '(0 = near, 1000 = far).',
+                              style: TextStyle(color: T.ink2, fontSize: 12),
+                            ),
+                            const SizedBox(height: 4),
+                            _GainSlider(
+                              label: 'Focus',
+                              color: T.accent,
+                              value: _focus,
+                              min: 0,
+                              max: 1000,
+                              enabled: !_autofocus,
+                              onChanged: (v) {
+                                setState(() => _focus = v);
+                                _pushFocus();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Manual tracking (U-manual) — output camera override.
+                      WfCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Output camera',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
+                              'Which camera feeds the recording / stream '
+                              '(manual tracking).',
+                              style: TextStyle(color: T.ink2, fontSize: 12),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _CamButton(
+                                    label: 'Camera 1',
+                                    active: _activeCamera == 0,
+                                    onTap: () => _setActiveCamera(0),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _CamButton(
+                                    label: 'Camera 2',
+                                    active: _activeCamera == 1,
+                                    onTap: () => _setActiveCamera(1),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         'The camera logs the applied gains — read them from the '
@@ -346,6 +466,43 @@ class _GainSlider extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CamButton extends StatelessWidget {
+  const _CamButton({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? T.accent : T.fillSoft,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: active ? T.accent : T.hair),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            color: active ? T.accentInk : T.ink2,
+          ),
+        ),
+      ),
     );
   }
 }
