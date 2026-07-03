@@ -410,6 +410,9 @@ class BleProtocol {
       :final gGain,
       :final bGain,
       :final enabled,
+      :final saturation,
+      :final contrast,
+      :final brightness,
     ) =>
       proto.Command(
         correlationId: correlationId,
@@ -418,6 +421,9 @@ class BleProtocol {
           gGain: gGain,
           bGain: bGain,
           enabled: enabled,
+          saturation: saturation,
+          contrast: contrast,
+          brightness: brightness,
         ),
       ),
     AutoWhiteBalanceCommand() => proto.Command(
@@ -639,6 +645,9 @@ class BleProtocol {
                 gGain: cc.gGain,
                 bGain: cc.bGain,
                 enabled: cc.enabled,
+                saturation: cc.saturation,
+                contrast: cc.contrast,
+                brightness: cc.brightness,
               )
               as T?,
         );

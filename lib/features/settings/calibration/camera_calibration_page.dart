@@ -30,6 +30,9 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
   double _r = 0.82;
   double _g = 1.0;
   double _b = 0.84;
+  double _saturation = 1.0;
+  double _contrast = 1.0;
+  double _brightness = 0.0;
   bool _enabled = true;
   Timer? _debounce;
 
@@ -66,6 +69,9 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
             gGain: _g,
             bGain: _b,
             enabled: _enabled,
+            saturation: _saturation,
+            contrast: _contrast,
+            brightness: _brightness,
           )
           .ignore();
     });
@@ -76,6 +82,9 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
       _r = 1.0;
       _g = 1.0;
       _b = 1.0;
+      _saturation = 1.0;
+      _contrast = 1.0;
+      _brightness = 0.0;
     });
     _push();
   }
@@ -91,6 +100,10 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
           _g = result.gGain.clamp(0.3, 1.7);
           _b = result.bGain.clamp(0.3, 1.7);
           _enabled = result.enabled;
+          // Auto-WB preserves these; reflect what the camera reports back.
+          _saturation = result.saturation.clamp(0.0, 2.0);
+          _contrast = result.contrast.clamp(0.5, 2.0);
+          _brightness = result.brightness.clamp(-0.5, 0.5);
         });
       }
     } catch (_) {
@@ -213,6 +226,43 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                                 _push();
                               },
                             ),
+                            const Divider(height: 18, color: T.hair),
+                            _GainSlider(
+                              label: 'Sat',
+                              color: T.ink,
+                              value: _saturation,
+                              min: 0.0,
+                              max: 2.0,
+                              enabled: _enabled,
+                              onChanged: (v) {
+                                setState(() => _saturation = v);
+                                _push();
+                              },
+                            ),
+                            _GainSlider(
+                              label: 'Contrast',
+                              color: T.ink,
+                              value: _contrast,
+                              min: 0.5,
+                              max: 2.0,
+                              enabled: _enabled,
+                              onChanged: (v) {
+                                setState(() => _contrast = v);
+                                _push();
+                              },
+                            ),
+                            _GainSlider(
+                              label: 'Bright',
+                              color: T.ink,
+                              value: _brightness,
+                              min: -0.5,
+                              max: 0.5,
+                              enabled: _enabled,
+                              onChanged: (v) {
+                                setState(() => _brightness = v);
+                                _push();
+                              },
+                            ),
                             const SizedBox(height: 4),
                             Align(
                               alignment: Alignment.centerRight,
@@ -246,6 +296,8 @@ class _GainSlider extends StatelessWidget {
     required this.value,
     required this.enabled,
     required this.onChanged,
+    this.min = 0.3,
+    this.max = 1.7,
   });
 
   final String label;
@@ -253,6 +305,8 @@ class _GainSlider extends StatelessWidget {
   final double value;
   final bool enabled;
   final ValueChanged<double> onChanged;
+  final double min;
+  final double max;
 
   @override
   Widget build(BuildContext context) {
@@ -271,10 +325,10 @@ class _GainSlider extends StatelessWidget {
         ),
         Expanded(
           child: Slider(
-            value: value,
-            min: 0.3,
-            max: 1.7,
-            divisions: 140,
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: ((max - min) * 100).round(),
             activeColor: color,
             label: value.toStringAsFixed(2),
             onChanged: enabled ? onChanged : null,

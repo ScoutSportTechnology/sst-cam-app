@@ -1459,10 +1459,15 @@ class MockBleService implements BleService {
     required double gGain,
     required double bGain,
     bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
   }) async {
     await Future.delayed(const Duration(milliseconds: 20));
     lastCameraCalibration = (r: rGain, g: gGain, b: bGain, enabled: enabled);
   }
+  // saturation/contrast/brightness are accepted by the interface below; the mock
+  // only tracks the WB gains for assertions.
 
   @override
   Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async {

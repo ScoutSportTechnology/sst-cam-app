@@ -478,6 +478,9 @@ class BleServiceImpl implements BleService {
     required double gGain,
     required double bGain,
     bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
   }) async {
     // Decodes to a CameraCalibrationResult echo; we ignore it (the sliders are the
     // source of truth for a manual set).
@@ -488,6 +491,9 @@ class BleServiceImpl implements BleService {
         gGain: gGain,
         bGain: bGain,
         enabled: enabled,
+        saturation: saturation,
+        contrast: contrast,
+        brightness: brightness,
       ),
     );
     if (!resp.isOk) {

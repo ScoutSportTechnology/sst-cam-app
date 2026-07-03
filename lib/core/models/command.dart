@@ -276,11 +276,17 @@ class SetCameraCalibrationCommand extends BleCommand {
     required this.gGain,
     required this.bGain,
     this.enabled = true,
+    this.saturation = 1.0,
+    this.contrast = 1.0,
+    this.brightness = 0.0,
   });
   final double rGain;
   final double gGain;
   final double bGain;
   final bool enabled;
+  final double saturation;
+  final double contrast;
+  final double brightness;
 }
 
 /// One-shot auto white-balance: the firmware measures the current frame (point
@@ -300,11 +306,17 @@ class CameraCalibrationResult {
     required this.gGain,
     required this.bGain,
     required this.enabled,
+    this.saturation = 1.0,
+    this.contrast = 1.0,
+    this.brightness = 0.0,
   });
   final double rGain;
   final double gGain;
   final double bGain;
   final bool enabled;
+  final double saturation;
+  final double contrast;
+  final double brightness;
 }
 
 /// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies

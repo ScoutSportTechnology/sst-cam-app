@@ -129,6 +129,9 @@ abstract class BleService {
     required double gGain,
     required double bGain,
     bool enabled,
+    double saturation,
+    double contrast,
+    double brightness,
   });
 
   /// One-shot auto white-balance: the firmware measures the current frame (point

@@ -106,6 +106,9 @@ class _StubBleService implements BleService {
     required double gGain,
     required double bGain,
     bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
   }) async {}
   @override
   Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async =>
