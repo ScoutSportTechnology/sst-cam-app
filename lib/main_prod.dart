@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import 'app.dart';
 import 'core/config/env.dart';
@@ -18,6 +19,11 @@ Future<void> main() async {
   // Capture debugPrint into an in-app ring buffer so the developer Logs viewer
   // works without adb (the Settings > Developer > Logs surface is stage-only).
   LogService.instance.attach();
+  LogService.instance.wireLogging();
+  Logger('App').info(
+    'SST Cam started · env=$kAppEnv · '
+    'build=${const String.fromEnvironment('APP_VERSION', defaultValue: 'dev')}',
+  );
 
   final container = ProviderContainer(overrides: shippedOverrides(kAppEnv));
 

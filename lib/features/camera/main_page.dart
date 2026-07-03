@@ -56,20 +56,28 @@ class MainPage extends ConsumerWidget {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-        children: [
-          _HeroCameraCard(
-            deviceId: activeId,
-            device: device,
-            isLive: connState == CameraConnectionState.connected,
-          ),
-          const SizedBox(height: 14),
-          const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
-          _TelemetryGrid(telemetry: telemetry),
-          const SizedBox(height: 16),
-          const Center(child: WfNote('One camera at a time')),
-        ],
+      // Compact enough to fit a phone viewport without scrolling (the point of
+      // #1 — telemetry was trimmed to a flatter 2×2 so the hero + stats fit).
+      // Kept in a SingleChildScrollView rather than a bare Column so a genuinely
+      // short viewport (split-screen, small device, landscape) scrolls gracefully
+      // instead of throwing a RenderFlex overflow — on a normal phone it fits, so
+      // it never actually scrolls.
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        child: Column(
+          children: [
+            _HeroCameraCard(
+              deviceId: activeId,
+              device: device,
+              isLive: connState == CameraConnectionState.connected,
+            ),
+            const SizedBox(height: 12),
+            const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
+            _TelemetryGrid(telemetry: telemetry),
+            const SizedBox(height: 8),
+            const Center(child: WfNote('One camera at a time')),
+          ],
+        ),
       ),
     );
   }
@@ -125,6 +133,7 @@ class _HeroCameraCard extends ConsumerWidget {
         border: Border.all(color: T.hair, width: 1),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Video surface — buttons are in the action row below, not overlaid.
@@ -314,14 +323,15 @@ class _TelemetryGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final battery = _battery(telemetry);
     final storage = _storage(telemetry);
-    final wifi = _wifi(telemetry);
+    final cpu = _cpu(telemetry);
     final temp = _temp(telemetry);
 
     return GridView.count(
       crossAxisCount: 2,
-      crossAxisSpacing: 8,
-      mainAxisSpacing: 8,
-      childAspectRatio: 2.0,
+      crossAxisSpacing: 6,
+      mainAxisSpacing: 6,
+      // Flatter tiles so the four stats fit under the hero without scrolling.
+      childAspectRatio: 2.6,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
@@ -343,11 +353,12 @@ class _TelemetryGrid extends StatelessWidget {
           ),
         ),
         _TelemetryTile(
-          label: 'WiFi',
-          value: wifi.value,
-          accessory: SignalIndicator(
-            bars: wifi.bars,
-            size: _TelemetryGrid.IconSize,
+          label: 'CPU',
+          value: cpu,
+          accessory: const Icon(
+            Icons.memory,
+            size: _TelemetryGrid.IconSize * 1.8,
+            color: T.ink2,
           ),
         ),
         _TelemetryTile(
@@ -380,18 +391,10 @@ class _TelemetryGrid extends StatelessWidget {
     return '${freeGb.toStringAsFixed(0)} GB free';
   }
 
-  ({String value, int bars}) _wifi(DeviceTelemetry? t) {
-    if (t == null) return (value: '—', bars: 0);
-    if (t.wifiState != WifiState.connected) return (value: 'Off', bars: 0);
-    final dbm = t.wifiSignalDbm ?? -90;
-    final bars = dbm > -55
-        ? 4
-        : dbm > -65
-        ? 3
-        : dbm > -75
-        ? 2
-        : 1;
-    return (value: 'AP · ready', bars: bars);
+  String _cpu(DeviceTelemetry? t) {
+    // cpuUsedPct is a 0.0–1.0 fraction from the firmware CPU-busy probe.
+    if (t == null) return '—';
+    return '${(t.cpuUsedPct * 100).round()}%';
   }
 
   String _temp(DeviceTelemetry? t) {

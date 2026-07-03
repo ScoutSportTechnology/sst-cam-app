@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../features/camera/camera_state.dart'
     show activeOutputCameraProvider;
 import '../ble/ble_providers.dart';
 import '../theme/tokens.dart';
+
+final _log = Logger('OutputCamera');
 
 /// Manual tracking — pick which physical camera (Cam 1 / Cam 2) feeds the
 /// record / stream / single-preview output. Sent live to the firmware
@@ -31,10 +34,14 @@ class OutputCameraToggle extends ConsumerWidget {
     final previous = notifier.state;
     if (previous == index) return;
 
+    _log.fine(
+      'output camera → cam$index (${index == 0 ? 'Left' : 'Right'}) (user)',
+    );
     notifier.state = index; // optimistic
     try {
       await ref.read(bleServiceProvider).setActiveCamera(id, index);
-    } catch (_) {
+    } catch (e) {
+      _log.warning('output camera switch failed', e);
       notifier.state = previous; // revert on failure
       if (context.mounted) {
         ScaffoldMessenger.of(

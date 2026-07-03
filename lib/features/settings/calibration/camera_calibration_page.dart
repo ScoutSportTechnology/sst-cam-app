@@ -183,7 +183,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                 ),
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     children: [
                       WfCard(
                         child: Column(
@@ -192,12 +192,11 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
+                                Text(
                                   'White balance',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
                                 ),
                                 Switch(
                                   value: _enabled,
@@ -208,11 +207,10 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                                 ),
                               ],
                             ),
-                            Text(
+                            const WfNote(
                               'Point the camera at a white or grey surface and tap '
                               'Auto to set white balance + saturation/contrast/'
                               'brightness, then fine-tune below. 1.00 = no change.',
-                              style: TextStyle(color: T.ink2, fontSize: 12),
                             ),
                             const SizedBox(height: 10),
                             WfButton(
@@ -257,7 +255,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                                 _push();
                               },
                             ),
-                            const Divider(height: 18, color: T.hair),
+                            const Divider(height: 18, color: T.rule),
                             _GainSlider(
                               label: 'Saturation',
                               color: T.ink,
@@ -297,9 +295,11 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             const SizedBox(height: 4),
                             Align(
                               alignment: Alignment.centerRight,
-                              child: TextButton(
+                              child: WfButton(
+                                label: 'Reset to 1.00',
+                                variant: WfButtonVariant.text,
+                                size: WfButtonSize.sm,
                                 onPressed: _enabled ? _reset : null,
-                                child: const Text('Reset to 1.00'),
                               ),
                             ),
                           ],
@@ -314,12 +314,11 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
+                                Text(
                                   'Autofocus',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
                                 ),
                                 Switch(
                                   value: _autofocus,
@@ -330,12 +329,11 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                                 ),
                               ],
                             ),
-                            Text(
+                            WfNote(
                               _autofocus
                                   ? 'Continuous autofocus is on.'
                                   : 'Manual focus — drag to set both lenses '
                                         '(0 = near, 1000 = far).',
-                              style: TextStyle(color: T.ink2, fontSize: 12),
                             ),
                             const SizedBox(height: 4),
                             _GainSlider(
@@ -354,10 +352,9 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
+                      const WfNote(
                         'The camera logs the applied gains — read them from the '
                         'console to bake a tuned setting as the saved default.',
-                        style: TextStyle(color: T.ink2, fontSize: 11),
                       ),
                     ],
                   ),
@@ -421,7 +418,7 @@ class _GainSlider extends StatelessWidget {
           child: Text(
             value.toStringAsFixed(2),
             textAlign: TextAlign.right,
-            style: const TextStyle(fontFeatures: [], fontSize: 12),
+            style: const TextStyle(fontFamily: T.mono, fontSize: 12),
           ),
         ),
       ],

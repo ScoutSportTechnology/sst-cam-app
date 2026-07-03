@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:logging/logging.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../models/proto/bluetooth.pb.dart' as proto;
@@ -40,6 +41,8 @@ Duration _remainingUntil(DateTime deadline) {
   final remaining = deadline.difference(DateTime.now());
   return remaining.isNegative ? Duration.zero : remaining;
 }
+
+final _log = Logger('BleService');
 
 class BleServiceImpl implements BleService {
   // Seeded so a late subscriber (e.g. re-entering the discovery page) replays the
@@ -203,6 +206,7 @@ class BleServiceImpl implements BleService {
 
   @override
   Future<void> connect(String deviceId) async {
+    _log.info('connecting to camera $deviceId');
     final device = BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
     // Reuse the persistent slot so any stream subscribed BEFORE connect (the
     // discovery row watches connectionStateStream at build time) receives the
@@ -269,6 +273,10 @@ class BleServiceImpl implements BleService {
       }
 
       conn._connController.add(CameraConnectionState.connected);
+      _log.info(
+        'connected to camera $deviceId '
+        '(proto v${info.payload!.protocolVersion})',
+      );
 
       // Poll telemetry / match state from here (not as a stream-subscribe side
       // effect) so the pollers' lifecycle is tied to the connection, and so a
@@ -290,6 +298,7 @@ class BleServiceImpl implements BleService {
         }
       });
     } catch (e) {
+      _log.warning('connect to camera $deviceId failed', e);
       conn._connController.add(CameraConnectionState.disconnected);
       conn.teardownConnection();
       if (e is BleConnectionException || e is BleProtocolVersionException) {
@@ -303,6 +312,7 @@ class BleServiceImpl implements BleService {
   Future<void> disconnect(String deviceId) async {
     final conn = _devices[deviceId];
     if (conn == null) return;
+    _log.info('disconnecting camera $deviceId');
     conn._connController.add(CameraConnectionState.disconnecting);
     await conn._device?.disconnect();
     conn._connController.add(CameraConnectionState.disconnected);

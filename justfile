@@ -118,7 +118,7 @@ run-phone ADDR:
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \
-         $FL run --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod -d {{ADDR}}'
+         $FL run --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod {{version_defines}} -d {{ADDR}}'
 
 # Final-check loop — build the SAME prod RELEASE artifact CI ships (AOT, no hot
 # reload) and install it, WITHOUT pushing or minting a release tag. Use
@@ -135,7 +135,7 @@ deploy-phone ADDR:
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \
-         $FL build apk --release --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod'; \
+         $FL build apk --release --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod {{version_defines}}'; \
      APK="build/app/outputs/flutter-apk/app-prod-release.apk"; \
      [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
      {{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \

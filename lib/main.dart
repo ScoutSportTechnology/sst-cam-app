@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import 'app.dart';
 import 'core/ble/ble_providers.dart';
@@ -27,6 +28,8 @@ Future<void> main() async {
 
   // Capture debugPrint into an in-app ring buffer for the developer Logs viewer.
   LogService.instance.attach();
+  LogService.instance.wireLogging();
+  Logger('App').info('SST Cam started · dev entry (mock backend)');
 
   DevConfig devConfig;
   try {
