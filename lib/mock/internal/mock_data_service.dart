@@ -111,12 +111,18 @@ class MockDataSeeder {
   final Dio? _httpClient;
 
   /// Seeds teams, players, matches, and streaming destinations from fixture
-  /// JSON files. The default user ('default-user') is assumed to already exist
-  /// (created by AppDatabase._seedBaseData via onCreate).
+  /// JSON files.
   ///
   /// After all DB rows are written, placeholder video files are created for
   /// every past match with sizeMb > 0 so the Video Library can detect them.
   Future<void> seed() async {
+    // Ensure the kDefaultUserId base user exists first. onCreate seeds the base
+    // user with a RANDOM per-install uuid (prod identity), NOT kDefaultUserId —
+    // but the team/destination fixtures reference kDefaultUserId, so without this
+    // the teams insert hits a FOREIGN KEY failure (787) and the whole seed rolls
+    // back (no dev/mock data). Idempotent, so safe on a pre-seeded DB.
+    await _db.seedBaseData(userId: kDefaultUserId);
+
     // Load all fixture files in parallel, then insert in dependency order
     // (teams must exist before matches/players reference them via FK).
     final [teams, matches, destinations, players] = await Future.wait([

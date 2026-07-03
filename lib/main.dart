@@ -50,14 +50,13 @@ Future<void> main() async {
       downloadBaseUrl: devConfig.downloadBaseUrl,
     );
   } catch (e, st) {
-    FlutterError.reportError(
-      FlutterErrorDetails(
-        exception: e,
-        stack: st,
-        library: 'applySeedData',
-        context: ErrorDescription('applying seedData=${devConfig.seedData}'),
-      ),
-    );
+    // Non-fatal: a seed failure must not brick startup. Reporting via
+    // FlutterError.reportError here (before runApp) crashed on a stack-trace
+    // demangle assertion and left the app stuck on the splash — on a physical
+    // phone the seed step can throw where it wouldn't on the emulator. Log it and
+    // boot with whatever seeded so the dev build is usable on-device without a
+    // camera.
+    debugPrint('applySeedData failed (seedData=${devConfig.seedData}): $e\n$st');
   }
 
   // The "Emulate camera" dev toggle picks the BACKEND, not just whether fake
