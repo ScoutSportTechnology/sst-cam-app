@@ -179,13 +179,13 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             ),
                             Text(
                               'Point the camera at a white or grey surface and tap '
-                              'Auto, or drag until the preview looks neutral. '
-                              '1.00 = no change.',
+                              'Auto to set white balance + saturation/contrast/'
+                              'brightness, then fine-tune below. 1.00 = no change.',
                               style: TextStyle(color: T.ink2, fontSize: 12),
                             ),
                             const SizedBox(height: 10),
                             WfButton(
-                              label: 'Auto white balance',
+                              label: 'Auto color',
                               variant: WfButtonVariant.primary,
                               full: true,
                               leading: const Icon(
@@ -228,7 +228,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             ),
                             const Divider(height: 18, color: T.hair),
                             _GainSlider(
-                              label: 'Sat',
+                              label: 'Saturation',
                               color: T.ink,
                               value: _saturation,
                               min: 0.0,
@@ -252,7 +252,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                               },
                             ),
                             _GainSlider(
-                              label: 'Bright',
+                              label: 'Brightness',
                               color: T.ink,
                               value: _brightness,
                               min: -0.5,
@@ -313,9 +313,12 @@ class _GainSlider extends StatelessWidget {
     return Row(
       children: [
         SizedBox(
-          width: 48,
+          width: 82,
           child: Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.visible,
+            softWrap: false,
             style: TextStyle(
               color: color,
               fontWeight: FontWeight.w700,
