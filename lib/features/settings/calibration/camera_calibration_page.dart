@@ -104,10 +104,14 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
               children: [
                 // Full-width live preview — same presentation as the camera hero
                 // card (no aspect override), so it's large enough to judge colour.
+                // No autoStart: the orchestrator already owns the WiFi-Direct
+                // group (the preview was on before we got here). autoStart calls
+                // connectGroup() directly, which fights the orchestrator and
+                // cycles the group → stuck on "RECONNECTING…". We just attach to
+                // the existing stream.
                 LivePreviewView(
                   deviceId: id,
                   label: 'Live preview',
-                  autoStart: true,
                   showButtons: false,
                 ),
                 Expanded(
