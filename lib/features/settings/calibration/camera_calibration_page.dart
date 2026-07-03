@@ -10,7 +10,8 @@ import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
-import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../camera/camera_state.dart'
+    show activeCameraIdProvider, modalPreviewActiveProvider;
 
 /// Diagnostic → Calibration → Camera: tune the postprocessor white-balance gains
 /// against the live preview to neutralize the IMX477 magenta cast.
@@ -51,6 +52,10 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
     // reference. Forcing a layout switch here renegotiates the RTSP pipeline
     // mid-startup and the player loops on "reconnecting".
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Claim the sole preview client: this screen is pushed over the tab shell,
+      // whose hero/match previews stay mounted and would otherwise keep a second
+      // RTSP client open (starving this one on the single-stream server).
+      ref.read(modalPreviewActiveProvider.notifier).state = true;
       final id = ref.read(activeCameraIdProvider);
       if (id == null) return;
       ref.read(livePreviewEnabledProvider(id).notifier).state = true;
@@ -59,6 +64,8 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
 
   @override
   void dispose() {
+    // Release the claim so the hero/match previews resume.
+    ref.read(modalPreviewActiveProvider.notifier).state = false;
     _debounce?.cancel();
     _focusDebounce?.cancel();
     super.dispose();

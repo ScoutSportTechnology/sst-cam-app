@@ -8,7 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/device.dart';
 import '../../core/models/telemetry.dart';
 import 'camera_state.dart'
-    show activeCameraIdProvider, activeTabProvider, AppTab;
+    show
+        activeCameraIdProvider,
+        activeTabProvider,
+        modalPreviewActiveProvider,
+        AppTab;
 import '../../core/ble/ble_providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
@@ -99,6 +103,9 @@ class _HeroCameraCard extends ConsumerWidget {
     // one single-stream server stalls the second — home vs match both stay
     // mounted in the shell's IndexedStack).
     final onMainTab = ref.watch(activeTabProvider) == AppTab.main;
+    // A pushed full-screen preview (e.g. calibration) claims the sole RTSP client;
+    // release the hero's while it's up so we never run two on the single stream.
+    final modalPreview = ref.watch(modalPreviewActiveProvider);
 
     // Real camera state from telemetry flags, not connection alone. The dot was
     // green "LIVE" whenever connected even while idle — misleading. Precedence
@@ -125,7 +132,7 @@ class _HeroCameraCard extends ConsumerWidget {
             deviceId: deviceId,
             label: 'LIVE THUMBNAIL',
             showButtons: false,
-            paused: !onMainTab,
+            paused: !onMainTab || modalPreview,
           ),
           Padding(
             padding: const EdgeInsets.all(14),

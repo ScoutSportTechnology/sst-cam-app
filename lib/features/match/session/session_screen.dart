@@ -22,7 +22,11 @@ import '../../../core/models/wifi.dart' show WifiDirectState;
 import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart'
-    show activeCameraIdProvider, activeTabProvider, AppTab;
+    show
+        activeCameraIdProvider,
+        activeTabProvider,
+        modalPreviewActiveProvider,
+        AppTab;
 import '../../../core/models/streaming.dart' show resolveWireStream, joinRtmp;
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../settings/streaming/streaming_destination_form_sheet.dart'
@@ -1077,6 +1081,7 @@ class _LiveThumb extends ConsumerWidget {
     // stay mounted in the shell's IndexedStack; two clients on the single-stream
     // RTSP server stall the second — the match preview was the loser).
     final onMatchTab = ref.watch(activeTabProvider) == AppTab.match;
+    final modalPreview = ref.watch(modalPreviewActiveProvider);
 
     // When WiFi Direct fails (e.g. iOS does not support local preview),
     // show a static placeholder instead of the live preview surface.
@@ -1100,7 +1105,7 @@ class _LiveThumb extends ConsumerWidget {
             deviceId: activeId,
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
-            paused: !onMatchTab,
+            paused: !onMatchTab || modalPreview,
             isStreaming: matchState.streaming,
           ),
         // The Single|Both toggle now lives below the feed next to the Preview

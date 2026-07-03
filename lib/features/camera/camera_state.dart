@@ -8,6 +8,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// read by camera-gated UI sections.
 final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 
+/// True while a full-screen route that shows its OWN live preview is open (e.g.
+/// the calibration screen, pushed on the root navigator). The tab shell keeps the
+/// hero/match previews mounted underneath and `activeTabProvider` does NOT change
+/// when a route is pushed over the shell, so their `!onXTab` pause guard alone
+/// would leave them streaming — a SECOND RTSP client that starves the modal's
+/// preview on the single-stream server. Modal preview surfaces raise this while
+/// mounted; the hero/match previews fold it into `paused` so exactly one VLC
+/// client streams at a time.
+final modalPreviewActiveProvider = StateProvider<bool>((_) => false);
+
 /// The manually-selected output camera (0 or 1) — which physical camera feeds the
 /// record/stream/single-preview. Manual tracking: the human override of the future
 /// AI camera decision. Read by [OutputCameraToggle] wherever the live preview is
