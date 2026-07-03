@@ -111,6 +111,13 @@ android {
         jniLibs {
             // flutter_vlc_player and ffmpeg_kit_flutter_new both ship libc++_shared.so.
             pickFirsts += "**/*.so"
+            // Store native libs uncompressed so AGP 16KB-zip-aligns them in the
+            // APK (Android 15+ 16KB page-size support). This fixes the APK-level
+            // alignment for every .so we control; the residual "LOAD segment not
+            // aligned" on the prebuilt libVLC (.so from the pinned
+            // flutter_vlc_player 7.4.3) is baked into those binaries and can only
+            // be fixed by a newer plugin shipping 16KB-built libs, not from here.
+            useLegacyPackaging = false
         }
     }
 }
