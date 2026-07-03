@@ -50,14 +50,14 @@ class OutputCameraToggle extends ConsumerWidget {
     final enabled = deviceId != null;
 
     final cam1 = _Segment(
-      icon: Icons.looks_one_rounded,
-      label: 'Cam 1',
+      icon: Icons.chevron_left_rounded,
+      label: 'Left',
       active: selected == 0,
       onTap: enabled ? () => _select(context, ref, 0) : null,
     );
     final cam2 = _Segment(
-      icon: Icons.looks_two_rounded,
-      label: 'Cam 2',
+      icon: Icons.chevron_right_rounded,
+      label: 'Right',
       active: selected == 1,
       onTap: enabled ? () => _select(context, ref, 1) : null,
     );

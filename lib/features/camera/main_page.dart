@@ -194,7 +194,9 @@ class _HeroCameraCard extends ConsumerWidget {
                       Expanded(
                         child: WfButton(
                           label: previewOn ? 'Stop preview' : 'Preview',
-                          variant: WfButtonVariant.outline,
+                          variant: previewOn
+                              ? WfButtonVariant.danger
+                              : WfButtonVariant.outline,
                           size: WfButtonSize.sm,
                           full: true,
                           leading: previewOn
@@ -229,21 +231,7 @@ class _HeroCameraCard extends ConsumerWidget {
                   ),
                   if (previewOn) ...[
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Text(
-                          'OUTPUT',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: T.ink2,
-                            letterSpacing: 0.6,
-                          ),
-                        ),
-                        const Spacer(),
-                        OutputCameraToggle(deviceId: deviceId),
-                      ],
-                    ),
+                    OutputCameraToggle(deviceId: deviceId, full: true),
                   ],
                   const SizedBox(height: 8),
                   // Primary: open match tab. Full-width md — equal height/width

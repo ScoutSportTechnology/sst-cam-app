@@ -98,7 +98,9 @@ class SessionScreen extends ConsumerWidget {
                     Expanded(
                       child: WfButton(
                         label: previewOn ? 'Stop preview' : 'Preview',
-                        variant: WfButtonVariant.outline,
+                        variant: previewOn
+                            ? WfButtonVariant.danger
+                            : WfButtonVariant.outline,
                         size: WfButtonSize.sm,
                         full: true,
                         leading: previewOn
@@ -134,21 +136,7 @@ class SessionScreen extends ConsumerWidget {
             if (activeId != null && previewOn)
               Padding(
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-                child: Row(
-                  children: [
-                    const Text(
-                      'OUTPUT',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: T.ink2,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                    const Spacer(),
-                    OutputCameraToggle(deviceId: activeId),
-                  ],
-                ),
+                child: OutputCameraToggle(deviceId: activeId, full: true),
               ),
             _PrimaryActionRow(
               state: state,

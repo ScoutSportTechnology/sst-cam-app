@@ -8,7 +8,6 @@ import '../../core/theme/tokens.dart';
 import '../../core/version/version_info.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
-import '../settings/calibration/calibration_page.dart';
 import '../settings/developer/log_viewer_page.dart';
 
 /// Diagnostics — real camera telemetry + app build info, side by side. Replaces
@@ -274,21 +273,6 @@ class _AppDiagnostics extends ConsumerWidget {
                     filter: isCameraLinkLog,
                   ),
                 ),
-              ),
-            ),
-            const Divider(height: 1, color: T.rule),
-            ListTile(
-              title: const Text(
-                'Calibration',
-                style: TextStyle(color: T.ink, fontSize: 14),
-              ),
-              subtitle: const Text(
-                'Camera colour / white-balance tuning against live preview.',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-              trailing: const Icon(Icons.chevron_right, color: T.ink3),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const CalibrationPage()),
               ),
             ),
           ],

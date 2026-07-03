@@ -19,6 +19,7 @@ import 'data/data_settings_page.dart';
 import '../discovery/diagnostics_page.dart';
 import '../discovery/discovery_page.dart';
 import 'sport_presets/sport_presets_page.dart';
+import 'calibration/calibration_page.dart';
 import 'network/network_settings_page.dart';
 import 'streaming/streaming_destinations_page.dart';
 import 'users/users_settings_page.dart';
@@ -105,6 +106,15 @@ class SettingsPage extends ConsumerWidget {
                     MaterialPageRoute(
                       builder: (_) => const NetworkSettingsPage(),
                     ),
+                  ),
+                ),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
+                  leading: const Icon(Icons.tune_rounded),
+                  label: 'Calibration',
+                  sub: 'Camera colour, focus + output tracking',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CalibrationPage()),
                   ),
                 ),
                 const Divider(height: 1, color: T.rule),
