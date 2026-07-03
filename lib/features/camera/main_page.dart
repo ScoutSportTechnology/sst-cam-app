@@ -330,8 +330,9 @@ class _TelemetryGrid extends StatelessWidget {
       crossAxisCount: 2,
       crossAxisSpacing: 6,
       mainAxisSpacing: 6,
-      // Flatter tiles so the four stats fit under the hero without scrolling.
-      childAspectRatio: 2.6,
+      // Slightly flatter than default so the four stats fit under the hero, but
+      // tall enough for the label row + value (2.6 clipped the content by 11px).
+      childAspectRatio: 2.3,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
@@ -416,13 +417,13 @@ class _TelemetryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return WfCard(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           SizedBox(
-            height: _TelemetryGrid.IconSize * 1.8,
+            height: _TelemetryGrid.IconSize * 1.5,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -436,7 +437,7 @@ class _TelemetryTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.w600,
               color: T.ink,
               letterSpacing: -0.3,
