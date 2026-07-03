@@ -189,12 +189,22 @@ enum BleMatchControlAction {
 // ---------------------------------------------------------------------------
 
 class RecordingControlCommand extends BleCommand {
-  RecordingControlCommand({required this.action, this.quality});
+  RecordingControlCommand({
+    required this.action,
+    this.quality,
+    this.captureGroupId,
+  });
   final RecordingControlAction action;
 
   /// Record resolution/fps, applied by firmware at session start (independent of
   /// the stream quality). Null => firmware default. Only meaningful on a start.
   final VideoMode? quality;
+
+  /// App-minted pairing key sent on START. Couples the always-on dual-camera
+  /// training proxy to this match record (firmware starts the per-camera proxy
+  /// and stamps the proxy files with this id). Null => record with no proxy.
+  /// Must be null on STOP.
+  final String? captureGroupId;
 }
 
 /// Independent raw dual-camera capture, distinct from [RecordingControlCommand].

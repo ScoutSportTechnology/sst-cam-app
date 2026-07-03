@@ -167,7 +167,11 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
             ),
           ])
           ..where(teamMatchesTable.kind.equals('past'))
-          ..orderBy([OrderingTerm.desc(teamMatchesTable.date)]);
+          // Newest match on top. `date` is a display label ("Mar 12") — sorting
+          // it as text is alphabetical, not chronological (e.g. "Jan 5" > "Jan
+          // 30", and it breaks across years). Order by the row's insertion order
+          // (SQLite rowid) instead, which is match-creation order.
+          ..orderBy([OrderingTerm.desc(teamMatchesTable.rowId)]);
 
     return query.watch().map(
       (rows) => rows

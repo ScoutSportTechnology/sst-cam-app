@@ -6,6 +6,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
@@ -187,6 +188,7 @@ class SessionScreen extends ConsumerWidget {
                           RecordingControlCommand(
                             action: RecordingControlAction.start,
                             quality: state.recordQuality,
+                            captureGroupId: const Uuid().v4(),
                           ),
                         );
                       } else if (currentRec == RecState.recording) {
@@ -360,11 +362,14 @@ class SessionScreen extends ConsumerWidget {
     // local UI state; without these explicit control commands the firmware
     // records/streams nothing (the match dir stays empty).
     if (choice.$1 == true) {
+      // Mint a training-proxy pairing key so the firmware couples the always-on
+      // dual-camera proxy to this match record (U6). Sent only on START.
       _sendIfConnected(
         ref,
         RecordingControlCommand(
           action: RecordingControlAction.start,
           quality: state.recordQuality,
+          captureGroupId: const Uuid().v4(),
         ),
       );
     }

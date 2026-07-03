@@ -709,18 +709,24 @@ class MockBleService implements BleService {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(:final action) => proto.Command(
-      correlationId: correlationId,
-      recordingControl: proto.RecordingControlCommand(
-        action: switch (action) {
-          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
-          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
-          RecordingControlAction.resume =>
-            proto.RecordingAction.RECORDING_RESUME,
-        },
+    RecordingControlCommand(:final action, :final captureGroupId) =>
+      proto.Command(
+        correlationId: correlationId,
+        recordingControl: proto.RecordingControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          // Mirror the real encoder (mock must not drift): the training-proxy
+          // pairing key rides the record command.
+          captureGroupId: captureGroupId,
+        ),
       ),
-    ),
     RawCaptureControlCommand(:final action, :final captureGroupId) =>
       proto.Command(
         correlationId: correlationId,

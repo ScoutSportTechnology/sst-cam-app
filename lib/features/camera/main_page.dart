@@ -431,8 +431,9 @@ class _TelemetryTile extends StatelessWidget {
   }
 }
 
-// The manual "Record raw footage (training)" button was removed: L0 dual-camera
-// raw capture is internal/training-only and should run automatically under the
-// hood whenever a match is recorded or streamed (see the multicam/overlay plan,
-// Bug #6). The capture mechanism still lives in rawCaptureProvider
-// (raw_capture_state.dart); #6 wires it to the match record/stream lifecycle.
+// The manual "Record raw footage (training)" button was removed: the dual-camera
+// training proxy is internal/training-only and runs automatically, coupled to the
+// match RECORD lifecycle — the app mints a capture_group_id and sends it on the
+// RecordingControlCommand START (session_screen), and the firmware starts/stops
+// the per-camera proxy alongside the recording (U5/U6). It is NOT tied to
+// streaming (a stream-only match has nothing to train on).

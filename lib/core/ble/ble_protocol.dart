@@ -300,20 +300,29 @@ class BleProtocol {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(:final action, :final quality) => proto.Command(
-      correlationId: correlationId,
-      recordingControl: proto.RecordingControlCommand(
-        action: switch (action) {
-          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
-          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
-          RecordingControlAction.resume =>
-            proto.RecordingAction.RECORDING_RESUME,
-        },
-        // proto3 optional — omitted unless the app pinned a record quality.
-        quality: _toProtoQuality(quality),
+    RecordingControlCommand(
+      :final action,
+      :final quality,
+      :final captureGroupId,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        recordingControl: proto.RecordingControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          // proto3 optional — omitted unless the app pinned a record quality.
+          quality: _toProtoQuality(quality),
+          // proto3 optional — couples the training proxy when present (START).
+          captureGroupId: captureGroupId,
+        ),
       ),
-    ),
     RawCaptureControlCommand(:final action, :final captureGroupId) =>
       proto.Command(
         correlationId: correlationId,
@@ -596,6 +605,11 @@ class BleProtocol {
               )
               as T?,
         );
+      case proto.CommandResponse_Payload.cameraFocus:
+        // Motorized-focus response (U8): mode + position + autofocus_available.
+        // Not decoded app-side yet — the focus control UI (U8 app) will map it.
+        // OK with null for now so the exhaustive switch stays complete.
+        return BleCommandResponse.ok(null as T?);
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
         // match control, score/banner events, overlay/session push). If T is a
