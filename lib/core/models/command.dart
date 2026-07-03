@@ -283,6 +283,30 @@ class SetCameraCalibrationCommand extends BleCommand {
   final bool enabled;
 }
 
+/// One-shot auto white-balance: the firmware measures the current frame (point
+/// the camera at a white/grey surface) and computes the neutralizing gains,
+/// applies them live, and returns them as a [CameraCalibrationResult] so the app
+/// can seed its sliders.
+class AutoWhiteBalanceCommand extends BleCommand {
+  AutoWhiteBalanceCommand();
+}
+
+/// Firmware-applied white-balance gains — returned by [AutoWhiteBalanceCommand]
+/// (and echoed by SetCameraCalibration) so the calibration sliders can reflect
+/// what the camera is actually applying.
+class CameraCalibrationResult {
+  const CameraCalibrationResult({
+    required this.rGain,
+    required this.gGain,
+    required this.bGain,
+    required this.enabled,
+  });
+  final double rGain;
+  final double gGain;
+  final double bGain;
+  final bool enabled;
+}
+
 /// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies
 /// with an [ExportJob] in the PENDING state; poll it with [PollExportCommand].
 class ExportOverlayedCommand extends BleCommand {

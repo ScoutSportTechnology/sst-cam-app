@@ -479,7 +479,9 @@ class BleServiceImpl implements BleService {
     required double bGain,
     bool enabled = true,
   }) async {
-    final resp = await sendCommand<void>(
+    // Decodes to a CameraCalibrationResult echo; we ignore it (the sliders are the
+    // source of truth for a manual set).
+    final resp = await sendCommand<CameraCalibrationResult>(
       deviceId,
       SetCameraCalibrationCommand(
         rGain: rGain,
@@ -493,6 +495,20 @@ class BleServiceImpl implements BleService {
         'setCameraCalibration failed: ${resp.errorMessage}',
       );
     }
+  }
+
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async {
+    final resp = await sendCommand<CameraCalibrationResult>(
+      deviceId,
+      AutoWhiteBalanceCommand(),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'autoWhiteBalance failed: ${resp.errorMessage}',
+      );
+    }
+    return resp.payload;
   }
 
   @override

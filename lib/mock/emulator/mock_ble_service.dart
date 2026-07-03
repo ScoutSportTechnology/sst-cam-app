@@ -821,6 +821,10 @@ class MockBleService implements BleService {
           enabled: enabled,
         ),
       ),
+    AutoWhiteBalanceCommand() => proto.Command(
+      correlationId: correlationId,
+      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
+    ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
       exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
@@ -1003,6 +1007,17 @@ class MockBleService implements BleService {
             enabled: enabled,
           ),
         ),
+      AutoWhiteBalanceCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        // Emulated grey-world result: a plausible magenta-neutralizing gain set.
+        cameraCalibration: proto.CameraCalibrationResponse(
+          rGain: 0.6,
+          gGain: 1.0,
+          bGain: 0.62,
+          enabled: true,
+        ),
+      ),
       ExportOverlayedCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
@@ -1168,7 +1183,24 @@ class MockBleService implements BleService {
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
       BannerEventCommand() => BleCommandResponse.ok(null as T?),
       PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
-      SetCameraCalibrationCommand() => BleCommandResponse.ok(null as T?),
+      SetCameraCalibrationCommand() => BleCommandResponse.ok(
+        CameraCalibrationResult(
+              rGain: resp.cameraCalibration.rGain,
+              gGain: resp.cameraCalibration.gGain,
+              bGain: resp.cameraCalibration.bGain,
+              enabled: resp.cameraCalibration.enabled,
+            )
+            as T?,
+      ),
+      AutoWhiteBalanceCommand() => BleCommandResponse.ok(
+        CameraCalibrationResult(
+              rGain: resp.cameraCalibration.rGain,
+              gGain: resp.cameraCalibration.gGain,
+              bGain: resp.cameraCalibration.bGain,
+              enabled: resp.cameraCalibration.enabled,
+            )
+            as T?,
+      ),
       SetPreviewLayoutCommand() => BleCommandResponse.ok(
         PreviewLayoutResult(
               layout:
@@ -1430,6 +1462,24 @@ class MockBleService implements BleService {
   }) async {
     await Future.delayed(const Duration(milliseconds: 20));
     lastCameraCalibration = (r: rGain, g: gGain, b: bGain, enabled: enabled);
+  }
+
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 40));
+    const result = CameraCalibrationResult(
+      rGain: 0.6,
+      gGain: 1.0,
+      bGain: 0.62,
+      enabled: true,
+    );
+    lastCameraCalibration = (
+      r: result.rGain,
+      g: result.gGain,
+      b: result.bGain,
+      enabled: result.enabled,
+    );
+    return result;
   }
 
   @override

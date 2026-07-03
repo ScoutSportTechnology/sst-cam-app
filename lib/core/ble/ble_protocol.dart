@@ -420,6 +420,10 @@ class BleProtocol {
           enabled: enabled,
         ),
       ),
+    AutoWhiteBalanceCommand() => proto.Command(
+      correlationId: correlationId,
+      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
+    ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
       exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
@@ -626,9 +630,18 @@ class BleProtocol {
         // OK with null for now so the exhaustive switch stays complete.
         return BleCommandResponse.ok(null as T?);
       case proto.CommandResponse_Payload.cameraCalibration:
-        // WB calibration echo — the sliders are the source of truth, so we don't
-        // decode the gains back; OK with null keeps the switch exhaustive.
-        return BleCommandResponse.ok(null as T?);
+        // The firmware-applied gains — auto-white-balance uses them to seed the
+        // sliders; setCameraCalibration ignores its own echo.
+        final cc = resp.cameraCalibration;
+        return BleCommandResponse.ok(
+          CameraCalibrationResult(
+                rGain: cc.rGain,
+                gGain: cc.gGain,
+                bGain: cc.bGain,
+                enabled: cc.enabled,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
         // match control, score/banner events, overlay/session push). If T is a

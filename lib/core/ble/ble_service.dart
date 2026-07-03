@@ -131,6 +131,12 @@ abstract class BleService {
     bool enabled,
   });
 
+  /// One-shot auto white-balance: the firmware measures the current frame (point
+  /// the camera at a white/grey surface) and computes the neutralizing gains,
+  /// applies them live, and returns them so the UI can seed its sliders. Null if
+  /// the firmware couldn't measure (too dark / no frame).
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId);
+
   /// Request an on-demand overlayed burn (#6 A6c) of the clean recording
   /// [recordingId]. Returns an [ExportJob] in the PENDING state; poll it with
   /// [pollOverlayExport]. Throws on a `LIVE_SESSION_ACTIVE` rejection (a burn

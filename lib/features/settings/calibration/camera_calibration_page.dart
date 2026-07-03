@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/live_preview_view.dart';
+import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
@@ -79,6 +80,28 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
     _push();
   }
 
+  Future<void> _autoWhiteBalance() async {
+    final id = ref.read(activeCameraIdProvider);
+    if (id == null) return;
+    try {
+      final result = await ref.read(bleServiceProvider).autoWhiteBalance(id);
+      if (result != null && mounted) {
+        setState(() {
+          _r = result.rGain.clamp(0.3, 1.7);
+          _g = result.gGain.clamp(0.3, 1.7);
+          _b = result.bGain.clamp(0.3, 1.7);
+          _enabled = result.enabled;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Auto white-balance failed')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final id = ref.watch(activeCameraIdProvider);
@@ -142,9 +165,22 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                               ],
                             ),
                             Text(
-                              'Drag until the preview looks neutral (no pink / green '
-                              'tint). 1.00 = no change.',
+                              'Point the camera at a white or grey surface and tap '
+                              'Auto, or drag until the preview looks neutral. '
+                              '1.00 = no change.',
                               style: TextStyle(color: T.ink2, fontSize: 12),
+                            ),
+                            const SizedBox(height: 10),
+                            WfButton(
+                              label: 'Auto white balance',
+                              variant: WfButtonVariant.primary,
+                              full: true,
+                              leading: const Icon(
+                                Icons.auto_fix_high_rounded,
+                                size: 15,
+                                color: T.accentInk,
+                              ),
+                              onPressed: _enabled ? _autoWhiteBalance : null,
                             ),
                             const SizedBox(height: 8),
                             _GainSlider(
