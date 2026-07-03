@@ -14,6 +14,7 @@ import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
+import '../../../core/widgets/output_camera_toggle.dart';
 import '../../../core/widgets/preview_layout_toggle.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -125,6 +126,27 @@ class SessionScreen extends ConsumerWidget {
                           ? PreviewLayoutToggle(deviceId: activeId, full: true)
                           : const SizedBox.shrink(),
                     ),
+                  ],
+                ),
+              ),
+            // Manual tracking — pick the output camera mid-match while watching
+            // the live preview.
+            if (activeId != null && previewOn)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                child: Row(
+                  children: [
+                    const Text(
+                      'OUTPUT',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: T.ink2,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                    const Spacer(),
+                    OutputCameraToggle(deviceId: activeId),
                   ],
                 ),
               ),

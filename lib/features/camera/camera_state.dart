@@ -8,6 +8,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// read by camera-gated UI sections.
 final activeCameraIdProvider = StateProvider<String?>((ref) => null);
 
+/// The manually-selected output camera (0 or 1) — which physical camera feeds the
+/// record/stream/single-preview. Manual tracking: the human override of the future
+/// AI camera decision. Read by [OutputCameraToggle] wherever the live preview is
+/// shown (hero card + live match) so the operator can switch while watching.
+final activeOutputCameraProvider = StateProvider<int>((_) => 0);
+
 /// App-level selected tab index. Write to this to switch tabs from anywhere.
 /// Tab indices: 0=Main, 1=Teams, 2=Match, 3=Video, 4=Settings.
 final activeTabProvider = StateProvider<int>((_) => 0);

@@ -37,11 +37,11 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
   bool _enabled = true;
   Timer? _debounce;
 
-  // Focus (U8) + manual tracking.
+  // Focus (U8). (Output-camera / manual tracking lives next to the live preview
+  // on the camera + match screens, not here.)
   bool _autofocus = false;
   double _focus = 320;
   Timer? _focusDebounce;
-  int _activeCamera = 0;
 
   @override
   void initState() {
@@ -78,13 +78,6 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
           )
           .ignore();
     });
-  }
-
-  void _setActiveCamera(int index) {
-    final id = ref.read(activeCameraIdProvider);
-    if (id == null) return;
-    setState(() => _activeCamera = index);
-    ref.read(bleServiceProvider).setActiveCamera(id, index).ignore();
   }
 
   void _push() {
@@ -353,47 +346,6 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      // Manual tracking (U-manual) — output camera override.
-                      WfCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Output camera',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
-                              ),
-                            ),
-                            Text(
-                              'Which camera feeds the recording / stream '
-                              '(manual tracking).',
-                              style: TextStyle(color: T.ink2, fontSize: 12),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _CamButton(
-                                    label: 'Camera 1',
-                                    active: _activeCamera == 0,
-                                    onTap: () => _setActiveCamera(0),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: _CamButton(
-                                    label: 'Camera 2',
-                                    active: _activeCamera == 1,
-                                    onTap: () => _setActiveCamera(1),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
                       const SizedBox(height: 8),
                       Text(
                         'The camera logs the applied gains — read them from the '
@@ -466,43 +418,6 @@ class _GainSlider extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _CamButton extends StatelessWidget {
-  const _CamButton({
-    required this.label,
-    required this.active,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: active ? T.accent : T.fillSoft,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: active ? T.accent : T.hair),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-            color: active ? T.accentInk : T.ink2,
-          ),
-        ),
-      ),
     );
   }
 }
