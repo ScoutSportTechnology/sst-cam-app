@@ -3,6 +3,41 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 
+/// The industry-standard severity ladder — TRACE < DEBUG < INFO < WARN < ERROR
+/// < FATAL — layered over `package:logging`. Its built-in [Level]s use Java's
+/// java.util.logging names (FINEST/FINER/FINE/CONFIG/SEVERE/SHOUT), which read
+/// oddly; these keep the same numeric values (so level filtering + `Level.ALL`
+/// still work) but the conventional names, which is what surfaces in the log
+/// viewer via `record.level.name`.
+///
+/// Use the [StdLog] extension helpers rather than the `package:logging` methods:
+/// `log.debug(...)` not `log.fine(...)`, `log.warn(...)` not `log.warning(...)`,
+/// `log.error(...)` not `log.severe(...)`. INFO keeps its standard name, so
+/// `log.info(...)` is unchanged.
+abstract final class LogLevels {
+  static const trace = Level('TRACE', 400); // was FINER
+  static const debug = Level('DEBUG', 500); // was FINE
+  static const info = Level('INFO', 800); // unchanged
+  static const warn = Level('WARN', 900); // was WARNING
+  static const error = Level('ERROR', 1000); // was SEVERE
+  static const fatal = Level('FATAL', 1200); // was SHOUT
+}
+
+/// Standard-name logging helpers on top of [Logger]. `info()` already exists on
+/// [Logger] and emits the standard "INFO" name, so it is intentionally omitted.
+extension StdLog on Logger {
+  void trace(Object? message, [Object? error, StackTrace? stackTrace]) =>
+      log(LogLevels.trace, message, error, stackTrace);
+  void debug(Object? message, [Object? error, StackTrace? stackTrace]) =>
+      log(LogLevels.debug, message, error, stackTrace);
+  void warn(Object? message, [Object? error, StackTrace? stackTrace]) =>
+      log(LogLevels.warn, message, error, stackTrace);
+  void error(Object? message, [Object? error, StackTrace? stackTrace]) =>
+      log(LogLevels.error, message, error, stackTrace);
+  void fatal(Object? message, [Object? error, StackTrace? stackTrace]) =>
+      log(LogLevels.fatal, message, error, stackTrace);
+}
+
 /// One captured log line, kept structured (not a flat string) so the viewer can
 /// render a standardized line AND color the level. The canonical text form is
 /// [formatted]:

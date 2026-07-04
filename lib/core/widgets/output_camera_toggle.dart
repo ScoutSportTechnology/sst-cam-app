@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import '../../features/camera/camera_state.dart'
     show activeOutputCameraProvider;
 import '../ble/ble_providers.dart';
+import '../services/log_service.dart';
 import '../theme/tokens.dart';
 
 final _log = Logger('OutputCamera');
@@ -34,14 +35,14 @@ class OutputCameraToggle extends ConsumerWidget {
     final previous = notifier.state;
     if (previous == index) return;
 
-    _log.fine(
+    _log.debug(
       'output camera → cam$index (${index == 0 ? 'Left' : 'Right'}) (user)',
     );
     notifier.state = index; // optimistic
     try {
       await ref.read(bleServiceProvider).setActiveCamera(id, index);
     } catch (e) {
-      _log.warning('output camera switch failed', e);
+      _log.warn('output camera switch failed', e);
       notifier.state = previous; // revert on failure
       if (context.mounted) {
         ScaffoldMessenger.of(

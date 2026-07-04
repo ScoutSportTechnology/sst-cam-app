@@ -21,16 +21,17 @@ class LogViewerPage extends StatelessWidget {
   /// Color for a log level's highlighted token.
   static Color _levelColor(String level) {
     switch (level.toUpperCase()) {
-      case 'SHOUT':
-      case 'SEVERE':
+      case 'FATAL':
       case 'ERROR':
+      case 'SHOUT': // legacy package:logging name
+      case 'SEVERE': // legacy
         return T.danger;
-      case 'WARNING':
       case 'WARN':
+      case 'WARNING': // legacy
         return T.warn;
       case 'INFO':
         return T.ink;
-      default: // CONFIG / FINE / FINER / FINEST / debug
+      default: // DEBUG / TRACE (+ legacy CONFIG/FINE/FINER/FINEST)
         return T.ink3;
     }
   }
