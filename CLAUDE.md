@@ -23,7 +23,7 @@ just format-check     # CI format check (exits non-zero on diff)
 just gen-proto        # regenerate lib/models/proto/ from proto/*.proto (devcontainer)
 just gen-db           # regenerate Drift *.g.dart from tables/daos (devcontainer)
 just gen-icons        # regenerate per-flavor launcher icons (dev/stage/prod)
-just build-dev-app    # dev APK: debug + mock backend
+just build-dev-app    # dev APK: debug + real backend (mock = EMULATE_CAMERA flag / in-app toggle)
 just build-stage-app  # stage APK: release + real backend + dev tooling
 just build-prod-app   # prod APK: release + real backend, tooling compiled out (shipped)
 just deploy-dev-app ADDR   # build + install on phone (dev/stage/prod variants)
@@ -52,15 +52,18 @@ Open in VS Code → "Reopen in Container". Docker Compose
 backend + tooling from the compile-time `kAppEnv` (`--dart-define=APP_ENV=…`) —
 there is no second `main`:
 
-| Build (`just`)                    | Mode    | Flavor  | `APP_ENV` | applicationId          | Backend | Dev tooling |
-|-----------------------------------|---------|---------|-----------|------------------------|---------|-------------|
-| `build-dev-app` / `deploy-dev-app`     | debug   | `dev`   | `dev`     | `com.sst.sstcam.dev`   | mock    | yes         |
-| `build-stage-app` / `deploy-stage-app` | release | `stage` | `stage`   | `com.sst.sstcam.stage` | real    | yes         |
-| `build-prod-app` / `deploy-prod-app`   | release | `prod`  | `prod`    | `com.sst.sstcam`       | real    | no          |
+| Build (`just`)                    | Mode    | Flavor  | `APP_ENV` | applicationId          | Backend            | Debuggable | Dev tooling |
+|-----------------------------------|---------|---------|-----------|------------------------|--------------------|------------|-------------|
+| `build-dev-app` / `deploy-dev-app`     | debug   | `dev`   | `dev`     | `com.sst.sstcam.dev`   | real (mock = flag) | yes        | yes         |
+| `build-stage-app` / `deploy-stage-app` | release | `stage` | `stage`   | `com.sst.sstcam.stage` | real               | no         | yes         |
+| `build-prod-app` / `deploy-prod-app`   | release | `prod`  | `prod`    | `com.sst.sstcam`       | real               | no         | no          |
 
-`build-*-app` produces the APK; `deploy-*-app ADDR` builds then installs on a
-phone via host adb (`ADDR` = USB serial or wireless `ip:port`). `iterate-app ADDR`
-is the stage hot-reload loop.
+**Three orthogonal axes** — the table just names the common combos:
+- **Mode** (debug/profile/release) = **debuggability** (hot reload, DevTools, assertions). `dev` is debug; stage/prod are release.
+- **Backend + seed** = two *flags* independent of mode: `--dart-define=EMULATE=true|false` (mock vs real BLE/WiFi) and `--dart-define=SEED=true|false` (dev fixtures in the DB). Both default **off** and seed `DevConfig.defaults`; the in-app Developer switches override them at runtime. Only the `dev` env reads them — a stage/prod build skips the dev bootstrap, so both are forced false. `just run` (offline) sets both on; `deploy-dev-app` (on hardware) leaves both off.
+- **Dev tooling** = the in-app debug page + developer settings (`kAppEnv.showsDevTooling`, != prod). Distinct from Flutter DevTools, which come from debug **mode**.
+
+So "a debuggable build against the real camera" = **dev flavor** (`deploy-dev-app` / `iterate-app`), not stage. `build-*-app` produces the APK; `deploy-*-app ADDR` builds then installs on a phone via host adb (`ADDR` = USB serial or wireless `ip:port`); `iterate-app ADDR` is the dev hot-reload loop against the Jetson.
 
 - `main.dart` branches on `kAppEnv.isDevBackend`: **dev** runs `_bootstrapDev()`
   (overrides `bleServiceProvider`/`wifiServiceProvider` with mocks + seedable dev

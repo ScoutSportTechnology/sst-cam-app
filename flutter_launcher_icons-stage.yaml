@@ -3,13 +3,14 @@
 # `dart run flutter_launcher_icons` (see `just gen-icons`). Paired with
 # APP_ENV=stage (real backend + dev tooling on).
 #
-# Art is the dev icon badged by a distinct adaptive background (orange vs the
-# dev/prod yellow) so a stage install is identifiable at a glance without
-# authoring separate stage artwork.
+# Reuses the dev artwork + the SST brand yellow; the "SST Cam Stage" app name +
+# com.sst.sstcam.stage applicationId distinguish it from dev/prod. Swap
+# icon-stage-1024.png / -foreground.png for real stage art if you want a distinct
+# mark.
 flutter_launcher_icons:
   android: "ic_launcher"
   ios: false
   image_path: "launcher/icon-stage-1024.png"
   adaptive_icon_foreground: "launcher/icon-stage-foreground.png"
-  adaptive_icon_background: "#FF8A3C"
+  adaptive_icon_background: "#E8FF3C"
   min_sdk_android: 21

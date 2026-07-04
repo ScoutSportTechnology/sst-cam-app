@@ -27,7 +27,9 @@ import 'mock/mock_video_fetcher.dart';
 /// Single entry-point for EVERY build. The backend and dev tooling are selected
 /// from the compile-time [kAppEnv] — there is no second `main`:
 ///
-/// - `dev`   → mock BLE/WiFi backend + seedable data + dev nav ([_bootstrapDev]).
+/// - `dev`   → dev nav + two togglable flags ([_bootstrapDev]): the mock BLE/WiFi
+///   backend (`EMULATE`) and seed fixtures (`SEED`), both default off and each
+///   overridable by its in-app Developer switch. Debug mode → fully debuggable.
 /// - `stage` → real backend + dev tooling ([shippedOverrides]).
 /// - `prod`  → real backend, tooling compiled out ([shippedOverrides] == const []).
 ///

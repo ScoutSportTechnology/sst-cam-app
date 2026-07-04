@@ -78,20 +78,24 @@ ci: format-check analyze test
 
 # build-<env>-app → build that env's APK in the dev container; the APK lands in
 # build/app/outputs/flutter-apk/app-<flavor>-<mode>.apk. No device needed.
+# EMULATE (mock backend) + SEED (dev fixtures) are two orthogonal flags read only
+# by the dev env — stage/prod force both false. Both are ORTHOGONAL to MODE: a
+# debug build is debuggable regardless.
 [private]
-_build-app MODE FLAVOR ENV: gen-icons
-    @just _run "flutter build apk --{{MODE}} --flavor {{FLAVOR}} --dart-define=APP_ENV={{ENV}} {{version_defines}}"
+_build-app MODE FLAVOR ENV EMULATE SEED: gen-icons
+    @just _run "flutter build apk --{{MODE}} --flavor {{FLAVOR}} --dart-define=APP_ENV={{ENV}} --dart-define=EMULATE={{EMULATE}} --dart-define=SEED={{SEED}} {{version_defines}}"
 
-# dev   → debug,   mock backend (no Jetson).
-build-dev-app: (_build-app "debug" "dev" "dev")
-# stage → release, real backend + dev tooling.
-build-stage-app: (_build-app "release" "stage" "stage")
+# dev   → debug, REAL backend, no seed (flags off) — debuggable, on hardware.
+#         Flip mock/seed via the in-app Developer switches, or EMULATE/SEED=true.
+build-dev-app: (_build-app "debug" "dev" "dev" "false" "false")
+# stage → release, real backend + dev tooling (CI's developer APK; NOT debuggable).
+build-stage-app: (_build-app "release" "stage" "stage" "false" "false")
 # prod  → release, real backend, tooling compiled out (the shipped artifact).
-build-prod-app: (_build-app "release" "prod" "prod")
+build-prod-app: (_build-app "release" "prod" "prod" "false" "false")
 
-# Run the dev build on a local device/emulator inside the container (hot reload).
+# Run the dev build on a local emulator — mock backend + seed data (no hardware).
 run: gen-icons
-    @just _run "flutter run --flavor dev --dart-define=APP_ENV=dev {{version_defines}}"
+    @just _run "flutter run --flavor dev --dart-define=APP_ENV=dev --dart-define=EMULATE=true --dart-define=SEED=true {{version_defines}}"
 
 # --- phone (real hardware) -------------------------------------------------
 # adb runs on the HOST: the container's adb crashes during the Android-11+ TLS
@@ -116,26 +120,27 @@ pair-phone ADDR CODE:
 # upgrades in place; on a signature mismatch `adb uninstall <applicationId>` once,
 # then re-run. The three flavors have distinct applicationIds → install side-by-side.
 [private]
-_deploy-app MODE FLAVOR ENV ADDR: (_build-app MODE FLAVOR ENV)
+_deploy-app MODE FLAVOR ENV EMULATE SEED ADDR: (_build-app MODE FLAVOR ENV EMULATE SEED)
     @APK="build/app/outputs/flutter-apk/app-{{FLAVOR}}-{{MODE}}.apk"; \
      [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
      {{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
      {{host_adb}} -s {{ADDR}} install -r "$APK" \
        && echo "Installed $APK on {{ADDR}}"
 
-# dev   → debug, mock backend (no Jetson needed).
+# dev   → debug, REAL backend + debuggability (your daily driver on hardware).
 #   just deploy-dev-app R5GYB5J72CT
-deploy-dev-app ADDR: (_deploy-app "debug" "dev" "dev" ADDR)
-# stage → release, real backend + dev tooling (device-test against firmware).
+deploy-dev-app ADDR: (_deploy-app "debug" "dev" "dev" "false" "false" ADDR)
+# stage → release, real backend + dev tooling (device-test the release artifact).
 #   just deploy-stage-app R5GYB5J72CT
-deploy-stage-app ADDR: (_deploy-app "release" "stage" "stage" ADDR)
+deploy-stage-app ADDR: (_deploy-app "release" "stage" "stage" "false" "false" ADDR)
 # prod  → release, the shipped artifact (final pre-PR check).
 #   just deploy-prod-app R5GYB5J72CT
-deploy-prod-app ADDR: (_deploy-app "release" "prod" "prod" ADDR)
+deploy-prod-app ADDR: (_deploy-app "release" "prod" "prod" "false" "false" ADDR)
 
-# Fast iteration on the phone with hot reload/restart (stage = real backend +
-# tooling). Run from a TTY so r=hot-reload / R=hot-restart / q=quit work. flutter
-# runs in a one-shot container sharing the host adb server via --network host.
+# Fast iteration on the phone with hot reload/restart — dev flavor, debug mode,
+# REAL backend (debuggable, against the Jetson). Run from a TTY so r=hot-reload /
+# R=hot-restart / q=quit work. flutter runs in a one-shot container sharing the
+# host adb server via --network host.
 #   just iterate-app 10.10.1.121:46273
 iterate-app ADDR:
     @{{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
@@ -144,7 +149,7 @@ iterate-app ADDR:
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \
-         $FL run --flavor stage --dart-define=APP_ENV=stage {{version_defines}} -d {{ADDR}}'
+         $FL run --flavor dev --dart-define=APP_ENV=dev --dart-define=EMULATE=false --dart-define=SEED=false {{version_defines}} -d {{ADDR}}'
 
 # Clean build artifacts.
 clean:
