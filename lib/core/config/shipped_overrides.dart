@@ -5,11 +5,13 @@ import '../../features/settings/developer/developer_settings_page.dart';
 import 'dev_navigation.dart';
 import 'env.dart';
 
-/// Riverpod overrides for a SHIPPED build (the `lib/main_prod.dart` entry).
+/// Riverpod overrides for a SHIPPED build — the `stage`/`prod` branch of the
+/// single `lib/main.dart` entry (backend selected from [kAppEnv]).
 ///
 /// The backend is ALWAYS the real `BleServiceImpl`/`WifiServiceImpl` — those
-/// providers are left at their defaults and never mocked here (the mock backend
-/// lives only in `lib/main.dart`, the local dev entry, which is never shipped).
+/// providers are left at their defaults and never mocked here. The mock backend
+/// is installed only by `main.dart`'s `kAppEnv.isDevBackend` branch, which a
+/// shipped build tree-shakes out entirely.
 ///
 /// Dev tooling (debug page + developer settings) is installed only when the
 /// compile-time [AppEnv] enables it ([AppEnvX.showsDevTooling]). A `prod` build

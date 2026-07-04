@@ -22,8 +22,10 @@ just format           # dart format
 just format-check     # CI format check (exits non-zero on diff)
 just gen-proto        # regenerate lib/models/proto/ from proto/*.proto (devcontainer)
 just gen-db           # regenerate Drift *.g.dart from tables/daos (devcontainer)
-just gen-icons        # regenerate per-flavor launcher icons (dev/prod)
-just build-android    # debug APK (mock)        build-android-dev / build-android-prod → real backend
+just gen-icons        # regenerate per-flavor launcher icons (dev/stage/prod)
+just build-android    # dev APK: debug + mock backend
+just build-android-stage  # stage APK: release + real backend + dev tooling
+just build-android-prod   # prod APK: release + real backend, tooling compiled out (shipped)
 just ci               # format-check + analyze + test (mirrors CI)
 ```
 
@@ -42,19 +44,32 @@ Open in VS Code → "Reopen in Container". Docker Compose
 
 ## Entry points & backends
 
-- `lib/main.dart` — **dev** entry: builds a `ProviderContainer` that **overrides**
-  `bleServiceProvider`/`wifiServiceProvider` with mocks (+ seedable dev data, dev
-  navigation), then runs an `UncontrolledProviderScope`.
-- `lib/main_prod.dart` — **prod** entry: a `ProviderContainer` whose only
-  overrides come from `shippedOverrides(kAppEnv)` — none for a `prod` build
-  (tooling compiled out), dev navigation for a `stage`/dev build. The BLE/WiFi
-  providers keep their defaults (the real `BleServiceImpl`/`WifiServiceImpl`), so
-  both shipped variants run the real backend.
-- `lib/core/config/env.dart` / `app_config.dart` — `kAppEnv.isDevBackend` gates
-  dev-only diagnostics/seeding, **not** backend selection. Backend = provider
-  default (real) vs. dev-entry Riverpod override (mock); there is no runtime
-  `isDevBackend` service branch. Audit prod paths for any lingering `isDevBackend ||`
-  bypass.
+**One entry (`lib/main.dart`), three env-mapped builds.** `main()` selects the
+backend + tooling from the compile-time `kAppEnv` (`--dart-define=APP_ENV=…`) —
+there is no second `main`:
+
+| Build (`just`)          | Mode    | Flavor  | `APP_ENV` | applicationId          | Backend | Dev tooling |
+|-------------------------|---------|---------|-----------|------------------------|---------|-------------|
+| `build-android` / `run` | debug   | `dev`   | `dev`     | `com.sst.sstcam.dev`   | mock    | yes         |
+| `build-android-stage`   | release | `stage` | `stage`   | `com.sst.sstcam.stage` | real    | yes         |
+| `build-android-prod`    | release | `prod`  | `prod`    | `com.sst.sstcam`       | real    | no          |
+
+- `main.dart` branches on `kAppEnv.isDevBackend`: **dev** runs `_bootstrapDev()`
+  (overrides `bleServiceProvider`/`wifiServiceProvider` with mocks + seedable dev
+  data + dev nav); **stage/prod** use `shippedOverrides(kAppEnv)` only (real
+  `BleServiceImpl`/`WifiServiceImpl` defaults; dev nav for stage, nothing for prod).
+- **Mock never ships.** `APP_ENV` is a compile-time const, so a `stage`/`prod`
+  build evaluates the `isDevBackend` branch as statically false — `_bootstrapDev`
+  and everything it references (mock services, `MockDataSeeder`, seed sync) is
+  dead code and **tree-shaken** out of the release binary. Same mechanism
+  `shippedOverrides` uses to compile out dev tooling for prod.
+- **Mode is orthogonal.** The three recipes pick a mode, but `debug`/`profile`/
+  `release` remain available for any env on demand (e.g. profile a stage build).
+  The Gradle flavor exists only to give each env its own applicationId + launcher
+  icon + name so builds install side-by-side and are told apart at a glance.
+- `lib/core/config/env.dart` — `kAppEnv.isDevBackend` (== dev) selects the mock
+  backend branch; `showsDevTooling` (!= prod) gates diagnostics/seeding + the
+  `shippedOverrides` tooling. Both are const, so prod tree-shakes both branches.
 
 ## Architecture — contract-first, pull model, feature-first
 
@@ -70,7 +85,7 @@ flow control. See `proto/README.md` and `proto/overlay-rendering.md`.
 
 ```text
 lib/
-  main.dart / main_prod.dart   dev vs prod entry; app.dart = MaterialApp + theme
+  main.dart                    single entry; branches on kAppEnv (see below). app.dart = MaterialApp + theme
   core/                        cross-feature infrastructure
     ble/      BleService (port) + ble_service_impl (flutter_blue_plus) + ble_protocol + ble_providers
     wifi/     WifiService (port) + impl + wifi_p2p_channel + wifi_handoff + wifi_providers
@@ -108,9 +123,10 @@ share moves to `core/`. New cross-feature provider → `core/state/`.
 
 `BleService` and `WifiService` are abstract ports — the only BLE/WiFi surface the
 UI touches. `*_impl` wire the real packages and are the **provider defaults**; the
-`mock/emulator/` doubles back the dev backend via the **`main.dart` Riverpod
-override** (and tests override the same way with `ProviderScope(overrides: [...])`).
-`main_prod.dart` adds no overrides, so prod gets the real impls.
+`mock/emulator/` doubles back the dev backend via the **Riverpod override installed
+in `main.dart`'s `isDevBackend` branch** (and tests override the same way with
+`ProviderScope(overrides: [...])`). The stage/prod branch adds no BLE/WiFi override,
+so shipped builds get the real impls.
 
 ### Proto vs. Dart models
 
@@ -148,8 +164,8 @@ and **`main` never builds** (it only promotes an already-built beta APK).
 Three branch-scoped workflows — each owns one branch class end to end and folds
 its PR gate in (gated to `pull_request`); there is no standalone `ci.yml`:
 
-- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `development`.** `pull_request:[development]` runs the gate checks `CI Scripts (shellcheck + version tests)` and `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`). The APK is **not** built in the PR — it builds only on push, which is what keeps `main` from ever needing to build. `push:[development]` (+ `workflow_dispatch`) runs `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--flavor dev --dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release.
-- `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`.** `pull_request:[release/**]` runs the same two gate checks. `push:[release/**]` (+ `workflow_dispatch`) sets base = the branch name `X.Y.Z`; `resolve-version.sh beta X.Y.Z` → `-beta.(N+1)` → builds **both** APKs (production `--flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod`, developer `--flavor dev --dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release carrying both.
+- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `development`.** `pull_request:[development]` runs the gate checks `CI Scripts (shellcheck + version tests)` and `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`). The APK is **not** built in the PR — it builds only on push, which is what keeps `main` from ever needing to build. `push:[development]` (+ `workflow_dispatch`) runs `resolve-version.sh alpha` (conventional-commit bump from the latest *stable* tag + `-alpha.(N+1)`; docs/chore-only → **skip**) → builds the **developer** APK (`--flavor stage --dart-define=APP_ENV=stage`, single entry) → publishes a `--prerelease` Release.
+- `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`.** `pull_request:[release/**]` runs the same two gate checks. `push:[release/**]` (+ `workflow_dispatch`) sets base = the branch name `X.Y.Z`; `resolve-version.sh beta X.Y.Z` → `-beta.(N+1)` → builds **both** APKs on the single entry (production `--flavor prod --dart-define=APP_ENV=prod`, developer `--flavor stage --dart-define=APP_ENV=stage`) → publishes a `--prerelease` Release carrying both.
 - `.github/workflows/release.yml` (name `release`) — **owns `main`.** `push:[main]` (+ `workflow_dispatch`) derives `X.Y.Z` from the merged `release/X.Y.Z` branch, picks the highest `vX.Y.Z-beta.N` tag (fail fast if none), tags `vX.Y.Z`, **downloads the beta APK assets and re-uploads them renamed** (bytes preserved). **No `flutter`/Gradle step exists** — the structural "main never builds" guarantee.
 
 Version math lives in `scripts/ci/resolve-version.sh` (single source for both

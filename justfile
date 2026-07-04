@@ -68,21 +68,29 @@ format-check:
 # Full CI gate: format-check + analyze + test.
 ci: format-check analyze test
 
-# Build a debug APK (mock backend, lib/main.dart) on the dev flavor.
+# Three canonical builds, one per env, all on the single entry (lib/main.dart);
+# backend + tooling are selected by APP_ENV, the flavor gives each its own
+# applicationId + icon + name:
+#   dev   → debug,   --flavor dev   APP_ENV=dev    mock backend
+#   stage → release, --flavor stage APP_ENV=stage  real backend + dev tooling
+#   prod  → release, --flavor prod  APP_ENV=prod   shipped (tooling compiled out)
+# Mode (debug/profile/release) is orthogonal — profile any env on demand.
+
+# Build the dev APK (debug, mock backend).
 build-android: gen-icons
-    @just _run "flutter build apk --debug --flavor dev {{version_defines}}"
+    @just _run "flutter build apk --debug --flavor dev --dart-define=APP_ENV=dev {{version_defines}}"
 
-# Build the dev variant APK (real backend + tooling): dev flavor + APP_ENV=stage.
-build-android-dev: gen-icons
-    @just _run "flutter build apk --release --flavor dev --target=lib/main_prod.dart --dart-define=APP_ENV=stage {{version_defines}}"
+# Build the stage APK (release, real backend + dev tooling).
+build-android-stage: gen-icons
+    @just _run "flutter build apk --release --flavor stage --dart-define=APP_ENV=stage {{version_defines}}"
 
-# Build the prod variant APK (real backend, tooling compiled out): prod flavor + APP_ENV=prod.
+# Build the prod APK (release, real backend, tooling compiled out — the shipped artifact).
 build-android-prod: gen-icons
-    @just _run "flutter build apk --release --flavor prod --target=lib/main_prod.dart --dart-define=APP_ENV=prod {{version_defines}}"
+    @just _run "flutter build apk --release --flavor prod --dart-define=APP_ENV=prod {{version_defines}}"
 
-# Run the app on a connected device (mock backend, dev flavor).
+# Run the dev build on a connected device/emulator (debug, mock backend).
 run: gen-icons
-    @just _run "flutter run --flavor dev {{version_defines}}"
+    @just _run "flutter run --flavor dev --dart-define=APP_ENV=dev {{version_defines}}"
 
 # --- phone iteration loop (real backend, hot reload) ----------------------
 # adb runs on the HOST: the container's adb crashes during the Android-11+ TLS
@@ -105,11 +113,13 @@ fl_cache := "-v sst_android_sdk:/home/vscode/android-sdk -v sst_gradle_cache:/ho
 pair-phone ADDR CODE:
     @{{host_adb}} start-server >/dev/null 2>&1; sleep 1; {{host_adb}} pair {{ADDR}} {{CODE}}
 
-# Iterate on a real phone with hot reload/restart (debug build, prod flavor =
-# real BLE/WiFi backend). ADDR is the CONNECT ip:port from the main wireless-
-# debugging screen. Run from a terminal (TTY) so r=hot-reload / R=hot-restart /
-# q=quit work. Pair once first with `just pair-phone`. flutter (container) reaches
-# the host-connected device via --network host.
+# Iterate on a real phone with hot reload/restart against the real firmware.
+# Uses the STAGE build (debug mode, stage flavor = real BLE/WiFi backend + dev
+# tooling) — on-device dev testing wants the Logs viewer + debug page. ADDR is
+# the CONNECT ip:port from the main wireless-debugging screen. Run from a
+# terminal (TTY) so r=hot-reload / R=hot-restart / q=quit work. Pair once first
+# with `just pair-phone`. flutter (container) reaches the host-connected device
+# via --network host.
 #   just run-phone 10.10.1.121:46273
 run-phone ADDR:
     @{{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
@@ -118,7 +128,7 @@ run-phone ADDR:
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \
-         $FL run --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod {{version_defines}} -d {{ADDR}}'
+         $FL run --flavor stage --dart-define=APP_ENV=stage {{version_defines}} -d {{ADDR}}'
 
 # Final-check loop — build the SAME prod RELEASE artifact CI ships (AOT, no hot
 # reload) and install it, WITHOUT pushing or minting a release tag. Use
@@ -135,7 +145,7 @@ deploy-phone ADDR:
        -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \
-         $FL build apk --release --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod {{version_defines}}'; \
+         $FL build apk --release --flavor prod --dart-define=APP_ENV=prod {{version_defines}}'; \
      APK="build/app/outputs/flutter-apk/app-prod-release.apk"; \
      [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
      {{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
@@ -146,8 +156,9 @@ deploy-phone ADDR:
 clean:
     @just _run "flutter clean"
 
-# Generate per-flavor launcher icons into android/app/src/<flavor>/res from the
-# flutter_launcher_icons-<flavor>.yaml configs. Run before building a flavored APK.
+# Generate per-flavor launcher icons into android/app/src/<flavor>/res from every
+# flutter_launcher_icons-<flavor>.yaml config (dev/stage/prod — auto-discovered).
+# Run before building a flavored APK.
 gen-icons:
     @just _run "dart run flutter_launcher_icons"
 

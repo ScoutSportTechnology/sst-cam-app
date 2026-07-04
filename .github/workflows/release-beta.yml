@@ -20,10 +20,10 @@ name: release-beta
 # Default GITHUB_TOKEN only (contents:write); the "Release Tags" ruleset allows
 # creating compliant semver tags, so no PAT/App is needed.
 #
-# Two APKs from two Gradle flavors (real backend both), differing by flavor +
-# entrypoint + env:
-#   - production: --flavor prod -t lib/main_prod.dart --dart-define=APP_ENV=prod
-#   - developer : --flavor dev                        --dart-define=APP_ENV=stage
+# Two APKs from two Gradle flavors (real backend both), on the single entry
+# (lib/main.dart), differing by flavor + env:
+#   - production: --flavor prod  --dart-define=APP_ENV=prod
+#   - developer : --flavor stage --dart-define=APP_ENV=stage
 
 on:
   pull_request:
@@ -223,9 +223,10 @@ jobs:
           - flavor: prod
             app_env: prod
             kind: production
-          # dev VARIANT: real backend + tooling — dev flavor (com.sst.sstcam.dev)
-          # + APP_ENV=stage. What the maintainer device-tests for sign-off.
-          - flavor: dev
+          # developer VARIANT: real backend + tooling — stage flavor
+          # (com.sst.sstcam.stage) + APP_ENV=stage. What the maintainer
+          # device-tests for sign-off. Installs side-by-side with production.
+          - flavor: stage
             app_env: stage
             kind: developer
     steps:
@@ -304,7 +305,7 @@ jobs:
       # Stable inherits this (it promotes these beta bytes). Re-add ABIs here if a
       # 32-bit / x86 target is ever needed.
       - name: Build ${{ matrix.kind }} APK
-        run: flutter build apk --release --flavor ${{ matrix.flavor }} -t lib/main_prod.dart --dart-define=APP_ENV=${{ matrix.app_env }} --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} --dart-define=APP_CHANNEL=beta --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
+        run: flutter build apk --release --flavor ${{ matrix.flavor }} --dart-define=APP_ENV=${{ matrix.app_env }} --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} --dart-define=APP_CHANNEL=beta --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
 
       - name: Stage APK artifact
         env:

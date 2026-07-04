@@ -283,21 +283,22 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
 
-      # Per-flavor launcher icons (dev vs prod) into android/app/src/<flavor>/res
+      # Per-flavor launcher icons (dev/stage/prod) into android/app/src/<flavor>/res
       # from flutter_launcher_icons-{dev,prod}.yaml. Needed before a flavored
       # build so the variant ships its own icon (R8).
       - name: Generate launcher icons
         if: steps.ver.outputs.released == 'true'
         run: dart run flutter_launcher_icons
 
-      # Alpha publishes the developer APK only — the dev VARIANT: real backend
-      # (main_prod.dart) + dev tooling (APP_ENV=stage) on the `dev` Gradle flavor
-      # (com.sst.sstcam.dev). The production APK is a beta/stable concern.
+      # Alpha publishes the developer APK only — the developer VARIANT: real
+      # backend + dev tooling (APP_ENV=stage) on the single entry (lib/main.dart),
+      # built on the `stage` Gradle flavor (com.sst.sstcam.stage). The production
+      # APK is a beta/stable concern.
       # arm64-only — Jetson + device-test phones are all 64-bit ARM; skipping the
       # 32-bit/x86 ABIs cuts build time and APK size. Matches release-beta.yml.
       - name: Build developer APK
         if: steps.ver.outputs.released == 'true'
-        run: flutter build apk --release --flavor dev -t lib/main_prod.dart --dart-define=APP_ENV=stage --dart-define=APP_VERSION=${{ steps.ver.outputs.tag }} --dart-define=APP_CHANNEL=alpha --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
+        run: flutter build apk --release --flavor stage --dart-define=APP_ENV=stage --dart-define=APP_VERSION=${{ steps.ver.outputs.tag }} --dart-define=APP_CHANNEL=alpha --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
 
       - name: Rename developer APK
         if: steps.ver.outputs.released == 'true'
@@ -305,7 +306,7 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           mkdir -p dist
-          cp build/app/outputs/apk/dev/release/app-dev-release.apk \
+          cp build/app/outputs/apk/stage/release/app-stage-release.apk \
             "dist/sst-cam-app-${TAG}-developer.apk"
 
       - name: Create prerelease + upload alpha APK

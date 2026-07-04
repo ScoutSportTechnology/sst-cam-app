@@ -49,18 +49,25 @@ android {
         manifestPlaceholders["appName"] = "SST Cam"
     }
 
-    // Two real-backend variants distinguished at the Android level so they can be
-    // installed side-by-side and told apart (R8). Tooling on/off is a SEPARATE
-    // axis handled in Dart via the compile-time APP_ENV define (R6/R7) — the
-    // flavor here only controls applicationId, app name, and launcher icon.
-    //   dev  → com.sst.sstcam.dev   "SST Cam Dev"   (paired with APP_ENV=stage)
-    //   prod → com.sst.sstcam       "SST Cam"       (paired with APP_ENV=prod)
+    // Three variants — one per env — distinguished at the Android level so they
+    // install side-by-side, are told apart at a glance (distinct icon + name),
+    // and pair 1:1 with the single entry's compile-time APP_ENV (which selects
+    // backend + tooling in Dart). The flavor here only controls applicationId,
+    // app name, and launcher icon:
+    //   dev   → com.sst.sstcam.dev     "SST Cam Dev"     (APP_ENV=dev,  mock backend)
+    //   stage → com.sst.sstcam.stage   "SST Cam Stage"   (APP_ENV=stage, real + tools)
+    //   prod  → com.sst.sstcam         "SST Cam"         (APP_ENV=prod, shipped)
     flavorDimensions += "variant"
     productFlavors {
         create("dev") {
             dimension = "variant"
             applicationIdSuffix = ".dev"
             manifestPlaceholders["appName"] = "SST Cam Dev"
+        }
+        create("stage") {
+            dimension = "variant"
+            applicationIdSuffix = ".stage"
+            manifestPlaceholders["appName"] = "SST Cam Stage"
         }
         create("prod") {
             dimension = "variant"
