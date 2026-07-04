@@ -9,6 +9,7 @@ import 'streaming/streaming_state.dart'
 import 'users/users_state.dart'
     show activeUserProvider, usersControllerProvider;
 import '../../core/ble/ble_providers.dart';
+import '../../core/state/selection_sync.dart';
 import '../../core/models/command.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
@@ -480,6 +481,8 @@ class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
         await svc.connect(lastId).timeout(const Duration(seconds: 5));
         // Success: set active camera id; the page rerenders to populated.
         ref.read(activeCameraIdProvider.notifier).state = lastId;
+        // Match the firmware's fresh session (camera 0 / single view) on reconnect.
+        resetSelectionOnConnect(ref, lastId);
       } catch (_) {
         // BleConnectionException, TimeoutException, anything else — same
         // user-facing fallback per the plan.

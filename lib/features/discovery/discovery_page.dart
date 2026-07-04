@@ -7,6 +7,7 @@ import '../../core/models/device.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../../core/ble/ble_providers.dart';
 import '../../core/ble/ble_service.dart';
+import '../../core/state/selection_sync.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
@@ -260,6 +261,9 @@ class _DeviceRow extends ConsumerWidget {
     try {
       await svc.connect(device.id);
       ref.read(activeCameraIdProvider.notifier).state = device.id;
+      // Match the firmware's fresh session — it resets the output camera to 0 /
+      // single view on disconnect, so start the UI there on every connect.
+      resetSelectionOnConnect(ref, device.id);
       // Persist the last successfully-connected camera id so the Settings
       // empty-state CTA can offer a one-tap reconnect. Best-effort — a persist
       // failure must not break the connect flow.
