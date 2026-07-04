@@ -398,9 +398,11 @@ class _TelemetryGrid extends StatelessWidget {
   }
 
   String _cpu(DeviceTelemetry? t) {
-    // cpuUsedPct is a 0.0–1.0 fraction from the firmware CPU-busy probe.
+    // cpuUsedPct is already a 0–100 percent from the firmware CPU-busy probe
+    // (CpuBusyPercent → [0,100]) — display it directly. Multiplying by 100 read
+    // 61.79% as "6179%".
     if (t == null) return '—';
-    return '${(t.cpuUsedPct * 100).round()}%';
+    return '${t.cpuUsedPct.round()}%';
   }
 
   String _temp(DeviceTelemetry? t) {

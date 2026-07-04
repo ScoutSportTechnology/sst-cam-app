@@ -117,8 +117,8 @@ void main() {
 
       final telemetry = await svc.telemetryStream(id).first;
       expect(telemetry.storageTotalBytes, greaterThan(0));
-      expect(telemetry.cpuUsedPct, inInclusiveRange(0.0, 1.0));
-      expect(telemetry.ramUsedPct, inInclusiveRange(0.0, 1.0));
+      expect(telemetry.cpuUsedPct, inInclusiveRange(0.0, 100.0));
+      expect(telemetry.ramUsedPct, inInclusiveRange(0.0, 100.0));
     });
   });
 
@@ -361,8 +361,8 @@ void main() {
         final t = resp.payload;
         expect(t, isNotNull);
         expect(t!.storageTotalBytes, greaterThan(0));
-        expect(t.cpuUsedPct, inInclusiveRange(0.0, 1.0));
-        expect(t.ramUsedPct, inInclusiveRange(0.0, 1.0));
+        expect(t.cpuUsedPct, inInclusiveRange(0.0, 100.0));
+        expect(t.ramUsedPct, inInclusiveRange(0.0, 100.0));
         expect(t.tempCelsius, greaterThan(0.0));
       },
     );

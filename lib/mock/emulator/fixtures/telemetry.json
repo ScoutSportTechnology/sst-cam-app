@@ -9,8 +9,8 @@
   "tempCelsius": 48.0,
   "wifiSsid": "StadiumNet-5G",
   "wifiSignalDbm": -65,
-  "cpuUsedPct": 0.30,
-  "ramUsedPct": 0.45,
+  "cpuUsedPct": 30,
+  "ramUsedPct": 45,
   "internetReachable": true,
   "isRecording": false,
   "isStreaming": false

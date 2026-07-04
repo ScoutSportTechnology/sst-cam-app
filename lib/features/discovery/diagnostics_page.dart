@@ -278,7 +278,7 @@ class _CameraLogsCard extends StatelessWidget {
         type: MaterialType.transparency,
         child: ListTile(
           title: const Text(
-            'Camera link logs',
+            'Camera logs',
             style: TextStyle(color: T.ink, fontSize: 14),
           ),
           subtitle: const Text(
@@ -289,10 +289,8 @@ class _CameraLogsCard extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right, color: T.ink3),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => const LogViewerPage(
-                title: 'Camera link',
-                filter: isCameraLinkLog,
-              ),
+              builder: (_) =>
+                  const LogViewerPage(title: 'Camera', filter: isCameraLinkLog),
             ),
           ),
         ),
