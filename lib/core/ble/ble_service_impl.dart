@@ -16,6 +16,7 @@ import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
+import '../services/log_service.dart';
 import 'ble_protocol.dart';
 import 'ble_seams.dart';
 import 'ble_service.dart';
@@ -76,6 +77,22 @@ class BleServiceImpl implements BleService {
   // stops, observed via `FlutterBluePlus.isScanning`.
   StreamSubscription<List<ScanResult>>? _scanResultsSub;
   StreamSubscription<bool>? _isScanningSub;
+
+  @override
+  Stream<bool> get bluetoothOn =>
+      FlutterBluePlus.adapterState.map((s) => s == BluetoothAdapterState.on);
+
+  @override
+  Future<void> requestBluetoothOn() async {
+    // Android can prompt the user to enable Bluetooth in-app; other platforms
+    // have no equivalent, and a decline/timeout just leaves the adapter off
+    // (the UI keeps showing the "Bluetooth is off" banner).
+    try {
+      await FlutterBluePlus.turnOn();
+    } catch (_) {
+      // Unsupported platform / user declined — nothing to do.
+    }
+  }
 
   @override
   bool get isScanning => _isScanning;
@@ -298,7 +315,7 @@ class BleServiceImpl implements BleService {
         }
       });
     } catch (e) {
-      _log.warning('connect to camera $deviceId failed', e);
+      _log.warn('connect to camera $deviceId failed', e);
       conn._connController.add(CameraConnectionState.disconnected);
       conn.teardownConnection();
       if (e is BleConnectionException || e is BleProtocolVersionException) {

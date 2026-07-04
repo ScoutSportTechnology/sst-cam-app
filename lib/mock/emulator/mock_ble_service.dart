@@ -444,6 +444,12 @@ class MockBleService implements BleService {
   }
 
   @override
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  @override
+  Future<void> requestBluetoothOn() async {}
+
+  @override
   bool get isScanning => _isScanning;
 
   @override

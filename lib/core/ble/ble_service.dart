@@ -19,6 +19,16 @@ abstract class BleService {
   // Discovery
   // ---------------------------------------------------------------------------
 
+  /// Whether the host Bluetooth adapter is on. Emits the current state
+  /// immediately, then updates as the user toggles Bluetooth. Concrete default
+  /// emits a single `true` — the mock/fakes have no real adapter to be "off".
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  /// Ask the OS to enable Bluetooth (Android shows the system enable prompt).
+  /// No-op where unsupported, already on, or the user declines. Concrete default
+  /// is a no-op so fakes need not implement it.
+  Future<void> requestBluetoothOn() async {}
+
   /// Whether a scan is currently active.
   bool get isScanning;
 

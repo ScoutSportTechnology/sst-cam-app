@@ -200,7 +200,7 @@ class _HeroCameraCard extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
                 if (connected) ...[
                   // Preview controls inline — Preview button + Single|Both mode
                   // toggle in two equal columns, mirroring the match session
@@ -250,31 +250,36 @@ class _HeroCameraCard extends ConsumerWidget {
                     OutputCameraToggle(deviceId: deviceId, full: true),
                   ],
                   const SizedBox(height: 8),
-                  // Primary: open match tab. Full-width md — equal height/width
-                  // with Disconnect below.
-                  WfButton(
-                    label: 'Open match',
-                    variant: WfButtonVariant.primary,
-                    full: true,
-                    // The shell is a NavigationBar + IndexedStack driven by
-                    // activeTabProvider — there is no DefaultTabController in the
-                    // tree, so maybeOf() returned null and the button no-op'd.
-                    // Match is tab index 2; its landing offers "Schedule a match"
-                    // when none exist.
-                    onPressed: () =>
-                        ref.read(activeTabProvider.notifier).state = 2,
-                  ),
-                  const SizedBox(height: 8),
-                  // Disconnect — danger (red), full-width: equal height/width
-                  // with Open match (the unequal-button fix from the match card).
-                  WfButton(
-                    label: 'Disconnect',
-                    variant: WfButtonVariant.danger,
-                    full: true,
-                    onPressed: () {
-                      ref.read(bleServiceProvider).disconnect(deviceId!);
-                      ref.read(activeCameraIdProvider.notifier).state = null;
-                    },
+                  // Open match + Disconnect share one row (were two stacked
+                  // full-width buttons) to keep the hero card inside the phone
+                  // viewport without scrolling. Match is tab index 2; the shell
+                  // is a NavigationBar + IndexedStack driven by activeTabProvider
+                  // (no DefaultTabController, so maybeOf() would return null).
+                  Row(
+                    children: [
+                      Expanded(
+                        child: WfButton(
+                          label: 'Open match',
+                          variant: WfButtonVariant.primary,
+                          full: true,
+                          onPressed: () =>
+                              ref.read(activeTabProvider.notifier).state = 2,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: WfButton(
+                          label: 'Disconnect',
+                          variant: WfButtonVariant.danger,
+                          full: true,
+                          onPressed: () {
+                            ref.read(bleServiceProvider).disconnect(deviceId!);
+                            ref.read(activeCameraIdProvider.notifier).state =
+                                null;
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ] else
                   WfButton(

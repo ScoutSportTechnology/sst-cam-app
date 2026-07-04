@@ -31,6 +31,12 @@ class _StubBleService implements BleService {
   final Object? deviceInfoResult; // DeviceInfoResponse | null | Exception
 
   @override
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  @override
+  Future<void> requestBluetoothOn() async {}
+
+  @override
   Future<BleCommandResponse<T>> sendCommand<T>(
     String deviceId,
     BleCommand command,

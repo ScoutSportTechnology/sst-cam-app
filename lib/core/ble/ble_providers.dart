@@ -28,6 +28,12 @@ final discoveredDevicesProvider = StreamProvider<List<SstDevice>>((ref) {
   return ref.watch(bleServiceProvider).discoveredDevices;
 });
 
+/// Whether the host Bluetooth adapter is on. Drives the discovery screen's
+/// "Bluetooth is off" prompt. Mock/fakes emit `true`.
+final bluetoothOnProvider = StreamProvider<bool>((ref) {
+  return ref.watch(bleServiceProvider).bluetoothOn;
+});
+
 // ---------------------------------------------------------------------------
 // Per-device (family = one provider instance per deviceId)
 // ---------------------------------------------------------------------------
