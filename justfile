@@ -76,52 +76,68 @@ ci: format-check analyze test
 #   prod  → release, --flavor prod  APP_ENV=prod   shipped (tooling compiled out)
 # Mode (debug/profile/release) is orthogonal — profile any env on demand.
 
-# Build the dev APK (debug, mock backend).
-build-android: gen-icons
-    @just _run "flutter build apk --debug --flavor dev --dart-define=APP_ENV=dev {{version_defines}}"
+# build-<env>-app → build that env's APK in the dev container; the APK lands in
+# build/app/outputs/flutter-apk/app-<flavor>-<mode>.apk. No device needed.
+[private]
+_build-app MODE FLAVOR ENV: gen-icons
+    @just _run "flutter build apk --{{MODE}} --flavor {{FLAVOR}} --dart-define=APP_ENV={{ENV}} {{version_defines}}"
 
-# Build the stage APK (release, real backend + dev tooling).
-build-android-stage: gen-icons
-    @just _run "flutter build apk --release --flavor stage --dart-define=APP_ENV=stage {{version_defines}}"
+# dev   → debug,   mock backend (no Jetson).
+build-dev-app: (_build-app "debug" "dev" "dev")
+# stage → release, real backend + dev tooling.
+build-stage-app: (_build-app "release" "stage" "stage")
+# prod  → release, real backend, tooling compiled out (the shipped artifact).
+build-prod-app: (_build-app "release" "prod" "prod")
 
-# Build the prod APK (release, real backend, tooling compiled out — the shipped artifact).
-build-android-prod: gen-icons
-    @just _run "flutter build apk --release --flavor prod --dart-define=APP_ENV=prod {{version_defines}}"
-
-# Run the dev build on a connected device/emulator (debug, mock backend).
+# Run the dev build on a local device/emulator inside the container (hot reload).
 run: gen-icons
     @just _run "flutter run --flavor dev --dart-define=APP_ENV=dev {{version_defines}}"
 
-# --- phone iteration loop (real backend, hot reload) ----------------------
+# --- phone (real hardware) -------------------------------------------------
 # adb runs on the HOST: the container's adb crashes during the Android-11+ TLS
 # pair, so pairing/connection live in the host adb (keys persist in ~/.android).
-# flutter still runs in the container, sharing the host adb server via
-# `--network host`. Requires `adb` on the host PATH (platform-tools); pairing is
-# one-time. `host_adb` defaults to PATH but can be overridden:
-#   just host_adb=./.devtools/platform-tools/adb run-phone 10.10.1.121:46273
+# `host_adb` defaults to PATH but can be overridden:
+#   just host_adb=./.devtools/platform-tools/adb deploy-stage-app 10.10.1.121:46273
 host_adb := justfile_directory() / "../.devtools/platform-tools/adb"
 fl_img := "flutter4android"
-# Persist the Android SDK + Gradle cache across the ephemeral `docker run --rm`
-# containers. Without these, every launch re-installs SDK Platform 35 + CMake and
-# runs Gradle cold (minutes per run). Named volumes survive container removal, so
-# the second run onward is fast.
+# Persist the Android SDK + Gradle cache across the ephemeral iterate-app
+# containers so the second run onward is fast (named volumes survive --rm).
 fl_cache := "-v sst_android_sdk:/home/vscode/android-sdk -v sst_gradle_cache:/home/vscode/.gradle -v sst_pub_cache:/home/vscode/.pub-cache"
 
-# Pair the phone ONCE (host adb). From the phone: Wireless debugging -> "Pair
-# device with pairing code" gives <ip:pair-port> and a 6-digit CODE.
+# Pair the phone ONCE (host adb). Phone: Wireless debugging -> "Pair device with
+# pairing code" gives <ip:pair-port> and a 6-digit CODE.
 #   just pair-phone 10.10.1.121:37123 123456
 pair-phone ADDR CODE:
     @{{host_adb}} start-server >/dev/null 2>&1; sleep 1; {{host_adb}} pair {{ADDR}} {{CODE}}
 
-# Iterate on a real phone with hot reload/restart against the real firmware.
-# Uses the STAGE build (debug mode, stage flavor = real BLE/WiFi backend + dev
-# tooling) — on-device dev testing wants the Logs viewer + debug page. ADDR is
-# the CONNECT ip:port from the main wireless-debugging screen. Run from a
-# terminal (TTY) so r=hot-reload / R=hot-restart / q=quit work. Pair once first
-# with `just pair-phone`. flutter (container) reaches the host-connected device
-# via --network host.
-#   just run-phone 10.10.1.121:46273
-run-phone ADDR:
+# deploy-<env>-app ADDR → build that env's APK in the container, then install it on
+# the phone via host adb. ADDR = the CONNECT ip:port (wireless) or the USB serial
+# (from `adb devices`). APKs are debug-signed (no keystore), so `install -r`
+# upgrades in place; on a signature mismatch `adb uninstall <applicationId>` once,
+# then re-run. The three flavors have distinct applicationIds → install side-by-side.
+[private]
+_deploy-app MODE FLAVOR ENV ADDR: (_build-app MODE FLAVOR ENV)
+    @APK="build/app/outputs/flutter-apk/app-{{FLAVOR}}-{{MODE}}.apk"; \
+     [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
+     {{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
+     {{host_adb}} -s {{ADDR}} install -r "$APK" \
+       && echo "Installed $APK on {{ADDR}}"
+
+# dev   → debug, mock backend (no Jetson needed).
+#   just deploy-dev-app R5GYB5J72CT
+deploy-dev-app ADDR: (_deploy-app "debug" "dev" "dev" ADDR)
+# stage → release, real backend + dev tooling (device-test against firmware).
+#   just deploy-stage-app R5GYB5J72CT
+deploy-stage-app ADDR: (_deploy-app "release" "stage" "stage" ADDR)
+# prod  → release, the shipped artifact (final pre-PR check).
+#   just deploy-prod-app R5GYB5J72CT
+deploy-prod-app ADDR: (_deploy-app "release" "prod" "prod" ADDR)
+
+# Fast iteration on the phone with hot reload/restart (stage = real backend +
+# tooling). Run from a TTY so r=hot-reload / R=hot-restart / q=quit work. flutter
+# runs in a one-shot container sharing the host adb server via --network host.
+#   just iterate-app 10.10.1.121:46273
+iterate-app ADDR:
     @{{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
      docker run --rm -it --network host -u vscode -e HOME=/home/vscode \
        {{fl_cache}} \
@@ -129,28 +145,6 @@ run-phone ADDR:
        {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
          $FL pub get && dart run flutter_launcher_icons && \
          $FL run --flavor stage --dart-define=APP_ENV=stage {{version_defines}} -d {{ADDR}}'
-
-# Final-check loop — build the SAME prod RELEASE artifact CI ships (AOT, no hot
-# reload) and install it, WITHOUT pushing or minting a release tag. Use
-# `run-phone` for fast iteration; use this once before a PR to validate the real
-# shipped artifact. Builds in the container; installs via host adb. ADDR is the
-# CONNECT ip:port. Pair once via `just pair-phone`.
-#   just deploy-phone 10.10.1.121:46273
-#
-# The prod APK is debug-signed (no keystore), same as CI, so `install -r` upgrades
-# in place. On a signature mismatch, `adb uninstall com.sst.sstcam` once, re-run.
-deploy-phone ADDR:
-    @docker run --rm -u vscode -e HOME=/home/vscode \
-       {{fl_cache}} \
-       -v "{{justfile_directory()}}":/workspaces/sst-cam-app -w /workspaces/sst-cam-app \
-       {{fl_img}} bash -c 'FL=/home/vscode/flutter/bin/flutter; \
-         $FL pub get && dart run flutter_launcher_icons && \
-         $FL build apk --release --flavor prod --dart-define=APP_ENV=prod {{version_defines}}'; \
-     APK="build/app/outputs/flutter-apk/app-prod-release.apk"; \
-     [ -f "$APK" ] || { echo "APK not found: $APK" >&2; exit 1; }; \
-     {{host_adb}} connect {{ADDR}} >/dev/null 2>&1 || true; \
-     {{host_adb}} -s {{ADDR}} install -r "$APK" && \
-     echo "Installed app-prod-release (com.sst.sstcam) to {{ADDR}}"
 
 # Clean build artifacts.
 clean:

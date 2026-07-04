@@ -13,7 +13,7 @@ and is tested without hardware.
 
 ```bash
 just get              # flutter pub get
-just run              # dev build (mock backend, main.dart)
+just run              # dev build on a local device/emulator (mock backend)
 just test             # unit + widget tests
 just test-integration # integration tests (needs device/emulator)
 just test-all         # test + test-integration
@@ -23,9 +23,13 @@ just format-check     # CI format check (exits non-zero on diff)
 just gen-proto        # regenerate lib/models/proto/ from proto/*.proto (devcontainer)
 just gen-db           # regenerate Drift *.g.dart from tables/daos (devcontainer)
 just gen-icons        # regenerate per-flavor launcher icons (dev/stage/prod)
-just build-android    # dev APK: debug + mock backend
-just build-android-stage  # stage APK: release + real backend + dev tooling
-just build-android-prod   # prod APK: release + real backend, tooling compiled out (shipped)
+just build-dev-app    # dev APK: debug + mock backend
+just build-stage-app  # stage APK: release + real backend + dev tooling
+just build-prod-app   # prod APK: release + real backend, tooling compiled out (shipped)
+just deploy-dev-app ADDR   # build + install on phone (dev/stage/prod variants)
+just deploy-stage-app ADDR # ADDR = adb serial (USB) or ip:port (wireless)
+just deploy-prod-app ADDR
+just iterate-app ADDR      # phone hot-reload loop (stage, real backend)
 just ci               # format-check + analyze + test (mirrors CI)
 ```
 
@@ -48,11 +52,15 @@ Open in VS Code → "Reopen in Container". Docker Compose
 backend + tooling from the compile-time `kAppEnv` (`--dart-define=APP_ENV=…`) —
 there is no second `main`:
 
-| Build (`just`)          | Mode    | Flavor  | `APP_ENV` | applicationId          | Backend | Dev tooling |
-|-------------------------|---------|---------|-----------|------------------------|---------|-------------|
-| `build-android` / `run` | debug   | `dev`   | `dev`     | `com.sst.sstcam.dev`   | mock    | yes         |
-| `build-android-stage`   | release | `stage` | `stage`   | `com.sst.sstcam.stage` | real    | yes         |
-| `build-android-prod`    | release | `prod`  | `prod`    | `com.sst.sstcam`       | real    | no          |
+| Build (`just`)                    | Mode    | Flavor  | `APP_ENV` | applicationId          | Backend | Dev tooling |
+|-----------------------------------|---------|---------|-----------|------------------------|---------|-------------|
+| `build-dev-app` / `deploy-dev-app`     | debug   | `dev`   | `dev`     | `com.sst.sstcam.dev`   | mock    | yes         |
+| `build-stage-app` / `deploy-stage-app` | release | `stage` | `stage`   | `com.sst.sstcam.stage` | real    | yes         |
+| `build-prod-app` / `deploy-prod-app`   | release | `prod`  | `prod`    | `com.sst.sstcam`       | real    | no          |
+
+`build-*-app` produces the APK; `deploy-*-app ADDR` builds then installs on a
+phone via host adb (`ADDR` = USB serial or wireless `ip:port`). `iterate-app ADDR`
+is the stage hot-reload loop.
 
 - `main.dart` branches on `kAppEnv.isDevBackend`: **dev** runs `_bootstrapDev()`
   (overrides `bleServiceProvider`/`wifiServiceProvider` with mocks + seedable dev
