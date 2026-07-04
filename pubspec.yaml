@@ -18,6 +18,10 @@ dependencies:
   # State management
   flutter_riverpod: ^2.6.1
 
+  # Structured logging — feature code uses Logger('Name'); LogService routes the
+  # records into the in-app viewer with a standardized format.
+  logging: ^1.2.0
+
   # Wire format (BLE + future WiFi control)
   protobuf: ^3.1.0
   fixnum: ^1.1.0

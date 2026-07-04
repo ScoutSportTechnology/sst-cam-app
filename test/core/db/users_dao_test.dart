@@ -27,7 +27,9 @@ void main() {
   test('watchAll on fresh DB emits the default user from base seed', () async {
     final result = await db.usersDao.watchAll().first;
     expect(result, hasLength(1));
-    expect(result.first.id, kDefaultUserId);
+    // The base seed's id is a random per-install uuid; its name is the stable
+    // part of the contract.
+    expect(result.first.name, 'Coach');
   });
 
   test('insert user → watchAll emits it alongside the default user', () async {
@@ -87,7 +89,8 @@ void main() {
 
       final users = await db.usersDao.getAll();
       expect(users, hasLength(1));
-      expect(users.first.id, kDefaultUserId);
+      // Surviving user is the base seed (random per-install id, stable name).
+      expect(users.first.name, 'Coach');
     },
   );
 

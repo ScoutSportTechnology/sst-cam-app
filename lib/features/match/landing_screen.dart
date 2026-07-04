@@ -21,7 +21,12 @@ class LandingScreen extends ConsumerWidget {
     final async = ref.watch(upcomingMatchesProvider);
     return Scaffold(
       backgroundColor: T.bg,
-      appBar: AppBar(title: const Text('Match')),
+      appBar: AppBar(
+        title: WfCountTitle(
+          'Match',
+          count: ref.watch(filteredUpcomingMatchesProvider).length,
+        ),
+      ),
       body: Column(
         children: [
           const Padding(
@@ -59,9 +64,9 @@ class LandingScreen extends ConsumerWidget {
                 // the "+" FAB offers Training session / Match instead.
                 return Column(
                   children: [
-                    WfSection(
-                      'Upcoming · ${filtered.length}',
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+                    const WfSection(
+                      'Upcoming',
+                      padding: EdgeInsets.fromLTRB(14, 12, 14, 6),
                     ),
                     Expanded(
                       child: ListView.separated(

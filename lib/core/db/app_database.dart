@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../config/app_config.dart';
 import 'daos/clips_dao.dart';
@@ -148,17 +149,23 @@ class AppDatabase extends _$AppDatabase {
 
   /// Seeds the default user and built-in sport presets.
   ///
-  /// Safe to call multiple times — uses insertOnConflictUpdate internally.
-  Future<void> _seedBaseData() async {
+  /// `userId` is generated per-install by default — NEVER a hardcoded constant,
+  /// so two installs don't share an identity and collide in the camera's
+  /// per-user video directory (`/videos/<user_uuid>/…`). The dev/mock callers
+  /// pass `kDefaultUserId` explicitly so the emulator fixtures (which reference
+  /// that id) line up. Safe to call multiple times — uses insertOnConflictUpdate.
+  Future<void> _seedBaseData({String? userId}) async {
+    final id = userId ?? const Uuid().v4();
     await usersDao.insertUser(
-      UsersTableCompanion.insert(id: kDefaultUserId, name: 'Coach'),
+      UsersTableCompanion.insert(id: id, name: 'Coach'),
     );
-    await sportPresetsDao.seedBuiltInsForUser(kDefaultUserId);
+    await sportPresetsDao.seedBuiltInsForUser(id);
   }
 
   /// Re-seeds base data after a manual reset (e.g., from the debug screen).
-  /// Public so the debug screen can call it after wiping the DB.
-  Future<void> seedBaseData() => _seedBaseData();
+  /// Public so the debug/mock layers can call it after wiping the DB. Pass
+  /// `userId: kDefaultUserId` from the mock/dev path so fixtures match.
+  Future<void> seedBaseData({String? userId}) => _seedBaseData(userId: userId);
 }
 
 /// Opens (or creates) the application SQLite database file.

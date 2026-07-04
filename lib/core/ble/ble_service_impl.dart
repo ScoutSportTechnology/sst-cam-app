@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:logging/logging.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../models/proto/bluetooth.pb.dart' as proto;
@@ -15,6 +16,7 @@ import '../models/overlay_layout.dart';
 import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
+import '../services/log_service.dart';
 import 'ble_protocol.dart';
 import 'ble_seams.dart';
 import 'ble_service.dart';
@@ -40,6 +42,8 @@ Duration _remainingUntil(DateTime deadline) {
   final remaining = deadline.difference(DateTime.now());
   return remaining.isNegative ? Duration.zero : remaining;
 }
+
+final _log = Logger('BleService');
 
 class BleServiceImpl implements BleService {
   // Seeded so a late subscriber (e.g. re-entering the discovery page) replays the
@@ -73,6 +77,22 @@ class BleServiceImpl implements BleService {
   // stops, observed via `FlutterBluePlus.isScanning`.
   StreamSubscription<List<ScanResult>>? _scanResultsSub;
   StreamSubscription<bool>? _isScanningSub;
+
+  @override
+  Stream<bool> get bluetoothOn =>
+      FlutterBluePlus.adapterState.map((s) => s == BluetoothAdapterState.on);
+
+  @override
+  Future<void> requestBluetoothOn() async {
+    // Android can prompt the user to enable Bluetooth in-app; other platforms
+    // have no equivalent, and a decline/timeout just leaves the adapter off
+    // (the UI keeps showing the "Bluetooth is off" banner).
+    try {
+      await FlutterBluePlus.turnOn();
+    } catch (_) {
+      // Unsupported platform / user declined — nothing to do.
+    }
+  }
 
   @override
   bool get isScanning => _isScanning;
@@ -203,6 +223,7 @@ class BleServiceImpl implements BleService {
 
   @override
   Future<void> connect(String deviceId) async {
+    _log.info('connecting to camera $deviceId');
     final device = BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
     // Reuse the persistent slot so any stream subscribed BEFORE connect (the
     // discovery row watches connectionStateStream at build time) receives the
@@ -269,6 +290,10 @@ class BleServiceImpl implements BleService {
       }
 
       conn._connController.add(CameraConnectionState.connected);
+      _log.info(
+        'connected to camera $deviceId '
+        '(proto v${info.payload!.protocolVersion})',
+      );
 
       // Poll telemetry / match state from here (not as a stream-subscribe side
       // effect) so the pollers' lifecycle is tied to the connection, and so a
@@ -290,6 +315,7 @@ class BleServiceImpl implements BleService {
         }
       });
     } catch (e) {
+      _log.warn('connect to camera $deviceId failed', e);
       conn._connController.add(CameraConnectionState.disconnected);
       conn.teardownConnection();
       if (e is BleConnectionException || e is BleProtocolVersionException) {
@@ -303,6 +329,7 @@ class BleServiceImpl implements BleService {
   Future<void> disconnect(String deviceId) async {
     final conn = _devices[deviceId];
     if (conn == null) return;
+    _log.info('disconnecting camera $deviceId');
     conn._connController.add(CameraConnectionState.disconnecting);
     await conn._device?.disconnect();
     conn._connController.add(CameraConnectionState.disconnected);
@@ -469,6 +496,87 @@ class BleServiceImpl implements BleService {
       );
     }
     return result;
+  }
+
+  @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
+  }) async {
+    // Decodes to a CameraCalibrationResult echo; we ignore it (the sliders are the
+    // source of truth for a manual set).
+    final resp = await sendCommand<CameraCalibrationResult>(
+      deviceId,
+      SetCameraCalibrationCommand(
+        rGain: rGain,
+        gGain: gGain,
+        bGain: bGain,
+        enabled: enabled,
+        saturation: saturation,
+        contrast: contrast,
+        brightness: brightness,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setCameraCalibration failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async {
+    final resp = await sendCommand<CameraCalibrationResult>(
+      deviceId,
+      AutoWhiteBalanceCommand(),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'autoWhiteBalance failed: ${resp.errorMessage}',
+      );
+    }
+    return resp.payload;
+  }
+
+  @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      CameraFocusCommand(
+        mode: mode,
+        position: position,
+        cameraIndex: cameraIndex,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setCameraFocus failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      SetActiveCameraCommand(cameraIndex: cameraIndex),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setActiveCamera failed: ${resp.errorMessage}',
+      );
+    }
   }
 
   @override

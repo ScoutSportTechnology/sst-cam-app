@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart' show DeviceInfoResponse;
 import '../../core/models/telemetry.dart';
+import '../../core/services/log_service.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/version/version_info.dart';
 import '../../core/widgets/wf_card.dart';
@@ -18,8 +19,8 @@ import '../settings/developer/log_viewer_page.dart';
 /// Lines the live "Camera link" log view keeps — the BLE/WiFi comms the app
 /// captures (commands, responses, preview, streaming, p2p). Interim until the
 /// firmware streams its own logs over the wire.
-bool isCameraLinkLog(String line) {
-  final l = line.toLowerCase();
+bool isCameraLinkLog(LogEntry e) {
+  final l = '${e.source} ${e.message}'.toLowerCase();
   const needles = [
     'ble',
     'gatt',
@@ -73,6 +74,8 @@ class DiagnosticsPage extends ConsumerWidget {
         children: [
           const WfSection('Camera', padding: EdgeInsets.only(bottom: 8)),
           _CameraDiagnostics(telemetry: telemetry, info: info),
+          const SizedBox(height: 8),
+          const _CameraLogsCard(),
           const SizedBox(height: 18),
           const WfSection('App', padding: EdgeInsets.only(bottom: 8)),
           const _AppDiagnostics(),
@@ -254,28 +257,42 @@ class _AppDiagnostics extends ConsumerWidget {
                 ),
               ),
             ),
-            const Divider(height: 1, color: T.rule),
-            ListTile(
-              title: const Text(
-                'Camera link logs',
-                style: TextStyle(color: T.ink, fontSize: 14),
-              ),
-              subtitle: const Text(
-                'Live BLE/WiFi comms with the camera (interim — firmware-side '
-                'logs land in a later phase).',
-                style: TextStyle(color: T.ink2, fontSize: 12),
-              ),
-              trailing: const Icon(Icons.chevron_right, color: T.ink3),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const LogViewerPage(
-                    title: 'Camera link',
-                    filter: isCameraLinkLog,
-                  ),
-                ),
-              ),
-            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Camera-link log entry point. Lives under the **Camera** section (not App) —
+/// these are the BLE/WiFi comms with the camera, so they belong with the camera
+/// diagnostics rather than the app's own logs.
+class _CameraLogsCard extends StatelessWidget {
+  const _CameraLogsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return WfCard(
+      padding: EdgeInsets.zero,
+      child: Material(
+        type: MaterialType.transparency,
+        child: ListTile(
+          title: const Text(
+            'Camera logs',
+            style: TextStyle(color: T.ink, fontSize: 14),
+          ),
+          subtitle: const Text(
+            'Live BLE/WiFi comms with the camera (interim — firmware-side '
+            'logs land in a later phase).',
+            style: TextStyle(color: T.ink2, fontSize: 12),
+          ),
+          trailing: const Icon(Icons.chevron_right, color: T.ink3),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  const LogViewerPage(title: 'Camera', filter: isCameraLinkLog),
+            ),
+          ),
         ),
       ),
     );

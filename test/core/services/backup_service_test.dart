@@ -31,6 +31,12 @@ class _StubBleService implements BleService {
   final Object? deviceInfoResult; // DeviceInfoResponse | null | Exception
 
   @override
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  @override
+  Future<void> requestBluetoothOn() async {}
+
+  @override
   Future<BleCommandResponse<T>> sendCommand<T>(
     String deviceId,
     BleCommand command,
@@ -99,6 +105,29 @@ class _StubBleService implements BleService {
     width: 1280,
     height: 720,
   );
+  @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
+  }) async {}
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async =>
+      null;
+  @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {}
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {}
   @override
   Future<ExportJob> requestOverlayExport(
     String deviceId,
@@ -445,8 +474,9 @@ void main() {
     final userId = _uuid.v4();
     final teamId = _uuid.v4();
 
-    // Remove base-seeded default-user so only Coach Diego is in the export.
-    await db.usersDao.deleteById(kDefaultUserId);
+    // Remove the base-seeded default user (random per-install id now, so wipe
+    // the table rather than a fixed id) so only Coach Diego is in the export.
+    await db.delete(db.usersTable).go();
 
     await db.usersDao.insertUser(
       UsersTableCompanion.insert(id: userId, name: 'Coach Diego'),

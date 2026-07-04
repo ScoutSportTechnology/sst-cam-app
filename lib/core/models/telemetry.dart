@@ -23,6 +23,10 @@ class DeviceTelemetry {
   final int? wifiSignalDbm;
   final bool internetReachable;
   final double tempCelsius;
+
+  /// RAM / CPU utilisation as a **0–100 percent** (matching the firmware:
+  /// `ram_used_pct = used * 100`, `CpuBusyPercent → [0,100]`). Not a 0–1
+  /// fraction — display as `pct.round()%`, never `× 100`.
   final double ramUsedPct;
   final double cpuUsedPct;
   final int uptimeSeconds;

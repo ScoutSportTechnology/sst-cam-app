@@ -189,12 +189,22 @@ enum BleMatchControlAction {
 // ---------------------------------------------------------------------------
 
 class RecordingControlCommand extends BleCommand {
-  RecordingControlCommand({required this.action, this.quality});
+  RecordingControlCommand({
+    required this.action,
+    this.quality,
+    this.captureGroupId,
+  });
   final RecordingControlAction action;
 
   /// Record resolution/fps, applied by firmware at session start (independent of
   /// the stream quality). Null => firmware default. Only meaningful on a start.
   final VideoMode? quality;
+
+  /// App-minted pairing key sent on START. Couples the always-on dual-camera
+  /// training proxy to this match record (firmware starts the per-camera proxy
+  /// and stamps the proxy files with this id). Null => record with no proxy.
+  /// Must be null on STOP.
+  final String? captureGroupId;
 }
 
 /// Independent raw dual-camera capture, distinct from [RecordingControlCommand].
@@ -253,6 +263,80 @@ class PushOverlayLayoutCommand extends BleCommand {
 class SetPreviewLayoutCommand extends BleCommand {
   SetPreviewLayoutCommand({required this.layout});
   final PreviewLayout layout;
+}
+
+/// Live per-channel white-balance gain calibration for the camera's
+/// postprocessor — the diagnostic Calibration → Camera screen drives these with
+/// sliders against the live preview to neutralize the IMX477 magenta cast.
+/// Gains multiply the BGR channels (1.0 = identity); [enabled] false bypasses
+/// correction. Fire-and-forget: applied live, no meaningful payload back.
+class SetCameraCalibrationCommand extends BleCommand {
+  SetCameraCalibrationCommand({
+    required this.rGain,
+    required this.gGain,
+    required this.bGain,
+    this.enabled = true,
+    this.saturation = 1.0,
+    this.contrast = 1.0,
+    this.brightness = 0.0,
+  });
+  final double rGain;
+  final double gGain;
+  final double bGain;
+  final bool enabled;
+  final double saturation;
+  final double contrast;
+  final double brightness;
+}
+
+/// One-shot auto white-balance: the firmware measures the current frame (point
+/// the camera at a white/grey surface) and computes the neutralizing gains,
+/// applies them live, and returns them as a [CameraCalibrationResult] so the app
+/// can seed its sliders.
+class AutoWhiteBalanceCommand extends BleCommand {
+  AutoWhiteBalanceCommand();
+}
+
+enum CameraFocusMode { auto, manual }
+
+/// Motorized-focus control for the ArduCAM VCM lens. [mode] auto hands the camera
+/// to continuous autofocus; manual holds [position] (0–1000 VCM code). [cameraIndex]
+/// null = both cameras.
+class CameraFocusCommand extends BleCommand {
+  CameraFocusCommand({required this.mode, this.position, this.cameraIndex});
+  final CameraFocusMode mode;
+  final int? position;
+  final int? cameraIndex;
+}
+
+/// Manual camera selection (manual tracking) — picks which camera feeds the
+/// record/stream/single-preview output. The human override of the future AI
+/// camera decision. [cameraIndex] 0 or 1.
+class SetActiveCameraCommand extends BleCommand {
+  SetActiveCameraCommand({required this.cameraIndex});
+  final int cameraIndex;
+}
+
+/// Firmware-applied white-balance gains — returned by [AutoWhiteBalanceCommand]
+/// (and echoed by SetCameraCalibration) so the calibration sliders can reflect
+/// what the camera is actually applying.
+class CameraCalibrationResult {
+  const CameraCalibrationResult({
+    required this.rGain,
+    required this.gGain,
+    required this.bGain,
+    required this.enabled,
+    this.saturation = 1.0,
+    this.contrast = 1.0,
+    this.brightness = 0.0,
+  });
+  final double rGain;
+  final double gGain;
+  final double bGain;
+  final bool enabled;
+  final double saturation;
+  final double contrast;
+  final double brightness;
 }
 
 /// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies

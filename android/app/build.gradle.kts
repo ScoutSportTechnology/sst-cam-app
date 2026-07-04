@@ -49,18 +49,25 @@ android {
         manifestPlaceholders["appName"] = "SST Cam"
     }
 
-    // Two real-backend variants distinguished at the Android level so they can be
-    // installed side-by-side and told apart (R8). Tooling on/off is a SEPARATE
-    // axis handled in Dart via the compile-time APP_ENV define (R6/R7) — the
-    // flavor here only controls applicationId, app name, and launcher icon.
-    //   dev  → com.sst.sstcam.dev   "SST Cam Dev"   (paired with APP_ENV=stage)
-    //   prod → com.sst.sstcam       "SST Cam"       (paired with APP_ENV=prod)
+    // Three variants — one per env — distinguished at the Android level so they
+    // install side-by-side, are told apart at a glance (distinct icon + name),
+    // and pair 1:1 with the single entry's compile-time APP_ENV (which selects
+    // backend + tooling in Dart). The flavor here only controls applicationId,
+    // app name, and launcher icon:
+    //   dev   → com.sst.sstcam.dev     "SST Cam Dev"     (APP_ENV=dev,  mock backend)
+    //   stage → com.sst.sstcam.stage   "SST Cam Stage"   (APP_ENV=stage, real + tools)
+    //   prod  → com.sst.sstcam         "SST Cam"         (APP_ENV=prod, shipped)
     flavorDimensions += "variant"
     productFlavors {
         create("dev") {
             dimension = "variant"
             applicationIdSuffix = ".dev"
             manifestPlaceholders["appName"] = "SST Cam Dev"
+        }
+        create("stage") {
+            dimension = "variant"
+            applicationIdSuffix = ".stage"
+            manifestPlaceholders["appName"] = "SST Cam Stage"
         }
         create("prod") {
             dimension = "variant"
@@ -111,6 +118,13 @@ android {
         jniLibs {
             // flutter_vlc_player and ffmpeg_kit_flutter_new both ship libc++_shared.so.
             pickFirsts += "**/*.so"
+            // Store native libs uncompressed so AGP 16KB-zip-aligns them in the
+            // APK (Android 15+ 16KB page-size support). This fixes the APK-level
+            // alignment for every .so we control; the residual "LOAD segment not
+            // aligned" on the prebuilt libVLC (.so from the pinned
+            // flutter_vlc_player 7.4.3) is baked into those binaries and can only
+            // be fixed by a newer plugin shipping 16KB-built libs, not from here.
+            useLegacyPackaging = false
         }
     }
 }
@@ -119,31 +133,48 @@ flutter {
     source = "../.."
 }
 
-// Patch GeneratedPluginRegistrant.java to use catch (Throwable) instead of
-// catch (Exception). Flutter generates the file with `catch (Exception e)`,
-// which does NOT catch java.lang.Error subclasses such as UnsatisfiedLinkError.
-// On Android 16 x86_64, FFmpegKit throws an UnsatisfiedLinkError (missing
-// libc++ symbol in libavfilter.so). That Error escapes the try-catch, aborts
-// registerWith(), and leaves every subsequent plugin unregistered (path_provider,
-// shared_preferences, sqlite3, …). Catching Throwable isolates the failure to
-// FFmpegKit so all other plugins still register. Remove this patch once upstream
-// fixes the generated catch clause or FFmpegKit supports Android 16.
-val patchGeneratedPluginRegistrant by tasks.registering {
+// Patch the Flutter-generated GeneratedPluginRegistrant.java before javac. Two
+// fixes, both because Flutter emits registrations that don't survive a RELEASE
+// compile:
+//
+//  1. Strip the integration_test registration block. `integration_test` is a
+//     dev_dependency, so its Android plugin class
+//     (dev.flutter.plugins.integration_test.IntegrationTestPlugin) is on the
+//     classpath only for debug/androidTest — NOT release. Flutter still writes its
+//     registration into the registrant, so a release build fails to compile with
+//     "package dev.flutter.plugins.integration_test does not exist". The plugin is
+//     only needed by `flutter test integration_test/` (which runs its own debug
+//     build), never in a shipped APK, so removing the block is safe.
+//
+//  2. catch (Exception) -> catch (Throwable). Exception does NOT catch
+//     java.lang.Error subclasses (e.g. UnsatisfiedLinkError from a native lib that
+//     fails to dlopen). Such an Error escaping registerWith() aborts registration
+//     and leaves every SUBSEQUENT plugin unregistered (path_provider, sqlite3, …).
+//     Throwable isolates a failing plugin so the rest still register.
+//
+// Applied as a doFirst on the Java compile task (not a separate dependsOn task) so
+// it runs immediately before javac — after Flutter has generated/regenerated the
+// file — leaving no window for a regeneration to clobber the patch.
+fun patchGeneratedPluginRegistrant(logger: org.gradle.api.logging.Logger) {
     val generatedFile = file("src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java")
-    doLast {
-        if (generatedFile.exists()) {
-            val original = generatedFile.readText()
-            val patched = original.replace("} catch (Exception e) {", "} catch (Throwable e) {")
-            if (patched != original) {
-                generatedFile.writeText(patched)
-                logger.lifecycle("Patched GeneratedPluginRegistrant.java: catch (Throwable)")
-            }
-        }
+    if (!generatedFile.exists()) return
+    val original = generatedFile.readText()
+    var patched = original.replace("} catch (Exception e) {", "} catch (Throwable e) {")
+    // Remove the whole try/catch block that registers IntegrationTestPlugin.
+    patched = patched.replace(
+        Regex(
+            """ *try \{\s*flutterEngine\.getPlugins\(\)\.add\(new dev\.flutter\.plugins\.integration_test\.IntegrationTestPlugin\(\)\);\s*\} catch \((?:Exception|Throwable) e\) \{\s*Log\.e\([^;]*\);\s*\}\R?"""
+        ),
+        ""
+    )
+    if (patched != original) {
+        generatedFile.writeText(patched)
+        logger.lifecycle("Patched GeneratedPluginRegistrant.java (strip integration_test + catch Throwable)")
     }
 }
 
 tasks.configureEach {
     if (name.startsWith("compile") && name.endsWith("JavaWithJavac")) {
-        dependsOn(patchGeneratedPluginRegistrant)
+        doFirst { patchGeneratedPluginRegistrant(logger) }
     }
 }

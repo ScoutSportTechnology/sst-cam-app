@@ -245,8 +245,8 @@ class _TelemetryBaseline {
     tempCelsius: 48.0,
     wifiSsid: 'StadiumNet-5G',
     wifiSignalDbm: -65,
-    cpuUsedPct: 0.30,
-    ramUsedPct: 0.45,
+    cpuUsedPct: 30, // 0–100 percent, matching the firmware wire contract
+    ramUsedPct: 45,
     internetReachable: true,
     isRecording: false,
     isStreaming: false,
@@ -444,6 +444,12 @@ class MockBleService implements BleService {
   }
 
   @override
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  @override
+  Future<void> requestBluetoothOn() async {}
+
+  @override
   bool get isScanning => _isScanning;
 
   @override
@@ -586,8 +592,8 @@ class MockBleService implements BleService {
       wifiSignalDbm: (b.wifiSignalDbm + (sin(tick * 0.4) * 8)).round(),
       internetReachable: b.internetReachable,
       tempCelsius: b.tempCelsius + sin(tick * 0.1) * 6,
-      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
-      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
+      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 10).clamp(0.0, 100.0),
+      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 20).clamp(0.0, 100.0),
       uptimeSeconds: tick,
       isRecording: b.isRecording,
       isStreaming: b.isStreaming,
@@ -709,18 +715,24 @@ class MockBleService implements BleService {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(:final action) => proto.Command(
-      correlationId: correlationId,
-      recordingControl: proto.RecordingControlCommand(
-        action: switch (action) {
-          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
-          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
-          RecordingControlAction.resume =>
-            proto.RecordingAction.RECORDING_RESUME,
-        },
+    RecordingControlCommand(:final action, :final captureGroupId) =>
+      proto.Command(
+        correlationId: correlationId,
+        recordingControl: proto.RecordingControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          // Mirror the real encoder (mock must not drift): the training-proxy
+          // pairing key rides the record command.
+          captureGroupId: captureGroupId,
+        ),
       ),
-    ),
     RawCaptureControlCommand(:final action, :final captureGroupId) =>
       proto.Command(
         correlationId: correlationId,
@@ -799,6 +811,40 @@ class MockBleService implements BleService {
             ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
             : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
       ),
+    ),
+    SetCameraCalibrationCommand(
+      :final rGain,
+      :final gGain,
+      :final bGain,
+      :final enabled,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        setCameraCalibration: proto.SetCameraCalibrationCommand(
+          rGain: rGain,
+          gGain: gGain,
+          bGain: bGain,
+          enabled: enabled,
+        ),
+      ),
+    AutoWhiteBalanceCommand() => proto.Command(
+      correlationId: correlationId,
+      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
+    ),
+    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
+      proto.Command(
+        correlationId: correlationId,
+        cameraFocus: proto.CameraFocusControlCommand(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          cameraIndex: cameraIndex,
+        ),
+      ),
+    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
+      correlationId: correlationId,
+      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
     ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
@@ -966,6 +1012,49 @@ class MockBleService implements BleService {
           height: 720,
         ),
       ),
+      SetCameraCalibrationCommand(
+        :final rGain,
+        :final gGain,
+        :final bGain,
+        :final enabled,
+      ) =>
+        proto.CommandResponse(
+          correlationId: correlationId,
+          status: proto.ResponseStatus.OK,
+          cameraCalibration: proto.CameraCalibrationResponse(
+            rGain: rGain,
+            gGain: gGain,
+            bGain: bGain,
+            enabled: enabled,
+          ),
+        ),
+      AutoWhiteBalanceCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        // Emulated grey-world result: a plausible magenta-neutralizing gain set.
+        cameraCalibration: proto.CameraCalibrationResponse(
+          rGain: 0.6,
+          gGain: 1.0,
+          bGain: 0.62,
+          enabled: true,
+        ),
+      ),
+      CameraFocusCommand(:final mode, :final position) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        cameraFocus: proto.CameraFocusResponse(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          autofocusAvailable: true,
+        ),
+      ),
+      SetActiveCameraCommand(:final cameraIndex) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        activeCamera: proto.ActiveCameraResponse(cameraIndex: cameraIndex),
+      ),
       ExportOverlayedCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
@@ -1131,6 +1220,26 @@ class MockBleService implements BleService {
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
       BannerEventCommand() => BleCommandResponse.ok(null as T?),
       PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
+      SetCameraCalibrationCommand() => BleCommandResponse.ok(
+        CameraCalibrationResult(
+              rGain: resp.cameraCalibration.rGain,
+              gGain: resp.cameraCalibration.gGain,
+              bGain: resp.cameraCalibration.bGain,
+              enabled: resp.cameraCalibration.enabled,
+            )
+            as T?,
+      ),
+      AutoWhiteBalanceCommand() => BleCommandResponse.ok(
+        CameraCalibrationResult(
+              rGain: resp.cameraCalibration.rGain,
+              gGain: resp.cameraCalibration.gGain,
+              bGain: resp.cameraCalibration.bGain,
+              enabled: resp.cameraCalibration.enabled,
+            )
+            as T?,
+      ),
+      CameraFocusCommand() => BleCommandResponse.ok(null as T?),
+      SetActiveCameraCommand() => BleCommandResponse.ok(null as T?),
       SetPreviewLayoutCommand() => BleCommandResponse.ok(
         PreviewLayoutResult(
               layout:
@@ -1182,8 +1291,8 @@ class MockBleService implements BleService {
       wifiSignalDbm: (b.wifiSignalDbm + (sin(tick * 0.4) * 8)).round(),
       internetReachable: b.internetReachable,
       tempCelsius: b.tempCelsius + sin(tick * 0.1) * 6,
-      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
-      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
+      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 10).clamp(0.0, 100.0),
+      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 20).clamp(0.0, 100.0),
       uptimeSeconds: Int64(tick),
       isRecording: b.isRecording,
       isStreaming: b.isStreaming,
@@ -1288,6 +1397,7 @@ class MockBleService implements BleService {
 
   /// The last layout requested via [setPreviewLayout] (#6 A6b).
   PreviewLayout lastPreviewLayout = PreviewLayout.single;
+  ({double r, double g, double b, bool enabled})? lastCameraCalibration;
 
   /// When true the next [setPreviewLayout] call throws [BleTimeoutException].
   bool failNextSetPreviewLayout = false;
@@ -1379,6 +1489,61 @@ class MockBleService implements BleService {
         height: 720,
       ),
     };
+  }
+
+  @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastCameraCalibration = (r: rGain, g: gGain, b: bGain, enabled: enabled);
+  }
+  // saturation/contrast/brightness are accepted by the interface below; the mock
+  // only tracks the WB gains for assertions.
+
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 40));
+    const result = CameraCalibrationResult(
+      rGain: 0.6,
+      gGain: 1.0,
+      bGain: 0.62,
+      enabled: true,
+    );
+    lastCameraCalibration = (
+      r: result.rGain,
+      g: result.gGain,
+      b: result.bGain,
+      enabled: result.enabled,
+    );
+    return result;
+  }
+
+  ({CameraFocusMode mode, int? position, int? cameraIndex})? lastFocus;
+  int lastActiveCamera = 0;
+
+  @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastFocus = (mode: mode, position: position, cameraIndex: cameraIndex);
+  }
+
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastActiveCamera = cameraIndex;
   }
 
   @override

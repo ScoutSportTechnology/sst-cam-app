@@ -300,20 +300,29 @@ class BleProtocol {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(:final action, :final quality) => proto.Command(
-      correlationId: correlationId,
-      recordingControl: proto.RecordingControlCommand(
-        action: switch (action) {
-          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
-          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
-          RecordingControlAction.resume =>
-            proto.RecordingAction.RECORDING_RESUME,
-        },
-        // proto3 optional — omitted unless the app pinned a record quality.
-        quality: _toProtoQuality(quality),
+    RecordingControlCommand(
+      :final action,
+      :final quality,
+      :final captureGroupId,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        recordingControl: proto.RecordingControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          // proto3 optional — omitted unless the app pinned a record quality.
+          quality: _toProtoQuality(quality),
+          // proto3 optional — couples the training proxy when present (START).
+          captureGroupId: captureGroupId,
+        ),
       ),
-    ),
     RawCaptureControlCommand(:final action, :final captureGroupId) =>
       proto.Command(
         correlationId: correlationId,
@@ -395,6 +404,46 @@ class BleProtocol {
       setPreviewLayout: proto.SetPreviewLayoutCommand(
         layout: _dartPreviewLayoutToProto(layout),
       ),
+    ),
+    SetCameraCalibrationCommand(
+      :final rGain,
+      :final gGain,
+      :final bGain,
+      :final enabled,
+      :final saturation,
+      :final contrast,
+      :final brightness,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        setCameraCalibration: proto.SetCameraCalibrationCommand(
+          rGain: rGain,
+          gGain: gGain,
+          bGain: bGain,
+          enabled: enabled,
+          saturation: saturation,
+          contrast: contrast,
+          brightness: brightness,
+        ),
+      ),
+    AutoWhiteBalanceCommand() => proto.Command(
+      correlationId: correlationId,
+      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
+    ),
+    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
+      proto.Command(
+        correlationId: correlationId,
+        cameraFocus: proto.CameraFocusControlCommand(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          cameraIndex: cameraIndex,
+        ),
+      ),
+    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
+      correlationId: correlationId,
+      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
     ),
     ExportOverlayedCommand(:final recordingId) => proto.Command(
       correlationId: correlationId,
@@ -593,6 +642,29 @@ class BleProtocol {
                 ethernetAddress: nc.ethernetAddress,
                 wifiUp: nc.wifiUp,
                 wifiStatus: nc.wifiStatus,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.cameraFocus:
+        // Motorized-focus response (U8): mode + position + autofocus_available.
+        // Fire-and-forget from the UI (optimistic); OK with null.
+        return BleCommandResponse.ok(null as T?);
+      case proto.CommandResponse_Payload.activeCamera:
+        // Manual tracking ack — the toggle is optimistic; OK with null.
+        return BleCommandResponse.ok(null as T?);
+      case proto.CommandResponse_Payload.cameraCalibration:
+        // The firmware-applied gains — auto-white-balance uses them to seed the
+        // sliders; setCameraCalibration ignores its own echo.
+        final cc = resp.cameraCalibration;
+        return BleCommandResponse.ok(
+          CameraCalibrationResult(
+                rGain: cc.rGain,
+                gGain: cc.gGain,
+                bGain: cc.bGain,
+                enabled: cc.enabled,
+                saturation: cc.saturation,
+                contrast: cc.contrast,
+                brightness: cc.brightness,
               )
               as T?,
         );

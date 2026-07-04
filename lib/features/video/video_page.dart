@@ -14,11 +14,34 @@ import '../camera/camera_state.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/models/device.dart';
 
-class VideoPage extends ConsumerWidget {
+class VideoPage extends ConsumerStatefulWidget {
   const VideoPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VideoPage> createState() => _VideoPageState();
+}
+
+class _VideoPageState extends ConsumerState<VideoPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Re-check on-disk presence each time the library opens. isOnDeviceProvider
+    // is a cached FutureProvider that otherwise only refreshes on a completed
+    // download — a file deleted out-of-band (or a clip that was never really
+    // pulled) would keep showing "On device" forever. Invalidating on open (and
+    // on pull-to-refresh below) makes the badge reflect the actual disk state.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.invalidate(isOnDeviceProvider);
+    });
+  }
+
+  Future<void> _refresh() async {
+    ref.invalidate(isOnDeviceProvider);
+    ref.invalidate(libraryProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final libraryAsync = ref.watch(libraryProvider);
     final filteredMatches = ref.watch(filteredLibraryMatchesProvider);
 
@@ -65,12 +88,16 @@ class VideoPage extends ConsumerWidget {
                     },
                   );
                 }
-                return ListView.builder(
-                  padding: EdgeInsets.zero,
-                  itemCount: filteredMatches.length,
-                  itemBuilder: (context, i) {
-                    return _MatchCard(match: filteredMatches[i]);
-                  },
+                return RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: filteredMatches.length,
+                    itemBuilder: (context, i) {
+                      return _MatchCard(match: filteredMatches[i]);
+                    },
+                  ),
                 );
               },
             ),

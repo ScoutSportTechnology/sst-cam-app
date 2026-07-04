@@ -6,6 +6,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
@@ -13,6 +14,7 @@ import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
+import '../../../core/widgets/output_camera_toggle.dart';
 import '../../../core/widgets/preview_layout_toggle.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -20,7 +22,11 @@ import '../../../core/models/wifi.dart' show WifiDirectState;
 import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
 import '../../camera/camera_state.dart'
-    show activeCameraIdProvider, activeTabProvider, AppTab;
+    show
+        activeCameraIdProvider,
+        activeTabProvider,
+        modalPreviewActiveProvider,
+        AppTab;
 import '../../../core/models/streaming.dart' show resolveWireStream, joinRtmp;
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../settings/streaming/streaming_destination_form_sheet.dart'
@@ -96,7 +102,9 @@ class SessionScreen extends ConsumerWidget {
                     Expanded(
                       child: WfButton(
                         label: previewOn ? 'Stop preview' : 'Preview',
-                        variant: WfButtonVariant.outline,
+                        variant: previewOn
+                            ? WfButtonVariant.danger
+                            : WfButtonVariant.outline,
                         size: WfButtonSize.sm,
                         full: true,
                         leading: previewOn
@@ -126,6 +134,13 @@ class SessionScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
+              ),
+            // Manual tracking — pick the output camera mid-match while watching
+            // the live preview.
+            if (activeId != null && previewOn)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                child: OutputCameraToggle(deviceId: activeId, full: true),
               ),
             _PrimaryActionRow(
               state: state,
@@ -187,6 +202,9 @@ class SessionScreen extends ConsumerWidget {
                           RecordingControlCommand(
                             action: RecordingControlAction.start,
                             quality: state.recordQuality,
+                            captureGroupId:
+                                ref.read(liveMatchProvider.notifier).matchId ??
+                                const Uuid().v4(),
                           ),
                         );
                       } else if (currentRec == RecState.recording) {
@@ -360,11 +378,15 @@ class SessionScreen extends ConsumerWidget {
     // local UI state; without these explicit control commands the firmware
     // records/streams nothing (the match dir stays empty).
     if (choice.$1 == true) {
+      // Mint a training-proxy pairing key so the firmware couples the always-on
+      // dual-camera proxy to this match record (U6). Sent only on START.
       _sendIfConnected(
         ref,
         RecordingControlCommand(
           action: RecordingControlAction.start,
           quality: state.recordQuality,
+          captureGroupId:
+              ref.read(liveMatchProvider.notifier).matchId ?? const Uuid().v4(),
         ),
       );
     }
@@ -1059,6 +1081,7 @@ class _LiveThumb extends ConsumerWidget {
     // stay mounted in the shell's IndexedStack; two clients on the single-stream
     // RTSP server stall the second — the match preview was the loser).
     final onMatchTab = ref.watch(activeTabProvider) == AppTab.match;
+    final modalPreview = ref.watch(modalPreviewActiveProvider);
 
     // When WiFi Direct fails (e.g. iOS does not support local preview),
     // show a static placeholder instead of the live preview surface.
@@ -1082,7 +1105,7 @@ class _LiveThumb extends ConsumerWidget {
             deviceId: activeId,
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
-            paused: !onMatchTab,
+            paused: !onMatchTab || modalPreview,
             isStreaming: matchState.streaming,
           ),
         // The Single|Both toggle now lives below the feed next to the Preview

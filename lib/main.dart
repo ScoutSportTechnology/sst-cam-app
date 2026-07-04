@@ -3,12 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import 'app.dart';
 import 'core/ble/ble_providers.dart';
 import 'core/config/dev_config.dart';
 import 'core/config/dev_navigation.dart';
 import 'core/config/dev_reseeder.dart';
+import 'core/config/env.dart';
+import 'core/config/shipped_overrides.dart';
 import 'core/services/gallery_service.dart';
 import 'core/services/log_service.dart';
 import 'core/db/app_database.dart';
@@ -21,13 +24,51 @@ import 'mock/emulator/mock_wifi_service.dart';
 import 'mock/internal/mock_data_service.dart';
 import 'mock/mock_video_fetcher.dart';
 
+/// Single entry-point for EVERY build. The backend and dev tooling are selected
+/// from the compile-time [kAppEnv] — there is no second `main`:
+///
+/// - `dev`   → dev nav + two togglable flags ([_bootstrapDev]): the mock BLE/WiFi
+///   backend (`EMULATE`) and seed fixtures (`SEED`), both default off and each
+///   overridable by its in-app Developer switch. Debug mode → fully debuggable.
+/// - `stage` → real backend + dev tooling ([shippedOverrides]).
+/// - `prod`  → real backend, tooling compiled out ([shippedOverrides] == const []).
+///
+/// Because [AppEnv.isDevBackend] is a compile-time const, a `stage`/`prod` build
+/// evaluates the dev branch as statically-false: [_bootstrapDev] and everything
+/// it references (the mock services, `MockDataSeeder`, seed video sync) are
+/// unreachable and tree-shaken out of the release binary. This is the
+/// "mock never ships" guarantee, mirroring [shippedOverrides]'s tooling shake.
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  // Capture debugPrint into an in-app ring buffer for the developer Logs viewer.
+  // Capture debugPrint + package:logging into an in-app ring buffer so the
+  // developer Logs viewer works without adb (that surface is dev/stage-only).
   LogService.instance.attach();
+  LogService.instance.wireLogging();
+  Logger('App').info(
+    'SST Cam started · env=${kAppEnv.label} · '
+    'build=${const String.fromEnvironment('APP_VERSION', defaultValue: 'dev')}',
+  );
 
+  final ProviderContainer container;
+  if (kAppEnv.isDevBackend) {
+    container = await _bootstrapDev();
+  } else {
+    // Shipped path (stage/prod): real backend, tooling gated by APP_ENV.
+    container = ProviderContainer(overrides: shippedOverrides(kAppEnv));
+  }
+
+  runApp(
+    UncontrolledProviderScope(container: container, child: const SstCamApp()),
+  );
+  // Splash is removed by app_shell's first post-frame callback (both paths).
+}
+
+/// Builds the dev (mock-backend) provider container: dev config + seedable
+/// database + emulated BLE/WiFi + dev navigation. Reachable ONLY from the
+/// `kAppEnv.isDevBackend` branch, so a shipped build tree-shakes it entirely.
+Future<ProviderContainer> _bootstrapDev() async {
   DevConfig devConfig;
   try {
     devConfig = await DevConfig.load();
@@ -47,13 +88,14 @@ Future<void> main() async {
       downloadBaseUrl: devConfig.downloadBaseUrl,
     );
   } catch (e, st) {
-    FlutterError.reportError(
-      FlutterErrorDetails(
-        exception: e,
-        stack: st,
-        library: 'applySeedData',
-        context: ErrorDescription('applying seedData=${devConfig.seedData}'),
-      ),
+    // Non-fatal: a seed failure must not brick startup. Reporting via
+    // FlutterError.reportError here (before runApp) crashed on a stack-trace
+    // demangle assertion and left the app stuck on the splash — on a physical
+    // phone the seed step can throw where it wouldn't on the emulator. Log it and
+    // boot with whatever seeded so the dev build is usable on-device without a
+    // camera.
+    debugPrint(
+      'applySeedData failed (seedData=${devConfig.seedData}): $e\n$st',
     );
   }
 
@@ -111,15 +153,13 @@ Future<void> main() async {
 
   final container = ProviderContainer(overrides: overrides);
 
-  runApp(
-    UncontrolledProviderScope(container: container, child: const SstCamApp()),
-  );
-
   if (devConfig.seedData) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncSeedVideosToGallery(container, devConfig.downloadBaseUrl);
     });
   }
+
+  return container;
 }
 
 /// Ensures seeded "on device" match videos are in `Movies/SSTCam/` so they

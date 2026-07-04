@@ -19,6 +19,16 @@ abstract class BleService {
   // Discovery
   // ---------------------------------------------------------------------------
 
+  /// Whether the host Bluetooth adapter is on. Emits the current state
+  /// immediately, then updates as the user toggles Bluetooth. Concrete default
+  /// emits a single `true` — the mock/fakes have no real adapter to be "off".
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  /// Ask the OS to enable Bluetooth (Android shows the system enable prompt).
+  /// No-op where unsupported, already on, or the user declines. Concrete default
+  /// is a no-op so fakes need not implement it.
+  Future<void> requestBluetoothOn() async {}
+
   /// Whether a scan is currently active.
   bool get isScanning;
 
@@ -117,6 +127,41 @@ abstract class BleService {
     String deviceId,
     PreviewLayout layout,
   );
+
+  /// Apply live per-channel white-balance gains to the camera's postprocessor
+  /// (diagnostic Calibration → Camera sliders, to neutralize the IMX477 magenta
+  /// cast). Fire-and-forget: the correction takes effect on the next preview
+  /// frame. Gains multiply the BGR channels (1.0 = identity); [enabled] false
+  /// bypasses correction.
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled,
+    double saturation,
+    double contrast,
+    double brightness,
+  });
+
+  /// One-shot auto white-balance: the firmware measures the current frame (point
+  /// the camera at a white/grey surface) and computes the neutralizing gains,
+  /// applies them live, and returns them so the UI can seed its sliders. Null if
+  /// the firmware couldn't measure (too dark / no frame).
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId);
+
+  /// Motorized-focus control (ArduCAM VCM). [mode] auto = continuous autofocus;
+  /// manual holds [position] (0–1000 VCM code). [cameraIndex] null = both cameras.
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  });
+
+  /// Manual tracking — pick which camera (0/1) feeds the record/stream/preview
+  /// output. The human override of the future AI camera decision.
+  Future<void> setActiveCamera(String deviceId, int cameraIndex);
 
   /// Request an on-demand overlayed burn (#6 A6c) of the clean recording
   /// [recordingId]. Returns an [ExportJob] in the PENDING state; poll it with

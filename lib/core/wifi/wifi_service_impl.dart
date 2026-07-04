@@ -38,7 +38,22 @@ class WifiServiceImpl implements WifiService {
   }) : _ble = ble,
        _dio = dio ?? Dio(),
        _requestNearbyWifiPermission =
-           requestNearbyWifiPermission ?? _defaultNearbyWifiPermission;
+           requestNearbyWifiPermission ?? _defaultNearbyWifiPermission {
+    // Cache the live P2P state so connectGroup can tell the phone is ALREADY in
+    // the group (persistent group survives a camera restart; the phone stays
+    // associated). Without this, the join awaits a fresh STATE_CONNECTED
+    // transition that never comes → 3× retry loop → main-thread freeze + a
+    // preview that never opens its RTSP client.
+    _stateCacheSub = _channel.stateStream.listen(
+      (code) => _lastP2pStateCode = code,
+      onError: (Object _) {},
+    );
+  }
+
+  // Latest raw P2P state code from the native event channel (null until the
+  // first event). _kStateConnected here means the phone currently holds a group.
+  int? _lastP2pStateCode;
+  StreamSubscription<int>? _stateCacheSub;
 
   final BleService _ble;
   final Dio _dio;
@@ -302,6 +317,22 @@ class WifiServiceImpl implements WifiService {
       throw const WifiDirectException(
         'WiFi Direct connect superseded by a disconnect',
       );
+    }
+
+    // Fast path: the phone is ALREADY in a P2P group — the camera's persistent
+    // group survives a firmware restart and the OS stays associated. Re-running
+    // connect() here would do a harmful removeGroup→reconnect, and the formation
+    // await below never sees a fresh STATE_CONNECTED transition (it already
+    // happened) → the 3× retry loop that freezes the UI ~8s and leaves the
+    // preview's RTSP client unopened. Reuse the live association instead.
+    if (_lastP2pStateCode == _kStateConnected) {
+      debugPrint(
+        'WIFI: phone already in a P2P group — reusing (skipping re-join)',
+      );
+      await _stateSubscriptions.remove(deviceId)?.cancel();
+      _currentGroups[deviceId] = group;
+      _emitState(deviceId, WifiDirectState.connected);
+      return group;
     }
 
     // Platform channel — join the P2P group on Android. Android's P2P
@@ -798,6 +829,7 @@ class WifiServiceImpl implements WifiService {
   @override
   Future<void> dispose() async {
     // Cancel all EventChannel subscriptions.
+    await _stateCacheSub?.cancel();
     for (final sub in _stateSubscriptions.values) {
       await sub.cancel();
     }

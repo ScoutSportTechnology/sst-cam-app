@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../ble/ble_providers.dart';
 import '../models/preview_layout.dart';
+import '../services/log_service.dart';
 import '../theme/tokens.dart';
 import '../wifi/wifi_providers.dart';
+
+final _log = Logger('PreviewLayout');
 
 /// Compact single|side-by-side preview composition toggle (#6 A6b).
 ///
@@ -39,10 +43,12 @@ class PreviewLayoutToggle extends ConsumerWidget {
     final previous = notifier.state;
     if (previous == target) return;
 
+    _log.debug('preview mode → ${target.name} (user)');
     notifier.state = target; // optimistic
     try {
       await ref.read(bleServiceProvider).setPreviewLayout(id, target);
-    } catch (_) {
+    } catch (e) {
+      _log.warn('preview mode switch rejected by camera', e);
       notifier.state = previous; // revert on failure
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -22,7 +22,7 @@ class TeamsPage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(
-        title: const Text('Teams'),
+        title: WfCountTitle('Teams', count: filtered.length),
         actions: [
           PopupMenuButton<_TeamsMenuAction>(
             icon: const Icon(Icons.more_vert),
@@ -64,9 +64,9 @@ class TeamsPage extends ConsumerWidget {
               return Expanded(
                 child: Column(
                   children: [
-                    WfSection(
-                      'Your teams · ${filtered.length}',
-                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    const WfSection(
+                      'Your teams',
+                      padding: EdgeInsets.fromLTRB(14, 14, 14, 6),
                     ),
                     Expanded(child: _TeamsList(teams: filtered)),
                   ],
