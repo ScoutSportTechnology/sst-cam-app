@@ -214,6 +214,13 @@ void main() {
     testWidgets(
       'tapping Diagnostics pushes a route whose first page is DiagnosticsPage',
       (tester) async {
+        // Tall viewport so the Diagnostics nav row (pushed lower by the added
+        // Calibration row) is on-screen and the tap lands.
+        tester.view.physicalSize = const Size(1200, 3200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
         final mock = _newMock();
         addTearDown(mock.dispose);
 

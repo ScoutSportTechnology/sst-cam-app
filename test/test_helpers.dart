@@ -86,10 +86,13 @@ const seedMatchM3Id = '55555555-5555-4555-8555-555555555555';
 // ---------------------------------------------------------------------------
 
 Future<void> _seedInMemoryDb(AppDatabase db) async {
-  // Remove the default-user inserted by AppDatabase._seedBaseData() so tests
-  // operate with only their own explicitly-seeded users. FK cascade removes
-  // the associated sport presets automatically.
-  await db.usersDao.deleteById(kDefaultUserId);
+  // Remove the default user inserted by AppDatabase._seedBaseData() so tests
+  // operate with only their own explicitly-seeded users. FK cascade removes the
+  // associated sport presets automatically. The base user's id is now a random
+  // per-install uuid (not kDefaultUserId), so wipe the whole users table rather
+  // than deleting a fixed id — otherwise the base user survives and every
+  // user-count assertion sees one extra row.
+  await db.delete(db.usersTable).go();
 
   // Users
   await db.usersDao.insertUser(
