@@ -1,7 +1,7 @@
 ---
 title: "refactor: Consolidate app to a single entry + three env-mapped flavors"
 type: refactor
-status: active
+status: completed
 date: 2026-07-03
 ---
 
