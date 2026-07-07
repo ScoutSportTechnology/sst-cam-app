@@ -38,6 +38,12 @@ class T {
   static const ok = Color(0xFF4ADE80);
   static const warn = Color(0xFFFFB020);
 
+  // RGB channel identities — the calibration gain sliders. Muted so they sit
+  // on the dark surface without competing with the accent.
+  static const channelRed = Color(0xFFE0564E);
+  static const channelGreen = Color(0xFF4FAF5A);
+  static const channelBlue = Color(0xFF4E7BE0);
+
   // Type families. Inter ships system-side on most platforms; falls back to
   // platform default. JetBrains Mono is the data face — used for clocks,
   // scores, IDs, sizes.

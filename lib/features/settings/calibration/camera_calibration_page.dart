@@ -296,7 +296,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             const SizedBox(height: 8),
                             _GainSlider(
                               label: 'Red',
-                              color: const Color(0xFFE0564E),
+                              color: T.channelRed,
                               value: _r,
                               enabled: _enabled,
                               onChanged: (v) {
@@ -306,7 +306,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             ),
                             _GainSlider(
                               label: 'Green',
-                              color: const Color(0xFF4FAF5A),
+                              color: T.channelGreen,
                               value: _g,
                               enabled: _enabled,
                               onChanged: (v) {
@@ -316,7 +316,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                             ),
                             _GainSlider(
                               label: 'Blue',
-                              color: const Color(0xFF4E7BE0),
+                              color: T.channelBlue,
                               value: _b,
                               enabled: _enabled,
                               onChanged: (v) {
