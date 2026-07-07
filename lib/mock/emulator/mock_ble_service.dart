@@ -19,6 +19,7 @@ import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
 import '../../core/models/video_mode.dart';
 import '../../core/models/wifi.dart';
+import '../../core/ble/ble_protocol.dart' show BleProtocol;
 import '../../core/ble/ble_service.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../mock_video_fetcher.dart';
@@ -787,259 +788,29 @@ class MockBleService implements BleService {
     final decodedRespChunk = proto.ChunkedPayload.fromBuffer(respBytes);
     final decodedResp = proto.CommandResponse.fromBuffer(decodedRespChunk.data);
 
-    // Mirror BleProtocol._statusToResponse so the emulated firmware surfaces the
-    // same distinct statuses as the real impl — collapsing UNSUPPORTED/TIMEOUT
-    // into a generic error here would hide divergence (e.g. raw PAUSE/RESUME,
-    // which firmware answers UNSUPPORTED).
-    switch (decodedResp.status) {
-      case proto.ResponseStatus.OK:
-        return _mapResponse<T>(command, decodedResp);
-      case proto.ResponseStatus.TIMEOUT:
-        return BleCommandResponse<T>.timeout();
-      case proto.ResponseStatus.UNSUPPORTED:
-        return BleCommandResponse<T>(
-          status: BleResponseStatus.unsupported,
-          errorMessage: decodedResp.errorMessage.isNotEmpty
-              ? decodedResp.errorMessage
-              : 'Command not supported by firmware',
-        );
-      case proto.ResponseStatus.DEVICE_INOPERABLE:
-        // Typed health-gate refusal — callers key off the status (U3), never
-        // the free-form message. Mirrors BleProtocol._statusToResponse.
-        return BleCommandResponse<T>.deviceInoperable(
-          decodedResp.errorMessage.isNotEmpty
-              ? decodedResp.errorMessage
-              : 'Camera is not operational',
-        );
-      default:
-        return BleCommandResponse<T>.error(
-          decodedResp.errorMessage.isNotEmpty
-              ? decodedResp.errorMessage
-              : 'Command failed with status ${decodedResp.status}',
-        );
-    }
+    // Shared status mapping (BleProtocol.statusToResponse) so the emulated
+    // firmware surfaces exactly the same distinct statuses as the real impl —
+    // a drift-prone copy previously lived here.
+    return BleProtocol.statusToResponse<T>(
+      decodedResp,
+      () => _mapResponse<T>(command, decodedResp),
+    );
   }
 
-  proto.Command _encodeCommand(
-    BleCommand cmd,
-    String correlationId,
-  ) => switch (cmd) {
-    GetDeviceInfoCommand() => proto.Command(
-      correlationId: correlationId,
-      getDeviceInfo: proto.GetDeviceInfoCommand(),
-    ),
-    RebootCommand() => proto.Command(
-      correlationId: correlationId,
-      reboot: proto.RebootCommand(),
-    ),
-    GetTelemetryCommand() => proto.Command(
-      correlationId: correlationId,
-      getTelemetry: proto.GetTelemetryCommand(),
-    ),
-    GetMatchStateCommand() => proto.Command(
-      correlationId: correlationId,
-      getMatchState: proto.GetMatchStateCommand(),
-    ),
-    GetSessionSnapshotCommand() => proto.Command(
-      correlationId: correlationId,
-      getSessionSnapshot: proto.GetSessionSnapshotCommand(),
-    ),
-    SetMatchStateCommand(
-      :final scoreA,
-      :final scoreB,
-      :final currentPeriod,
-      :final elapsedSeconds,
-      :final clockRunning,
-      :final status,
-    ) =>
-      proto.Command(
-        correlationId: correlationId,
-        // proto3 optional throughout — null fields stay unset (mirror the
-        // real encoder: partial absolute set is legal).
-        setMatchState: proto.SetMatchStateCommand(
-          scoreA: scoreA,
-          scoreB: scoreB,
-          currentPeriod: currentPeriod,
-          elapsedSeconds: elapsedSeconds,
-          clockRunning: clockRunning,
-          status: status == null ? null : _dartMatchStatusToProto(status),
-        ),
-      ),
-    SetDeviceTimeCommand(:final epochMs) => proto.Command(
-      correlationId: correlationId,
-      setDeviceTime: proto.SetDeviceTimeCommand(epochMs: Int64(epochMs)),
-    ),
-    ListRecordingsCommand() => proto.Command(
-      correlationId: correlationId,
-      listRecordings: proto.ListRecordingsCommand(),
-    ),
-    DownloadRequestCommand(:final recordingId) => proto.Command(
-      correlationId: correlationId,
-      downloadRequest: proto.DownloadRequestCommand(recordingId: recordingId),
-    ),
-    RequestThumbnailCommand(:final width, :final height, :final quality) =>
-      proto.Command(
-        correlationId: correlationId,
-        thumbnail: proto.ThumbnailRequest(
-          width: width,
-          height: height,
-          quality: quality,
-        ),
-      ),
-    RecordingControlCommand(:final action, :final captureGroupId) =>
-      proto.Command(
-        correlationId: correlationId,
-        recordingControl: proto.RecordingControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          // Mirror the real encoder (mock must not drift): the training-proxy
-          // pairing key rides the record command.
-          captureGroupId: captureGroupId,
-        ),
-      ),
-    RawCaptureControlCommand(:final action, :final captureGroupId) =>
-      proto.Command(
-        correlationId: correlationId,
-        rawCapture: proto.RawCaptureControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          captureGroupId: captureGroupId,
-        ),
-      ),
-    StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
-      correlationId: correlationId,
-      streamingControl: proto.StreamingControlCommand(
-        action: switch (action) {
-          StreamingControlAction.start => proto.StreamingAction.STREAMING_START,
-          StreamingControlAction.stop => proto.StreamingAction.STREAMING_STOP,
-        },
-        destination: rtmpUrl ?? '',
-      ),
-    ),
-    MatchControlCommand(:final action, :final period) => proto.Command(
-      correlationId: correlationId,
-      matchControl: proto.MatchControlCommand(
-        action: switch (action) {
-          BleMatchControlAction.kickoff =>
-            proto.MatchControlAction.MATCH_KICKOFF,
-          BleMatchControlAction.periodEnd =>
-            proto.MatchControlAction.MATCH_PERIOD_END,
-          BleMatchControlAction.periodStart =>
-            proto.MatchControlAction.MATCH_PERIOD_START,
-          BleMatchControlAction.finalWhistle =>
-            proto.MatchControlAction.MATCH_FINAL_WHISTLE,
-          BleMatchControlAction.clockPause =>
-            proto.MatchControlAction.MATCH_CLOCK_PAUSE,
-          BleMatchControlAction.clockResume =>
-            proto.MatchControlAction.MATCH_CLOCK_RESUME,
-        },
-        period: period,
-      ),
-    ),
-    ScoreUpdateCommand(:final teamId, :final delta) => proto.Command(
-      correlationId: correlationId,
-      scoreUpdate: proto.ScoreUpdateCommand(teamId: teamId, delta: delta),
-    ),
-    BannerEventCommand(
-      :final templateId,
-      :final params,
-      :final durationSeconds,
-      :final playerId,
-    ) =>
-      proto.Command(
-        correlationId: correlationId,
-        bannerEvent: proto.BannerEventCommand(
-          templateId: templateId,
-          params: params,
-          durationS: durationSeconds,
-          playerId: playerId ?? '',
-        ),
-      ),
-    PushOverlayLayoutCommand(:final layout) => proto.Command(
-      correlationId: correlationId,
-      pushOverlayLayout: proto.PushOverlayLayoutCommand(
-        layout: _dartLayoutToProto(layout),
-      ),
-    ),
-    SetPreviewLayoutCommand(:final layout) => proto.Command(
-      correlationId: correlationId,
-      setPreviewLayout: proto.SetPreviewLayoutCommand(
-        layout: layout == PreviewLayout.sideBySide
-            ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
-            : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
-      ),
-    ),
-    SetCameraCalibrationCommand(
-      :final rGain,
-      :final gGain,
-      :final bGain,
-      :final enabled,
-    ) =>
-      proto.Command(
-        correlationId: correlationId,
-        setCameraCalibration: proto.SetCameraCalibrationCommand(
-          rGain: rGain,
-          gGain: gGain,
-          bGain: bGain,
-          enabled: enabled,
-        ),
-      ),
-    AutoWhiteBalanceCommand() => proto.Command(
-      correlationId: correlationId,
-      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
-    ),
-    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
-      proto.Command(
-        correlationId: correlationId,
-        cameraFocus: proto.CameraFocusControlCommand(
-          mode: mode == CameraFocusMode.auto
-              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
-              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
-          focusPosition: position,
-          cameraIndex: cameraIndex,
-        ),
-      ),
-    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
-      correlationId: correlationId,
-      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
-    ),
-    ExportOverlayedCommand(:final recordingId) => proto.Command(
-      correlationId: correlationId,
-      exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
-    ),
-    PollExportCommand(:final jobId) => proto.Command(
-      correlationId: correlationId,
-      pollExport: proto.PollExportCommand(jobId: jobId),
-    ),
-    StartWifiDirectCommand() => proto.Command(
-      correlationId: correlationId,
-      startWifiDirect: proto.StartWifiDirectCommand(),
-    ),
-    StopWifiDirectCommand() => proto.Command(
-      correlationId: correlationId,
-      stopWifiDirect: proto.StopWifiDirectCommand(),
-    ),
+  /// Encodes with the production table ([BleProtocol.toProtoCommand]) — the
+  /// mock used to carry a hand-maintained copy that drifted (dropped record/
+  /// stream quality and the extended calibration fields). The firmware-side
+  /// decode below stays independent, preserving the parity round trip.
+  proto.Command _encodeCommand(BleCommand cmd, String correlationId) {
     // Uplink config uses the dedicated set/getNetworkConfig methods, not the
     // generic sendCommand round-trip the emulator's encode path serves.
-    SetNetworkConfigCommand() ||
-    GetNetworkConfigCommand() => throw UnsupportedError(
-      'network config uses the direct set/getNetworkConfig path',
-    ),
-  };
+    if (cmd is SetNetworkConfigCommand || cmd is GetNetworkConfigCommand) {
+      throw UnsupportedError(
+        'network config uses the direct set/getNetworkConfig path',
+      );
+    }
+    return BleProtocol.toProtoCommand(cmd, correlationId);
+  }
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
     // Health enforcement parity (firmware plan U3): start-class capture
@@ -2495,83 +2266,6 @@ class MockBleService implements BleService {
           )
         : null,
   );
-
-  // ---------------------------------------------------------------------------
-  // Overlay layout → proto helpers (duplicated from BleProtocol for
-  // self-containment; round-trip validated via _encodeCommand/_buildResponse)
-  // ---------------------------------------------------------------------------
-
-  proto.OverlayLayout _dartLayoutToProto(OverlayLayout layout) {
-    return proto.OverlayLayout(
-      canvasWidth: layout.canvasWidth,
-      canvasHeight: layout.canvasHeight,
-      elements: layout.elements.map(_dartElementToProto).toList(),
-      templates: layout.templates
-          .map(
-            (t) => proto.OverlayTemplate(
-              eventType: t.eventType,
-              durationMs: t.durationMs,
-              elements: t.elements.map(_dartElementToProto).toList(),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  proto.OverlayElement _dartElementToProto(OverlayElement el) {
-    return proto.OverlayElement(
-      id: el.id,
-      shape: _dartShapeToProto(el.shape),
-      bounds: proto.OverlayRect(
-        x1: el.bounds.x1,
-        y1: el.bounds.y1,
-        z: el.bounds.z,
-        x2: el.bounds.x2,
-        y2: el.bounds.y2,
-      ),
-      style: proto.OverlayStyle(
-        fillColor: el.style.fillColor ?? '',
-        textColor: el.style.textColor ?? '',
-        opacity: el.style.opacity,
-        cornerRadius: el.style.cornerRadius,
-        fontFamily: el.style.fontFamily ?? '',
-        fontSize: el.style.fontSize,
-        textAlign: _dartTextAlignToProto(el.style.textAlign),
-        fontWeight: _dartFontWeightToProto(el.style.fontWeight),
-        staticText: el.style.staticText ?? '',
-      ),
-      binding: _dartBindingToProto(el.binding),
-      visible: el.visible,
-    );
-  }
-
-  proto.OverlayShape _dartShapeToProto(OverlayShape s) => switch (s) {
-    OverlayShape.rect => proto.OverlayShape.SHAPE_RECT,
-    OverlayShape.text => proto.OverlayShape.SHAPE_TEXT,
-    OverlayShape.circle => proto.OverlayShape.SHAPE_CIRCLE,
-  };
-
-  proto.OverlayBinding _dartBindingToProto(OverlayBinding b) => switch (b) {
-    OverlayBinding.static => proto.OverlayBinding.BINDING_STATIC,
-    OverlayBinding.scoreA => proto.OverlayBinding.BINDING_SCORE_A,
-    OverlayBinding.scoreB => proto.OverlayBinding.BINDING_SCORE_B,
-    OverlayBinding.scoreVs => proto.OverlayBinding.BINDING_SCORE_VS,
-    OverlayBinding.teamAName => proto.OverlayBinding.BINDING_TEAM_A_NAME,
-    OverlayBinding.teamBName => proto.OverlayBinding.BINDING_TEAM_B_NAME,
-    OverlayBinding.matchClock => proto.OverlayBinding.BINDING_MATCH_CLOCK,
-    OverlayBinding.periodLabel => proto.OverlayBinding.BINDING_PERIOD_LABEL,
-  };
-
-  proto.TextAlign _dartTextAlignToProto(OverlayTextAlign a) => switch (a) {
-    OverlayTextAlign.left => proto.TextAlign.TEXT_ALIGN_LEFT,
-    OverlayTextAlign.center => proto.TextAlign.TEXT_ALIGN_CENTER,
-    OverlayTextAlign.right => proto.TextAlign.TEXT_ALIGN_RIGHT,
-  };
-
-  proto.FontWeight _dartFontWeightToProto(OverlayFontWeight w) => switch (w) {
-    OverlayFontWeight.normal => proto.FontWeight.FONT_WEIGHT_NORMAL,
-    OverlayFontWeight.bold => proto.FontWeight.FONT_WEIGHT_BOLD,
-  };
 
   @override
   Future<void> dispose() async {

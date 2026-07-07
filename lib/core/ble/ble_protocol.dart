@@ -78,7 +78,7 @@ class BleProtocol {
     String correlationId, {
     int maxDataBytes = maxChunkDataBytes,
   }) {
-    final protoCmd = _toProtoCommand(cmd, correlationId);
+    final protoCmd = toProtoCommand(cmd, correlationId);
     return _splitIntoFrames(
       protoCmd.writeToBuffer(),
       correlationId,
@@ -129,7 +129,7 @@ class BleProtocol {
   /// [proto.Command] (with the `push_session_config` oneof set) and returns the
   /// serialized bytes.
   ///
-  /// Deliberately bypasses [_toProtoCommand]: per "Fix 14", [PushSessionConfig]
+  /// Deliberately bypasses [toProtoCommand]: per "Fix 14", [PushSessionConfig]
   /// is NOT part of the [BleCommand] sealed hierarchy — it is sent via the
   /// dedicated [BleService.pushSessionConfig] API. This helper is the single
   /// place that translates the session config to the wire.
@@ -196,7 +196,7 @@ class BleProtocol {
           'got ${resp.correlationId}',
         );
       }
-      return _statusToResponse<void>(resp, () => BleCommandResponse.ok(null));
+      return statusToResponse<void>(resp, () => BleCommandResponse.ok(null));
     } catch (e) {
       return BleCommandResponse.error('Proto decode error: $e');
     }
@@ -228,7 +228,7 @@ class BleProtocol {
 
       // Parse by the actual response payload variant — not by the outbound
       // command type — so the decode reflects what the firmware truly sent.
-      return _statusToResponse<T>(resp, () => _mapOkResponse<T>(resp));
+      return statusToResponse<T>(resp, () => _mapOkResponse<T>(resp));
     } catch (e) {
       return BleCommandResponse.error('Proto decode error: $e');
     }
@@ -237,7 +237,7 @@ class BleProtocol {
   /// Maps a [proto.CommandResponse]'s status to a [BleCommandResponse], invoking
   /// [onOk] to build the OK payload. UNSUPPORTED is surfaced distinctly from a
   /// generic ERROR (preserving any `error_message`); TIMEOUT maps to timeout.
-  static BleCommandResponse<T> _statusToResponse<T>(
+  static BleCommandResponse<T> statusToResponse<T>(
     proto.CommandResponse resp,
     BleCommandResponse<T> Function() onOk,
   ) {
@@ -276,7 +276,11 @@ class BleProtocol {
     }
   }
 
-  static proto.Command _toProtoCommand(
+  /// Maps a Dart [BleCommand] onto the wire `proto.Command`. Public so the
+  /// emulated firmware (MockBleService) encodes with the production table
+  /// instead of a drift-prone copy; the mock's firmware-side DECODE stays
+  /// independent, so parity tests still exercise a real round trip.
+  static proto.Command toProtoCommand(
     BleCommand cmd,
     String correlationId,
   ) => switch (cmd) {
