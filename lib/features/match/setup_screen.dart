@@ -8,6 +8,8 @@ import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/streaming.dart';
 import '../../core/models/video_mode.dart';
+import '../../core/state/auto_stop.dart'
+    show autoStopMinutesProvider, lastPushedSessionConfigProvider;
 import '../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../core/theme/tokens.dart';
@@ -453,6 +455,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         ? widget.match.match.opponent.substring(3)
         : widget.match.match.opponent;
 
+    // Unsupervised-session timeout (R5): the persisted setting rides every
+    // session config (default 30 when the operator never touched it).
+    final autoStopMinutes = await ref.read(autoStopMinutesProvider.future);
+    if (!mounted) return;
+
     final config = PushSessionConfig(
       matchUuid: matchUuid,
       userUuid: userUuid,
@@ -477,6 +484,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       teamAName: widget.match.team.shortName,
       teamBName: _shortCode(opponentName),
       teamAColorHex: widget.match.team.colorHex,
+      autoStopMinutes: autoStopMinutes,
     );
 
     setState(() {
@@ -494,6 +502,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
       // Step 1: push session config.
       await ble.pushSessionConfig(deviceId, config);
+      // Remember the pushed config so a mid-session auto-stop change can
+      // re-push it with the new timeout (core/state/auto_stop.dart).
+      ref.read(lastPushedSessionConfigProvider.notifier).state = config;
       if (!mounted) return;
 
       // Persist the per-match streaming credential (scoped to this match only;

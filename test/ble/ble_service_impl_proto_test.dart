@@ -163,24 +163,28 @@ void main() {
   // U1 — push_session_config encoding
   // ===========================================================================
   group('BleProtocol.encodeSessionConfig (U1)', () {
-    PushSessionConfig fullConfig({String? rtmpUrl, String? streamKey}) =>
-        PushSessionConfig(
-          matchUuid: 'match-1',
-          userUuid: 'user-1',
-          sport: 'soccer',
-          numPeriods: 2,
-          periodLengthSeconds: 2700,
-          rtmpUrl: rtmpUrl,
-          streamKey: streamKey,
-          videoOutputPath: '/data/video/user-1/match-1/',
-          thumbnailOutputPath: '/data/thumbnail/user-1/match-1/',
-          teamAId: 'team-a',
-          teamBId: 'team-b',
-          teamAName: 'North Rovers',
-          teamBName: 'East FC',
-          teamAColorHex: '#FF5733',
-          teamBColorHex: '#33A1FF',
-        );
+    PushSessionConfig fullConfig({
+      String? rtmpUrl,
+      String? streamKey,
+      int autoStopMinutes = kDefaultAutoStopMinutes,
+    }) => PushSessionConfig(
+      matchUuid: 'match-1',
+      userUuid: 'user-1',
+      sport: 'soccer',
+      numPeriods: 2,
+      periodLengthSeconds: 2700,
+      rtmpUrl: rtmpUrl,
+      streamKey: streamKey,
+      videoOutputPath: '/data/video/user-1/match-1/',
+      thumbnailOutputPath: '/data/thumbnail/user-1/match-1/',
+      teamAId: 'team-a',
+      teamBId: 'team-b',
+      teamAName: 'North Rovers',
+      teamBName: 'East FC',
+      teamAColorHex: '#FF5733',
+      teamBColorHex: '#33A1FF',
+      autoStopMinutes: autoStopMinutes,
+    );
 
     test('happy path — every contract field is present on the wire', () {
       const corrId = 'sc-1';
@@ -207,6 +211,21 @@ void main() {
       expect(c.teamBName, 'East FC');
       expect(c.teamAColorHex, '#FF5733');
       expect(c.teamBColorHex, '#33A1FF');
+      // U5 (R5): the auto-stop timeout is always sent (field 16) — the app
+      // owns the setting, so the firmware default never applies.
+      expect(c.hasAutoStopMinutes(), isTrue);
+      expect(c.autoStopMinutes, kDefaultAutoStopMinutes);
+    });
+
+    test('configured auto_stop_minutes rides the wire (U5, field 16)', () {
+      final bytes = BleProtocol.encodeSessionConfigFrames(
+        fullConfig(autoStopMinutes: 90),
+        'sc-5',
+      ).first;
+      final cmd = proto.Command.fromBuffer(
+        proto.ChunkedPayload.fromBuffer(bytes).data,
+      );
+      expect(cmd.pushSessionConfig.autoStopMinutes, 90);
     });
 
     test('edge — absent rtmp_url/stream_key encode as unset (not empty)', () {

@@ -9,6 +9,7 @@ import 'streaming/streaming_state.dart'
 import 'users/users_state.dart'
     show activeUserProvider, usersControllerProvider;
 import '../../core/ble/ble_providers.dart';
+import '../../core/state/auto_stop.dart' show autoStopMinutesProvider;
 import '../../core/state/connect_controller.dart';
 import '../../core/models/command.dart';
 import '../../core/state/last_camera.dart';
@@ -119,6 +120,8 @@ class SettingsPage extends ConsumerWidget {
                   ),
                 ),
                 const Divider(height: 1, color: T.rule),
+                const _AutoStopRow(),
+                const Divider(height: 1, color: T.rule),
                 _NavRow(
                   leading: const Icon(Icons.storage_outlined),
                   label: 'Backup & restore',
@@ -224,6 +227,53 @@ class _StreamingRow extends ConsumerWidget {
           : null,
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const StreamingDestinationsPage()),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-stop row — the unsupervised-session timeout (R5). Inline dropdown, no
+// sub-page: one value, picked from a bounded ladder (the notifier clamps to
+// kAutoStopMinMinutes..kAutoStopMaxMinutes as the backstop). Changing it
+// while a session is live re-pushes the session config immediately — that
+// side effect lives in the notifier (core/state/auto_stop.dart), not here.
+// ---------------------------------------------------------------------------
+
+class _AutoStopRow extends ConsumerWidget {
+  const _AutoStopRow();
+
+  /// Picker ladder — all within [kAutoStopMinMinutes]..[kAutoStopMaxMinutes].
+  static const _choices = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final minutes = ref.watch(autoStopMinutesProvider).valueOrNull;
+    // A persisted value outside the ladder (defensive) still has to appear in
+    // the dropdown's items, or DropdownButton asserts.
+    final items = {..._choices, ?minutes}.toList()..sort();
+    return _RowItem(
+      leading: const Icon(Icons.timer_outlined),
+      label: 'Auto-stop',
+      sub: 'End unsupervised sessions after this long',
+      trailing: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: minutes,
+          isDense: true,
+          dropdownColor: T.surface,
+          style: const TextStyle(fontSize: 12, color: T.ink2),
+          icon: const Icon(Icons.expand_more, size: 16, color: T.ink3),
+          items: [
+            for (final m in items)
+              DropdownMenuItem(value: m, child: Text('$m min')),
+          ],
+          onChanged: minutes == null
+              ? null // still loading the persisted value
+              : (v) {
+                  if (v == null) return;
+                  ref.read(autoStopMinutesProvider.notifier).set(v);
+                },
+        ),
       ),
     );
   }

@@ -1667,6 +1667,12 @@ class MockBleService implements BleService {
   /// this after a "Start match" tap to verify the correct values were sent.
   PushSessionConfig? lastPushedConfig;
 
+  /// Every config pushed via [pushSessionConfig], in arrival order — the
+  /// session-config counterpart of [receivedCommands] (PushSessionConfig is
+  /// not a BleCommand, so it never lands there). Tests assert the U5
+  /// mid-session auto-stop re-push off this log.
+  final List<PushSessionConfig> pushedConfigs = [];
+
   /// Whether [pushSessionConfig] should return an error on the next call.
   /// Reset to false after each call. Useful for error-path tests.
   bool failNextPushSessionConfig = false;
@@ -1850,6 +1856,7 @@ class MockBleService implements BleService {
       throw const BleTimeoutException('Simulated pushSessionConfig failure');
     }
     lastPushedConfig = config;
+    pushedConfigs.add(config);
   }
 
   @override

@@ -167,6 +167,7 @@ class PushSessionConfig {
     this.teamBName,
     this.teamAColorHex,
     this.teamBColorHex,
+    this.autoStopMinutes = kDefaultAutoStopMinutes,
   });
 
   final String matchUuid;
@@ -214,7 +215,40 @@ class PushSessionConfig {
 
   /// Hex colour for team B overlay elements, e.g. '#33A1FF'.
   final String? teamBColorHex;
+
+  /// Unsupervised-session timeout (R5): the firmware auto-stops the session
+  /// after this many minutes with no app connection (wire field
+  /// `auto_stop_minutes = 16`). App-configurable (Settings → Auto-stop);
+  /// [kDefaultAutoStopMinutes] when the operator never touched the setting.
+  final int autoStopMinutes;
+
+  /// The same config with a different [autoStopMinutes] — the mid-session
+  /// re-push path (the firmware maps auto_stop_minutes on every
+  /// PushSessionConfig, so a changed setting takes effect immediately).
+  PushSessionConfig withAutoStopMinutes(int minutes) => PushSessionConfig(
+    matchUuid: matchUuid,
+    userUuid: userUuid,
+    sport: sport,
+    numPeriods: numPeriods,
+    periodLengthSeconds: periodLengthSeconds,
+    rtmpUrl: rtmpUrl,
+    streamKey: streamKey,
+    videoOutputPath: videoOutputPath,
+    thumbnailOutputPath: thumbnailOutputPath,
+    teamAId: teamAId,
+    teamBId: teamBId,
+    teamAName: teamAName,
+    teamBName: teamBName,
+    teamAColorHex: teamAColorHex,
+    teamBColorHex: teamBColorHex,
+    autoStopMinutes: minutes,
+  );
 }
+
+/// Firmware default for [PushSessionConfig.autoStopMinutes] (proto: absent ⇒
+/// firmware default 30). The app always sends its configured value; this is
+/// the starting point before the operator touches the setting.
+const int kDefaultAutoStopMinutes = 30;
 
 // ---------------------------------------------------------------------------
 // Enums
