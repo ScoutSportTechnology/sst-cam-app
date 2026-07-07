@@ -14,7 +14,6 @@ import 'camera_state.dart'
         modalPreviewActiveProvider,
         AppTab;
 import '../../core/ble/ble_providers.dart';
-import '../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../core/state/reconnect_controller.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/device_health_banner.dart';
@@ -22,7 +21,7 @@ import '../../core/widgets/indicators.dart';
 import '../../core/widgets/reconnect_notice.dart';
 import '../../core/widgets/live_preview_view.dart';
 import '../../core/widgets/output_camera_toggle.dart';
-import '../../core/widgets/preview_layout_toggle.dart';
+import '../../core/widgets/preview_controls_row.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
@@ -117,10 +116,6 @@ class _HeroCameraCard extends ConsumerWidget {
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(deviceId));
-    // U3 health gate: starting a preview is blocked while the device is
-    // inoperable (or health is unknown while connected). Stopping stays
-    // allowed. One shared provider — no per-page divergence.
-    final captureBlocked = ref.watch(captureBlockedProvider);
     // Only the visible tab's preview surface holds an RTSP/VLC client (two on
     // one single-stream server stalls the second — home vs match both stay
     // mounted in the shell's IndexedStack).
@@ -222,50 +217,9 @@ class _HeroCameraCard extends ConsumerWidget {
                 const SizedBox(height: 10),
                 if (connected) ...[
                   // Preview controls inline — Preview button + Single|Both mode
-                  // toggle in two equal columns, mirroring the match session
-                  // screen so widths and right edges line up.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: WfButton(
-                          label: previewOn ? 'Stop preview' : 'Preview',
-                          variant: previewOn
-                              ? WfButtonVariant.danger
-                              : WfButtonVariant.outline,
-                          size: WfButtonSize.sm,
-                          full: true,
-                          leading: previewOn
-                              ? null
-                              : const Icon(
-                                  Icons.play_arrow_rounded,
-                                  size: 13,
-                                  color: T.ink,
-                                ),
-                          onPressed: (captureBlocked && !previewOn)
-                              ? null
-                              : () {
-                                  ref
-                                          .read(
-                                            livePreviewEnabledProvider(
-                                              deviceId,
-                                            ).notifier,
-                                          )
-                                          .state =
-                                      !previewOn;
-                                },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: previewOn
-                            ? PreviewLayoutToggle(
-                                deviceId: deviceId,
-                                full: true,
-                              )
-                            : const SizedBox.shrink(),
-                      ),
-                    ],
-                  ),
+                  // toggle (shared PreviewControlsRow, same widget as the match
+                  // session screen so widths and right edges line up).
+                  PreviewControlsRow(deviceId: deviceId!),
                   if (previewOn) ...[
                     const SizedBox(height: 8),
                     OutputCameraToggle(deviceId: deviceId, full: true),
