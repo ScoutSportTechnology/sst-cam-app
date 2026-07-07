@@ -1291,12 +1291,14 @@ class MockBleService implements BleService {
       CameraFocusCommand(:final mode, :final position) => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
+        // U9 parity: echo the EFFECTIVE mode (injection knobs emulate a fixed
+        // lens or a firmware that applies a different mode than requested).
         cameraFocus: proto.CameraFocusResponse(
-          mode: mode == CameraFocusMode.auto
+          mode: _effectiveFocusMode(mode) == CameraFocusMode.auto
               ? proto.CameraFocusMode.FOCUS_MODE_AUTO
               : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
           focusPosition: position,
-          autofocusAvailable: true,
+          autofocusAvailable: focusAutofocusAvailable,
         ),
       ),
       SetActiveCameraCommand(:final cameraIndex) => proto.CommandResponse(
@@ -1492,7 +1494,19 @@ class MockBleService implements BleService {
             )
             as T?,
       ),
-      CameraFocusCommand() => BleCommandResponse.ok(null as T?),
+      CameraFocusCommand() => BleCommandResponse.ok(
+        CameraFocusResult(
+              mode:
+                  resp.cameraFocus.mode == proto.CameraFocusMode.FOCUS_MODE_AUTO
+                  ? CameraFocusMode.auto
+                  : CameraFocusMode.manual,
+              position: resp.cameraFocus.hasFocusPosition()
+                  ? resp.cameraFocus.focusPosition
+                  : null,
+              autofocusAvailable: resp.cameraFocus.autofocusAvailable,
+            )
+            as T?,
+      ),
       SetActiveCameraCommand() => BleCommandResponse.ok(null as T?),
       SetPreviewLayoutCommand() => BleCommandResponse.ok(
         PreviewLayoutResult(
@@ -2351,8 +2365,23 @@ class MockBleService implements BleService {
   ({CameraFocusMode mode, int? position, int? cameraIndex})? lastFocus;
   int lastActiveCamera = 0;
 
+  /// U9 AF-echo injection knobs. [focusAutofocusAvailable] false emulates a
+  /// fixed lens (no VCM motor): the echo forces MANUAL and flags AF as
+  /// unavailable. [focusEffectiveModeOverride] non-null makes the echo report
+  /// that mode regardless of the request (firmware policy divergence, e.g. AF
+  /// refused while recording).
+  bool focusAutofocusAvailable = true;
+  CameraFocusMode? focusEffectiveModeOverride;
+
+  /// The EFFECTIVE mode the emulated firmware applies for a [requested] mode —
+  /// shared by the wire-path response builder and the direct port method so
+  /// both echoes agree.
+  CameraFocusMode _effectiveFocusMode(CameraFocusMode requested) =>
+      focusEffectiveModeOverride ??
+      (focusAutofocusAvailable ? requested : CameraFocusMode.manual);
+
   @override
-  Future<void> setCameraFocus(
+  Future<CameraFocusResult?> setCameraFocus(
     String deviceId, {
     required CameraFocusMode mode,
     int? position,
@@ -2360,6 +2389,11 @@ class MockBleService implements BleService {
   }) async {
     await Future.delayed(const Duration(milliseconds: 20));
     lastFocus = (mode: mode, position: position, cameraIndex: cameraIndex);
+    return CameraFocusResult(
+      mode: _effectiveFocusMode(mode),
+      position: position,
+      autofocusAvailable: focusAutofocusAvailable,
+    );
   }
 
   @override

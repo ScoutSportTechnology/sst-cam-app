@@ -542,13 +542,13 @@ class BleServiceImpl implements BleService {
   }
 
   @override
-  Future<void> setCameraFocus(
+  Future<CameraFocusResult?> setCameraFocus(
     String deviceId, {
     required CameraFocusMode mode,
     int? position,
     int? cameraIndex,
   }) async {
-    final resp = await sendCommand<void>(
+    final resp = await sendCommand<CameraFocusResult>(
       deviceId,
       CameraFocusCommand(
         mode: mode,
@@ -561,6 +561,7 @@ class BleServiceImpl implements BleService {
         'setCameraFocus failed: ${resp.errorMessage}',
       );
     }
+    return resp.payload;
   }
 
   @override

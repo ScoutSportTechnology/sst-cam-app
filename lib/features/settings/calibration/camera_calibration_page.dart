@@ -38,11 +38,30 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
   bool _enabled = true;
   Timer? _debounce;
 
-  // Focus (U8). (Output-camera / manual tracking lives next to the live preview
-  // on the camera + match screens, not here.)
-  bool _autofocus = false;
+  // Focus (U8/U9). (Output-camera / manual tracking lives next to the live
+  // preview on the camera + match screens, not here.)
+  //
+  // Intent vs observed (per the settings-toggle learning): [_afRequested] is
+  // what the user last asked for; [_afEffective] is the EFFECTIVE mode echoed
+  // by the firmware's CameraFocusResponse. The toggle displays the echo once
+  // one exists — never the request. Seeded at the firmware default (manual,
+  // no echo yet).
+  CameraFocusMode _afRequested = CameraFocusMode.manual; // intent
+  CameraFocusMode? _afEffective; // observed (null until first echo)
+  bool _afAvailable = true; // observed; false = fixed lens, no VCM motor
   double _focus = 320;
   Timer? _focusDebounce;
+
+  /// Captured in initState so dispose() can release the modal-preview claim
+  /// without touching `ref` (riverpod forbids ref use once the element is
+  /// unmounting — reading it there throws and skips the rest of dispose,
+  /// leaving the claim stuck and the hero/match previews paused).
+  StateController<bool>? _modalClaim;
+
+  /// What the toggle shows: the observed effective mode when the firmware has
+  /// echoed one, else the pending intent.
+  bool get _afDisplayedAuto =>
+      (_afEffective ?? _afRequested) == CameraFocusMode.auto;
 
   @override
   void initState() {
@@ -55,7 +74,9 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
       // Claim the sole preview client: this screen is pushed over the tab shell,
       // whose hero/match previews stay mounted and would otherwise keep a second
       // RTSP client open (starving this one on the single-stream server).
-      ref.read(modalPreviewActiveProvider.notifier).state = true;
+      final claim = ref.read(modalPreviewActiveProvider.notifier);
+      claim.state = true;
+      _modalClaim = claim;
       final id = ref.read(activeCameraIdProvider);
       if (id == null) return;
       ref.read(livePreviewEnabledProvider(id).notifier).state = true;
@@ -64,26 +85,74 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
 
   @override
   void dispose() {
-    // Release the claim so the hero/match previews resume.
-    ref.read(modalPreviewActiveProvider.notifier).state = false;
+    // Release the claim so the hero/match previews resume (via the captured
+    // controller — `ref` is unusable during unmount).
+    _modalClaim?.state = false;
     _debounce?.cancel();
     _focusDebounce?.cancel();
     super.dispose();
   }
 
+  /// AF mode toggle (U9). Blocked when no camera is connected (the whole page
+  /// body is already gated on connection); otherwise awaits the firmware echo
+  /// — no fire-and-forget — and renders the EFFECTIVE mode it reports, which
+  /// may differ from the request.
+  Future<void> _setAfMode(bool auto) async {
+    final id = ref.read(activeCameraIdProvider);
+    if (id == null) return; // standard disconnected affordance covers the page
+    final requested = auto ? CameraFocusMode.auto : CameraFocusMode.manual;
+    _focusDebounce?.cancel();
+    setState(() => _afRequested = requested);
+    try {
+      final echo = await ref
+          .read(bleServiceProvider)
+          .setCameraFocus(
+            id,
+            mode: requested,
+            position: requested == CameraFocusMode.manual
+                ? _focus.round()
+                : null,
+          );
+      if (!mounted || echo == null) return;
+      setState(() {
+        _afEffective = echo.mode; // observed — wins over the request
+        _afAvailable = echo.autofocusAvailable;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      // Roll intent back to the last observed state so the toggle doesn't
+      // claim a mode the camera never acknowledged.
+      setState(() => _afRequested = _afEffective ?? CameraFocusMode.manual);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Focus mode change failed')));
+    }
+  }
+
+  /// Manual-position drags — debounced like the color sliders; the echo still
+  /// refreshes the observed mode/availability.
   void _pushFocus() {
     final id = ref.read(activeCameraIdProvider);
     if (id == null) return;
     _focusDebounce?.cancel();
-    _focusDebounce = Timer(const Duration(milliseconds: 120), () {
-      ref
-          .read(bleServiceProvider)
-          .setCameraFocus(
-            id,
-            mode: _autofocus ? CameraFocusMode.auto : CameraFocusMode.manual,
-            position: _autofocus ? null : _focus.round(),
-          )
-          .ignore();
+    _focusDebounce = Timer(const Duration(milliseconds: 120), () async {
+      try {
+        final echo = await ref
+            .read(bleServiceProvider)
+            .setCameraFocus(
+              id,
+              mode: CameraFocusMode.manual,
+              position: _focus.round(),
+            );
+        if (!mounted || echo == null) return;
+        setState(() {
+          _afEffective = echo.mode;
+          _afAvailable = echo.autofocusAvailable;
+        });
+      } catch (_) {
+        // Drag path stays quiet — the next drag retries; the mode toggle is
+        // the surface that reports errors.
+      }
     });
   }
 
@@ -306,7 +375,9 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      // Focus (U8) — motorized VCM lens.
+                      // Focus (U8/U9) — motorized VCM lens. The toggle shows
+                      // the firmware-echoed EFFECTIVE mode; a fixed lens
+                      // (autofocus_available=false) disables it.
                       WfCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -321,17 +392,20 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                                   ).textTheme.titleMedium,
                                 ),
                                 Switch(
-                                  value: _autofocus,
-                                  onChanged: (v) {
-                                    setState(() => _autofocus = v);
-                                    _pushFocus();
-                                  },
+                                  value: _afDisplayedAuto,
+                                  onChanged: _afAvailable
+                                      ? (v) => _setAfMode(v)
+                                      : null,
                                 ),
                               ],
                             ),
                             WfNote(
-                              _autofocus
-                                  ? 'Continuous autofocus is on.'
+                              !_afAvailable
+                                  ? 'Fixed lens — this camera has no '
+                                        'motorized focus.'
+                                  : _afDisplayedAuto
+                                  ? 'Continuous autofocus is on. Autofocus '
+                                        'pauses while recording.'
                                   : 'Manual focus — drag to set both lenses '
                                         '(0 = near, 1000 = far).',
                             ),
@@ -342,7 +416,7 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                               value: _focus,
                               min: 0,
                               max: 1000,
-                              enabled: !_autofocus,
+                              enabled: _afAvailable && !_afDisplayedAuto,
                               onChanged: (v) {
                                 setState(() => _focus = v);
                                 _pushFocus();

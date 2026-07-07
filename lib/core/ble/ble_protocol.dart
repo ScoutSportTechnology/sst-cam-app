@@ -694,9 +694,21 @@ class BleProtocol {
               as T?,
         );
       case proto.CommandResponse_Payload.cameraFocus:
-        // Motorized-focus response (U8): mode + position + autofocus_available.
-        // Fire-and-forget from the UI (optimistic); OK with null.
-        return BleCommandResponse.ok(null as T?);
+        // Motorized-focus echo (U8/U9): the EFFECTIVE mode + position the
+        // firmware is now applying, plus whether autofocus exists at all
+        // (fixed lens → false). The AF toggle renders this echo (observed
+        // state), never the request (intent).
+        final cf = resp.cameraFocus;
+        return BleCommandResponse.ok(
+          CameraFocusResult(
+                mode: cf.mode == proto.CameraFocusMode.FOCUS_MODE_AUTO
+                    ? CameraFocusMode.auto
+                    : CameraFocusMode.manual,
+                position: cf.hasFocusPosition() ? cf.focusPosition : null,
+                autofocusAvailable: cf.autofocusAvailable,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.activeCamera:
         // Manual tracking ack — the toggle is optimistic; OK with null.
         return BleCommandResponse.ok(null as T?);
