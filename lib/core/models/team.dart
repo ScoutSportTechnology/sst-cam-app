@@ -8,6 +8,18 @@ import 'package:flutter/foundation.dart';
 
 const int kShortNameMaxLength = 3;
 
+/// The opponent's display name from a stored opponent string. Legacy DB rows
+/// may carry a leading `vs ` / `VS ` prefix ("vs Eastfield FC"); every
+/// consumer (session hydration, session-config push, overlay layout, video
+/// card titles) wants the bare name, so parsing lives here — one helper, no
+/// per-feature drift.
+String opponentDisplayName(String opponent) {
+  if (opponent.startsWith('vs ') || opponent.startsWith('VS ')) {
+    return opponent.substring(3);
+  }
+  return opponent;
+}
+
 @immutable
 class Player {
   const Player({
