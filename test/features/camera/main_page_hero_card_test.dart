@@ -82,4 +82,26 @@ void main() {
     );
     expect(label, 'Standby');
   });
+
+  test('U6: not connected + reconnect loop active → Reconnecting (honest '
+      'disconnected state, subtle retry indicator)', () {
+    final (label, color) = cameraHeroState(
+      connected: false,
+      previewOn: false,
+      telemetry: null,
+      reconnecting: true,
+    );
+    expect(label, 'Reconnecting…');
+    expect(color, T.warn);
+  });
+
+  test('U6: reconnecting flag is ignored once connected — live states win', () {
+    final (label, _) = cameraHeroState(
+      connected: true,
+      previewOn: false,
+      telemetry: _telemetry(recording: true),
+      reconnecting: true, // stale — connection already re-established
+    );
+    expect(label, 'Recording');
+  });
 }

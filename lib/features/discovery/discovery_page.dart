@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/device.dart';
-import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../../core/ble/ble_providers.dart';
 import '../../core/ble/ble_service.dart';
 import '../../core/state/connect_controller.dart';
+import '../../core/state/reconnect_controller.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
 import '../../core/widgets/wf_button.dart';
@@ -403,10 +403,13 @@ class _DeviceRow extends ConsumerWidget {
                   : WfButtonVariant.primary,
               size: WfButtonSize.sm,
               onPressed: () async {
-                final svc = ref.read(bleServiceProvider);
                 if (connected) {
-                  await svc.disconnect(device.id);
-                  ref.read(activeCameraIdProvider.notifier).state = null;
+                  // Manual disconnect via the reconnect controller: marks
+                  // the intent (the loop must never treat this drop as
+                  // unexpected) and clears the active camera (U6).
+                  await ref
+                      .read(reconnectControllerProvider.notifier)
+                      .manualDisconnect(device.id);
                 } else {
                   await _attemptConnect(context, ref);
                 }

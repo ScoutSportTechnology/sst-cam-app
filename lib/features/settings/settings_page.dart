@@ -11,6 +11,7 @@ import 'users/users_state.dart'
 import '../../core/ble/ble_providers.dart';
 import '../../core/state/auto_stop.dart' show autoStopMinutesProvider;
 import '../../core/state/connect_controller.dart';
+import '../../core/state/reconnect_controller.dart';
 import '../../core/models/command.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
@@ -407,10 +408,12 @@ class _CameraCard extends ConsumerWidget {
 
   /// Drop the BLE link only — the camera stays in the known list so a
   /// subsequent one-tap reconnect from the empty state works without
-  /// rescanning. Per R4.
+  /// rescanning. Per R4. Routed through the reconnect controller so the
+  /// auto-reconnect loop never treats this drop as unexpected (U6).
   Future<void> _disconnect(WidgetRef ref, String deviceId) async {
-    await ref.read(bleServiceProvider).disconnect(deviceId);
-    ref.read(activeCameraIdProvider.notifier).state = null;
+    await ref
+        .read(reconnectControllerProvider.notifier)
+        .manualDisconnect(deviceId);
   }
 
   /// Confirm, then send RebootCommand (U11). The camera replies OK and then
@@ -556,6 +559,13 @@ class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
 
   @override
   Widget build(BuildContext context) {
+    // Subtle U6 indicator: while the auto-reconnect loop is chasing the
+    // dropped camera, the banner says so — the state stays honestly
+    // "not connected" and the manual CTA below keeps working (a manual
+    // connect dedups with the loop's in-flight attempt).
+    final reconnecting =
+        ref.watch(reconnectControllerProvider).phase ==
+        ReconnectPhase.reconnecting;
     return WfCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -581,8 +591,8 @@ class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
+                  children: [
+                    const Text(
                       'No camera connected',
                       style: TextStyle(
                         fontSize: 13,
@@ -590,13 +600,15 @@ class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
                         color: T.ink,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      'Connect a camera to manage users, formats, and streaming '
-                      'destinations.',
+                      reconnecting
+                          ? 'Connection lost — reconnecting automatically…'
+                          : 'Connect a camera to manage users, formats, and '
+                                'streaming destinations.',
                       style: TextStyle(
                         fontSize: 11,
-                        color: T.ink2,
+                        color: reconnecting ? T.warn : T.ink2,
                         height: 1.4,
                       ),
                     ),
