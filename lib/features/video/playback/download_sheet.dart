@@ -21,6 +21,7 @@ import '../video_state.dart'
         liveSessionActiveProvider,
         LibraryMatch,
         LibraryEvent;
+import 'download_sheet_views.dart';
 
 // Shown when retrieval is attempted (or rejected) during a live session.
 const _kLiveSessionBlocked =
@@ -428,9 +429,39 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
   @override
   Widget build(BuildContext context) {
     final running = _handle != null;
-    if (_reconnecting) return _buildReconnecting();
-    if (_exporting) return _buildExporting();
-    if (running) return _buildProgress();
+    if (_reconnecting) {
+      return DownloadBusyView(
+        title: 'Reconnecting to camera…',
+        subtitle:
+            "Waiting for the WiFi link to come back. Make sure you're near "
+            'the camera — this clears on its own once it reconnects.',
+        error: _error,
+        onCancel: () => Navigator.of(context).pop(),
+      );
+    }
+    if (_exporting) {
+      return DownloadBusyView(
+        title: 'Rendering overlay on camera…',
+        subtitle:
+            'The camera is burning the scoreboard into a copy. This can '
+            'take a few minutes for a full match.',
+        error: _error,
+        onCancel: () => Navigator.of(context).pop(),
+      );
+    }
+    if (running) {
+      return DownloadProgressView(
+        subtitle: '${widget.match.date} · ${widget.match.opponent}',
+        progress: _progress,
+        error: _error,
+        onCancel: () async {
+          final navigator = Navigator.of(context);
+          await _handle?.cancel();
+          if (mounted) navigator.pop();
+        },
+        onClose: () => Navigator.of(context).pop(),
+      );
+    }
     // Overlay the camera-reported real size/duration when available; fall back
     // to the library row's scheduled values when offline.
     final deviceRec = ref
@@ -475,16 +506,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: T.fillMid,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
+          const SheetHandle(),
           const SizedBox(height: 14),
           const Text(
             'Download',
@@ -518,7 +540,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
                   ),
                   child: Row(
                     children: [
-                      _Radio(on: selected),
+                      SheetRadio(on: selected),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -558,7 +580,7 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
               padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
               child: Row(
                 children: [
-                  _CheckBox(on: _withOverlay),
+                  SheetCheckBox(on: _withOverlay),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -611,212 +633,6 @@ class _DownloadSheetState extends ConsumerState<DownloadSheet> {
       ),
     );
   }
-
-  Widget _buildProgress() {
-    final p = _progress;
-    final fraction = p?.fraction ?? 0;
-    final received = ((p?.bytesReceived ?? 0) / 1024 / 1024).toStringAsFixed(1);
-    final total = ((p?.bytesTotal ?? 0) / 1024 / 1024).toStringAsFixed(1);
-    final kbps = (p?.kbps ?? 0).toStringAsFixed(0);
-    final status = switch (p?.status) {
-      DownloadStatus.queued => 'Queued',
-      DownloadStatus.running => 'Downloading',
-      DownloadStatus.paused => 'Paused',
-      DownloadStatus.completed => 'Completed',
-      DownloadStatus.failed => 'Failed',
-      DownloadStatus.cancelled => 'Cancelled',
-      null => 'Starting',
-    };
-    final terminal = p?.isTerminal ?? false;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: T.fillMid,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            status,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              color: T.ink,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${widget.match.date} · ${widget.match.opponent}',
-            style: const TextStyle(fontSize: 12, color: T.ink2),
-          ),
-          const SizedBox(height: 18),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: fraction,
-              minHeight: 6,
-              backgroundColor: T.fillMid,
-              valueColor: const AlwaysStoppedAnimation<Color>(T.accent),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '$received / $total MB',
-                style: const TextStyle(
-                  fontFamily: T.mono,
-                  fontSize: 11,
-                  color: T.ink2,
-                ),
-              ),
-              Text(
-                '$kbps KB/s',
-                style: const TextStyle(
-                  fontFamily: T.mono,
-                  fontSize: 11,
-                  color: T.ink2,
-                ),
-              ),
-              Text(
-                '${(fraction * 100).toStringAsFixed(0)}%',
-                style: const TextStyle(
-                  fontFamily: T.mono,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: T.ink,
-                ),
-              ),
-            ],
-          ),
-          if (p?.errorMessage != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              p!.errorMessage!,
-              style: const TextStyle(fontSize: 12, color: T.danger),
-            ),
-          ] else if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _error!,
-              style: const TextStyle(fontSize: 12, color: T.danger),
-            ),
-          ],
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: WfButton(
-                  label: terminal ? 'Close' : 'Cancel',
-                  onPressed: () async {
-                    if (!terminal) await _handle?.cancel();
-                    if (mounted) Navigator.of(context).pop();
-                  },
-                ),
-              ),
-              if (terminal && p?.status == DownloadStatus.completed) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: WfButton(
-                    label: 'Done',
-                    variant: WfButtonVariant.primary,
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExporting() => _buildBusy(
-    'Rendering overlay on camera…',
-    'The camera is burning the scoreboard into a copy. This can take a '
-        'few minutes for a full match.',
-  );
-
-  Widget _buildReconnecting() => _buildBusy(
-    'Reconnecting to camera…',
-    "Waiting for the WiFi link to come back. Make sure you're near the "
-        'camera — this clears on its own once it reconnects.',
-  );
-
-  /// Shared spinner surface for the pre-download busy states (rendering an
-  /// overlay, or waiting for the WiFi link). [title] is the bold headline,
-  /// [subtitle] the muted explanation.
-  Widget _buildBusy(String title, String subtitle) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: T.fillMid,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  valueColor: AlwaysStoppedAnimation<Color>(T.accent),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: T.ink,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(subtitle, style: const TextStyle(fontSize: 12, color: T.ink2)),
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _error!,
-              style: const TextStyle(fontSize: 12, color: T.danger),
-            ),
-          ],
-          const SizedBox(height: 18),
-          WfButton(
-            label: 'Cancel',
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _Opt {
@@ -824,55 +640,4 @@ class _Opt {
   final _DownloadMode key;
   final String label;
   final String sub;
-}
-
-class _CheckBox extends StatelessWidget {
-  const _CheckBox({required this.on});
-  final bool on;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 18,
-      height: 18,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(4),
-        color: on ? T.accent : Colors.transparent,
-        border: Border.all(color: on ? T.accent : T.hair, width: 2),
-      ),
-      alignment: Alignment.center,
-      child: on
-          ? const Icon(Icons.check_rounded, size: 13, color: T.accentInk)
-          : null,
-    );
-  }
-}
-
-class _Radio extends StatelessWidget {
-  const _Radio({required this.on});
-  final bool on;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 18,
-      height: 18,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: on ? T.accent : Colors.transparent,
-        border: Border.all(color: on ? T.accent : T.hair, width: 2),
-      ),
-      alignment: Alignment.center,
-      child: on
-          ? Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(
-                color: T.accentInk,
-                shape: BoxShape.circle,
-              ),
-            )
-          : null,
-    );
-  }
 }
