@@ -11,6 +11,7 @@ import '../../core/widgets/wf_filter_bar.dart';
 import '../teams/matches/team_match_form_sheet.dart';
 import '../teams/teams_state.dart' show teamsControllerProvider, TeamRecord;
 import 'match_state.dart';
+import 'session/session_state.dart' show sessionNoticeProvider;
 
 class LandingScreen extends ConsumerWidget {
   const LandingScreen({super.key, required this.onSelect});
@@ -29,6 +30,7 @@ class LandingScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
+          const _LandingNoticeBanner(),
           const Padding(
             padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
             child: _MatchSearchField(),
@@ -593,6 +595,53 @@ class _NoUpcomingState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LANDING NOTICE BANNER
+// ---------------------------------------------------------------------------
+
+/// One-line session notice on the landing screen — the away-ended notice
+/// (U2) usually fires while the user is here (they reconnect after reopening
+/// the app), not on a mounted session screen. Dismissible.
+class _LandingNoticeBanner extends ConsumerWidget {
+  const _LandingNoticeBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notice = ref.watch(sessionNoticeProvider);
+    if (notice == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: T.fillSoft,
+        border: Border.all(color: T.rule, width: 1),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              notice,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: T.ink2,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => ref.read(sessionNoticeProvider.notifier).state = null,
+            child: const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Icon(Icons.close, size: 14, color: T.ink2),
+            ),
+          ),
+        ],
       ),
     );
   }

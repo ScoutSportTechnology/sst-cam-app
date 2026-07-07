@@ -26,14 +26,27 @@ import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 
 const _kDeviceId = 'SST-CAM-001';
 
-/// Store seam fake — U2 replaces the no-op default with the Drift store; the
-/// reconcile tests exercise the same interface with a canned record.
+/// Store seam fake — the Drift-backed default is exercised in
+/// test/features/match/session/session_persistence_test.dart; these reconcile
+/// tests use a canned record.
 class _FakeMatchStore implements PersistedMatchStore {
   _FakeMatchStore(this.record);
   final PersistedLiveMatch? record;
+  final List<PersistedLiveMatch> saved = [];
+  final List<(String, String)> cleared = [];
 
   @override
   Future<PersistedLiveMatch?> load(String deviceId) async => record;
+
+  @override
+  Future<void> save(String deviceId, PersistedLiveMatch match) async {
+    saved.add(match);
+  }
+
+  @override
+  Future<void> clear(String deviceId, String matchUuid) async {
+    cleared.add((deviceId, matchUuid));
+  }
 }
 
 MatchState _runningMatch(String uuid) => MatchState(
@@ -71,7 +84,11 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         bleServiceProvider.overrideWithValue(mock),
-        if (store != null) persistedMatchStoreProvider.overrideWithValue(store),
+        // The production default is the Drift-backed store; these tests pin
+        // a fake (or the no-op store) so no database is in the loop.
+        persistedMatchStoreProvider.overrideWithValue(
+          store ?? const NoPersistedMatchStore(),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -139,12 +156,15 @@ void main() {
       test('persisted match matching the running match_uuid pushes an absolute '
           'SetMatchState with app scores and NO clock fields', () async {
         mock.snapshotMatchState = _runningMatch('match-1');
+        mock.mockSessionPhase = SessionPhase.recording;
         final container = makeContainer(
           store: _FakeMatchStore(
             const PersistedLiveMatch(
               matchUuid: 'match-1',
               scoreA: 2,
               scoreB: 1,
+              phase: PersistedMatchPhase.period,
+              currentPeriod: 1,
             ),
           ),
         );
@@ -164,8 +184,11 @@ void main() {
         'unknown running match_uuid adopts the firmware view — no push',
         () async {
           mock.snapshotMatchState = _runningMatch('match-unknown');
+          mock.mockSessionPhase = SessionPhase.recording;
           final container = makeContainer(
             store: _FakeMatchStore(
+              // Pre-kickoff persisted row for another match — settled by a
+              // silent clear, never restored against this session.
               const PersistedLiveMatch(
                 matchUuid: 'other-match',
                 scoreA: 5,
@@ -208,9 +231,16 @@ void main() {
     test('sequence is time push → snapshot → (reconcile) → connected; '
         'nothing else reaches the firmware mid-handshake', () async {
       mock.snapshotMatchState = _runningMatch('match-1');
+      mock.mockSessionPhase = SessionPhase.recording;
       final container = makeContainer(
         store: _FakeMatchStore(
-          const PersistedLiveMatch(matchUuid: 'match-1', scoreA: 3, scoreB: 2),
+          const PersistedLiveMatch(
+            matchUuid: 'match-1',
+            scoreA: 3,
+            scoreB: 2,
+            phase: PersistedMatchPhase.period,
+            currentPeriod: 1,
+          ),
         ),
       );
 

@@ -60,8 +60,10 @@ void main() {
 
   final db = useInMemoryDb();
 
-  test('schemaVersion is 5', () {
-    expect(db.value.schemaVersion, 5);
+  test('schemaVersion is 6', () {
+    // v5 added the credential columns under test here; v6 added live_matches
+    // (see live_matches_migration_test.dart).
+    expect(db.value.schemaVersion, 6);
   });
 
   test('seeded matches have no credential', () async {

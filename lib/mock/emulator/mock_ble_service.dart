@@ -203,10 +203,12 @@ class _DeviceState {
 
   CameraConnectionState connectionState = CameraConnectionState.disconnected;
   Timer? telemetryTimer;
+  Timer? matchStateTimer;
   int telemetryTick = 0;
 
   void dispose() {
     telemetryTimer?.cancel();
+    matchStateTimer?.cancel();
     connController.close();
     telemetryController.close();
     matchStateController.close();
@@ -564,6 +566,7 @@ class MockBleService implements BleService {
     // real service, and what keeps a match-state poll from ever landing
     // mid-handshake.
     _startTelemetry(deviceId);
+    _startMatchStatePoll(deviceId);
   }
 
   @override
@@ -571,6 +574,7 @@ class MockBleService implements BleService {
     final state = _devices[deviceId];
     if (state == null) return;
     state.telemetryTimer?.cancel();
+    state.matchStateTimer?.cancel();
     state.connectionState = CameraConnectionState.disconnected;
     state.connController.add(CameraConnectionState.disconnected);
   }
@@ -605,6 +609,43 @@ class MockBleService implements BleService {
     });
   }
 
+  /// 2 s match-state poll parity (state-health cycle): emits the injected
+  /// [snapshotMatchState] while connected — the app's drift-correction
+  /// consumer runs against the same cadence as the real service. Full
+  /// session semantics (a clock that ticks on its own) remain U7.
+  void _startMatchStatePoll(String deviceId) {
+    final state = _devices[deviceId];
+    if (state == null) return;
+    state.matchStateTimer?.cancel();
+    state.matchStateTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_devices[deviceId]?.connectionState !=
+          CameraConnectionState.connected) {
+        return;
+      }
+      final ms = snapshotMatchState;
+      if (ms != null) state.matchStateController.add(ms);
+    });
+  }
+
+  /// Test seam: push a match-state sample into the poll stream NOW (as if a
+  /// 2 s poll had just returned) without waiting for the timer.
+  @visibleForTesting
+  void emitMatchState(String deviceId, MatchState ms) {
+    final device =
+        _deviceCatalog.where((d) => d.id == deviceId).firstOrNull ??
+        _deviceCatalog.first;
+    _deviceState(deviceId, device).matchStateController.add(ms);
+  }
+
+  /// Test seam: push a telemetry sample into the stream NOW.
+  @visibleForTesting
+  void emitTelemetry(String deviceId, DeviceTelemetry t) {
+    final device =
+        _deviceCatalog.where((d) => d.id == deviceId).firstOrNull ??
+        _deviceCatalog.first;
+    _deviceState(deviceId, device).telemetryController.add(t);
+  }
+
   DeviceTelemetry _makeTelemetry(int tick) {
     final b = _baseline;
     final used =
@@ -621,8 +662,10 @@ class MockBleService implements BleService {
       ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 10).clamp(0.0, 100.0),
       cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 20).clamp(0.0, 100.0),
       uptimeSeconds: tick,
-      isRecording: b.isRecording,
-      isStreaming: b.isStreaming,
+      // Live activity flags mirror the emulator's actual state (parity with
+      // firmware telemetry) — the fixture baseline only sets the floor.
+      isRecording: b.isRecording || isRecordingActive,
+      isStreaming: b.isStreaming || isStreamingActive,
       isRawCapturing: isRawCapturingActive,
     );
   }

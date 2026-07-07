@@ -8,12 +8,14 @@ import 'package:uuid/uuid.dart';
 
 import '../config/app_config.dart';
 import 'daos/clips_dao.dart';
+import 'daos/live_matches_dao.dart';
 import 'daos/raw_recordings_dao.dart';
 import 'daos/sport_presets_dao.dart';
 import 'daos/streaming_destinations_dao.dart';
 import 'daos/teams_dao.dart';
 import 'daos/users_dao.dart';
 import 'tables/clips_table.dart';
+import 'tables/live_matches_table.dart';
 import 'tables/raw_recordings_table.dart';
 import 'tables/sport_presets_table.dart';
 import 'tables/streaming_destinations_table.dart';
@@ -40,6 +42,7 @@ const kDefaultUserId = '00000000-0000-0000-0000-000000000001';
     ClipsTable,
     ThumbnailsTable,
     RawRecordingsTable,
+    LiveMatchesTable,
   ],
   daos: [
     UsersDao,
@@ -48,6 +51,7 @@ const kDefaultUserId = '00000000-0000-0000-0000-000000000001';
     StreamingDestinationsDao,
     ClipsDao,
     RawRecordingsDao,
+    LiveMatchesDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -63,7 +67,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -136,6 +140,13 @@ class AppDatabase extends _$AppDatabase {
           await customStatement(
             'ALTER TABLE team_matches ADD COLUMN stream_key TEXT',
           );
+        }
+        if (from < 6) {
+          // v5→v6: live_matches (persisted live-match scoreboard, U2).
+          // Covered by test/core/db/live_matches_migration_test.dart, which
+          // opens a REAL v5 file so this branch actually runs (the in-memory
+          // helper only ever exercises onCreate).
+          await m.createTable(liveMatchesTable);
         }
       });
     },
