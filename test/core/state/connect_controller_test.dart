@@ -143,8 +143,10 @@ void main() {
       expect(snapshot.isRecording, isTrue);
       expect(snapshot.isStreaming, isTrue);
       expect(snapshot.recordingElapsedSeconds, 754);
-      // Firmware clock adopted verbatim — the only clock that ran.
-      expect(snapshot.matchState!.elapsedSeconds, 1200);
+      // Firmware clock adopted — the only clock that ran. The parity mock's
+      // clock TICKS in real time (U7), so the adopted value is at least the
+      // injected base.
+      expect(snapshot.matchState!.elapsedSeconds, greaterThanOrEqualTo(1200));
       expect(snapshot.matchState!.clockRunning, isTrue);
       expect(snapshot.matchState!.matchUuid, 'match-live');
     });

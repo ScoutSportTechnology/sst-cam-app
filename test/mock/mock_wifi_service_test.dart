@@ -101,6 +101,27 @@ void main() {
         expect(first, WifiDirectState.connected);
       },
     );
+
+    test(
+      'U7: connectGroup while the group is up returns the SAME group with '
+      'zero re-formation (idempotent StartWifiDirect parity, proto §10)',
+      () async {
+        final first = await svc.connectGroup('device-1');
+        expect(svc.groupFormationCount, 1);
+
+        // Rejoin path: the group survived a BLE drop; the redundant connect
+        // must return the existing credentials without pairing again.
+        final second = await svc.connectGroup('device-1');
+        expect(second.ssid, first.ssid);
+        expect(second.psk, first.psk);
+        expect(svc.groupFormationCount, 1, reason: 'no re-formation');
+
+        // Only an explicit teardown allows a NEW formation.
+        await svc.disconnectGroup('device-1');
+        await svc.connectGroup('device-1');
+        expect(svc.groupFormationCount, 2);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

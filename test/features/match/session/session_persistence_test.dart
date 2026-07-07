@@ -160,8 +160,9 @@ void main() {
       expect(live.scoreAway, 1);
       expect(live.phase, MatchPhase.period);
       expect(live.rec, RecState.recording);
-      // Firmware clock wins — it is the only clock that ran.
-      expect(live.elapsedSeconds, 900);
+      // Firmware clock wins — it is the only clock that ran (and the U7
+      // parity mock keeps it ticking in real time, so adopted >= injected).
+      expect(live.elapsedSeconds, greaterThanOrEqualTo(900));
       expect(live.timer, MatchTimer.running);
       // Events survived the kill.
       expect(
@@ -228,7 +229,8 @@ void main() {
       expect(live.scoreHome, 1);
       expect(live.scoreAway, 2);
       expect(live.currentPeriod, 2);
-      expect(live.elapsedSeconds, 1000);
+      // >= because the U7 parity mock's clock ticks in real time.
+      expect(live.elapsedSeconds, greaterThanOrEqualTo(1000));
       expect(live.rec, RecState.recording);
       expect(live.awayName, 'Eastfield FC');
       expect(c.read(liveMatchProvider.notifier).matchId, seedMatchUp2Id);
@@ -441,7 +443,8 @@ void main() {
       expect(push.scoreB, 0);
       final live = c.read(liveMatchProvider);
       expect(live.scoreHome, 2);
-      expect(live.elapsedSeconds, 321);
+      // >= because the U7 parity mock's clock ticks in real time.
+      expect(live.elapsedSeconds, greaterThanOrEqualTo(321));
       expect(live.rec, RecState.recording);
       expect(c.read(connectLocalIssueProvider), contains('could not be read'));
     });
@@ -638,7 +641,8 @@ void main() {
 
       final live = c.read(liveMatchProvider);
       expect(live.scoreHome, 1); // app score kept
-      expect(live.elapsedSeconds, 600); // firmware clock adopted
+      // Firmware clock adopted (>= because the U7 mock clock keeps ticking).
+      expect(live.elapsedSeconds, greaterThanOrEqualTo(600));
       expect(live.phase, MatchPhase.period);
       final push = mock.lastSetMatchState;
       expect(push!.scoreA, 1);
