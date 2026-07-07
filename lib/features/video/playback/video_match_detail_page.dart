@@ -4,6 +4,7 @@ import 'package:video_player/video_player.dart';
 
 import 'dart:io';
 
+import '../../../core/models/team.dart' show opponentDisplayName;
 import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
 import '../video_state.dart'
     show
@@ -174,7 +175,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${match.teamName} vs ${match.opponent}'),
+            // Same legacy 'vs '-prefix normalization as the library card title,
+            // so this page never renders "X vs vs Y".
+            Text('${match.teamName} vs ${opponentDisplayName(match.opponent)}'),
             Text(
               '${match.date}${match.result.isNotEmpty ? ' · ${match.result}' : ''}',
               style: const TextStyle(fontSize: 11, color: T.ink2),
