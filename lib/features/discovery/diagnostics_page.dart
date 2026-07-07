@@ -5,6 +5,7 @@ import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart' show DeviceInfoResponse;
 import '../../core/models/telemetry.dart';
 import '../../core/services/log_service.dart';
+import '../../core/state/device_health.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/version/version_info.dart';
 import '../../core/widgets/wf_card.dart';
@@ -73,6 +74,8 @@ class DiagnosticsPage extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
         children: [
           const WfSection('Camera', padding: EdgeInsets.only(bottom: 8)),
+          const _SensorHealthGrid(),
+          const SizedBox(height: 8),
           _CameraDiagnostics(telemetry: telemetry, info: info),
           const SizedBox(height: 8),
           const _CameraLogsCard(),
@@ -211,6 +214,61 @@ class _CameraDiagnostics extends StatelessWidget {
   );
 }
 
+/// Per-sensor status tiles (U4, R9/AE6): camera 0/1 live health from
+/// [deviceHealthProvider] plus two microphone placeholders. Renders whether or
+/// not a camera is connected — disconnected/unreported health shows "—" per
+/// the page convention (never a stale or fabricated OK). The mic tiles are
+/// hardcoded offline: mic hardware is unsupported this cycle, and the tile
+/// says so rather than pretending a reading exists.
+class _SensorHealthGrid extends ConsumerWidget {
+  const _SensorHealthGrid();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final health = ref.watch(deviceHealthProvider);
+    return GridView.count(
+      crossAxisCount: 2,
+      crossAxisSpacing: 8,
+      mainAxisSpacing: 8,
+      childAspectRatio: 2.4,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _StatTile(
+          label: 'Camera 0',
+          value: _healthLabel(health.camera0),
+          valueColor: _healthColor(health.camera0),
+        ),
+        _StatTile(
+          label: 'Camera 1',
+          value: _healthLabel(health.camera1),
+          valueColor: _healthColor(health.camera1),
+        ),
+        // Mic hardware is not supported this cycle — permanent offline
+        // placeholders (muted so they read as "not available", not danger).
+        const _StatTile(label: 'Mic 0', value: 'Offline', valueColor: T.ink3),
+        const _StatTile(label: 'Mic 1', value: 'Offline', valueColor: T.ink3),
+      ],
+    );
+  }
+
+  /// Unknown/unreported renders "—" — never fabricated (page convention).
+  String _healthLabel(CameraHealth h) => switch (h) {
+    CameraHealth.ok => 'OK',
+    CameraHealth.recovering => 'Recovering',
+    CameraHealth.down => 'Down',
+    CameraHealth.unknown => '—',
+  };
+
+  /// Null falls back to [_StatTile]'s default ink (and its "—" muting).
+  Color? _healthColor(CameraHealth h) => switch (h) {
+    CameraHealth.ok => T.ok,
+    CameraHealth.recovering => T.warn,
+    CameraHealth.down => T.danger,
+    CameraHealth.unknown => null,
+  };
+}
+
 class _AppDiagnostics extends ConsumerWidget {
   const _AppDiagnostics();
 
@@ -300,9 +358,13 @@ class _CameraLogsCard extends StatelessWidget {
 }
 
 class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value});
+  const _StatTile({required this.label, required this.value, this.valueColor});
   final String label;
   final String value;
+
+  /// Status tint for the value (e.g. health tiles). Null = default ink,
+  /// with the "—" muting below.
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -323,7 +385,7 @@ class _StatTile extends StatelessWidget {
               fontSize: 14,
               fontWeight: FontWeight.w600,
               // Muted when unavailable so a "—" never reads as a real reading.
-              color: unavailable ? T.ink3 : T.ink,
+              color: valueColor ?? (unavailable ? T.ink3 : T.ink),
             ),
           ),
         ],
