@@ -438,8 +438,7 @@ class _TelemetryTile extends StatelessWidget {
 }
 
 // The manual "Record raw footage (training)" button was removed: the dual-camera
-// training proxy is internal/training-only and runs automatically, coupled to the
-// match RECORD lifecycle — the app mints a capture_group_id and sends it on the
-// RecordingControlCommand START (session_screen), and the firmware starts/stops
-// the per-camera proxy alongside the recording (U5/U6). It is NOT tied to
-// streaming (a stream-only match has nothing to train on).
+// training proxy is fully firmware-internal — it rides the record/stream
+// lifecycle automatically and has no wire surface. The app neither starts,
+// stops, nor observes it; proxy files pair with their match on-device and are
+// retrieved via ssh, never over the app contract.

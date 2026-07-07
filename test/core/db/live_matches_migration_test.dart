@@ -53,8 +53,8 @@ void main() {
     // ignore: deprecated_member_use
     raw.dispose();
 
-    // Opening the file at schemaVersion 6 triggers onUpgrade(5, 6) — the
-    // exact production migration, not a paraphrase.
+    // Opening the file at the current schemaVersion triggers onUpgrade(5, 7)
+    // — the exact production migration, not a paraphrase.
     final db = AppDatabase.forTesting(NativeDatabase(file));
     addTearDown(db.close);
 
@@ -83,6 +83,6 @@ void main() {
 
     // Version advanced to the current schema.
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.data.values.single, 6);
+    expect(version.data.values.single, 7);
   });
 }

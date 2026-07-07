@@ -60,10 +60,11 @@ void main() {
 
   final db = useInMemoryDb();
 
-  test('schemaVersion is 6', () {
+  test('schemaVersion is 7', () {
     // v5 added the credential columns under test here; v6 added live_matches
-    // (see live_matches_migration_test.dart).
-    expect(db.value.schemaVersion, 6);
+    // (see live_matches_migration_test.dart); v7 dropped raw_recordings
+    // (proxy capture went firmware-internal).
+    expect(db.value.schemaVersion, 7);
   });
 
   test('seeded matches have no credential', () async {

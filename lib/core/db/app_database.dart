@@ -9,14 +9,12 @@ import 'package:uuid/uuid.dart';
 import '../config/app_config.dart';
 import 'daos/clips_dao.dart';
 import 'daos/live_matches_dao.dart';
-import 'daos/raw_recordings_dao.dart';
 import 'daos/sport_presets_dao.dart';
 import 'daos/streaming_destinations_dao.dart';
 import 'daos/teams_dao.dart';
 import 'daos/users_dao.dart';
 import 'tables/clips_table.dart';
 import 'tables/live_matches_table.dart';
-import 'tables/raw_recordings_table.dart';
 import 'tables/sport_presets_table.dart';
 import 'tables/streaming_destinations_table.dart';
 import 'tables/team_matches_table.dart';
@@ -41,7 +39,6 @@ const kDefaultUserId = '00000000-0000-0000-0000-000000000001';
     StreamingDestinationsTable,
     ClipsTable,
     ThumbnailsTable,
-    RawRecordingsTable,
     LiveMatchesTable,
   ],
   daos: [
@@ -50,7 +47,6 @@ const kDefaultUserId = '00000000-0000-0000-0000-000000000001';
     SportPresetsDao,
     StreamingDestinationsDao,
     ClipsDao,
-    RawRecordingsDao,
     LiveMatchesDao,
   ],
 )
@@ -67,7 +63,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -94,10 +90,6 @@ class AppDatabase extends _$AppDatabase {
         await customStatement(
           'CREATE INDEX idx_clips_match_id ON clips(match_id)',
         );
-        await customStatement(
-          'CREATE INDEX idx_raw_recordings_capture_group_id '
-          'ON raw_recordings(capture_group_id)',
-        );
         // Seed minimum viable state: one default user + all built-in sport
         // presets. This runs unconditionally — the app must always have at
         // least one user and the preset list populated for core flows to work.
@@ -123,14 +115,9 @@ class AppDatabase extends _$AppDatabase {
           // v2→v3: add color_hex to teams.
           await customStatement('ALTER TABLE teams ADD COLUMN color_hex TEXT');
         }
-        if (from < 4) {
-          // v3→v4: add raw_recordings (raw dual-camera capture metadata).
-          await m.createTable(rawRecordingsTable);
-          await customStatement(
-            'CREATE INDEX idx_raw_recordings_capture_group_id '
-            'ON raw_recordings(capture_group_id)',
-          );
-        }
+        // v3→v4 added raw_recordings (raw dual-camera capture metadata);
+        // v6→v7 drops it again, so the create step is skipped entirely for
+        // installs upgrading from < 4 (the v7 drop is IF EXISTS).
         if (from < 5) {
           // v4→v5: per-match streaming credential (U5). Nullable — existing
           // matches have no credential.
@@ -147,6 +134,14 @@ class AppDatabase extends _$AppDatabase {
           // opens a REAL v5 file so this branch actually runs (the in-memory
           // helper only ever exercises onCreate).
           await m.createTable(liveMatchesTable);
+        }
+        if (from < 7) {
+          // v6→v7: drop raw_recordings. The dual-camera proxy is now fully
+          // firmware-internal (proxy files pair with their match on-device by
+          // match_uuid and are retrieved via ssh, never over the app
+          // contract), so the app no longer downloads or tracks raw files.
+          // IF EXISTS because installs upgrading from < 4 never created it.
+          await customStatement('DROP TABLE IF EXISTS raw_recordings');
         }
       });
     },

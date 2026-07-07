@@ -33,7 +33,7 @@ final liveSessionActiveProvider = Provider<bool>((ref) {
   if (camId == null) return false;
   final tele = ref.watch(telemetryProvider(camId)).valueOrNull;
   if (tele == null) return false;
-  return tele.isRecording || tele.isStreaming || tele.isRawCapturing;
+  return tele.isRecording || tele.isStreaming;
 });
 
 /// Local cache path for a match's camera-rendered thumbnail, or null when none

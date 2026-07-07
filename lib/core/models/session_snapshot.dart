@@ -1,7 +1,7 @@
 // Session snapshot — the firmware's ACTUAL state, read at connect by the
 // connect handshake (proto §9b, state-health cycle). Pure read, no side
 // effects. A session OUTLIVES the BLE connection: the firmware keeps
-// recording/streaming/raw-capturing through app disconnects (bounded by
+// recording/streaming through app disconnects (bounded by
 // auto_stop_minutes), so on every connect the app rehydrates from this
 // snapshot instead of assuming defaults.
 
@@ -50,7 +50,6 @@ class SessionSnapshot {
     this.previewLayout,
     this.isRecording,
     this.isStreaming,
-    this.isRawCapturing,
     this.recordingElapsedSeconds,
     this.matchState,
     this.camera0Health,
@@ -68,7 +67,6 @@ class SessionSnapshot {
   /// Activity flags — same sources as DeviceTelemetry.
   final bool? isRecording;
   final bool? isStreaming;
-  final bool? isRawCapturing;
 
   /// Monotonic seconds since RECORDING_START of the running recording; null
   /// when not recording. Drives the recording-duration display after a rejoin.

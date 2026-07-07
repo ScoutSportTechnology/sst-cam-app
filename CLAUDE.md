@@ -118,7 +118,7 @@ lib/
               live_preview_view, preview_controls_row, preview_layout_toggle,
               output_camera_toggle, device_health_banner, reconnect_notice, borders)
   features/                    one folder per user-facing feature; *_state.dart = its Riverpod
-    camera/    main_page, camera_state (re-exports core camera_selection), raw_capture_state
+    camera/    main_page, camera_state (re-exports core camera_selection)
     discovery/ discovery_page, diagnostics_page, debug_page
     match/     landing/setup/match_page + session/ (session_screen + widgets/
                controls/modals/actions splits, session_state, live_match_models,

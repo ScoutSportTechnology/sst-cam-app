@@ -8,7 +8,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
@@ -177,9 +176,6 @@ class SessionScreen extends ConsumerWidget {
                           RecordingControlCommand(
                             action: RecordingControlAction.start,
                             quality: state.recordQuality,
-                            captureGroupId:
-                                ref.read(liveMatchProvider.notifier).matchId ??
-                                const Uuid().v4(),
                           ),
                         );
                       } else if (currentRec == RecState.recording) {
