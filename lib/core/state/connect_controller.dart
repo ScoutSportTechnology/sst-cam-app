@@ -35,6 +35,14 @@ import '../models/session_snapshot.dart';
 import '../wifi/wifi_providers.dart' show previewLayoutProvider;
 import '../../features/camera/camera_state.dart'
     show activeCameraIdProvider, activeOutputCameraProvider;
+import '../../features/match/session/session_state.dart'
+    show
+        LiveMatchController,
+        awayEndedNoticeText,
+        finalizeLiveMatchRecord,
+        isLiveMatchRunning,
+        liveMatchProvider,
+        sessionNoticeProvider;
 import 'last_camera.dart';
 import 'persisted_match_store.dart';
 
@@ -44,6 +52,13 @@ import 'persisted_match_store.dart';
 /// flags, recording elapsed, match state/clock (U2 restore), per-camera
 /// health (U3 gate folds this with live telemetry), last-session summary.
 final sessionSnapshotProvider = StateProvider<SessionSnapshot?>((_) => null);
+
+/// A LOCAL follow-up failure from the last handshake's reconcile (persisted
+/// store read, scoreboard restore, away-ended finalize). Distinct from wire
+/// failures by design: a Drift hiccup must never make the camera
+/// unconnectable, so the connect still succeeds and the problem surfaces
+/// here instead. Null when the last handshake's local work completed clean.
+final connectLocalIssueProvider = StateProvider<String?>((_) => null);
 
 final connectControllerProvider = Provider<ConnectController>(
   ConnectController.new,
@@ -116,6 +131,8 @@ class ConnectController {
   }
 
   Future<void> _handshake(BleService svc, String deviceId) async {
+    _ref.read(connectLocalIssueProvider.notifier).state = null;
+
     // 1. Wire link. The service resolves at `reconciling` — session-affecting
     //    UI gates on `connected` only, so everything stays locked from here
     //    until completeHandshake() (prevents a Record tap racing the snapshot).
@@ -188,34 +205,128 @@ class ConnectController {
     _ref.read(sessionSnapshotProvider.notifier).state = snapshot;
   }
 
-  /// Push app-owned intent the firmware can't know. App scores are the
-  /// authority (deltas made while disconnected never reached the firmware);
-  /// the firmware clock is the authority (it is the only clock that ran) —
-  /// so the push carries scores only and leaves every clock field unset
-  /// (SetMatchState absent fields are left untouched on the firmware).
+  /// Push app-owned intent the firmware can't know, and settle the app's
+  /// persisted match against the firmware's actual session (U2).
+  ///
+  /// Authority split: app scores/events are the authority (deltas made while
+  /// disconnected never reached the firmware) — pushed via an absolute
+  /// [SetMatchStateCommand]; the firmware clock is the authority (it is the
+  /// only clock that ran), so the push leaves every clock field unset
+  /// (absent fields are left untouched on the firmware) and the app adopts
+  /// the snapshot's elapsed/clock_running locally instead.
+  ///
+  /// Failure split: a failed WIRE push is a handshake failure (typed, link
+  /// dropped). LOCAL follow-ups (store read, scoreboard restore, away-ended
+  /// finalize) must never make the camera unconnectable — their failures land
+  /// in [connectLocalIssueProvider] and the connect still succeeds.
   Future<void> _reconcile(
     BleService svc,
     String deviceId,
     SessionSnapshot snapshot,
   ) async {
-    final runningUuid = snapshot.matchState?.matchUuid;
-    if (runningUuid == null || runningUuid.isEmpty) {
-      // No session config was ever pushed — nothing to reconcile.
+    final ms = snapshot.matchState;
+    final msUuid = ms?.matchUuid;
+    final runningUuid = (msUuid != null && msUuid.isNotEmpty) ? msUuid : null;
+    // A session is RUNNING only outside idle/finalizing — an idle snapshot
+    // that still reports the last match's state is an ended session.
+    final sessionActive =
+        runningUuid != null &&
+        snapshot.sessionPhase != SessionPhase.idle &&
+        snapshot.sessionPhase != SessionPhase.finalizing;
+
+    PersistedLiveMatch? persisted;
+    try {
+      persisted = await _ref.read(persistedMatchStoreProvider).load(deviceId);
+    } catch (e) {
+      _localIssue('Saved match state could not be read: $e');
+    }
+
+    final liveCtl = _ref.read(liveMatchProvider.notifier);
+
+    // 1. Persisted match matches the running session → silent rejoin:
+    //    push app scores (wire), restore the scoreboard, adopt the fw clock.
+    if (persisted != null &&
+        persisted.isMidMatch &&
+        sessionActive &&
+        persisted.matchUuid == runningUuid) {
+      await _pushScores(svc, deviceId, persisted.scoreA, persisted.scoreB);
+      try {
+        liveCtl.restoreFromPersisted(
+          persisted,
+          firmwareElapsedSeconds: ms!.elapsedSeconds,
+          firmwareClockRunning: ms.clockRunning,
+          isRecording: snapshot.isRecording,
+          isStreaming: snapshot.isStreaming,
+        );
+      } catch (e) {
+        _localIssue('Scoreboard restore failed: $e');
+      }
       return;
     }
-    final persisted = await _ref
-        .read(persistedMatchStoreProvider)
-        .load(deviceId);
-    if (persisted == null || persisted.matchUuid != runningUuid) {
-      // Unknown running session (no persisted match for this uuid): adopt the
-      // firmware-derived view silently — the snapshot is already exposed via
-      // [sessionSnapshotProvider]; U2's restore path rebuilds the scoreboard
-      // view from it. No SetMatchState push (nothing app-owned to assert).
+
+    // 2. Nothing persisted but the in-memory controller still tracks the
+    //    running match (persist failed earlier / store wiped, app NOT
+    //    killed): the memory scores are equally app-authoritative.
+    if (persisted == null &&
+        sessionActive &&
+        liveCtl.matchId == runningUuid &&
+        isLiveMatchRunning(_ref.read(liveMatchProvider))) {
+      final live = _ref.read(liveMatchProvider);
+      await _pushScores(svc, deviceId, live.scoreHome, live.scoreAway);
+      try {
+        liveCtl.adoptFirmwareRuntime(
+          elapsedSeconds: ms!.elapsedSeconds,
+          clockRunning: ms.clockRunning,
+          isRecording: snapshot.isRecording,
+          isStreaming: snapshot.isStreaming,
+        );
+      } catch (e) {
+        _localIssue('Clock adoption failed: $e');
+      }
       return;
     }
+
+    // 3. Stale persisted match (ended while away, camera runs a different
+    //    match, or a crash landed between finalize and clear) — settle it
+    //    FIRST so the row is never orphaned and is cleared exactly once.
+    if (persisted != null &&
+        (!sessionActive || persisted.matchUuid != runningUuid)) {
+      try {
+        await _settleStalePersisted(deviceId, snapshot, persisted, liveCtl);
+      } catch (e) {
+        _localIssue('Away-ended finalize failed: $e');
+      }
+    }
+
+    // 4. A running session the app holds no data for → adopt the
+    //    firmware-derived scoreboard view (silent rejoin, origin R3). No
+    //    SetMatchState push — nothing app-owned to assert.
+    if (sessionActive &&
+        persisted?.matchUuid != runningUuid &&
+        liveCtl.matchId != runningUuid) {
+      try {
+        liveCtl.adoptFirmwareView(
+          ms!,
+          isRecording: snapshot.isRecording,
+          isStreaming: snapshot.isStreaming,
+        );
+      } catch (e) {
+        _localIssue('Session adoption failed: $e');
+      }
+    }
+  }
+
+  /// Absolute score push — the WIRE half of reconcile. Clock fields stay
+  /// unset (firmware clock wins). Failure here is a handshake failure.
+  Future<void> _pushScores(
+    BleService svc,
+    String deviceId,
+    int scoreA,
+    int scoreB,
+  ) async {
     final resp = await svc.sendCommand<void>(
       deviceId,
-      SetMatchStateCommand(scoreA: persisted.scoreA, scoreB: persisted.scoreB),
+      SetMatchStateCommand(scoreA: scoreA, scoreB: scoreB),
     );
     if (!resp.isOk) {
       throw BleHandshakeException(
@@ -223,5 +334,59 @@ class ConnectController {
         '${resp.errorMessage ?? resp.status.name}',
       );
     }
+  }
+
+  /// Settle a persisted match that no longer matches a running session.
+  ///
+  /// - Mid-match → "ended while away": one-line notice (the last-session
+  ///   summary is used ONLY when its uuid equals the persisted match's —
+  ///   cross-match data never reaches the notice), finalize the team_matches
+  ///   row with the persisted app data, clear the live store last.
+  /// - Ended → a crash landed between finalize and clear: re-run the
+  ///   idempotent finalize silently.
+  /// - Pre-kickoff → nothing to finalize; just clear the stray row.
+  Future<void> _settleStalePersisted(
+    String deviceId,
+    SessionSnapshot snapshot,
+    PersistedLiveMatch persisted,
+    LiveMatchController liveCtl,
+  ) async {
+    if (persisted.isMidMatch) {
+      final summary = snapshot.lastSession;
+      final matched =
+          (summary != null && summary.matchUuid == persisted.matchUuid)
+          ? summary
+          : null;
+      _ref.read(sessionNoticeProvider.notifier).state = awayEndedNoticeText(
+        matched,
+      );
+      // If the in-memory controller still shows this match live (disconnect
+      // without an app kill), follow the firmware: the session is over.
+      if (liveCtl.matchId == persisted.matchUuid) {
+        liveCtl.followAwayEnd();
+      }
+      await finalizeLiveMatchRecord(
+        _ref,
+        deviceId: deviceId,
+        record: persisted,
+      );
+      return;
+    }
+    if (persisted.phase == PersistedMatchPhase.ended) {
+      await finalizeLiveMatchRecord(
+        _ref,
+        deviceId: deviceId,
+        record: persisted,
+      );
+      return;
+    }
+    // Pre-kickoff row (defensive — persist-on-change never writes these).
+    await _ref
+        .read(persistedMatchStoreProvider)
+        .clear(deviceId, persisted.matchUuid);
+  }
+
+  void _localIssue(String message) {
+    _ref.read(connectLocalIssueProvider.notifier).state = message;
   }
 }

@@ -115,6 +115,22 @@ Any step failing (or timing out) makes the app drop the link — the firmware
 must tolerate a disconnect at any point in this sequence. Telemetry and
 match-state polling start **only after** the handshake completes.
 
+The app leans on three snapshot/poll contract points for scoreboard survival
+(U2), so the firmware must report them faithfully:
+
+- `MatchState.elapsed_seconds` / `clock_running` — the app adopts the
+  firmware clock outright on every rejoin AND corrects its local clock from
+  every ~2 s match-state poll (an adopted elapsed past the configured period
+  length auto-fires one `MATCH_PERIOD_END`). `elapsed_seconds` must be
+  monotonic per period and NOT clamped at the period length.
+- `last_session` (idle snapshots only, with `match_uuid` + `end_reason` +
+  `end_clock_seconds` + `file_valid`) — a reconnecting app uses it to explain
+  "ended while away" and to finalize its library entry; it matches the
+  summary against its persisted match's uuid and ignores it otherwise.
+- Telemetry `is_recording` — the app treats an observed true→false edge
+  without an app command as firmware truth (auto-stop / recovery) and follows
+  it instead of erroring, so the flag must reflect the real encoder state.
+
 ### 3.1. WiFi Direct credential exchange
 
 **The WiFi Direct credential exchange happens automatically as part of connecting.**

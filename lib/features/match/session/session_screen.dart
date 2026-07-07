@@ -142,6 +142,7 @@ class SessionScreen extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
                 child: OutputCameraToggle(deviceId: activeId, full: true),
               ),
+            const _SessionNoticeBanner(),
             _PrimaryActionRow(
               state: state,
               onMarkEvent: isPeriodActive
@@ -862,6 +863,53 @@ class _PrimaryActionRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// SESSION NOTICE BANNER — one-line "ended while away" / poll-truth notices
+// ---------------------------------------------------------------------------
+
+/// One-line notice from the reconcile/poll-truth paths ("Match ended while
+/// away — saved at 47:12.", "Recording stopped on the camera."). Dismissible;
+/// hidden while [sessionNoticeProvider] is null.
+class _SessionNoticeBanner extends ConsumerWidget {
+  const _SessionNoticeBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notice = ref.watch(sessionNoticeProvider);
+    if (notice == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: T.fillSoft,
+        border: Border.all(color: T.rule, width: 1),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              notice,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: T.ink2,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => ref.read(sessionNoticeProvider.notifier).state = null,
+            child: const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Icon(Icons.close, size: 14, color: T.ink2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ENDED BANNER
 // ---------------------------------------------------------------------------
 
@@ -1477,27 +1525,10 @@ bool _sendIfConnected(WidgetRef ref, BleCommand cmd) {
   return true;
 }
 
-/// Persist the just-ended match into the Library: flips its team_match row to
-/// 'past' with the final score + events so it appears on the Video/Library page.
-/// No-op for an ad-hoc session with no library row (matchId == null).
+/// Persist the just-ended match into the Library via the SINGLE finalize path
+/// (shared with the away-ended reconcile): flips its team_match row to 'past'
+/// with the final score + events, then clears the persisted live-match store
+/// last. No-op for an ad-hoc session with no library row (matchId == null).
 void _finalizeMatchToLibrary(WidgetRef ref) {
-  final ctl = ref.read(liveMatchProvider.notifier);
-  final matchId = ctl.matchId;
-  final result = ctl.resultString();
-  if (matchId == null) {
-    debugPrint('[finalize] SKIP — no matchId (ad-hoc session, no library row)');
-    return;
-  }
-  debugPrint('[finalize] writing matchId=$matchId result=$result');
-  unawaited(
-    ref
-        .read(teamsDaoProvider)
-        .finalizeMatch(matchId, result: result, eventsJson: ctl.eventsJson())
-        .then(
-          (ok) => debugPrint('[finalize] done updated=$ok matchId=$matchId'),
-        )
-        .catchError((Object e) {
-          debugPrint('[finalize] ERROR $e');
-        }),
-  );
+  unawaited(ref.read(liveMatchProvider.notifier).finalizeToLibrary());
 }
