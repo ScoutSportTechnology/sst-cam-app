@@ -7,6 +7,7 @@ import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/streaming.dart';
+import '../../core/models/team.dart' show opponentDisplayName;
 import '../../core/models/video_mode.dart';
 import '../../core/state/auto_stop.dart'
     show autoStopMinutesProvider, lastPushedSessionConfigProvider;
@@ -451,9 +452,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final stream = _resolvedStream();
     final rtmpUrl = stream?.wireUrl;
 
-    final opponentName = widget.match.match.opponent.startsWith('vs ')
-        ? widget.match.match.opponent.substring(3)
-        : widget.match.match.opponent;
+    final opponentName = opponentDisplayName(widget.match.match.opponent);
 
     // Unsupervised-session timeout (R5): the persisted setting rides every
     // session config (default 30 when the operator never touched it).
@@ -518,10 +517,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           );
 
       // Step 2: build and push overlay layout.
-      final opponent = widget.match.match.opponent;
-      final awayName = opponent.startsWith('vs ')
-          ? opponent.substring(3)
-          : opponent;
+      final awayName = opponentDisplayName(widget.match.match.opponent);
       final layout = defaultScoreboardLayout(
         // Short name reads best in the compact scoreboard bug.
         homeName: widget.match.team.shortName,
