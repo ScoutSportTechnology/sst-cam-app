@@ -422,6 +422,22 @@ class CameraCalibrationResult {
   final double brightness;
 }
 
+/// Firmware echo for [CameraFocusCommand] — the EFFECTIVE focus state the
+/// camera is now applying (observed), as opposed to what the app last
+/// requested (intent). The AF toggle displays this echo, never the request.
+/// [autofocusAvailable] false = fixed lens (no VCM motor) — focus controls
+/// should disable themselves.
+class CameraFocusResult {
+  const CameraFocusResult({
+    required this.mode,
+    this.position,
+    required this.autofocusAvailable,
+  });
+  final CameraFocusMode mode;
+  final int? position;
+  final bool autofocusAvailable;
+}
+
 /// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies
 /// with an [ExportJob] in the PENDING state; poll it with [PollExportCommand].
 class ExportOverlayedCommand extends BleCommand {

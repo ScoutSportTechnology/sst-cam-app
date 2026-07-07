@@ -123,12 +123,12 @@ class _StubBleService implements BleService {
   Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async =>
       null;
   @override
-  Future<void> setCameraFocus(
+  Future<CameraFocusResult?> setCameraFocus(
     String deviceId, {
     required CameraFocusMode mode,
     int? position,
     int? cameraIndex,
-  }) async {}
+  }) async => null;
   @override
   Future<void> setActiveCamera(String deviceId, int cameraIndex) async {}
   @override

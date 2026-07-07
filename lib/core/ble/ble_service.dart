@@ -163,9 +163,14 @@ abstract class BleService {
   /// the firmware couldn't measure (too dark / no frame).
   Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId);
 
-  /// Motorized-focus control (ArduCAM VCM). [mode] auto = continuous autofocus;
-  /// manual holds [position] (0–1000 VCM code). [cameraIndex] null = both cameras.
-  Future<void> setCameraFocus(
+  /// Motorized-focus control (ArduCAM VCM). [mode] auto = continuous autofocus
+  /// (firmware pauses it while recording — this cycle's default); manual holds
+  /// [position] (0–1000 VCM code). [cameraIndex] null = both cameras.
+  /// Returns the firmware's echo: the EFFECTIVE mode/position now applied
+  /// (observed — may differ from the request) plus
+  /// [CameraFocusResult.autofocusAvailable] (false = fixed lens). Null when the
+  /// firmware omitted the payload.
+  Future<CameraFocusResult?> setCameraFocus(
     String deviceId, {
     required CameraFocusMode mode,
     int? position,
