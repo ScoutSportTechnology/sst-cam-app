@@ -10,6 +10,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../../core/ble/ble_providers.dart'
     show
@@ -30,9 +31,12 @@ import '../../../core/models/video_mode.dart';
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../../core/state/persisted_match_store.dart';
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../../core/services/log_service.dart';
 import 'live_match_models.dart';
 
 export 'live_match_models.dart';
+
+final _log = Logger('LiveMatch');
 
 class LiveMatchController extends Notifier<LiveMatchState> {
   @override
@@ -347,9 +351,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
       ref
           .read(persistedMatchStoreProvider)
           .save(deviceId, _toPersisted(s, uuid))
-          .catchError(
-            (Object e) => debugPrint('[live-match] persist failed: $e'),
-          ),
+          .catchError((Object e) => _log.warn('persist failed: $e')),
     );
   }
 
@@ -613,7 +615,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
               ),
             );
       } catch (e) {
-        debugPrint('[live-match] auto period-end push failed: $e');
+        _log.warn('auto period-end push failed: $e');
       }
     }());
   }
@@ -626,7 +628,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
   Future<void> finalizeToLibrary() async {
     final uuid = _matchId;
     if (uuid == null) {
-      debugPrint('[finalize] SKIP — no matchId (ad-hoc session)');
+      _log.info('finalize skipped — no matchId (ad-hoc session)');
       return;
     }
     final deviceId = ref.read(activeCameraIdProvider);
@@ -636,9 +638,9 @@ class LiveMatchController extends Notifier<LiveMatchState> {
         deviceId: deviceId,
         record: _toPersisted(state, uuid),
       );
-      debugPrint('[finalize] done updated=$updated matchId=$uuid');
+      _log.info('finalize done updated=$updated matchId=$uuid');
     } catch (e) {
-      debugPrint('[finalize] ERROR $e');
+      _log.error('finalize failed: $e');
     }
   }
 }

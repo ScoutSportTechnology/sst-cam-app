@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
-import '../../features/camera/camera_state.dart'
-    show activeOutputCameraProvider;
+import '../state/camera_selection.dart' show activeOutputCameraProvider;
 import '../ble/ble_providers.dart';
 import '../services/log_service.dart';
 import '../theme/tokens.dart';

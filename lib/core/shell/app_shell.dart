@@ -7,7 +7,7 @@ import '../../features/match/match_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/teams/teams_page.dart';
 import '../../features/video/video_page.dart';
-import '../../features/camera/camera_state.dart' show activeTabProvider;
+import '../state/camera_selection.dart' show activeTabProvider;
 import '../state/reconnect_controller.dart';
 import '../wifi/wifi_handoff.dart';
 

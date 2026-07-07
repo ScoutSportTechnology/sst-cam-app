@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'video_state.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/borders.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_chip.dart';
 import '../../core/widgets/wf_filter_bar.dart';
@@ -431,8 +432,4 @@ class _NoVideosEmptyState extends ConsumerWidget {
       ),
     );
   }
-}
-
-extension on Border {
-  BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
 }

@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
+import 'package:logging/logging.dart';
 
 import '../models/wifi.dart';
+import '../services/log_service.dart';
 import '../state/device_health.dart' show captureBlockedProvider;
 import '../wifi/wifi_providers.dart';
 import '../theme/tokens.dart';
 import 'wf_button.dart';
 import 'wf_card.dart';
+
+final _log = Logger('LivePreview');
 
 /// 16:9 live preview surface. Plays the camera's RTSP H.264 stream via VLC
 /// when the WiFi Direct group is up and the descriptor URL is reachable;
@@ -91,7 +95,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // never attached — handle it on the future, not via a sync try/catch.
     // ignore: discarded_futures
     controller.dispose().catchError((Object e) {
-      debugPrint('LivePreviewView: VLC dispose skipped ($e)');
+      _log.warn('VLC dispose skipped ($e)');
     });
   }
 

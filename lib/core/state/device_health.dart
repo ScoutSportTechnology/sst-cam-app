@@ -37,7 +37,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../ble/ble_providers.dart';
 import '../models/device.dart';
 import '../models/telemetry.dart';
-import '../../features/camera/camera_state.dart' show activeCameraIdProvider;
+import 'camera_selection.dart' show activeCameraIdProvider;
 import 'connect_controller.dart' show sessionSnapshotProvider;
 
 /// How long a health reading stays trusted (≈5 missed 1 Hz telemetry polls).

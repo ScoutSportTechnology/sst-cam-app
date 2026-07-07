@@ -19,7 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../features/camera/camera_state.dart' show activeCameraIdProvider;
+import 'camera_selection.dart' show activeCameraIdProvider;
 import '../../features/video/video_state.dart' show liveSessionActiveProvider;
 import '../ble/ble_providers.dart';
 import '../models/command.dart';
