@@ -44,3 +44,12 @@ class DeviceTelemetry {
 }
 
 enum WifiState { unknown, disabled, disconnected, connected }
+
+/// Frame-truth per-camera health (state-health cycle). [ok] requires frames
+/// actually flowing — a pipeline in PLAYING that delivers no samples is NOT
+/// ok. [recovering] = stalled, watchdog restart pending/in progress (UIs show
+/// a soft indicator, NOT "inoperable"). [down] = restart attempts completed
+/// and failed — the device is inoperable for capture (start-class commands
+/// are refused with DEVICE_INOPERABLE). [unknown] = unreported (older
+/// firmware) — consumers render "—", never fabricate OK.
+enum CameraHealth { unknown, ok, recovering, down }

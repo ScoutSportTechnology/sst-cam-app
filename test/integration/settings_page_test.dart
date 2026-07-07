@@ -225,11 +225,14 @@ void main() {
       expect(find.text('No camera connected'), findsOneWidget);
       expect(find.text('Connect camera'), findsOneWidget);
 
-      // Tap CTA — spy's connect runs, sets activeCameraIdProvider.
+      // Tap CTA — the connect controller runs the handshake (device-info
+      // read + time push + snapshot, ~80 ms per mock command) and then sets
+      // activeCameraIdProvider. Bounded pumps; give the handshake headroom.
       await tester.tap(find.text('Connect camera'));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.pump(const Duration(milliseconds: 100));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
 
       // The spy's connect was called for the persisted lastId.
       expect(spy.connectCalls, contains(_kFakeDeviceId));

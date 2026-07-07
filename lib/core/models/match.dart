@@ -62,6 +62,9 @@ class MatchState {
     required this.teamAId,
     required this.teamBId,
     required this.updatedAt,
+    this.elapsedSeconds,
+    this.clockRunning,
+    this.matchUuid,
   });
 
   final MatchStatus status;
@@ -72,6 +75,21 @@ class MatchState {
   final String teamAId;
   final String teamBId;
   final DateTime updatedAt;
+
+  // State-health cycle additions — null on firmware predating the fields.
+
+  /// Monotonic seconds since period start, ticked by the firmware's own
+  /// runtime loop; NOT clamped at period length. The firmware clock is the
+  /// only clock that runs through an app disconnect, so on reconnect it wins.
+  final int? elapsedSeconds;
+
+  /// Whether the display clock is currently ticking (clock pause/resume).
+  final bool? clockRunning;
+
+  /// The PushSessionConfig `match_uuid` this state belongs to. The app keys
+  /// scoreboard persistence and rejoin decisions on (device_id, match_uuid) —
+  /// never rehydrate one match's data against another's session.
+  final String? matchUuid;
 
   static MatchState idle() => MatchState(
     status: MatchStatus.notStarted,

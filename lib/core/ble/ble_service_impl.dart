@@ -266,44 +266,13 @@ class BleServiceImpl implements BleService {
       await conn._cmdResponse!.setNotifyValue(true);
       conn._startResponseListener();
 
-      // Contract handshake: read DeviceInfo and refuse the session on a
-      // protocol_version skew before exposing the connection as usable
-      // (bluetooth.proto: consumers MUST refuse on mismatch, not silently
-      // proceed).
-      final info = await sendCommand<DeviceInfoResponse>(
-        deviceId,
-        GetDeviceInfoCommand(),
-      );
-      if (!info.isOk || info.payload == null) {
-        await device.disconnect();
-        throw BleConnectionException(
-          'Device info handshake failed: ${info.errorMessage ?? 'no response'}',
-        );
-      }
-      if (info.payload!.protocolVersion != kAppProtocolVersion) {
-        final actual = info.payload!.protocolVersion;
-        await device.disconnect();
-        throw BleProtocolVersionException(
-          expected: kAppProtocolVersion,
-          actual: actual,
-        );
-      }
-
-      conn._connController.add(CameraConnectionState.connected);
-      _log.info(
-        'connected to camera $deviceId '
-        '(proto v${info.payload!.protocolVersion})',
-      );
-
-      // Poll telemetry / match state from here (not as a stream-subscribe side
-      // effect) so the pollers' lifecycle is tied to the connection, and so a
-      // UI that subscribes before connect still gets ticks after connect.
-      conn._startTelemetryPolling(
-        (cmd) => sendCommand<DeviceTelemetry>(deviceId, cmd),
-      );
-      conn._startMatchStatePolling(
-        (cmd) => sendCommand<MatchState>(deviceId, cmd),
-      );
+      // Link is up and the command channel works, but the §9b handshake
+      // (protocol gate → time push → snapshot → rehydrate → reconcile) has
+      // not run yet — that is the connect controller's job. Expose
+      // `reconciling` so session-affecting UI (which gates on `connected`
+      // only) stays locked until completeHandshake().
+      conn._connController.add(CameraConnectionState.reconciling);
+      _log.info('camera $deviceId link up — awaiting handshake');
 
       // Listen for unexpected disconnection. Keep the slot (replays
       // disconnected to existing/late subscribers) — only tear down the
@@ -323,6 +292,34 @@ class BleServiceImpl implements BleService {
       }
       throw BleConnectionException('Connect failed: $e');
     }
+  }
+
+  @override
+  void completeHandshake(String deviceId) {
+    final conn = _devices[deviceId];
+    // Only a device sitting in `reconciling` with a live command channel can
+    // complete — a raced disconnect (cmdWrite already torn down) must not
+    // resurrect `connected` or start pollers against a dead link.
+    if (conn == null ||
+        conn._cmdWrite == null ||
+        conn._connController.value != CameraConnectionState.reconciling) {
+      return;
+    }
+
+    conn._connController.add(CameraConnectionState.connected);
+    _log.info('connected to camera $deviceId (handshake complete)');
+
+    // Pollers start ONLY here — after reconcile — so a match-state poll can
+    // never land mid-handshake and mutate live state before the snapshot
+    // restore reads it. Polling from here (not as a stream-subscribe side
+    // effect) ties the pollers' lifecycle to the connection, and a UI that
+    // subscribes before connect still gets ticks after connect.
+    conn._startTelemetryPolling(
+      (cmd) => sendCommand<DeviceTelemetry>(deviceId, cmd),
+    );
+    conn._startMatchStatePolling(
+      (cmd) => sendCommand<MatchState>(deviceId, cmd),
+    );
   }
 
   @override

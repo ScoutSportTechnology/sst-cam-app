@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/match.dart';
+import '../../core/models/session_snapshot.dart';
 import '../../core/models/export_job.dart';
 import '../../core/models/network_config.dart';
 import '../../core/models/overlay_layout.dart';
@@ -452,6 +453,11 @@ class MockBleService implements BleService {
   @override
   bool get isScanning => _isScanning;
 
+  /// The protocol_version the emulated firmware reports. Defaults to the
+  /// app's own version (handshake passes); tests set a different value to
+  /// exercise the version-skew refusal path.
+  int mockProtocolVersion = kAppProtocolVersion;
+
   @override
   Future<DeviceInfoResponse> getDeviceInfo(String deviceId) async =>
       DeviceInfoResponse(
@@ -459,7 +465,7 @@ class MockBleService implements BleService {
         name: 'SST Cam (mock)',
         firmwareVersion: '0.1.0',
         model: 'v1',
-        protocolVersion: kAppProtocolVersion,
+        protocolVersion: mockProtocolVersion,
         supportedModes: _kMockSupportedModes,
       );
 
@@ -534,9 +540,29 @@ class MockBleService implements BleService {
       );
     }
 
+    // Mirror the real service (state-health cycle): connect resolves at
+    // `reconciling` — the wire link is up but the §9b handshake has not run.
+    // The connect controller drives the handshake commands over sendCommand
+    // and then calls [completeHandshake]; telemetry starts only there.
     final state = _deviceState(deviceId, device);
+    state.connectionState = CameraConnectionState.reconciling;
+    state.connController.add(CameraConnectionState.reconciling);
+  }
+
+  @override
+  void completeHandshake(String deviceId) {
+    final state = _devices[deviceId];
+    // Same guard as the real impl: only a device sitting in `reconciling`
+    // can complete — a raced disconnect must not resurrect `connected`.
+    if (state == null ||
+        state.connectionState != CameraConnectionState.reconciling) {
+      return;
+    }
     state.connectionState = CameraConnectionState.connected;
     state.connController.add(CameraConnectionState.connected);
+    // Pollers/telemetry start only after the handshake — parity with the
+    // real service, and what keeps a match-state poll from ever landing
+    // mid-handshake.
     _startTelemetry(deviceId);
   }
 
@@ -622,8 +648,14 @@ class MockBleService implements BleService {
     String deviceId,
     BleCommand command,
   ) async {
+    receivedCommands.add(command);
     await Future.delayed(const Duration(milliseconds: 80));
-    await _ensureCatalogLoaded();
+    // Load fixtures only for the commands whose response needs them. An
+    // unconditional await here would couple EVERY command (including the
+    // connect-handshake ones) to rootBundle asset I/O, which a widget test
+    // from an earlier fake-async zone can leave poisoned as a
+    // never-completing cached future — the handshake would hang forever.
+    if (command is GetTelemetryCommand) await _ensureCatalogLoaded();
     if (command is ListRecordingsCommand) await _ensureRecordingsLoaded();
 
     final correlationId = _uuid.v4();
@@ -697,6 +729,35 @@ class MockBleService implements BleService {
     GetMatchStateCommand() => proto.Command(
       correlationId: correlationId,
       getMatchState: proto.GetMatchStateCommand(),
+    ),
+    GetSessionSnapshotCommand() => proto.Command(
+      correlationId: correlationId,
+      getSessionSnapshot: proto.GetSessionSnapshotCommand(),
+    ),
+    SetMatchStateCommand(
+      :final scoreA,
+      :final scoreB,
+      :final currentPeriod,
+      :final elapsedSeconds,
+      :final clockRunning,
+      :final status,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        // proto3 optional throughout — null fields stay unset (mirror the
+        // real encoder: partial absolute set is legal).
+        setMatchState: proto.SetMatchStateCommand(
+          scoreA: scoreA,
+          scoreB: scoreB,
+          currentPeriod: currentPeriod,
+          elapsedSeconds: elapsedSeconds,
+          clockRunning: clockRunning,
+          status: status == null ? null : _dartMatchStatusToProto(status),
+        ),
+      ),
+    SetDeviceTimeCommand(:final epochMs) => proto.Command(
+      correlationId: correlationId,
+      setDeviceTime: proto.SetDeviceTimeCommand(epochMs: Int64(epochMs)),
     ),
     ListRecordingsCommand() => proto.Command(
       correlationId: correlationId,
@@ -901,6 +962,14 @@ class MockBleService implements BleService {
         lastPreviewLayout = layout;
       case ExportOverlayedCommand(:final recordingId):
         lastExportRecordingId = recordingId;
+      case SetActiveCameraCommand(:final cameraIndex):
+        // Session-scoped selection — reported back in the session snapshot
+        // (the app adopts it on reconnect instead of force-resetting).
+        lastActiveCamera = cameraIndex;
+      case SetMatchStateCommand():
+        lastSetMatchState = cmd;
+      case SetDeviceTimeCommand(:final epochMs):
+        lastSetDeviceTimeEpochMs = epochMs;
       default:
         break;
     }
@@ -911,9 +980,10 @@ class MockBleService implements BleService {
         status: proto.ResponseStatus.OK,
         deviceInfo: proto.DeviceInfoResponse(
           deviceId: 'mock-device-uuid',
-          // Must match the app's expected version or decodeResponse rejects the
-          // session as a version skew (see kAppProtocolVersion).
-          protocolVersion: kAppProtocolVersion,
+          // Must match the app's expected version or the connect controller
+          // refuses the session as a version skew (see kAppProtocolVersion);
+          // tests override [mockProtocolVersion] to exercise the refusal.
+          protocolVersion: mockProtocolVersion,
           // Mirror the firmware's advertised record/stream modes so the setup
           // quality pickers are exercised against a real contract shape.
           supportedModes: _kMockSupportedModes
@@ -940,9 +1010,24 @@ class MockBleService implements BleService {
       GetMatchStateCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
-        matchState: proto.MatchState(
-          status: proto.MatchStatus.MATCH_NOT_STARTED,
-        ),
+        matchState: snapshotMatchState != null
+            ? _dartMatchStateToProto(snapshotMatchState!)
+            : proto.MatchState(status: proto.MatchStatus.MATCH_NOT_STARTED),
+      ),
+      GetSessionSnapshotCommand() => _buildSessionSnapshotResponse(
+        correlationId,
+      ),
+      SetMatchStateCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+      ),
+      SetDeviceTimeCommand(:final epochMs) => proto.CommandResponse(
+        correlationId: correlationId,
+        // Mirror firmware: implausible values (pre-2020 epoch) are rejected
+        // and the clock is left untouched.
+        status: epochMs >= DateTime(2020).millisecondsSinceEpoch
+            ? proto.ResponseStatus.OK
+            : proto.ResponseStatus.ERROR,
       ),
       ListRecordingsCommand() => _buildRecordingListResponse(correlationId),
       DownloadRequestCommand(:final recordingId) => proto.CommandResponse(
@@ -1171,6 +1256,11 @@ class MockBleService implements BleService {
       GetMatchStateCommand() => BleCommandResponse.ok(
         _dartMatchState(resp.matchState) as T?,
       ),
+      GetSessionSnapshotCommand() => BleCommandResponse.ok(
+        _dartSessionSnapshot(resp.sessionSnapshot) as T?,
+      ),
+      SetMatchStateCommand() => BleCommandResponse.ok(null as T?),
+      SetDeviceTimeCommand() => BleCommandResponse.ok(null as T?),
       ListRecordingsCommand() => BleCommandResponse.ok(
         resp.recordingList.recordings
                 .map(
@@ -1341,6 +1431,125 @@ class MockBleService implements BleService {
     updatedAt: s.hasUpdatedAt()
         ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt())
         : DateTime.now(),
+    elapsedSeconds: s.hasElapsedSeconds() ? s.elapsedSeconds : null,
+    clockRunning: s.hasClockRunning() ? s.clockRunning : null,
+    matchUuid: s.hasMatchUuid() ? s.matchUuid : null,
+  );
+
+  proto.MatchState _dartMatchStateToProto(MatchState s) => proto.MatchState(
+    status: _dartMatchStatusToProto(s.status),
+    currentPeriod: s.currentPeriod,
+    timeRemainingS: s.timeRemainingSeconds,
+    scoreA: s.scoreA,
+    scoreB: s.scoreB,
+    teamAId: s.teamAId,
+    teamBId: s.teamBId,
+    updatedAt: Int64(s.updatedAt.millisecondsSinceEpoch),
+    // proto3 optional — stay unset when the dart model carries null.
+    elapsedSeconds: s.elapsedSeconds,
+    clockRunning: s.clockRunning,
+    matchUuid: s.matchUuid,
+  );
+
+  proto.MatchStatus _dartMatchStatusToProto(MatchStatus s) => switch (s) {
+    MatchStatus.notStarted => proto.MatchStatus.MATCH_NOT_STARTED,
+    MatchStatus.active => proto.MatchStatus.MATCH_ACTIVE,
+    MatchStatus.paused => proto.MatchStatus.MATCH_PAUSED,
+    MatchStatus.halfTime => proto.MatchStatus.MATCH_HALF_TIME,
+    MatchStatus.finished => proto.MatchStatus.MATCH_FINISHED,
+    MatchStatus.unknown => proto.MatchStatus.MATCH_STATUS_UNKNOWN,
+  };
+
+  // --- Session-snapshot enum/message conversions (§9b) ---
+
+  proto.SessionPhase _dartSessionPhaseToProto(SessionPhase p) => switch (p) {
+    SessionPhase.idle => proto.SessionPhase.SESSION_IDLE,
+    SessionPhase.configured => proto.SessionPhase.SESSION_CONFIGURED,
+    SessionPhase.ready => proto.SessionPhase.SESSION_READY,
+    SessionPhase.recording => proto.SessionPhase.SESSION_RECORDING,
+    SessionPhase.finalizing => proto.SessionPhase.SESSION_FINALIZING,
+    SessionPhase.unknown => proto.SessionPhase.SESSION_PHASE_UNKNOWN,
+  };
+
+  SessionPhase _protoSessionPhase(proto.SessionPhase p) => switch (p) {
+    proto.SessionPhase.SESSION_IDLE => SessionPhase.idle,
+    proto.SessionPhase.SESSION_CONFIGURED => SessionPhase.configured,
+    proto.SessionPhase.SESSION_READY => SessionPhase.ready,
+    proto.SessionPhase.SESSION_RECORDING => SessionPhase.recording,
+    proto.SessionPhase.SESSION_FINALIZING => SessionPhase.finalizing,
+    _ => SessionPhase.unknown,
+  };
+
+  proto.CameraHealth _dartCameraHealthToProto(CameraHealth h) => switch (h) {
+    CameraHealth.ok => proto.CameraHealth.CAMERA_HEALTH_OK,
+    CameraHealth.recovering => proto.CameraHealth.CAMERA_HEALTH_RECOVERING,
+    CameraHealth.down => proto.CameraHealth.CAMERA_HEALTH_DOWN,
+    CameraHealth.unknown => proto.CameraHealth.CAMERA_HEALTH_UNKNOWN,
+  };
+
+  CameraHealth _protoCameraHealth(proto.CameraHealth h) => switch (h) {
+    proto.CameraHealth.CAMERA_HEALTH_OK => CameraHealth.ok,
+    proto.CameraHealth.CAMERA_HEALTH_RECOVERING => CameraHealth.recovering,
+    proto.CameraHealth.CAMERA_HEALTH_DOWN => CameraHealth.down,
+    _ => CameraHealth.unknown,
+  };
+
+  proto.SessionEndReason _dartEndReasonToProto(SessionEndReason r) =>
+      switch (r) {
+        SessionEndReason.appStop => proto.SessionEndReason.SESSION_END_APP_STOP,
+        SessionEndReason.autoStop =>
+          proto.SessionEndReason.SESSION_END_AUTO_STOP,
+        SessionEndReason.cameraFailure =>
+          proto.SessionEndReason.SESSION_END_CAMERA_FAILURE,
+        SessionEndReason.reboot => proto.SessionEndReason.SESSION_END_REBOOT,
+        SessionEndReason.unknown => proto.SessionEndReason.SESSION_END_UNKNOWN,
+      };
+
+  SessionEndReason _protoEndReason(proto.SessionEndReason r) => switch (r) {
+    proto.SessionEndReason.SESSION_END_APP_STOP => SessionEndReason.appStop,
+    proto.SessionEndReason.SESSION_END_AUTO_STOP => SessionEndReason.autoStop,
+    proto.SessionEndReason.SESSION_END_CAMERA_FAILURE =>
+      SessionEndReason.cameraFailure,
+    proto.SessionEndReason.SESSION_END_REBOOT => SessionEndReason.reboot,
+    _ => SessionEndReason.unknown,
+  };
+
+  SessionSnapshot _dartSessionSnapshot(
+    proto.SessionSnapshotResponse s,
+  ) => SessionSnapshot(
+    sessionPhase: _protoSessionPhase(s.sessionPhase),
+    activeCameraIndex: s.hasActiveCameraIndex() ? s.activeCameraIndex : null,
+    previewLayout: s.hasPreviewLayout()
+        ? (s.previewLayout == proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+              ? PreviewLayout.sideBySide
+              : PreviewLayout.single)
+        : null,
+    isRecording: s.hasIsRecording() ? s.isRecording : null,
+    isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
+    isRawCapturing: s.hasIsRawCapturing() ? s.isRawCapturing : null,
+    recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
+        ? s.recordingElapsedSeconds
+        : null,
+    matchState: s.hasMatchState() ? _dartMatchState(s.matchState) : null,
+    camera0Health: s.hasCamera0Health()
+        ? _protoCameraHealth(s.camera0Health)
+        : null,
+    camera1Health: s.hasCamera1Health()
+        ? _protoCameraHealth(s.camera1Health)
+        : null,
+    lastSession: s.hasLastSession()
+        ? LastSessionSummary(
+            matchUuid: s.lastSession.matchUuid,
+            endReason: _protoEndReason(s.lastSession.endReason),
+            endClockSeconds: s.lastSession.hasEndClockSeconds()
+                ? s.lastSession.endClockSeconds
+                : null,
+            fileValid: s.lastSession.hasFileValid()
+                ? s.lastSession.fileValid
+                : null,
+          )
+        : null,
+    wifiGroupUp: s.hasWifiGroupUp() ? s.wifiGroupUp : null,
   );
 
   @override
@@ -1408,6 +1617,100 @@ class MockBleService implements BleService {
   /// When true the next [requestOverlayExport] throws (simulates the
   /// LIVE_SESSION_ACTIVE rejection — firmware refuses a burn mid-session).
   bool failNextOverlayExport = false;
+
+  // ---------------------------------------------------------------------------
+  // Session snapshot / connect handshake (state-health cycle, §9b)
+  //
+  // U1 parity scope: the snapshot reports the mock's CURRENT state (selections,
+  // activity flags, injected match state/health) so the connect controller's
+  // rehydrate/reconcile paths run against real contract shapes. Full session
+  // semantics (survival across mock disconnects, ticking clock, auto-stop
+  // timer, health transitions) are U7 — extend the injection fields below
+  // rather than adding a parallel path.
+  // ---------------------------------------------------------------------------
+
+  /// Every command received via [sendCommand], in arrival order. Tests assert
+  /// handshake ordering ("no time push after a failed protocol gate") and
+  /// absence ("no poller command while reconciling") off this log.
+  final List<BleCommand> receivedCommands = [];
+
+  /// Overrides the derived session phase (default: recording when a recording
+  /// is active, configured after a session-config push, else idle).
+  SessionPhase? mockSessionPhase;
+
+  /// The match state reported in the session snapshot AND by GetMatchState.
+  /// Null = no session config was ever pushed (snapshot omits match_state).
+  MatchState? snapshotMatchState;
+
+  /// Monotonic seconds since recording start; null when not recording.
+  int? snapshotRecordingElapsedSeconds;
+
+  /// Injectable per-camera health (U3/U7 extend transitions on top).
+  CameraHealth mockCamera0Health = CameraHealth.ok;
+  CameraHealth mockCamera1Health = CameraHealth.ok;
+
+  /// How the previous session ended; reported only when the phase is idle.
+  LastSessionSummary? mockLastSessionSummary;
+
+  /// Whether the emulated WiFi-Direct group is currently up.
+  bool mockWifiGroupUp = false;
+
+  /// When true the next GetSessionSnapshot answers TIMEOUT (handshake-failure
+  /// path: the connect controller must fail typed and drop the link).
+  bool failNextSessionSnapshot = false;
+
+  /// The last absolute match-state overwrite received (reconcile push).
+  SetMatchStateCommand? lastSetMatchState;
+
+  /// The last device wall-clock push received (epoch ms), null before any.
+  int? lastSetDeviceTimeEpochMs;
+
+  proto.CommandResponse _buildSessionSnapshotResponse(String correlationId) {
+    if (failNextSessionSnapshot) {
+      failNextSessionSnapshot = false;
+      return proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.TIMEOUT,
+      );
+    }
+    final phase =
+        mockSessionPhase ??
+        (isRecordingActive
+            ? SessionPhase.recording
+            : lastPushedConfig != null
+            ? SessionPhase.configured
+            : SessionPhase.idle);
+    final match = snapshotMatchState;
+    final lastSession = mockLastSessionSummary;
+    final snapshot = proto.SessionSnapshotResponse(
+      sessionPhase: _dartSessionPhaseToProto(phase),
+      activeCameraIndex: lastActiveCamera,
+      previewLayout: lastPreviewLayout == PreviewLayout.sideBySide
+          ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+          : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+      isRecording: isRecordingActive,
+      isStreaming: isStreamingActive,
+      isRawCapturing: isRawCapturingActive,
+      recordingElapsedSeconds: snapshotRecordingElapsedSeconds,
+      matchState: match == null ? null : _dartMatchStateToProto(match),
+      camera0Health: _dartCameraHealthToProto(mockCamera0Health),
+      camera1Health: _dartCameraHealthToProto(mockCamera1Health),
+      lastSession: lastSession == null
+          ? null
+          : proto.LastSessionSummary(
+              matchUuid: lastSession.matchUuid,
+              endReason: _dartEndReasonToProto(lastSession.endReason),
+              endClockSeconds: lastSession.endClockSeconds,
+              fileValid: lastSession.fileValid,
+            ),
+      wifiGroupUp: mockWifiGroupUp,
+    );
+    return proto.CommandResponse(
+      correlationId: correlationId,
+      status: proto.ResponseStatus.OK,
+      sessionSnapshot: snapshot,
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Control command side-effect fields
