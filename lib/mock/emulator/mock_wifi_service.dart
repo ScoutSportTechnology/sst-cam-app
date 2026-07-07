@@ -103,6 +103,16 @@ class MockWifiService implements WifiService {
   final VideoPathService _videoPathService;
   final Dio _dio;
 
+  /// Number of ACTUAL group formations (pairing runs). A [connectGroup] call
+  /// that finds the group already up returns the existing group without
+  /// re-forming — mirroring the firmware's idempotent StartWifiDirect (proto
+  /// §10: group re-formation disrupts CSI/Argus capture on the shared-radio
+  /// Jetson and MUST NOT happen mid-session). The group also outlives BLE
+  /// drops: nothing here tears it down except an explicit [disconnectGroup],
+  /// matching the firmware keeping the group up while a session is active.
+  /// Rejoin tests assert this counter stays flat.
+  int groupFormationCount = 0;
+
   final Map<String, _GroupState> _groups = {};
   final Map<String, _DownloadState> _downloads = {};
   final _allProgressController =
@@ -133,6 +143,7 @@ class MockWifiService implements WifiService {
     }
     state.state = WifiDirectState.starting;
     state.connController.add(WifiDirectState.starting);
+    groupFormationCount++;
 
     await Future.delayed(pairingDelay);
 
