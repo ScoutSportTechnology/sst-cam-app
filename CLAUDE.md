@@ -105,20 +105,28 @@ lib/
     models/   Plain Dart view models — app compiles without generated protos:
               command, device, telemetry, wifi, match, recording, overlay,
               overlay_layout, team, user, sport_preset, streaming
-    services/ backup_service, clip_service, gallery_service, video_path_service
-    state/    db_providers, last_camera (cross-feature Riverpod providers)
+    services/ backup_service, clip_service, gallery_service, log_service,
+              video_path_service
+    state/    cross-feature Riverpod providers/controllers: db_providers,
+              camera_selection (active camera/tab/output), last_camera,
+              connect_controller, reconnect_controller, device_health,
+              auto_stop, persisted_match_store
     config/   env, app_config, dev_config, dev_navigation, dev_reseeder
     shell/    app_shell — tabbed NavigationBar shell
     theme/    tokens — colors/spacing tokens (app.dart wires them into ThemeData)
-    widgets/  shared widgets (wf_button/card/chip, wf_filter_bar, indicators, live_preview_view)
+    widgets/  shared widgets (wf_button/card/chip, wf_filter_bar, indicators,
+              live_preview_view, preview_controls_row, preview_layout_toggle,
+              output_camera_toggle, device_health_banner, reconnect_notice, borders)
   features/                    one folder per user-facing feature; *_state.dart = its Riverpod
-    camera/    main_page, camera_state
+    camera/    main_page, camera_state (re-exports core camera_selection), raw_capture_state
     discovery/ discovery_page, diagnostics_page, debug_page
-    match/     landing/setup/match_page + session/ (session_screen, session_state,
-               event_sheet, overlay_renderer)
+    match/     landing/setup/match_page + session/ (session_screen + widgets/
+               controls/modals/actions splits, session_state, live_match_models,
+               event_sheet)
     teams/     teams_page, team_detail_page, roster/ matches/ stats/ + form sheets
-    settings/  settings_page + sport_presets/ streaming/ users/ data/ developer/
-    video/     video_page, video_state, overlay_helper, playback/ (detail, download_sheet)
+    settings/  settings_page + camera_card + connect_camera_banner +
+               sport_presets/ streaming/ users/ data/ developer/ calibration/ network/
+    video/     video_page, video_state, playback/ (detail, download_sheet + views)
   mock/                        test doubles for the dev backend
     emulator/  mock_ble_service, mock_wifi_service (+ fixtures) — emulated firmware
     internal/  mock_data_service (+ fixtures) — seed app data
