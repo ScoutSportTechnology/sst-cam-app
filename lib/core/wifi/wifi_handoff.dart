@@ -1,13 +1,16 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../models/device.dart';
-import '../../features/camera/camera_state.dart' show activeCameraIdProvider;
+import '../state/camera_selection.dart' show activeCameraIdProvider;
 import '../ble/ble_providers.dart';
+import '../services/log_service.dart';
 import '../state/reconnect_controller.dart';
 import 'wifi_providers.dart';
+
+final _log = Logger('WifiHandoff');
 
 /// Single owner of the WiFi Direct group lifecycle. Watches the active BLE
 /// camera and its connection state; brings the WiFi group up automatically
@@ -76,9 +79,7 @@ class WifiHandoffController extends Notifier<void> {
               .read(wifiServiceProvider)
               .disconnectGroup(prev)
               .catchError(
-                (Object e) => debugPrint(
-                  '[wifi-handoff] disconnectGroup(prev) failed: $e',
-                ),
+                (Object e) => _log.warn('disconnectGroup(prev) failed: $e'),
               ),
         );
       }
@@ -101,9 +102,7 @@ class WifiHandoffController extends Notifier<void> {
           wifi
               .disconnectGroup(id)
               .catchError(
-                (Object e) => debugPrint(
-                  '[wifi-handoff] disconnectGroup(give-up) failed: $e',
-                ),
+                (Object e) => _log.warn('disconnectGroup(give-up) failed: $e'),
               ),
         );
       }
@@ -128,8 +127,7 @@ class WifiHandoffController extends Notifier<void> {
                   .connectGroup(id)
                   .then<void>(
                     (_) {},
-                    onError: (Object e) =>
-                        debugPrint('[wifi-handoff] connectGroup failed: $e'),
+                    onError: (Object e) => _log.warn('connectGroup failed: $e'),
                   ),
             );
           });
@@ -147,8 +145,7 @@ class WifiHandoffController extends Notifier<void> {
               wifi
                   .disconnectGroup(id)
                   .catchError(
-                    (Object e) =>
-                        debugPrint('[wifi-handoff] disconnectGroup failed: $e'),
+                    (Object e) => _log.warn('disconnectGroup failed: $e'),
                   ),
             );
           });

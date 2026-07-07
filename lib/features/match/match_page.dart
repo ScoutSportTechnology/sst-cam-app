@@ -2,15 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../core/ble/ble_providers.dart' show bleServiceProvider;
 import '../../core/models/overlay_layout.dart';
+import '../../core/services/log_service.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import 'landing_screen.dart';
 import 'match_state.dart';
 import 'session/session_screen.dart';
 import 'session/session_state.dart';
 import 'setup_screen.dart';
+
+final _log = Logger('MatchPage');
 
 /// An empty overlay pushed to the camera when a match session ends, so the
 /// firmware stops compositing the (now-stale) scoreboard onto the preview.
@@ -113,7 +117,9 @@ class _MatchPageState extends ConsumerState<MatchPage> {
       ref
           .read(bleServiceProvider)
           .pushOverlayLayout(deviceId, _clearOverlayLayout)
-          .catchError((Object _) {}),
+          // Fire-and-forget by design (leaving the match must never block on
+          // BLE), but log the failure instead of swallowing it silently.
+          .catchError((Object e) => _log.warn('overlay clear failed: $e')),
     );
   }
 

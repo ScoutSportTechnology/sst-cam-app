@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'teams_state.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/borders.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
@@ -326,8 +327,4 @@ class _TeamHeader extends StatelessWidget {
       ),
     );
   }
-}
-
-extension on Border {
-  BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
 }

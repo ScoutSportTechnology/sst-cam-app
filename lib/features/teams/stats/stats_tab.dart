@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../teams_state.dart';
+import '../../../core/widgets/borders.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_card.dart';
 
@@ -226,8 +227,4 @@ class _LeaderboardTable extends StatelessWidget {
       ],
     );
   }
-}
-
-extension on Border {
-  BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
 }

@@ -1,7 +1,12 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
+import 'package:logging/logging.dart';
+
+import 'log_service.dart';
+
+final _log = Logger('GalleryService');
 
 /// Saves media files to the device gallery.
 ///
@@ -43,7 +48,7 @@ class GalleryService {
         'name': displayName,
       });
     } catch (e) {
-      debugPrint('GalleryService.saveVideo failed: $e');
+      _log.warn('saveVideo failed: $e');
       return null;
     }
   }

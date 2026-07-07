@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/device.dart';
+import '../../core/widgets/borders.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/ble/ble_service.dart';
 import '../../core/state/connect_controller.dart';
@@ -419,8 +420,4 @@ class _DeviceRow extends ConsumerWidget {
       ),
     );
   }
-}
-
-extension on Border {
-  BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
 }

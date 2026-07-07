@@ -45,7 +45,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../ble/ble_providers.dart';
 import '../ble/ble_service.dart';
 import '../models/device.dart';
-import '../../features/camera/camera_state.dart' show activeCameraIdProvider;
+import 'camera_selection.dart' show activeCameraIdProvider;
 import 'connect_controller.dart';
 
 /// Backoff curve for reconnect attempts. Overridable in tests (and tunable on
