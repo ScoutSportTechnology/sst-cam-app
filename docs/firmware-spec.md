@@ -737,6 +737,27 @@ Sent in response to `GetTelemetryCommand` (polled at ~1 Hz by the app):
 | `is_recording` | bool | True while recording is active (false when paused) |
 | `is_streaming` | bool | True while RTMP stream is active |
 | `battery_level_pct` | uint32 | 0–100; report 0 when on wired power or unknown |
+| `camera0_health` / `camera1_health` | CameraHealth enum (optional, fields 15–16) | Frame-truth per-camera health, on EVERY sample. Absent ⇒ the app renders "unreported" — it never fabricates OK |
+
+### Per-camera health expectations (state-health cycle, U3)
+
+The app folds the snapshot health with every 1 Hz telemetry sample (newest
+wins) into one device-level gate:
+
+- any camera `CAMERA_HEALTH_DOWN` → the app shows the persistent "device
+  inoperable" banner and disables live preview, recording start and streaming
+  start; downloads, WiFi and diagnostics stay available. The firmware MUST
+  also refuse start-class capture commands (recording start/resume, raw
+  capture start, streaming start) with `ResponseStatus.DEVICE_INOPERABLE` —
+  the wire backstop the app surfaces as an explicit error. Stops, downloads
+  and `StartWifiDirectCommand` are never health-gated.
+- `CAMERA_HEALTH_RECOVERING` → soft indicator only; the app keeps actions
+  enabled and relies on the `DEVICE_INOPERABLE` refusal, so recovering must
+  NOT be reported as down (flapping OK↔RECOVERING must never look inoperable).
+- The app trusts a health reading for ~5 poll intervals: if telemetry stalls
+  while connected, health degrades to unknown and capture starts are
+  conservatively disabled until a fresh sample arrives — keep health on every
+  telemetry sample.
 
 ---
 

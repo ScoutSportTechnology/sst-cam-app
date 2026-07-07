@@ -14,7 +14,9 @@ import 'camera_state.dart'
         modalPreviewActiveProvider,
         AppTab;
 import '../../core/ble/ble_providers.dart';
+import '../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/device_health_banner.dart';
 import '../../core/widgets/indicators.dart';
 import '../../core/widgets/live_preview_view.dart';
 import '../../core/widgets/output_camera_toggle.dart';
@@ -71,6 +73,9 @@ class MainPage extends ConsumerWidget {
               device: device,
               isLive: connState == CameraConnectionState.connected,
             ),
+            // U3 health surface — inoperable banner / recovering note. Shown
+            // here because this page hosts the preview action.
+            const DeviceHealthNotice(margin: EdgeInsets.only(top: 8)),
             const SizedBox(height: 12),
             const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
             _TelemetryGrid(telemetry: telemetry),
@@ -107,6 +112,10 @@ class _HeroCameraCard extends ConsumerWidget {
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(deviceId));
+    // U3 health gate: starting a preview is blocked while the device is
+    // inoperable (or health is unknown while connected). Stopping stays
+    // allowed. One shared provider — no per-page divergence.
+    final captureBlocked = ref.watch(captureBlockedProvider);
     // Only the visible tab's preview surface holds an RTSP/VLC client (two on
     // one single-stream server stalls the second — home vs match both stay
     // mounted in the shell's IndexedStack).
@@ -222,16 +231,18 @@ class _HeroCameraCard extends ConsumerWidget {
                                   size: 13,
                                   color: T.ink,
                                 ),
-                          onPressed: () {
-                            ref
-                                    .read(
-                                      livePreviewEnabledProvider(
-                                        deviceId,
-                                      ).notifier,
-                                    )
-                                    .state =
-                                !previewOn;
-                          },
+                          onPressed: (captureBlocked && !previewOn)
+                              ? null
+                              : () {
+                                  ref
+                                          .read(
+                                            livePreviewEnabledProvider(
+                                              deviceId,
+                                            ).notifier,
+                                          )
+                                          .state =
+                                      !previewOn;
+                                },
                         ),
                       ),
                       const SizedBox(width: 8),

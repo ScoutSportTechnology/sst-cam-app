@@ -9,7 +9,9 @@ import '../../core/models/device.dart';
 import '../../core/models/streaming.dart';
 import '../../core/models/video_mode.dart';
 import '../../core/state/db_providers.dart' show teamsDaoProvider;
+import '../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/device_health_banner.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
@@ -125,6 +127,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
+    // U3 health gate: starting a match leads straight into capture — blocked
+    // while the device is inoperable (or health unknown while connected).
+    final captureBlocked = ref.watch(captureBlockedProvider);
 
     // Firmware-advertised capture modes (R16). Empty when disconnected or on
     // firmware that predates supported_modes → the quality pickers render
@@ -330,6 +335,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               ),
             ),
           ),
+          // U3 health surface — inoperable banner / recovering note, shared
+          // with the main page + session screen (one widget, no divergence).
+          const DeviceHealthNotice(margin: EdgeInsets.fromLTRB(14, 8, 14, 0)),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
             child: WfButton(
@@ -337,7 +345,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               variant: WfButtonVariant.primary,
               size: WfButtonSize.lg,
               full: true,
-              onPressed: (_pushing || !connected || !_streamReady())
+              onPressed:
+                  (_pushing || !connected || !_streamReady() || captureBlocked)
                   ? null
                   : () => _startMatch(
                       periods,
@@ -374,7 +383,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     label: 'Retry',
                     variant: WfButtonVariant.outline,
                     full: true,
-                    onPressed: (connected && _streamReady())
+                    onPressed: (connected && _streamReady() && !captureBlocked)
                         ? () => _startMatch(
                             periods,
                             _preset?.periodLengthSeconds ??

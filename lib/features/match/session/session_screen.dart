@@ -11,7 +11,9 @@ import 'package:uuid/uuid.dart';
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
 import '../../../core/models/device.dart';
+import '../../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/device_health_banner.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
 import '../../../core/widgets/output_camera_toggle.dart';
@@ -67,6 +69,10 @@ class SessionScreen extends ConsumerWidget {
     final indicatorColor = state.rec == RecState.recording ? T.accent : T.ink2;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(activeId));
+    // U3 health gate: preview / recording START / streaming START are blocked
+    // while the device is inoperable (or health unknown while connected).
+    // Pause/resume-of-clock, stop actions and the event log stay usable.
+    final captureBlocked = ref.watch(captureBlockedProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -114,16 +120,18 @@ class SessionScreen extends ConsumerWidget {
                                 size: 13,
                                 color: T.ink,
                               ),
-                        onPressed: () {
-                          ref
-                                  .read(
-                                    livePreviewEnabledProvider(
-                                      activeId,
-                                    ).notifier,
-                                  )
-                                  .state =
-                              !previewOn;
-                        },
+                        onPressed: (captureBlocked && !previewOn)
+                            ? null
+                            : () {
+                                ref
+                                        .read(
+                                          livePreviewEnabledProvider(
+                                            activeId,
+                                          ).notifier,
+                                        )
+                                        .state =
+                                    !previewOn;
+                              },
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -142,6 +150,9 @@ class SessionScreen extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
                 child: OutputCameraToggle(deviceId: activeId, full: true),
               ),
+            // U3 health surface — inoperable banner / recovering note, shared
+            // with the main page + setup screen (one widget, no divergence).
+            const DeviceHealthNotice(margin: EdgeInsets.fromLTRB(10, 6, 10, 0)),
             const _SessionNoticeBanner(),
             _PrimaryActionRow(
               state: state,
@@ -193,12 +204,18 @@ class SessionScreen extends ConsumerWidget {
                 );
                 ctl.toggleTimer();
               },
-              onRecToggle: connected
+              // Recording START is health-gated; pause/resume of a running
+              // recording stays available (the firmware refuses a resume with
+              // DEVICE_INOPERABLE if the camera died meanwhile — surfaced by
+              // the snackbar backstop in _sendStartIfConnected).
+              onRecToggle:
+                  (connected && !(captureBlocked && state.rec == RecState.idle))
                   ? () {
                       final currentRec = state.rec;
                       ctl.toggleRecPause();
                       if (currentRec == RecState.idle) {
-                        _sendIfConnected(
+                        _sendStartIfConnected(
+                          context,
                           ref,
                           RecordingControlCommand(
                             action: RecordingControlAction.start,
@@ -216,7 +233,8 @@ class SessionScreen extends ConsumerWidget {
                           ),
                         );
                       } else if (currentRec == RecState.paused) {
-                        _sendIfConnected(
+                        _sendStartIfConnected(
+                          context,
                           ref,
                           RecordingControlCommand(
                             action: RecordingControlAction.resume,
@@ -225,7 +243,10 @@ class SessionScreen extends ConsumerWidget {
                       }
                     }
                   : null,
-              onStreamToggle: connected
+              // Streaming START is health-gated; stopping a running stream is
+              // always allowed.
+              onStreamToggle:
+                  (connected && !(captureBlocked && !state.streaming))
                   ? () => _toggleStream(context, ref, ctl, state)
                   : null,
             ),
@@ -307,7 +328,9 @@ class SessionScreen extends ConsumerWidget {
       return;
     }
 
-    final sent = _sendIfConnected(
+    if (!context.mounted) return;
+    final sent = _sendStartIfConnected(
+      context,
       ref,
       StreamingControlCommand(
         action: StreamingControlAction.start,
@@ -378,10 +401,12 @@ class SessionScreen extends ConsumerWidget {
     // Honor the start-prompt choices on the camera. startPeriod only flips the
     // local UI state; without these explicit control commands the firmware
     // records/streams nothing (the match dir stays empty).
+    if (!context.mounted) return;
     if (choice.$1 == true) {
       // Mint a training-proxy pairing key so the firmware couples the always-on
       // dual-camera proxy to this match record (U6). Sent only on START.
-      _sendIfConnected(
+      _sendStartIfConnected(
+        context,
         ref,
         RecordingControlCommand(
           action: RecordingControlAction.start,
@@ -392,7 +417,8 @@ class SessionScreen extends ConsumerWidget {
       );
     }
     if (choice.$2 == true) {
-      _sendIfConnected(
+      _sendStartIfConnected(
+        context,
         ref,
         StreamingControlCommand(
           action: StreamingControlAction.start,
@@ -1522,6 +1548,37 @@ bool _sendIfConnected(WidgetRef ref, BleCommand cmd) {
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
   if (connState != CameraConnectionState.connected) return false;
   unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
+  return true;
+}
+
+/// [_sendIfConnected] for capture START commands (record/stream/resume): the
+/// firmware health-gates these with the typed DEVICE_INOPERABLE refusal (the
+/// backstop behind the app-side gate — a camera can die in the gap between
+/// health flipping and the UI reacting). That refusal surfaces as a clear
+/// snackbar, never a silent failure (U3).
+bool _sendStartIfConnected(
+  BuildContext context,
+  WidgetRef ref,
+  BleCommand cmd,
+) {
+  final id = ref.read(activeCameraIdProvider);
+  if (id == null) return false;
+  final connState = ref.read(connectionStateProvider(id)).valueOrNull;
+  if (connState != CameraConnectionState.connected) return false;
+  unawaited(
+    ref.read(bleServiceProvider).sendCommand<void>(id, cmd).then((resp) {
+      if (resp.isDeviceInoperable && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Camera inoperable — could not start. See Diagnostics for '
+              'details.',
+            ),
+          ),
+        );
+      }
+    }),
+  );
   return true;
 }
 
