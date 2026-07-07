@@ -72,11 +72,15 @@ void main() {
     expect(find.text('sst-cam-0001'), findsOneWidget);
     expect(find.text('sst-cam-0002'), findsOneWidget);
 
-    // Connect to the first device. connectionDelay is zero so the connect
-    // resolves immediately; pump briefly to let the UI update and pop complete.
+    // Connect to the first device. connectionDelay is zero, but the connect
+    // handshake (time push + snapshot read, ~80 ms per mock command) needs a
+    // few bounded pumps before the controller marks the camera connected and
+    // DiscoveryPage pops.
     await tester.tap(find.widgetWithText(WfButton, 'Connect').first);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
 
     // DiscoveryPage pops after connect; the app shows 'Disconnect' (main
     // page hero card and possibly settings page both react to camera state).

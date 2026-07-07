@@ -9,7 +9,7 @@ import 'streaming/streaming_state.dart'
 import 'users/users_state.dart'
     show activeUserProvider, usersControllerProvider;
 import '../../core/ble/ble_providers.dart';
-import '../../core/state/selection_sync.dart';
+import '../../core/state/connect_controller.dart';
 import '../../core/models/command.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
@@ -438,14 +438,18 @@ class _CameraCard extends ConsumerWidget {
 //
 // The CTA runs a small state machine:
 //   1. On tap → loading (disabled, "Connecting…", inline spinner).
-//   2. If `lastConnectedDeviceIdProvider` has a value, attempt
-//      `bleService.connect(lastId).timeout(5s)`.
-//   3. Success: write `activeCameraIdProvider`; the page rerenders to the
-//      populated layout. If `getActiveUser` returns null we leave
-//      `activeUserProvider` null and the User section renders the
+//   2. If `lastConnectedDeviceIdProvider` has a value, attempt the universal
+//      connect handshake via `ConnectController.connect(lastId)`. The
+//      controller owns the sole handshake timeout — no caller-side
+//      `.timeout()` wrapper (Future.timeout doesn't cancel the underlying
+//      op, so caller and service would disagree about the in-flight state).
+//   3. Success: the controller wrote `activeCameraIdProvider`; the page
+//      rerenders to the populated layout. If `getActiveUser` returns null we
+//      leave `activeUserProvider` null and the User section renders the
 //      "Pick a user" prompt.
-//   4. Failure (any exception or timeout): push `DiscoveryPage` and
-//      surface a `SnackBar` with the "Couldn't reconnect" copy.
+//   4. Failure (typed exception from the controller; link already dropped):
+//      push `DiscoveryPage` and surface a `SnackBar` with the "Couldn't
+//      reconnect" copy.
 //   5. No persisted last id: push `DiscoveryPage` directly without
 //      attempting reconnect (no loading state, no snackbar).
 // ---------------------------------------------------------------------------
@@ -475,17 +479,14 @@ class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
         return;
       }
 
-      // One-tap reconnect.
-      final svc = ref.read(bleServiceProvider);
+      // One-tap reconnect through the universal handshake. Success side
+      // effects (active-camera id, selection adoption from the firmware
+      // snapshot, last-connected persistence) live in the controller.
       try {
-        await svc.connect(lastId).timeout(const Duration(seconds: 5));
-        // Success: set active camera id; the page rerenders to populated.
-        ref.read(activeCameraIdProvider.notifier).state = lastId;
-        // Match the firmware's fresh session (camera 0 / single view) on reconnect.
-        resetSelectionOnConnect(ref, lastId);
+        await ref.read(connectControllerProvider).connect(lastId);
       } catch (_) {
-        // BleConnectionException, TimeoutException, anything else — same
-        // user-facing fallback per the plan.
+        // BleConnectionException, BleHandshakeException, anything else —
+        // same user-facing fallback per the plan (link already dropped).
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

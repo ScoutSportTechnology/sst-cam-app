@@ -46,9 +46,22 @@ abstract class BleService {
   // Connection
   // ---------------------------------------------------------------------------
 
-  /// Attempt to connect to [deviceId]. Resolves when connected or throws on
-  /// failure. Subscribe to [connectionStateStream] to track subsequent changes.
+  /// Establish the wire link to [deviceId]: BLE connect + MTU + service
+  /// discovery + notify subscription. Resolves with the connection state at
+  /// [CameraConnectionState.reconciling] — NOT `connected`. The connect
+  /// controller (core/state/connect_controller.dart, the port's ONLY caller)
+  /// then runs the §9b handshake (protocol gate → time push → snapshot →
+  /// rehydrate → reconcile) and calls [completeHandshake] to reach
+  /// `connected`. Throws on link failure. Subscribe to
+  /// [connectionStateStream] to track subsequent changes.
   Future<void> connect(String deviceId);
+
+  /// Transition [deviceId] from `reconciling` to `connected` and start the
+  /// telemetry / match-state pollers. Called by the connect controller once
+  /// the handshake has fully completed — pollers must never run mid-handshake
+  /// (a match-state poll landing there would mutate live state before the
+  /// snapshot restore reads it). No-op unless the device is `reconciling`.
+  void completeHandshake(String deviceId) {}
 
   /// Disconnect from [deviceId]. No-op if not connected.
   Future<void> disconnect(String deviceId);
@@ -219,6 +232,19 @@ class BleNetworkConfigUnsupportedException implements Exception {
   @override
   String toString() =>
       'BleNetworkConfigUnsupportedException: ${message ?? 'firmware too old'}';
+}
+
+/// Raised when the post-connect handshake (device-info read, time push,
+/// session-snapshot read, or reconcile push) fails or times out. The connect
+/// controller drops the BLE link before surfacing this, so the app never sits
+/// in a half-hydrated state. Distinct from [BleConnectionException] (link
+/// establishment) so call sites can word the failure accurately.
+class BleHandshakeException implements Exception {
+  const BleHandshakeException(this.message);
+  final String message;
+
+  @override
+  String toString() => 'BleHandshakeException: $message';
 }
 
 /// Raised when the firmware's reported `protocol_version` does not match the

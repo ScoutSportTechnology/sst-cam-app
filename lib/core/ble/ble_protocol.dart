@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/session_snapshot.dart';
 import '../models/export_job.dart';
 import '../models/network_config.dart';
 import '../models/overlay_layout.dart';
@@ -254,6 +256,14 @@ class BleProtocol {
               ? resp.errorMessage
               : 'Cannot do this while a match is live',
         );
+      case proto.ResponseStatus.DEVICE_INOPERABLE:
+        // Typed health-gate rejection (a camera is not healthy) — callers key
+        // off the status, never the firmware's free-form message.
+        return BleCommandResponse<T>.deviceInoperable(
+          resp.errorMessage.isNotEmpty
+              ? resp.errorMessage
+              : 'Camera is not operational',
+        );
       default:
         return BleCommandResponse.error(
           resp.errorMessage.isNotEmpty
@@ -282,6 +292,35 @@ class BleProtocol {
     GetMatchStateCommand() => proto.Command(
       correlationId: correlationId,
       getMatchState: proto.GetMatchStateCommand(),
+    ),
+    GetSessionSnapshotCommand() => proto.Command(
+      correlationId: correlationId,
+      getSessionSnapshot: proto.GetSessionSnapshotCommand(),
+    ),
+    SetMatchStateCommand(
+      :final scoreA,
+      :final scoreB,
+      :final currentPeriod,
+      :final elapsedSeconds,
+      :final clockRunning,
+      :final status,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        // proto3 optional throughout — null fields stay unset on the wire, so
+        // the firmware leaves them untouched (partial absolute set is legal).
+        setMatchState: proto.SetMatchStateCommand(
+          scoreA: scoreA,
+          scoreB: scoreB,
+          currentPeriod: currentPeriod,
+          elapsedSeconds: elapsedSeconds,
+          clockRunning: clockRunning,
+          status: status == null ? null : _dartMatchStatusToProto(status),
+        ),
+      ),
+    SetDeviceTimeCommand(:final epochMs) => proto.Command(
+      correlationId: correlationId,
+      setDeviceTime: proto.SetDeviceTimeCommand(epochMs: Int64(epochMs)),
     ),
     ListRecordingsCommand() => proto.Command(
       correlationId: correlationId,
@@ -503,14 +542,14 @@ class BleProtocol {
   /// firmware's chosen oneof determines the decode.
   ///
   /// For DeviceInfo, the firmware's `protocol_version` is carried through in the
-  /// payload; the version gate that refuses a skewed session lives at connect
-  /// time (see BleServiceImpl.connect), not here.
+  /// payload; the version gate that refuses a skewed session lives in the
+  /// connect handshake (see ConnectController in core/state), not here.
   static BleCommandResponse<T> _mapOkResponse<T>(proto.CommandResponse resp) {
     switch (resp.whichPayload()) {
       case proto.CommandResponse_Payload.deviceInfo:
         // Decode stays pure and reports the firmware's protocol_version in the
-        // payload. The version gate lives at connect time
-        // (BleServiceImpl.connect), which throws BleProtocolVersionException and
+        // payload. The version gate lives in the connect handshake
+        // (ConnectController), which throws BleProtocolVersionException and
         // refuses the session on skew — see kAppProtocolVersion.
         final info = resp.deviceInfo;
         return BleCommandResponse.ok(
@@ -536,6 +575,12 @@ class BleProtocol {
         return BleCommandResponse.ok(_dartTelemetry(resp.telemetry) as T?);
       case proto.CommandResponse_Payload.matchState:
         return BleCommandResponse.ok(_dartMatchState(resp.matchState) as T?);
+      case proto.CommandResponse_Payload.sessionSnapshot:
+        // Connect-handshake snapshot (§9b) — the firmware's ACTUAL state the
+        // connect controller rehydrates providers from.
+        return BleCommandResponse.ok(
+          _dartSessionSnapshot(resp.sessionSnapshot) as T?,
+        );
       case proto.CommandResponse_Payload.recordingList:
         return BleCommandResponse.ok(
           resp.recordingList.recordings
@@ -850,6 +895,88 @@ class BleProtocol {
     updatedAt: s.hasUpdatedAt()
         ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt())
         : DateTime.now(),
+    // State-health cycle additions — proto3 optional; null when the firmware
+    // predates them so consumers never mistake an absent clock for 0.
+    elapsedSeconds: s.hasElapsedSeconds() ? s.elapsedSeconds : null,
+    clockRunning: s.hasClockRunning() ? s.clockRunning : null,
+    matchUuid: s.hasMatchUuid() ? s.matchUuid : null,
+  );
+
+  static proto.MatchStatus _dartMatchStatusToProto(MatchStatus s) =>
+      switch (s) {
+        MatchStatus.notStarted => proto.MatchStatus.MATCH_NOT_STARTED,
+        MatchStatus.active => proto.MatchStatus.MATCH_ACTIVE,
+        MatchStatus.paused => proto.MatchStatus.MATCH_PAUSED,
+        MatchStatus.halfTime => proto.MatchStatus.MATCH_HALF_TIME,
+        MatchStatus.finished => proto.MatchStatus.MATCH_FINISHED,
+        MatchStatus.unknown => proto.MatchStatus.MATCH_STATUS_UNKNOWN,
+      };
+
+  // ---------------------------------------------------------------------------
+  // Session snapshot ↔ proto helpers (state-health cycle, §9b)
+  // ---------------------------------------------------------------------------
+
+  static CameraHealth dartCameraHealth(proto.CameraHealth h) => switch (h) {
+    proto.CameraHealth.CAMERA_HEALTH_OK => CameraHealth.ok,
+    proto.CameraHealth.CAMERA_HEALTH_RECOVERING => CameraHealth.recovering,
+    proto.CameraHealth.CAMERA_HEALTH_DOWN => CameraHealth.down,
+    _ => CameraHealth.unknown,
+  };
+
+  static SessionPhase _dartSessionPhase(proto.SessionPhase p) => switch (p) {
+    proto.SessionPhase.SESSION_IDLE => SessionPhase.idle,
+    proto.SessionPhase.SESSION_CONFIGURED => SessionPhase.configured,
+    proto.SessionPhase.SESSION_READY => SessionPhase.ready,
+    proto.SessionPhase.SESSION_RECORDING => SessionPhase.recording,
+    proto.SessionPhase.SESSION_FINALIZING => SessionPhase.finalizing,
+    _ => SessionPhase.unknown,
+  };
+
+  static SessionEndReason _dartEndReason(proto.SessionEndReason r) =>
+      switch (r) {
+        proto.SessionEndReason.SESSION_END_APP_STOP => SessionEndReason.appStop,
+        proto.SessionEndReason.SESSION_END_AUTO_STOP =>
+          SessionEndReason.autoStop,
+        proto.SessionEndReason.SESSION_END_CAMERA_FAILURE =>
+          SessionEndReason.cameraFailure,
+        proto.SessionEndReason.SESSION_END_REBOOT => SessionEndReason.reboot,
+        _ => SessionEndReason.unknown,
+      };
+
+  static SessionSnapshot _dartSessionSnapshot(
+    proto.SessionSnapshotResponse s,
+  ) => SessionSnapshot(
+    sessionPhase: _dartSessionPhase(s.sessionPhase),
+    activeCameraIndex: s.hasActiveCameraIndex() ? s.activeCameraIndex : null,
+    previewLayout: s.hasPreviewLayout()
+        ? _protoPreviewLayout(s.previewLayout)
+        : null,
+    isRecording: s.hasIsRecording() ? s.isRecording : null,
+    isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
+    isRawCapturing: s.hasIsRawCapturing() ? s.isRawCapturing : null,
+    recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
+        ? s.recordingElapsedSeconds
+        : null,
+    matchState: s.hasMatchState() ? _dartMatchState(s.matchState) : null,
+    camera0Health: s.hasCamera0Health()
+        ? dartCameraHealth(s.camera0Health)
+        : null,
+    camera1Health: s.hasCamera1Health()
+        ? dartCameraHealth(s.camera1Health)
+        : null,
+    lastSession: s.hasLastSession()
+        ? LastSessionSummary(
+            matchUuid: s.lastSession.matchUuid,
+            endReason: _dartEndReason(s.lastSession.endReason),
+            endClockSeconds: s.lastSession.hasEndClockSeconds()
+                ? s.lastSession.endClockSeconds
+                : null,
+            fileValid: s.lastSession.hasFileValid()
+                ? s.lastSession.fileValid
+                : null,
+          )
+        : null,
+    wifiGroupUp: s.hasWifiGroupUp() ? s.wifiGroupUp : null,
   );
 }
 

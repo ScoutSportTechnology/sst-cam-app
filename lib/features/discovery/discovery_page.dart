@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,8 +5,7 @@ import '../../core/models/device.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../../core/ble/ble_providers.dart';
 import '../../core/ble/ble_service.dart';
-import '../../core/state/selection_sync.dart';
-import '../../core/state/last_camera.dart';
+import '../../core/state/connect_controller.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
 import '../../core/widgets/wf_button.dart';
@@ -253,23 +250,15 @@ class _DeviceRow extends ConsumerWidget {
   const _DeviceRow({required this.device});
   final SstDevice device;
 
-  /// Connect, persist last-connected on success, and surface a real, actionable
-  /// error (with Retry) on failure. Extracted so the error sheet's Retry button
-  /// can re-run the exact same flow.
+  /// Connect via the universal handshake (protocol gate → time push →
+  /// snapshot → rehydrate → reconcile — see ConnectController), and surface a
+  /// real, actionable error (with Retry) on failure. The controller owns the
+  /// success side effects (active-camera id, last-connected persistence) and
+  /// selection adoption from the firmware snapshot. Extracted so the error
+  /// sheet's Retry button can re-run the exact same flow.
   Future<void> _attemptConnect(BuildContext context, WidgetRef ref) async {
-    final svc = ref.read(bleServiceProvider);
     try {
-      await svc.connect(device.id);
-      ref.read(activeCameraIdProvider.notifier).state = device.id;
-      // Match the firmware's fresh session — it resets the output camera to 0 /
-      // single view on disconnect, so start the UI there on every connect.
-      resetSelectionOnConnect(ref, device.id);
-      // Persist the last successfully-connected camera id so the Settings
-      // empty-state CTA can offer a one-tap reconnect. Best-effort — a persist
-      // failure must not break the connect flow.
-      unawaited(
-        ref.read(lastConnectedDeviceIdProvider.notifier).set(device.id),
-      );
+      await ref.read(connectControllerProvider).connect(device.id);
       if (context.mounted) Navigator.of(context).pop();
     } catch (e) {
       if (context.mounted) _showConnectErrorSheet(context, ref, e);
@@ -283,6 +272,8 @@ class _DeviceRow extends ConsumerWidget {
     BleProtocolVersionException(:final actual, :final expected) =>
       'Firmware protocol version $actual is incompatible with this app '
           '(expects $expected). Update the app or camera firmware.',
+    BleHandshakeException(:final message) =>
+      'Connected, but syncing camera state failed ($message). Try again.',
     BleConnectionException(:final message) => message,
     BleTimeoutException(:final message) => message,
     _ => error.toString(),
@@ -360,7 +351,11 @@ class _DeviceRow extends ConsumerWidget {
         ref.watch(connectionStateProvider(device.id)).valueOrNull ??
         CameraConnectionState.disconnected;
     final connected = connState == CameraConnectionState.connected;
-    final connecting = connState == CameraConnectionState.connecting;
+    // The handshake (reconciling) is still "connecting" as far as this row is
+    // concerned — keep the spinner until the device is actually usable.
+    final connecting =
+        connState == CameraConnectionState.connecting ||
+        connState == CameraConnectionState.reconciling;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

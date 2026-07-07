@@ -67,6 +67,9 @@ class _StubBleService implements BleService {
   Future<void> connect(String deviceId) async {}
   @override
   Future<void> disconnect(String deviceId) async {}
+
+  @override
+  void completeHandshake(String deviceId) {}
   @override
   Stream<CameraConnectionState> connectionStateStream(String deviceId) =>
       const Stream.empty();

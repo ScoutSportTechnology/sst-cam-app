@@ -73,21 +73,38 @@ void main() {
   });
 
   group('Connection', () {
-    test('connect emits connecting then connected', () async {
+    test('connect emits connecting then reconciling (handshake pending); '
+        'completeHandshake emits connected', () async {
       const id = 'SST-CAM-001';
       final states = <CameraConnectionState>[];
       final sub = svc.connectionStateStream(id).listen(states.add);
 
       await svc.connect(id);
-      await sub.cancel();
-
       expect(
         states,
         containsAllInOrder([
           CameraConnectionState.connecting,
-          CameraConnectionState.connected,
+          CameraConnectionState.reconciling,
         ]),
       );
+      expect(states, isNot(contains(CameraConnectionState.connected)));
+
+      svc.completeHandshake(id);
+      await Future.delayed(Duration.zero);
+      await sub.cancel();
+      expect(states.last, CameraConnectionState.connected);
+    });
+
+    test('completeHandshake without a reconciling link is a no-op', () async {
+      const id = 'SST-CAM-001';
+      final states = <CameraConnectionState>[];
+      final sub = svc.connectionStateStream(id).listen(states.add);
+
+      svc.completeHandshake(id); // never connected — must not emit
+      await Future.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(states, isNot(contains(CameraConnectionState.connected)));
     });
 
     test('disconnect emits disconnected', () async {
@@ -111,9 +128,10 @@ void main() {
   });
 
   group('Telemetry', () {
-    test('emits telemetry after connect', () async {
+    test('emits telemetry after connect + completeHandshake', () async {
       const id = 'SST-CAM-001';
       await svc.connect(id);
+      svc.completeHandshake(id);
 
       final telemetry = await svc.telemetryStream(id).first;
       expect(telemetry.storageTotalBytes, greaterThan(0));
@@ -148,6 +166,7 @@ void main() {
     test('telemetry baseline comes from telemetry.json', () async {
       const id = 'SST-CAM-001';
       await svc.connect(id);
+      svc.completeHandshake(id);
       final t = await svc.telemetryStream(id).first; // tick 0 → no drift
       expect(t.storageTotalBytes, 274877906944); // 256 GiB baseline
       expect(t.wifiSsid, 'StadiumNet-5G');
@@ -157,6 +176,7 @@ void main() {
     test('proto and dart telemetry share one baseline at tick 0', () async {
       const id = 'SST-CAM-001';
       await svc.connect(id);
+      svc.completeHandshake(id);
       final dartT = await svc.telemetryStream(id).first; // tick 0
       final resp = await svc.sendCommand<DeviceTelemetry>(
         id,

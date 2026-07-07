@@ -1,6 +1,6 @@
 # SST-Cam Firmware Contract
 
-_Last updated: 2026-06-28 | Version: 2 | Companion app version: see `DeviceInfoResponse.protocol_version`_
+_Last updated: 2026-07-07 | Version: 2 | Companion app version: see `DeviceInfoResponse.protocol_version` (expected: 4)_
 
 This document is the **single source of truth for firmware development**. It describes what the SST-Cam firmware must implement to work correctly with the companion app, how communication is structured, and explicit constraints the firmware must respect. When this document and the proto files conflict, the proto files win — but that indicates this document needs updating.
 
@@ -86,6 +86,37 @@ The phone **keeps its cellular connection** while on WiFi Direct. The camera can
 
 ## 3. Connection handshake
 
+### 3.0. Universal connect handshake (state-health cycle, proto §9b)
+
+**Every connect runs the same handshake** — first connect, manual reconnect, app
+relaunch, camera reboot — because a session OUTLIVES the BLE connection (the
+firmware keeps recording/streaming through app disconnects, bounded by
+`PushSessionConfigCommand.auto_stop_minutes`). Immediately after the GATT
+channel is up, and **before treating the device as connected**, the app sends,
+in order:
+
+1. `GetDeviceInfoCommand` — protocol gate. The app refuses the session on a
+   `protocol_version` skew (current expected version: **4**) and drops the link.
+2. `SetDeviceTimeCommand` (phone epoch ms) — fixes the device wall clock.
+   Firmware must apply it to the system clock and reject implausible values
+   (pre-2020 epoch) with `ERROR`, leaving the clock untouched.
+3. `GetSessionSnapshotCommand` — pure read of the firmware's ACTUAL state
+   (`SessionSnapshotResponse`: session phase, active camera, preview layout,
+   recording/streaming/raw flags, recording elapsed, match state incl.
+   `match_uuid`, per-camera health, last-session summary, wifi_group_up). The
+   app **adopts** these values instead of force-resetting selections — the
+   firmware must therefore report its real current selections, not defaults.
+4. Reconcile: when the app holds persisted match data for the running
+   `match_uuid`, it pushes an absolute `SetMatchStateCommand` carrying app
+   scores only (absent fields must be left untouched — the firmware clock is
+   authoritative and is never overwritten on reconnect).
+
+Any step failing (or timing out) makes the app drop the link — the firmware
+must tolerate a disconnect at any point in this sequence. Telemetry and
+match-state polling start **only after** the handshake completes.
+
+### 3.1. WiFi Direct credential exchange
+
 **The WiFi Direct credential exchange happens automatically as part of connecting.**
 The app sends `StartWifiDirectCommand` immediately after the BLE connection is established
 and device info is confirmed. No user action is required. The app will not enable any
@@ -100,15 +131,24 @@ App                                    Camera
 
 BLE connect ─────────────────────────► GATT service ready
 
-──── Step 1: identify the device ──────────────────────────────────────
+──── Step 1: identify the device (protocol gate) ──────────────────────
 
 → GetDeviceInfoCommand
 ← DeviceInfoResponse
     device_id:        "sst-cam-a1b2c3d4"   ← stable hardware UUID
     firmware_version: "1.0.0"
-    protocol_version: 1
+    protocol_version: 4                    ← app refuses the session on skew
 
-──── Step 2: start telemetry stream ────────────────────────────────────
+──── Step 1b: fix the device clock, read actual state (§3.0) ───────────
+
+→ SetDeviceTimeCommand { epoch_ms }
+← CommandResponse (status only)
+→ GetSessionSnapshotCommand
+← SessionSnapshotResponse (phase, selections, activity, match state, health)
+→ SetMatchStateCommand (only when the app holds the running match's data)
+← CommandResponse (status only)
+
+──── Step 2: start telemetry stream (only after the handshake) ─────────
 
 → GetTelemetryCommand (repeated every ~1 s for the lifetime of the connection)
 ← DeviceTelemetry

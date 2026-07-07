@@ -371,13 +371,16 @@ void main() {
       expect(find.text('Connecting…'), findsOneWidget);
       expect(find.text('Connect camera'), findsNothing);
 
-      // Release the gate so connect resolves and the success branch
-      // sets activeCameraIdProvider. Use bounded pumps because the
-      // empty-state spinner uses CircularProgressIndicator (animates
-      // forever) and pumpAndSettle would hang waiting for it to stop.
+      // Release the gate so connect resolves and the handshake (device-info
+      // read + time push + snapshot, ~80 ms per mock command) can finish;
+      // the controller then sets activeCameraIdProvider. Use bounded pumps
+      // because the empty-state spinner uses CircularProgressIndicator
+      // (animates forever) and pumpAndSettle would hang waiting for it.
       gate.complete();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
 
       // Spy recorded the connect call.
       expect(spy.connectCalls, [_kFakeDeviceId]);
