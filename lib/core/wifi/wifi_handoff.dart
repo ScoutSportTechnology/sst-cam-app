@@ -6,11 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/device.dart';
 import '../../features/camera/camera_state.dart' show activeCameraIdProvider;
 import '../ble/ble_providers.dart';
+import '../state/reconnect_controller.dart';
 import 'wifi_providers.dart';
 
 /// Single owner of the WiFi Direct group lifecycle. Watches the active BLE
 /// camera and its connection state; brings the WiFi group up automatically
-/// when BLE connects, tears it down on disconnect or camera change.
+/// when BLE connects, tears it down on manual disconnect, camera change, or
+/// auto-reconnect give-up. An UNEXPECTED BLE drop does NOT tear the group
+/// down while the U6 reconnect loop is still eligible — the firmware keeps
+/// its side up and the app must rejoin, not cycle (group re-formation kills
+/// Argus capture mid-session).
 ///
 /// The handoff is intentionally one-way (BLE first, then WiFi) and uses the
 /// credentials returned by the firmware over BLE — see
@@ -33,6 +38,7 @@ import 'wifi_providers.dart';
 class WifiHandoffController extends Notifier<void> {
   String? _activeId;
   CameraConnectionState? _lastBleState;
+  ReconnectPhase? _lastReconnectPhase;
   Timer? _debounce;
 
   /// How long a connection state must hold before we act on it. Rapid
@@ -49,11 +55,20 @@ class WifiHandoffController extends Notifier<void> {
     });
 
     final id = ref.watch(activeCameraIdProvider);
+    // U6 auto-reconnect coupling: while the loop still claims the device the
+    // group must stay up (the firmware keeps its side alive; the app rejoins,
+    // never cycles — re-forming the group kills Argus capture mid-session).
+    final reconnectPhase = ref.watch(
+      reconnectControllerProvider.select((s) => s.phase),
+    );
 
     if (id != _activeId) {
       final prev = _activeId;
       _activeId = id;
       _lastBleState = null;
+      // A camera change (or the manual-disconnect clear) is never a loop
+      // give-up signal for the NEW id — resync the phase tracker silently.
+      _lastReconnectPhase = reconnectPhase;
       _debounce?.cancel();
       if (prev != null) {
         unawaited(
@@ -72,6 +87,27 @@ class WifiHandoffController extends Notifier<void> {
 
     final wifi = ref.read(wifiServiceProvider);
     final bleState = ref.watch(connectionStateProvider(id)).valueOrNull;
+
+    // Reconnect-loop give-up (bluetooth off / protocol mismatch): the group
+    // was retained across the drop for a rejoin that will now never come —
+    // this is the deferred teardown. `reconnecting → idle` is NOT a give-up
+    // (success and manual stops land there with their own teardown paths).
+    if (reconnectPhase != _lastReconnectPhase) {
+      final wasEligible = _lastReconnectPhase == ReconnectPhase.reconnecting;
+      _lastReconnectPhase = reconnectPhase;
+      if (wasEligible && reconnectPhase == ReconnectPhase.gaveUp) {
+        _debounce?.cancel();
+        unawaited(
+          wifi
+              .disconnectGroup(id)
+              .catchError(
+                (Object e) => debugPrint(
+                  '[wifi-handoff] disconnectGroup(give-up) failed: $e',
+                ),
+              ),
+        );
+      }
+    }
 
     // BLE-driven group lifecycle: bring WiFi up when BLE connects, tear it down
     // when BLE disconnects. That is the controller's whole job — rejoining a
@@ -99,6 +135,14 @@ class WifiHandoffController extends Notifier<void> {
           });
         case CameraConnectionState.disconnected:
           _debounce = Timer(_debounceDelay, () {
+            // Session-aware retention (U6): an UNEXPECTED drop arms the
+            // auto-reconnect loop, and while it still claims this device the
+            // app must rejoin the firmware's still-up group — suppress the
+            // teardown. It runs later on loop give-up (branch above), or now
+            // for a manual disconnect / non-eligible drop (loop idle).
+            if (ref.read(reconnectControllerProvider).isReconnecting(id)) {
+              return;
+            }
             unawaited(
               wifi
                   .disconnectGroup(id)

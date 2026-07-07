@@ -296,7 +296,9 @@ class MockBleService implements BleService {
   final Duration connectionDelay;
 
   /// Probability [0.0, 1.0] that connect throws [BleConnectionException].
-  final double failureRate;
+  /// Mutable so tests can flip a healthy camera into an unreachable one
+  /// mid-test (U6: "device stays gone" while the reconnect loop runs).
+  double failureRate;
 
   final Random _rng;
   final _discoveryController = StreamController<List<SstDevice>>.broadcast();
@@ -446,8 +448,23 @@ class MockBleService implements BleService {
     }
   }
 
+  bool _bluetoothOn = true;
+  final _bluetoothController = StreamController<bool>.broadcast();
+
   @override
-  Stream<bool> get bluetoothOn => Stream.value(true);
+  Stream<bool> get bluetoothOn async* {
+    yield _bluetoothOn;
+    yield* _bluetoothController.stream;
+  }
+
+  /// Test seam: flip the emulated adapter. U6 uses this to prove the
+  /// reconnect loop stops on bluetooth-off and stays stopped when the
+  /// adapter comes back (re-eligible only on the next unexpected drop).
+  @visibleForTesting
+  void setBluetoothOn(bool on) {
+    _bluetoothOn = on;
+    _bluetoothController.add(on);
+  }
 
   @override
   Future<void> requestBluetoothOn() async {}
@@ -571,6 +588,25 @@ class MockBleService implements BleService {
 
   @override
   Future<void> disconnect(String deviceId) async {
+    final state = _devices[deviceId];
+    if (state == null) return;
+    state.telemetryTimer?.cancel();
+    state.matchStateTimer?.cancel();
+    // Parity with the real impl: an app-initiated disconnect announces
+    // itself with `disconnecting` BEFORE `disconnected`. The U6 reconnect
+    // loop keys off exactly this — only a bare `connected → disconnected`
+    // edge (an unexpected drop, see [simulateUnexpectedDrop]) arms it.
+    state.connectionState = CameraConnectionState.disconnecting;
+    state.connController.add(CameraConnectionState.disconnecting);
+    state.connectionState = CameraConnectionState.disconnected;
+    state.connController.add(CameraConnectionState.disconnected);
+  }
+
+  /// Test seam: the link dies WITHOUT an app-initiated disconnect (camera
+  /// power-cut, radio drop) — `disconnected` with no `disconnecting` first.
+  /// This is the edge that arms the U6 auto-reconnect loop.
+  @visibleForTesting
+  void simulateUnexpectedDrop(String deviceId) {
     final state = _devices[deviceId];
     if (state == null) return;
     state.telemetryTimer?.cancel();
@@ -2130,6 +2166,7 @@ class MockBleService implements BleService {
     }
     _devices.clear();
     await _discoveryController.close();
+    await _bluetoothController.close();
   }
 
   _DeviceState _deviceState(String id, SstDevice device) {

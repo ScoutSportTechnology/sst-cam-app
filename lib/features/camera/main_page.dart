@@ -15,9 +15,11 @@ import 'camera_state.dart'
         AppTab;
 import '../../core/ble/ble_providers.dart';
 import '../../core/state/device_health.dart' show captureBlockedProvider;
+import '../../core/state/reconnect_controller.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/device_health_banner.dart';
 import '../../core/widgets/indicators.dart';
+import '../../core/widgets/reconnect_notice.dart';
 import '../../core/widgets/live_preview_view.dart';
 import '../../core/widgets/output_camera_toggle.dart';
 import '../../core/widgets/preview_layout_toggle.dart';
@@ -76,6 +78,9 @@ class MainPage extends ConsumerWidget {
             // U3 health surface — inoperable banner / recovering note. Shown
             // here because this page hosts the preview action.
             const DeviceHealthNotice(margin: EdgeInsets.only(top: 8)),
+            // U6 give-up surface — the auto-reconnect loop hit a protocol
+            // mismatch and stopped; distinct from a plain disconnect.
+            const ReconnectFailureNotice(margin: EdgeInsets.only(top: 8)),
             const SizedBox(height: 12),
             const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
             _TelemetryGrid(telemetry: telemetry),
@@ -126,14 +131,19 @@ class _HeroCameraCard extends ConsumerWidget {
 
     // Real camera state from telemetry flags, not connection alone. The dot was
     // green "LIVE" whenever connected even while idle — misleading. Precedence
-    // Streaming > Recording > Preview > Standby > Disconnected.
+    // Streaming > Recording > Preview > Standby > Reconnecting > Disconnected.
     final telemetry = deviceId == null
         ? null
         : ref.watch(telemetryProvider(deviceId!)).valueOrNull;
+    // U6: honest disconnected state with a subtle reconnecting indicator —
+    // the auto-reconnect loop is chasing this exact device.
+    final reconnectState = ref.watch(reconnectControllerProvider);
     final (camLabel, camColor) = cameraHeroState(
       connected: connected,
       previewOn: previewOn,
       telemetry: telemetry,
+      reconnecting:
+          deviceId != null && reconnectState.isReconnecting(deviceId!),
     );
 
     return Container(
@@ -283,11 +293,12 @@ class _HeroCameraCard extends ConsumerWidget {
                           label: 'Disconnect',
                           variant: WfButtonVariant.danger,
                           full: true,
-                          onPressed: () {
-                            ref.read(bleServiceProvider).disconnect(deviceId!);
-                            ref.read(activeCameraIdProvider.notifier).state =
-                                null;
-                          },
+                          // Manual disconnect goes through the reconnect
+                          // controller so the auto-reconnect loop never
+                          // treats it as an unexpected drop (U6).
+                          onPressed: () => ref
+                              .read(reconnectControllerProvider.notifier)
+                              .manualDisconnect(deviceId!),
                         ),
                       ),
                     ],
@@ -315,15 +326,20 @@ class _HeroCameraCard extends ConsumerWidget {
 }
 
 /// Maps connection + preview + telemetry flags to the hero-card status label and
-/// color. Precedence: Streaming > Recording > Preview > Standby > Disconnected.
-/// Connection gates all live states, so an inconsistent flag combination (e.g.
-/// recording reported while disconnected) resolves to Disconnected.
+/// color. Precedence: Streaming > Recording > Preview > Standby > Reconnecting
+/// > Disconnected. Connection gates all live states, so an inconsistent flag
+/// combination (e.g. recording reported while disconnected) resolves to
+/// Disconnected. [reconnecting] is the U6 auto-reconnect loop chasing the
+/// device — still honestly not connected, just labelled as being retried.
 (String, Color) cameraHeroState({
   required bool connected,
   required bool previewOn,
   required DeviceTelemetry? telemetry,
+  bool reconnecting = false,
 }) {
-  if (!connected) return ('Disconnected', T.ink3);
+  if (!connected) {
+    return reconnecting ? ('Reconnecting…', T.warn) : ('Disconnected', T.ink3);
+  }
   if (telemetry?.isStreaming ?? false) return ('Streaming', T.ok);
   if (telemetry?.isRecording ?? false) return ('Recording', T.danger);
   if (previewOn) return ('Preview', T.accent);
