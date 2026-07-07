@@ -780,6 +780,7 @@ wins) into one device-level gate:
 | `team_b_name` | string | Display name for scoreboard |
 | `team_a_color_hex` | string | Scoreboard accent colour, e.g. `"#FFFFFF"` |
 | `team_b_color_hex` | string | Scoreboard accent colour |
+| `auto_stop_minutes` | uint32? | Unsupervised-session timeout (app setting, default 30, bounds 5–240). The app always sends it and **re-pushes the whole config mid-session when the operator changes it** — map it on every PushSessionConfig, not just the first |
 
 ---
 

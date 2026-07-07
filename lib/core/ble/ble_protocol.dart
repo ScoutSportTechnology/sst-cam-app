@@ -167,6 +167,9 @@ class BleProtocol {
       teamBName: config.teamBName ?? '',
       teamAColorHex: config.teamAColorHex ?? '',
       teamBColorHex: config.teamBColorHex ?? '',
+      // Unsupervised-session timeout (R5, field 16). Always sent — the app
+      // owns the setting, so the firmware never falls back to its default.
+      autoStopMinutes: config.autoStopMinutes,
     );
     // proto3 `optional` fields: leave unset when null so the receiver can
     // distinguish "no streaming" from an empty-string destination.
