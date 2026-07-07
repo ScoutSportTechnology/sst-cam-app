@@ -667,6 +667,10 @@ class MockBleService implements BleService {
       isRecording: b.isRecording || isRecordingActive,
       isStreaming: b.isStreaming || isStreamingActive,
       isRawCapturing: isRawCapturingActive,
+      // Per-camera health rides every telemetry sample (parity with firmware
+      // plan U3) — the app's health gate folds this with the snapshot.
+      camera0Health: mockCamera0Health,
+      camera1Health: mockCamera1Health,
     );
   }
 
@@ -743,6 +747,14 @@ class MockBleService implements BleService {
           errorMessage: decodedResp.errorMessage.isNotEmpty
               ? decodedResp.errorMessage
               : 'Command not supported by firmware',
+        );
+      case proto.ResponseStatus.DEVICE_INOPERABLE:
+        // Typed health-gate refusal — callers key off the status (U3), never
+        // the free-form message. Mirrors BleProtocol._statusToResponse.
+        return BleCommandResponse<T>.deviceInoperable(
+          decodedResp.errorMessage.isNotEmpty
+              ? decodedResp.errorMessage
+              : 'Camera is not operational',
         );
       default:
         return BleCommandResponse<T>.error(
@@ -975,6 +987,21 @@ class MockBleService implements BleService {
   };
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
+    // Health enforcement parity (firmware plan U3): start-class capture
+    // commands are refused with DEVICE_INOPERABLE while any camera is DOWN —
+    // the wire backstop behind the app-side gate. Stops/pauses, downloads and
+    // WiFi commands are never health-gated. Refused BEFORE side effects so a
+    // rejected start never flips the mock's activity flags.
+    if ((mockCamera0Health == CameraHealth.down ||
+            mockCamera1Health == CameraHealth.down) &&
+        _isCaptureStart(cmd)) {
+      return proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.DEVICE_INOPERABLE,
+        errorMessage: 'camera down — capture unavailable',
+      );
+    }
+
     // Apply side effects for stateful commands before building the response.
     switch (cmd) {
       case RecordingControlCommand(:final action, :final quality):
@@ -1430,6 +1457,8 @@ class MockBleService implements BleService {
       isRecording: b.isRecording,
       isStreaming: b.isStreaming,
       isRawCapturing: isRawCapturingActive,
+      camera0Health: _dartCameraHealthToProto(mockCamera0Health),
+      camera1Health: _dartCameraHealthToProto(mockCamera1Health),
     );
   }
 
@@ -1447,6 +1476,12 @@ class MockBleService implements BleService {
     isRecording: p.isRecording,
     isStreaming: p.isStreaming,
     isRawCapturing: p.isRawCapturing,
+    camera0Health: p.hasCamera0Health()
+        ? _protoCameraHealth(p.camera0Health)
+        : null,
+    camera1Health: p.hasCamera1Health()
+        ? _protoCameraHealth(p.camera1Health)
+        : null,
   );
 
   WifiState _dartWifiState(proto.WifiState s) => switch (s) {
@@ -1689,8 +1724,25 @@ class MockBleService implements BleService {
   int? snapshotRecordingElapsedSeconds;
 
   /// Injectable per-camera health (U3/U7 extend transitions on top).
+  /// Rides the session snapshot AND every telemetry sample; while either
+  /// camera is [CameraHealth.down], start-class capture commands are refused
+  /// with DEVICE_INOPERABLE (firmware parity).
   CameraHealth mockCamera0Health = CameraHealth.ok;
   CameraHealth mockCamera1Health = CameraHealth.ok;
+
+  /// Whether [cmd] is a start-class capture command — the set the firmware
+  /// health-gates (proto: "start-class commands are refused with
+  /// DEVICE_INOPERABLE"). Resume counts: it re-opens the capture path.
+  static bool _isCaptureStart(BleCommand cmd) => switch (cmd) {
+    RecordingControlCommand(:final action) =>
+      action == RecordingControlAction.start ||
+          action == RecordingControlAction.resume,
+    RawCaptureControlCommand(:final action) =>
+      action == RecordingControlAction.start,
+    StreamingControlCommand(:final action) =>
+      action == StreamingControlAction.start,
+    _ => false,
+  };
 
   /// How the previous session ended; reported only when the phase is idle.
   LastSessionSummary? mockLastSessionSummary;

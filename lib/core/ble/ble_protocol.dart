@@ -762,6 +762,14 @@ class BleProtocol {
         isStreaming: p.isStreaming,
         batteryLevelPct: p.hasBatteryLevelPct() ? p.batteryLevelPct : null,
         isRawCapturing: p.isRawCapturing,
+        // Absent ⇒ null (unreported) — never fabricate OK for a firmware that
+        // doesn't report health (proto DeviceTelemetry 15–16 are optional).
+        camera0Health: p.hasCamera0Health()
+            ? dartCameraHealth(p.camera0Health)
+            : null,
+        camera1Health: p.hasCamera1Health()
+            ? dartCameraHealth(p.camera1Health)
+            : null,
       );
 
   static WifiState _dartWifiState(proto.WifiState s) => switch (s) {

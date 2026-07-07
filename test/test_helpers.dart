@@ -8,7 +8,9 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/db/app_database.dart';
+import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
+import 'package:sst_cam_app/core/state/device_health.dart';
 
 export 'package:sst_cam_app/core/db/app_database.dart';
 
@@ -69,6 +71,25 @@ List<Override> dbOverrides(Object db) {
     _ => throw ArgumentError('dbOverrides: expected AppDatabase or DbRef'),
   };
   return [appDatabaseProvider.overrideWithValue(database)];
+}
+
+/// Pins [deviceHealthProvider] to a healthy device (both cameras OK).
+///
+/// Harnesses that fake `connected` by overriding `connectionStateProvider`
+/// never run the connect handshake or the telemetry poll, so the derived
+/// health provider has no reading and the U3 gate conservatively locks
+/// capture starts (unknown-while-connected). Tests that aren't about health
+/// add this override; health-gating behavior itself is covered by
+/// test/core/state/device_health_test.dart + health_gating_test.dart.
+Override healthyDeviceOverride() =>
+    deviceHealthProvider.overrideWith(_HealthyDeviceHealthController.new);
+
+class _HealthyDeviceHealthController extends DeviceHealthController {
+  @override
+  DeviceHealthState build() => const DeviceHealthState(
+    camera0: CameraHealth.ok,
+    camera1: CameraHealth.ok,
+  );
 }
 
 // Match ids are v4 UUIDs, per the app's "ids are UUIDs, not magic strings"

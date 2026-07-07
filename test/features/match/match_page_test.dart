@@ -100,6 +100,9 @@ Widget _buildHarness({
       connectionStateProvider(_kFakeDeviceId).overrideWith(
         (_) => Stream<CameraConnectionState>.value(connectionState),
       ),
+      // Faked connection ⇒ no handshake/telemetry health readings — pin the
+      // U3 gate open (health gating has its own dedicated tests).
+      healthyDeviceOverride(),
       activeUserProvider.overrideWith((_) => 'user-1'),
     ],
     child: const MaterialApp(home: MatchPage()),

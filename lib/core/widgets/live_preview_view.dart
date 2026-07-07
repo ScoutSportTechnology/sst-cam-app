@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 
 import '../models/wifi.dart';
+import '../state/device_health.dart' show captureBlockedProvider;
 import '../wifi/wifi_providers.dart';
 import '../theme/tokens.dart';
 import 'wf_button.dart';
@@ -172,6 +173,10 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     });
 
     final previewEnabled = ref.watch(livePreviewEnabledProvider(deviceId));
+    // U3 health gate: live preview is a capture-start action — blocked while
+    // the device is inoperable (or health unknown while connected). Same one
+    // provider every surface gates off.
+    final captureBlocked = ref.watch(captureBlockedProvider);
 
     // Preview is off — show placeholder (and optional Preview button).
     if (!previewEnabled) {
@@ -190,7 +195,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
                       size: 13,
                       color: T.ink,
                     ),
-                    onPressed: _enablePreview,
+                    onPressed: captureBlocked ? null : _enablePreview,
                   ),
                 ),
               ],
@@ -224,7 +229,11 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // can get stuck on the placeholder. A paused/disconnected surface releases
     // its client (and the active, reconnected one auto-recreates here), so only
     // the visible surface holds a client on the single-stream RTSP server.
-    final shouldStream = previewEnabled && !widget.paused && wifiConnected;
+    // The health gate also releases a RUNNING preview's client: a camera down
+    // mid-preview stops delivering frames anyway — show the explicit
+    // unavailable state instead of a silent frozen/blank feed (R7).
+    final shouldStream =
+        previewEnabled && !widget.paused && wifiConnected && !captureBlocked;
     if (shouldStream) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
@@ -261,6 +270,8 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // state (preview just turned on), kept distinct from a reconnect.
     final statusLabel = widget.paused
         ? (widget.label ?? 'PREVIEW')
+        : captureBlocked
+        ? 'CAMERA UNAVAILABLE'
         : switch (wifiState) {
             WifiDirectState.starting ||
             WifiDirectState.failed ||
