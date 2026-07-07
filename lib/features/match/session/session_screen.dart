@@ -17,8 +17,7 @@ import '../../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/device_health_banner.dart';
 import '../../../core/widgets/output_camera_toggle.dart';
-import '../../../core/widgets/preview_layout_toggle.dart';
-import '../../../core/widgets/wf_button.dart';
+import '../../../core/widgets/preview_controls_row.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
@@ -87,55 +86,15 @@ class SessionScreen extends ConsumerWidget {
                 isLive: isPeriodActive,
               ),
             ),
-            // Preview controls — below the feed (not overlaid). The Single|Both
-            // mode toggle sits next to the Preview button, matching the main
-            // camera card's layout. Only shown when a camera is connected.
+            // Preview controls — below the feed (not overlaid), via the shared
+            // PreviewControlsRow (same widget as the main camera card). Two
+            // columns mirroring the Mark event / phase action row below, so the
+            // Preview button's width and right edge line up with the Mark event
+            // button. Only shown when a camera is connected.
             if (activeId != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-                // Two columns mirroring the Mark event / phase action row below,
-                // so the Preview button's width and right edge line up with the
-                // Mark event button. The Single|Both toggle sits in the right
-                // column (right-aligned), empty when preview is off.
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: WfButton(
-                        label: previewOn ? 'Stop preview' : 'Preview',
-                        variant: previewOn
-                            ? WfButtonVariant.danger
-                            : WfButtonVariant.outline,
-                        size: WfButtonSize.sm,
-                        full: true,
-                        leading: previewOn
-                            ? null
-                            : const Icon(
-                                Icons.play_arrow_rounded,
-                                size: 13,
-                                color: T.ink,
-                              ),
-                        onPressed: (captureBlocked && !previewOn)
-                            ? null
-                            : () {
-                                ref
-                                        .read(
-                                          livePreviewEnabledProvider(
-                                            activeId,
-                                          ).notifier,
-                                        )
-                                        .state =
-                                    !previewOn;
-                              },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: previewOn
-                          ? PreviewLayoutToggle(deviceId: activeId, full: true)
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
-                ),
+                child: PreviewControlsRow(deviceId: activeId),
               ),
             // Manual tracking — pick the output camera mid-match while watching
             // the live preview.
