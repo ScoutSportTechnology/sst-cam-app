@@ -404,8 +404,8 @@ class _CameraCalibrationPageState extends ConsumerState<CameraCalibrationPage> {
                                   ? 'Fixed lens — this camera has no '
                                         'motorized focus.'
                                   : _afDisplayedAuto
-                                  ? 'Continuous autofocus is on. Autofocus '
-                                        'pauses while recording.'
+                                  ? 'Continuous autofocus stays active '
+                                        'during recording and streaming.'
                                   : 'Manual focus — drag to set both lenses '
                                         '(0 = near, 1000 = far).',
                             ),

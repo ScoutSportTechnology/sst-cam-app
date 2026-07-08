@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
@@ -64,6 +66,11 @@ class LivePreviewView extends ConsumerStatefulWidget {
   /// surface should hold the client; it resumes automatically when un-paused.
   final bool paused;
 
+  /// How long a dead VLC client (errored, or stalled after playing) waits
+  /// before the automatic teardown → recreate cycle. Long enough to not
+  /// hammer a camera that is mid-restart, short enough to feel automatic.
+  static const vlcRestartDelay = Duration(seconds: 3);
+
   @override
   ConsumerState<LivePreviewView> createState() => _LivePreviewViewState();
 }
@@ -74,6 +81,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   String? _vlcUrl;
   bool _vlcError = false;
   bool _vlcPlaying = false;
+  Timer? _vlcRestartTimer;
 
   void _enablePreview() {
     ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state = true;
@@ -100,6 +108,8 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   }
 
   void _tearDownVlc() {
+    _vlcRestartTimer?.cancel();
+    _vlcRestartTimer = null;
     _disposeVlc(_vlc);
     _vlc = null;
     _vlcUrl = null;
@@ -109,19 +119,45 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
 
   @override
   void dispose() {
+    _vlcRestartTimer?.cancel();
     _disposeVlc(_vlc);
     super.dispose();
   }
 
   void _onVlcChange() {
-    final hasError = _vlc?.value.hasError ?? false;
-    final isPlaying = _vlc?.value.isPlaying ?? false;
+    final value = _vlc?.value;
+    if (value == null) return;
+    final hasError = value.hasError;
+    final isPlaying = value.isPlaying;
+    // A dead client never comes back on its own — an errored player (e.g. the
+    // RTSP connect raced the camera's pipeline restart right after the health
+    // gate lifted) or a stream that was playing and then stopped/ended (the
+    // camera died mid-preview) stays dead until it gets a fresh stop → play
+    // cycle. Schedule the same teardown → recreate a manual Stop → Preview
+    // performs, so the pane auto-resumes instead of pinning on a placeholder.
+    final stalled =
+        _vlcPlaying &&
+        !isPlaying &&
+        (value.playingState == PlayingState.stopped ||
+            value.playingState == PlayingState.ended);
+    if (hasError || stalled) _scheduleVlcRestart();
     if ((hasError != _vlcError || isPlaying != _vlcPlaying) && mounted) {
       setState(() {
         _vlcError = hasError;
         _vlcPlaying = isPlaying;
       });
     }
+  }
+
+  void _scheduleVlcRestart() {
+    if (_vlcRestartTimer?.isActive ?? false) return;
+    _vlcRestartTimer = Timer(LivePreviewView.vlcRestartDelay, () {
+      if (!mounted) return;
+      // Release the dead client. The rebuild recreates a fresh controller
+      // (the URL was cleared) while `shouldStream` still holds; if the next
+      // attempt dies too, its own error/stall schedules the next cycle.
+      setState(_tearDownVlc);
+    });
   }
 
   void _swapVlcController(String url) {
@@ -235,7 +271,12 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // the visible surface holds a client on the single-stream RTSP server.
     // The health gate also releases a RUNNING preview's client: a camera down
     // mid-preview stops delivering frames anyway — show the explicit
-    // unavailable state instead of a silent frozen/blank feed (R7).
+    // unavailable state instead of a silent frozen/blank feed (R7). The
+    // teardown clears `_vlcUrl`, so the moment the gate lifts (inoperable →
+    // OK) this same block mints a fresh controller and playback auto-resumes
+    // — no manual Stop → Preview needed. If that reconnect races the camera's
+    // pipeline restart and errors/stalls, `_onVlcChange` schedules another
+    // stop → play cycle until frames flow again.
     final shouldStream =
         previewEnabled && !widget.paused && wifiConnected && !captureBlocked;
     if (shouldStream) {
