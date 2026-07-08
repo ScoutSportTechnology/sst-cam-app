@@ -432,7 +432,7 @@ void main() {
     test('connect → manual disconnect → connect: the full handshake round '
         'trip works twice in a row on the SAME service instance', () async {
       const deviceId = 'AA:BB:CC:00:00:01';
-      final svc = BleServiceImpl();
+      final svc = BleServiceImpl(disconnectSettle: Duration.zero);
       addTearDown(svc.dispose);
 
       final states = <CameraConnectionState>[];
@@ -489,7 +489,7 @@ void main() {
     test('unexpected link drop mid-session: reconnect still handshakes '
         'cleanly', () async {
       const deviceId = 'AA:BB:CC:00:00:02';
-      final svc = BleServiceImpl();
+      final svc = BleServiceImpl(disconnectSettle: Duration.zero);
       addTearDown(svc.dispose);
 
       await svc.connect(deviceId);
@@ -515,7 +515,7 @@ void main() {
       test('connect → manualDisconnect → connect succeeds with a full '
           'handshake, twice in a row', () async {
         const deviceId = 'AA:BB:CC:00:00:03';
-        final svc = BleServiceImpl();
+        final svc = BleServiceImpl(disconnectSettle: Duration.zero);
         addTearDown(svc.dispose);
         final container = ProviderContainer(
           overrides: [
@@ -564,7 +564,7 @@ void main() {
         'the attempt and the next retry converges (was: every retry timed '
         'out until app restart)', () async {
       const deviceId = 'AA:BB:CC:00:00:04';
-      final svc = BleServiceImpl();
+      final svc = BleServiceImpl(disconnectSettle: Duration.zero);
       addTearDown(svc.dispose);
       final container = ProviderContainer(
         overrides: [
@@ -623,7 +623,7 @@ void main() {
     test('post-link connect-step failure drops the platform link (no ghost '
         'GATT connection survives a failed handshake)', () async {
       const deviceId = 'AA:BB:CC:00:00:05';
-      final svc = BleServiceImpl();
+      final svc = BleServiceImpl(disconnectSettle: Duration.zero);
       addTearDown(svc.dispose);
 
       platform.failNextSetNotify = true;
@@ -643,6 +643,68 @@ void main() {
 
       // And a subsequent connect starts clean and handshakes fully.
       await svc.connect(deviceId);
+      expect(await svc.getDeviceInfo(deviceId), isNotNull);
+      await svc.disconnect(deviceId);
+    });
+  });
+
+  group('Field regression — GATT 147 on immediate manual reconnect', () {
+    // Metal (2026-07-07): the phone-side disconnect callback fires ~1 s
+    // before the peripheral processes the LL teardown and re-asserts its
+    // advertisement; a reconnect fired into that window died with android
+    // error 147 (GATT_CONNECTION_TIMEOUT). The impl now settles the teardown
+    // before the next platform connect to the same device.
+    test('a reconnect right after a manual disconnect waits out the '
+        'disconnect settle; a first connect is not delayed', () async {
+      const deviceId = 'AA:BB:CC:00:00:06';
+      const settle = Duration(milliseconds: 400);
+      final svc = BleServiceImpl(disconnectSettle: settle);
+      addTearDown(svc.dispose);
+
+      // First connect on a fresh slot: no teardown observed → no delay.
+      var sw = Stopwatch()..start();
+      await svc.connect(deviceId);
+      expect(
+        sw.elapsedMilliseconds,
+        lessThan(300),
+        reason: 'a first connect must not pay the settle',
+      );
+      expect(await svc.getDeviceInfo(deviceId), isNotNull);
+
+      await svc.disconnect(deviceId);
+      await Future<void>.delayed(Duration.zero);
+
+      // Immediate reconnect: held until the settle window has passed, then
+      // handshakes normally.
+      sw = Stopwatch()..start();
+      await svc.connect(deviceId);
+      expect(
+        sw.elapsedMilliseconds,
+        greaterThanOrEqualTo(350),
+        reason: 'the reconnect must wait out the GATT teardown settle',
+      );
+      expect(await svc.getDeviceInfo(deviceId), isNotNull);
+      await svc.disconnect(deviceId);
+    });
+
+    test('a reconnect AFTER the settle window pays no extra delay', () async {
+      const deviceId = 'AA:BB:CC:00:00:07';
+      const settle = Duration(milliseconds: 200);
+      final svc = BleServiceImpl(disconnectSettle: settle);
+      addTearDown(svc.dispose);
+
+      await svc.connect(deviceId);
+      await svc.disconnect(deviceId);
+      // The user takes their time — the teardown has long settled.
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      final sw = Stopwatch()..start();
+      await svc.connect(deviceId);
+      expect(
+        sw.elapsedMilliseconds,
+        lessThan(150),
+        reason: 'an already-settled teardown must not delay the connect',
+      );
       expect(await svc.getDeviceInfo(deviceId), isNotNull);
       await svc.disconnect(deviceId);
     });

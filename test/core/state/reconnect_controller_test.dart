@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
+import 'package:sst_cam_app/core/ble/ble_service.dart'
+    show BleConnectionException;
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/state/connect_controller.dart';
@@ -284,6 +286,71 @@ void main() {
       mock.connectionStateStream(_kDeviceId).listen(states.add);
       await Future<void>.delayed(const Duration(milliseconds: 400));
       expect(states, isNot(contains(CameraConnectionState.connecting)));
+    });
+  });
+
+  // Field regression (2026-07-07, real Jetson + phone): manual disconnect →
+  // immediate manual reconnect died with android error 147; the SECOND manual
+  // attempt connected fine. Neither the manual disconnect, nor the failed
+  // attempt's own edges, nor the eventual success may leave the loop armed —
+  // a lingering `reconnecting` claim is what pins the UI on "Reconnecting…".
+  group('Field regression — manual disconnect → failed retry → success', () {
+    test(
+      'the exact metal sequence leaves the loop idle at every step',
+      () async {
+        final container = makeContainer();
+        await connectManually(container);
+        expect(loopState(container).phase, ReconnectPhase.idle);
+
+        // 1. Manual disconnect — never arms (disconnecting precedes
+        //    disconnected).
+        await container
+            .read(reconnectControllerProvider.notifier)
+            .manualDisconnect(_kDeviceId);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(loopState(container).phase, ReconnectPhase.idle);
+        expect(container.read(activeCameraIdProvider), isNull);
+
+        // 2. Immediate manual reconnect FAILS (metal: GATT_CONNECTION_TIMEOUT).
+        //    Its own connecting → disconnected edges must not arm the loop.
+        mock.failureRate = 1.0;
+        await expectLater(
+          connectManually(container),
+          throwsA(isA<BleConnectionException>()),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(loopState(container).phase, ReconnectPhase.idle);
+        expect(loopState(container).isReconnecting(_kDeviceId), isFalse);
+
+        // 3. The retry succeeds → settled: idle loop, active camera restored,
+        //    no reconnect claim left for the UI label.
+        mock.failureRate = 0.0;
+        await connectManually(container);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(loopState(container).phase, ReconnectPhase.idle);
+        expect(loopState(container).isReconnecting(_kDeviceId), isFalse);
+        expect(container.read(activeCameraIdProvider), _kDeviceId);
+      },
+    );
+
+    test('a successful MANUAL connect while the loop is armed settles it to '
+        'idle (any success clears the claim)', () async {
+      final container = makeContainer();
+      await connectManually(container);
+
+      mock.failureRate = 1.0; // keep loop attempts failing so it stays armed
+      mock.simulateUnexpectedDrop(_kDeviceId);
+      await _waitFor(
+        () => loopState(container).phase == ReconnectPhase.reconnecting,
+      );
+
+      mock.failureRate = 0.0;
+      await connectManually(container);
+      await _waitFor(
+        () => loopState(container).phase == ReconnectPhase.idle,
+        reason: 'ANY successful connect must settle the loop to idle',
+      );
+      expect(loopState(container).isReconnecting(_kDeviceId), isFalse);
     });
   });
 }
