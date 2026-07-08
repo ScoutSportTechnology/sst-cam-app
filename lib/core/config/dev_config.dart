@@ -15,6 +15,7 @@ const bool kEmulated = bool.fromEnvironment('EMULATE', defaultValue: false);
 const bool kSeed = bool.fromEnvironment('SEED', defaultValue: false);
 
 const _kSeedDataKey = 'dev_config_seed_data';
+const _kSeedAppliedKey = 'dev_config_seed_applied';
 const _kLegacyDataModeKey = 'dev_config_data_mode';
 const _kCameraEmulationKey = 'dev_config_camera_emulation';
 const _kPreviewBaseUrlKey = 'dev_config_preview_base_url';
@@ -99,6 +100,21 @@ class DevConfig {
       return (migratedPreview, migratedDownload);
     }
     return (defaults.previewBaseUrl, defaults.downloadBaseUrl);
+  }
+
+  /// Whether the LAST boot left mock fixtures applied in the DB. Distinct from
+  /// [seedData] (the desired state): comparing the two lets the dev bootstrap
+  /// wipe fixtures exactly once on the seed→unseed TRANSITION instead of
+  /// wiping user data on every launch. Defaults to false (never wipe) when the
+  /// marker is absent or prefs are unreadable — the safe direction.
+  static Future<bool> loadSeedApplied() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kSeedAppliedKey) ?? false;
+  }
+
+  static Future<void> saveSeedApplied(bool applied) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSeedAppliedKey, applied);
   }
 
   Future<void> save() async {
