@@ -140,6 +140,105 @@ void main() {
     });
   });
 
+  group('applySeedDataOnBoot', () {
+    // Regression for the 2026-07 on-device data-loss bug: the boot path
+    // called the imperative applySeedData(seed:false) on EVERY launch, so a
+    // dev build with SEED off (the deploy-dev-app default) wiped all user
+    // data — teams, matches, everything — at each cold start.
+    test('seed=false steady state must NOT touch user data (the '
+        'wipe-on-every-boot data-loss bug)', () async {
+      // Simulate real user data created through the app (not fixtures).
+      await db.seedBaseData(userId: kDefaultUserId);
+      await db
+          .into(db.teamsTable)
+          .insert(
+            TeamsTableCompanion.insert(
+              id: 'user-team-1',
+              userId: kDefaultUserId,
+              name: 'My Real Team',
+              shortName: 'MRT',
+              sport: 'soccer',
+            ),
+          );
+
+      // Boot with seed off and no prior seed applied — the persistent-data
+      // path every restart takes on a phone.
+      final applied = await applySeedDataOnBoot(
+        db,
+        seed: false,
+        seedWasApplied: false,
+        downloadBaseUrl: _unreachableBase,
+      );
+
+      expect(applied, isFalse);
+      final teams = await db.select(db.teamsTable).get();
+      expect(
+        teams.map((t) => t.id),
+        contains('user-team-1'),
+        reason: 'a seed-off boot must never wipe user-created data',
+      );
+    });
+
+    test('seed on→off transition wipes fixtures exactly once', () async {
+      // Boot 1: seed on.
+      var applied = await applySeedDataOnBoot(
+        db,
+        seed: true,
+        seedWasApplied: false,
+        downloadBaseUrl: _unreachableBase,
+      );
+      expect(applied, isTrue);
+      expect(await db.select(db.teamsTable).get(), isNotEmpty);
+
+      // Boot 2: toggle flipped off — fixtures are wiped (the transition).
+      applied = await applySeedDataOnBoot(
+        db,
+        seed: false,
+        seedWasApplied: true,
+        downloadBaseUrl: _unreachableBase,
+      );
+      expect(applied, isFalse);
+      expect(await db.select(db.teamsTable).get(), isEmpty);
+
+      // User creates data after the wipe…
+      await db
+          .into(db.teamsTable)
+          .insert(
+            TeamsTableCompanion.insert(
+              id: 'post-wipe-team',
+              userId: kDefaultUserId,
+              name: 'Post Wipe',
+              shortName: 'PW',
+              sport: 'soccer',
+            ),
+          );
+
+      // Boot 3: steady state seed-off — data survives.
+      applied = await applySeedDataOnBoot(
+        db,
+        seed: false,
+        seedWasApplied: false,
+        downloadBaseUrl: _unreachableBase,
+      );
+      expect(applied, isFalse);
+      expect(
+        (await db.select(db.teamsTable).get()).map((t) => t.id),
+        contains('post-wipe-team'),
+      );
+    });
+
+    test('seed=true boots (re)apply fixtures and report applied', () async {
+      final applied = await applySeedDataOnBoot(
+        db,
+        seed: true,
+        seedWasApplied: true,
+        downloadBaseUrl: _unreachableBase,
+      );
+      expect(applied, isTrue);
+      expect(await db.select(db.teamsTable).get(), isNotEmpty);
+    });
+  });
+
   group('MockDataSeeder', () {
     test(
       'seed() inserts expected teams, matches, players, and destinations',

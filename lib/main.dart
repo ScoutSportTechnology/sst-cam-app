@@ -81,12 +81,27 @@ Future<ProviderContainer> _bootstrapDev() async {
 
   final db = AppDatabase();
 
+  // Force the first DB open — and with it any pending schema migration —
+  // OUTSIDE the seed try/catch below. A migration failure must fail LOUDLY
+  // here (crash the boot), never be swallowed as a "seed failure": silently
+  // continuing over a broken/half-migrated database is how data loss hides.
+  await db.customSelect('SELECT 1').get();
+
   try {
-    await applySeedData(
+    // Transition-aware: acts only when the seed flag CHANGED (or is on).
+    // The steady-state seed-off boot — the deploy-dev-app default — must not
+    // touch the DB at all; the imperative applySeedData(seed:false) wipe used
+    // to run here every launch and destroyed all user data on each cold start.
+    final seedWasApplied = await DevConfig.loadSeedApplied();
+    final seedNowApplied = await applySeedDataOnBoot(
       db,
       seed: devConfig.seedData,
+      seedWasApplied: seedWasApplied,
       downloadBaseUrl: devConfig.downloadBaseUrl,
     );
+    if (seedNowApplied != seedWasApplied) {
+      await DevConfig.saveSeedApplied(seedNowApplied);
+    }
   } catch (e, st) {
     // Non-fatal: a seed failure must not brick startup. Reporting via
     // FlutterError.reportError here (before runApp) crashed on a stack-trace
@@ -109,11 +124,17 @@ Future<ProviderContainer> _bootstrapDev() async {
     appDatabaseProvider.overrideWithValue(db),
     devConfigProvider.overrideWithValue(devConfig),
     devReseedProvider.overrideWithValue(
-      () async => applySeedData(
-        db,
-        seed: devConfig.seedData,
-        downloadBaseUrl: devConfig.downloadBaseUrl,
-      ),
+      // Explicit user action (debug-page reset) — force-apply is intended
+      // here, unlike the transition-aware boot path. Keep the applied marker
+      // in sync so the next boot doesn't re-run the transition.
+      () async {
+        await applySeedData(
+          db,
+          seed: devConfig.seedData,
+          downloadBaseUrl: devConfig.downloadBaseUrl,
+        );
+        await DevConfig.saveSeedApplied(devConfig.seedData);
+      },
     ),
     devNavigationProvider.overrideWithValue(
       DevNavigation(

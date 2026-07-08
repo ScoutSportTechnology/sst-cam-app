@@ -43,6 +43,40 @@ Future<void> applySeedData(
   }
 }
 
+/// Boot-time, TRANSITION-AWARE variant of [applySeedData].
+///
+/// [applySeedData] is imperative — `seed == false` always wipes. Calling it
+/// unconditionally at startup (as main.dart once did) destroyed all user data
+/// on EVERY launch of a dev build with SEED off, because the wipe re-ran on
+/// each cold start. This wrapper only acts on a state change:
+///
+/// - `seed == true`  → (re)seed fixtures. Idempotent upsert, safe every boot.
+/// - `seed == false` and [seedWasApplied] → the toggle was just switched off:
+///   wipe the fixtures back to base scaffolding ONCE.
+/// - `seed == false` and !`seedWasApplied` → steady state: touch NOTHING.
+///   This is the `deploy-dev-app` default path — user data must persist.
+///
+/// Returns the new "seed applied" state; the caller persists it (see
+/// `DevConfig.saveSeedApplied`) so the transition is detected across restarts.
+Future<bool> applySeedDataOnBoot(
+  AppDatabase db, {
+  required bool seed,
+  required bool seedWasApplied,
+  String downloadBaseUrl = 'http://localhost:8080',
+  VideoPathService? videoPathService,
+  Dio? httpClient,
+}) async {
+  if (!seed && !seedWasApplied) return false;
+  await applySeedData(
+    db,
+    seed: seed,
+    downloadBaseUrl: downloadBaseUrl,
+    videoPathService: videoPathService,
+    httpClient: httpClient,
+  );
+  return seed;
+}
+
 Future<void> _wipeToBaseData(
   AppDatabase db,
   VideoPathService videoPathService,
