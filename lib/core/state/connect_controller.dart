@@ -65,14 +65,19 @@ final connectControllerProvider = Provider<ConnectController>(
 );
 
 class ConnectController {
-  ConnectController(this._ref);
+  ConnectController(this._ref, {this.handshakeTimeout = _kHandshakeTimeout});
 
   final Ref _ref;
 
   /// Sole budget for the whole connect + handshake. Generous on purpose: the
   /// platform BLE connect alone can take >10 s on a congested radio, and each
   /// handshake command already carries the service's per-command timeout.
-  static const handshakeTimeout = Duration(seconds: 30);
+  /// The service's platform-connect budget (BleServiceImpl.connectTimeout)
+  /// stays BELOW this wall so an unresponsive connect self-cancels instead of
+  /// being abandoned mid-flight (Dart timeouts never cancel). Injectable so
+  /// the reconnect regression tests can run the wall in milliseconds.
+  static const _kHandshakeTimeout = Duration(seconds: 30);
+  final Duration handshakeTimeout;
 
   // In-flight dedup (lifecycle-correctness learning): concurrent connect
   // requests for the same device share one attempt — a double tap or a manual
