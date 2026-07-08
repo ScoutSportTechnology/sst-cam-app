@@ -46,7 +46,10 @@ Duration _remainingUntil(DateTime deadline) {
 final _log = Logger('BleService');
 
 class BleServiceImpl implements BleService {
-  BleServiceImpl({this.connectTimeout = const Duration(seconds: 20)});
+  BleServiceImpl({
+    this.connectTimeout = const Duration(seconds: 20),
+    this.disconnectSettle = const Duration(milliseconds: 2500),
+  });
 
   /// Budget for the platform-level connect. Deliberately BELOW the connect
   /// controller's 30 s handshake wall: Dart's `Future.timeout` abandons but
@@ -56,6 +59,16 @@ class BleServiceImpl implements BleService {
   /// connect kept the mutex wedged past the wall, so every retry queued
   /// behind it and timed out identically until the app was restarted.
   final Duration connectTimeout;
+
+  /// Minimum gap between an observed link teardown and the next platform
+  /// connect to the same device. Field bug (2026-07-07, real Jetson + phone):
+  /// the phone-side disconnect callback fires ~1 s BEFORE the peripheral
+  /// processes the LL teardown and re-asserts its advertisement (journal:
+  /// central-link-down + re-advertise landed 1.1–1.2 s after the app's
+  /// disconnect); a manual reconnect fired into that window got no response
+  /// and died with android error 147 (GATT_CONNECTION_TIMEOUT). Sized to
+  /// outlast that whole teardown + re-advertise sequence with margin.
+  final Duration disconnectSettle;
 
   // Seeded so a late subscriber (e.g. re-entering the discovery page) replays the
   // last known device list immediately instead of seeing nothing until the next
@@ -264,6 +277,23 @@ class BleServiceImpl implements BleService {
     }
 
     try {
+      // Settle the previous link's GATT teardown before reconnecting — see
+      // [disconnectSettle]. Without this, a connect fired right after a
+      // manual disconnect races the peripheral's teardown + re-advertise and
+      // times out with android error 147.
+      final lastTeardown = conn._lastTeardownAt;
+      if (lastTeardown != null) {
+        final wait = disconnectSettle - DateTime.now().difference(lastTeardown);
+        if (wait > Duration.zero) {
+          _log.info(
+            'settling GATT teardown of $deviceId for ${wait.inMilliseconds} ms '
+            'before reconnecting',
+          );
+          await Future<void>.delayed(wait);
+          ensureCurrent();
+        }
+      }
+
       // Bounded below the controller's handshake wall — see [connectTimeout].
       await device.connect(autoConnect: false, timeout: connectTimeout);
       ensureCurrent();
@@ -323,6 +353,7 @@ class BleServiceImpl implements BleService {
       conn._connSub = device.connectionState.listen((s) {
         if (s == BluetoothConnectionState.disconnected &&
             conn._attemptEpoch == attempt) {
+          conn._lastTeardownAt = DateTime.now();
           conn._connController.add(CameraConnectionState.disconnected);
           conn.teardownConnection();
         }
@@ -343,6 +374,7 @@ class BleServiceImpl implements BleService {
         } catch (_) {
           // Best-effort — surface the original failure below.
         }
+        conn._lastTeardownAt = DateTime.now();
         conn._connController.add(CameraConnectionState.disconnected);
         conn.teardownConnection();
       }
@@ -405,6 +437,10 @@ class BleServiceImpl implements BleService {
       // until app restart) and shouldn't wait behind in-flight polls either.
       await device.disconnect(queue: false);
     } finally {
+      // FBP's disconnect resolves once the PHONE observes disconnected; the
+      // peripheral's teardown + re-advertise completes later. Stamp now so
+      // the next connect() waits out the remainder (see [disconnectSettle]).
+      conn._lastTeardownAt = DateTime.now();
       conn._connController.add(CameraConnectionState.disconnected);
       // Keep the slot so the connection stream replays disconnected and a
       // later reconnect reuses the same controllers.
@@ -820,6 +856,11 @@ class _ConnectedDevice {
   /// cannot cancel the underlying future) detects it was superseded and keeps
   /// its hands off the slot + platform link the new owner is using.
   int _attemptEpoch = 0;
+
+  /// When this device's last link teardown was observed (manual disconnect,
+  /// failed-connect cleanup, or an unexpected drop). The next connect() gates
+  /// on it — see [BleServiceImpl.disconnectSettle].
+  DateTime? _lastTeardownAt;
 
   // Seeded controllers: replay current value to late subscribers and keep a
   // stable identity across connect/disconnect cycles. Connection state seeds

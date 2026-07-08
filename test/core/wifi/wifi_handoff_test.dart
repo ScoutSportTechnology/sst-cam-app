@@ -50,12 +50,21 @@ class _FakeWifi implements WifiService {
   int connectCalls = 0;
   int disconnectCalls = 0;
 
+  /// Fails the next N connectGroup calls — models the field failure where the
+  /// P2P join fails after connectGroup's internal retries (and the impl has
+  /// already told the firmware to release its group).
+  int failNextConnects = 0;
+
   @override
   Stream<WifiDirectState> connectionStateStream(String deviceId) => ctrl.stream;
 
   @override
   Future<WifiDirectGroup> connectGroup(String deviceId) async {
     connectCalls++;
+    if (failNextConnects > 0) {
+      failNextConnects--;
+      throw const WifiDirectException('P2P connect failed after 3 attempts');
+    }
     return const WifiDirectGroup(
       ssid: '',
       psk: '',
@@ -86,6 +95,12 @@ ProviderContainer _container(_FakeBle ble, _FakeWifi wifi) {
       // no retry fires inside the test window.
       reconnectBackoffProvider.overrideWithValue(
         const ReconnectBackoff(quickDelay: Duration(minutes: 5)),
+      ),
+      // Compressed retry timescale for the bounded bring-up retry tests —
+      // long enough that a post-debounce `_settle()` (550 ms) still lands
+      // BEFORE the retry fires (debounce 400 ms + 300 ms > 550 ms).
+      wifiBringUpRetryProvider.overrideWithValue(
+        const WifiBringUpRetry(delay: Duration(milliseconds: 300)),
       ),
     ],
   );
@@ -210,5 +225,70 @@ void main() {
       1,
       reason: 'give-up is the moment the retained group is torn down',
     );
+  });
+
+  // Field regression (2026-07-07, real Jetson + phone): manual disconnect →
+  // manual reconnect; the firmware returned the STALE still-up group, the
+  // phone's P2P join failed every internal attempt, and connectGroup's failure
+  // path released the firmware group (StopWifiDirect). Nothing re-formed it —
+  // the preview sat on "RECONNECTING…" forever. The handoff now retries the
+  // bring-up once: the fresh StartWifiDirect re-forms the group.
+  group('bounded bring-up retry', () {
+    test('a failed bring-up is retried once while BLE stays connected — and '
+        'the budget is bounded (no third attempt)', () async {
+      final ble = _FakeBle();
+      final wifi = _FakeWifi()..failNextConnects = 1;
+      final container = _container(ble, wifi);
+      addTearDown(container.dispose);
+
+      ble.ctrl.add(CameraConnectionState.connected);
+      await _settle();
+      expect(wifi.connectCalls, 1, reason: 'first bring-up attempt fired');
+
+      // Past the 300ms retry delay: the second (successful) attempt ran.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(wifi.connectCalls, 2, reason: 'one retry re-forms the group');
+
+      // Success ends the sequence — nothing keeps retrying.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(wifi.connectCalls, 2);
+    });
+
+    test('two failures exhaust the budget — the handoff stops (no reactive '
+        'loop)', () async {
+      final ble = _FakeBle();
+      final wifi = _FakeWifi()..failNextConnects = 2;
+      final container = _container(ble, wifi);
+      addTearDown(container.dispose);
+
+      ble.ctrl.add(CameraConnectionState.connected);
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      expect(
+        wifi.connectCalls,
+        2,
+        reason: 'maxAttempts=2 — a second failure must not schedule a third',
+      );
+    });
+
+    test('a BLE disconnect before the retry fires cancels it', () async {
+      final ble = _FakeBle();
+      final wifi = _FakeWifi()..failNextConnects = 1;
+      final container = _container(ble, wifi);
+      addTearDown(container.dispose);
+
+      ble.ctrl.add(CameraConnectionState.connected);
+      await _settle();
+      expect(wifi.connectCalls, 1);
+
+      // Manual disconnect lands inside the retry window.
+      ble.ctrl.add(CameraConnectionState.disconnecting);
+      ble.ctrl.add(CameraConnectionState.disconnected);
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      expect(
+        wifi.connectCalls,
+        1,
+        reason: 'the pending retry must die with the BLE link',
+      );
+    });
   });
 }
