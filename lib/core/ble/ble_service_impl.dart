@@ -46,6 +46,17 @@ Duration _remainingUntil(DateTime deadline) {
 final _log = Logger('BleService');
 
 class BleServiceImpl implements BleService {
+  BleServiceImpl({this.connectTimeout = const Duration(seconds: 20)});
+
+  /// Budget for the platform-level connect. Deliberately BELOW the connect
+  /// controller's 30 s handshake wall: Dart's `Future.timeout` abandons but
+  /// cannot cancel, whereas FBP's own connect timeout actively cancels the
+  /// platform attempt AND releases FBP's global op mutex (which `connect`
+  /// holds for its whole wait). With FBP's 35 s default, a wall-abandoned
+  /// connect kept the mutex wedged past the wall, so every retry queued
+  /// behind it and timed out identically until the app was restarted.
+  final Duration connectTimeout;
+
   // Seeded so a late subscriber (e.g. re-entering the discovery page) replays the
   // last known device list immediately instead of seeing nothing until the next
   // scan result lands.
@@ -229,23 +240,54 @@ class BleServiceImpl implements BleService {
     // discovery row watches connectionStateStream at build time) receives the
     // connecting/connected transitions on the same controller.
     final conn = _deviceSlot(deviceId);
+    // Attempt epoch: a newer connect()/disconnect() supersedes this attempt.
+    // A handshake-wall timeout abandons this future WITHOUT cancelling it, so
+    // its remaining steps keep running — every slot mutation and the failure
+    // teardown below are epoch-guarded so a late-failing abandoned attempt
+    // can never tear down the state a newer attempt has just built (that
+    // cross-attempt teardown made "retry" fail forever on device until the
+    // app was killed).
+    final attempt = ++conn._attemptEpoch;
     conn._device = device;
 
     conn._connController.add(CameraConnectionState.connecting);
 
+    // Throws when a newer attempt (or a disconnect) took over the slot while
+    // this one was awaiting — routed to the catch below, which then leaves
+    // both the slot and the platform link untouched for the new owner.
+    void ensureCurrent() {
+      if (conn._attemptEpoch != attempt) {
+        throw BleConnectionException(
+          'Connect attempt superseded for $deviceId',
+        );
+      }
+    }
+
     try {
-      await device.connect(autoConnect: false);
+      // Bounded below the controller's handshake wall — see [connectTimeout].
+      await device.connect(autoConnect: false, timeout: connectTimeout);
+      ensureCurrent();
       // requestMtu returns the ACTUAL negotiated MTU, which can be below 512 on
       // real hardware. Derive the chunk budget from it — a fixed 400-byte chunk
       // overflows a single GATT write on a sub-512 MTU (the #1 bring-up risk).
-      final negotiatedMtu = await device.requestMtu(512);
+      // requestMtu is Android-only; platforms that negotiate the MTU implicitly
+      // (iOS, host-side tests against a fake platform) throw androidOnly — fall
+      // back to the platform-tracked value instead of failing the connect.
+      int negotiatedMtu;
+      try {
+        negotiatedMtu = await device.requestMtu(512);
+      } on FlutterBluePlusException catch (e) {
+        if (e.code != FbpErrorCode.androidOnly.index) rethrow;
+        negotiatedMtu = device.mtuNow;
+      }
+      ensureCurrent();
       conn.chunkDataBudget = BleProtocol.chunkBudgetForMtu(negotiatedMtu);
 
       final services = await device.discoverServices();
+      ensureCurrent();
       final svc = services.where((s) => s.uuid == _serviceUuid).firstOrNull;
 
       if (svc == null) {
-        await device.disconnect();
         throw BleConnectionException('SST-Cam service not found on $deviceId');
       }
 
@@ -257,13 +299,13 @@ class BleServiceImpl implements BleService {
           .firstOrNull;
 
       if (conn._cmdWrite == null || conn._cmdResponse == null) {
-        await device.disconnect();
         throw BleConnectionException(
           'Required characteristics not found on $deviceId',
         );
       }
 
       await conn._cmdResponse!.setNotifyValue(true);
+      ensureCurrent();
       conn._startResponseListener();
 
       // Link is up and the command channel works, but the §9b handshake
@@ -276,17 +318,34 @@ class BleServiceImpl implements BleService {
 
       // Listen for unexpected disconnection. Keep the slot (replays
       // disconnected to existing/late subscribers) — only tear down the
-      // transient connection resources.
+      // transient connection resources. Epoch-guarded: once a newer attempt
+      // owns the slot, a leaked/lagging subscription from this one no-ops.
       conn._connSub = device.connectionState.listen((s) {
-        if (s == BluetoothConnectionState.disconnected) {
+        if (s == BluetoothConnectionState.disconnected &&
+            conn._attemptEpoch == attempt) {
           conn._connController.add(CameraConnectionState.disconnected);
           conn.teardownConnection();
         }
       });
     } catch (e) {
       _log.warn('connect to camera $deviceId failed', e);
-      conn._connController.add(CameraConnectionState.disconnected);
-      conn.teardownConnection();
+      if (conn._attemptEpoch == attempt) {
+        // Drop whatever the platform holds for THIS attempt — a live link
+        // when a post-link step failed, or an in-progress attempt. Without
+        // this the platform kept a connection the app no longer had a handle
+        // to (teardown nulls _device, so the controller's cleanup disconnect
+        // silently no-oped) and the next connect ran against that ghost.
+        // queue:false jumps FBP's op queue so a stuck connect is CANCELLED
+        // rather than waited behind. Skipped entirely when superseded: the
+        // remoteId now belongs to the newer attempt's live link.
+        try {
+          await device.disconnect(queue: false);
+        } catch (_) {
+          // Best-effort — surface the original failure below.
+        }
+        conn._connController.add(CameraConnectionState.disconnected);
+        conn.teardownConnection();
+      }
       if (e is BleConnectionException || e is BleProtocolVersionException) {
         rethrow;
       }
@@ -327,12 +386,30 @@ class BleServiceImpl implements BleService {
     final conn = _devices[deviceId];
     if (conn == null) return;
     _log.info('disconnecting camera $deviceId');
+    // Supersede any in-flight connect attempt: its late failure path must not
+    // re-tear-down (or platform-disconnect) after this explicit teardown.
+    conn._attemptEpoch++;
     conn._connController.add(CameraConnectionState.disconnecting);
-    await conn._device?.disconnect();
-    conn._connController.add(CameraConnectionState.disconnected);
-    // Keep the slot so the connection stream replays disconnected and a later
-    // reconnect reuses the same controllers.
-    conn.teardownConnection();
+    // Build the handle from the id — conn._device may already be null (a
+    // failed handshake's teardown clears it) while the platform still holds
+    // a link or an in-progress attempt; FBP devices are value handles keyed
+    // by remote id, so this always addresses the right connection. The old
+    // `conn._device?.disconnect()` silently no-oped in exactly that state,
+    // leaving a ghost platform link behind a "disconnected" app.
+    final device =
+        conn._device ?? BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
+    try {
+      // queue:false jumps FBP's op queue: a user disconnect must CANCEL an
+      // in-progress connect attempt (FBP holds its global op mutex for the
+      // whole connect wait — queueing behind it wedged every reconnect retry
+      // until app restart) and shouldn't wait behind in-flight polls either.
+      await device.disconnect(queue: false);
+    } finally {
+      conn._connController.add(CameraConnectionState.disconnected);
+      // Keep the slot so the connection stream replays disconnected and a
+      // later reconnect reuses the same controllers.
+      conn.teardownConnection();
+    }
   }
 
   @override
@@ -738,6 +815,12 @@ class _ConnectedDevice {
   BluetoothDevice? _device;
   StreamSubscription<BluetoothConnectionState>? _connSub;
 
+  /// Monotonic connect-attempt epoch. Bumped by every connect() and
+  /// disconnect() so an ABANDONED attempt (the handshake wall times out but
+  /// cannot cancel the underlying future) detects it was superseded and keeps
+  /// its hands off the slot + platform link the new owner is using.
+  int _attemptEpoch = 0;
+
   // Seeded controllers: replay current value to late subscribers and keep a
   // stable identity across connect/disconnect cycles. Connection state seeds
   // disconnected so a pre-connect subscriber sees a defined state immediately.
@@ -852,6 +935,9 @@ class _ConnectedDevice {
   }
 
   void _startResponseListener() {
+    // Never stack listeners: an overwritten subscription would keep feeding
+    // frames (subscription-not-cancelled ghost-state class).
+    _responseSub?.cancel();
     _responseSub = _cmdResponse?.onValueReceived.listen((rawBytes) {
       try {
         final chunk = proto.ChunkedPayload.fromBuffer(rawBytes);
