@@ -95,7 +95,9 @@ void main() {
       expect(ble.lastFocus!.position, isNull);
       expect(tester.widget<Switch>(_afSwitch).value, isTrue);
       expect(
-        find.textContaining('Autofocus pauses while recording'),
+        find.textContaining(
+          'Continuous autofocus stays active during recording and streaming',
+        ),
         findsOneWidget,
       );
     },
