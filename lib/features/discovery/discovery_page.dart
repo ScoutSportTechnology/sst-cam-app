@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../core/models/device.dart';
+import '../../core/services/log_service.dart';
 import '../../core/widgets/borders.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/ble/ble_service.dart';
@@ -9,8 +11,11 @@ import '../../core/state/connect_controller.dart';
 import '../../core/state/reconnect_controller.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
+import '../../core/widgets/notify.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
+
+final _log = Logger('Discovery');
 
 /// Scan & connect flow. Reachable from Settings → "Connect a different camera".
 class DiscoveryPage extends ConsumerStatefulWidget {
@@ -37,22 +42,25 @@ class _DiscoveryPageState extends ConsumerState<DiscoveryPage> {
   ///   is handled by the persistent "Bluetooth is off" banner (with an Enable
   ///   button), so we suppress the redundant snackbar for it.
   Future<void> _startScan() async {
+    _log.info('scan start');
     try {
       await ref.read(bleServiceProvider).startScan();
     } on StateError catch (e) {
       _showScanError(e.message);
     } catch (e) {
       final btOff = ref.read(bluetoothOnProvider).valueOrNull == false;
-      if (!btOff) _showScanError('Scan failed. $e');
+      if (btOff) {
+        _log.info('scan skipped: bluetooth off (banner shown)');
+      } else {
+        _showScanError('Scan failed. $e');
+      }
     }
     if (mounted) setState(() {});
   }
 
   void _showScanError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    // ignore: use_build_context_synchronously
+    showErrorSnack(context, message, source: 'Discovery');
   }
 
   /// Persistent prompt shown while the Bluetooth adapter is off — scanning can't
@@ -258,10 +266,14 @@ class _DeviceRow extends ConsumerWidget {
   /// selection adoption from the firmware snapshot. Extracted so the error
   /// sheet's Retry button can re-run the exact same flow.
   Future<void> _attemptConnect(BuildContext context, WidgetRef ref) async {
+    _log.info('device tapped → connect ${device.id} (${device.name})');
     try {
       await ref.read(connectControllerProvider).connect(device.id);
       if (context.mounted) Navigator.of(context).pop();
     } catch (e) {
+      // The controller already logged the raw cause at error; this records the
+      // human-readable reason the user is shown in the retry sheet.
+      _log.warn('connect from Discover failed: ${_humanConnectError(e)}');
       if (context.mounted) _showConnectErrorSheet(context, ref, e);
     }
   }
