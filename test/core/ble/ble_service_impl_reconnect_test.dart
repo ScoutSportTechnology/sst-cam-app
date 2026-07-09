@@ -153,6 +153,16 @@ final class _FakeBlePlatform extends FlutterBluePlusPlatform {
   final _discoveredServices =
       StreamController<BmDiscoverServicesResult>.broadcast();
   final _mtuChanged = StreamController<BmMtuChangedResponse>.broadcast();
+  final _scanResponse = StreamController<BmScanResponse>.broadcast();
+
+  /// Device ids currently ADVERTISING — delivered on every platform scan.
+  /// The impl's connect() resolves the camera's live address by scanning
+  /// before it dials (stale-remoteId / GATT 147 fix), so every test that
+  /// connects must have its device id registered here (see `setUp`).
+  final Set<DeviceIdentifier> advertised = {};
+
+  /// Advertised name per id; defaults to a compliant `sst-cam-` name.
+  final Map<DeviceIdentifier, String> advertisedNames = {};
 
   /// Devices whose GATT link is currently up.
   final Set<DeviceIdentifier> connected = {};
@@ -193,6 +203,41 @@ final class _FakeBlePlatform extends FlutterBluePlusPlatform {
       _discoveredServices.stream;
   @override
   Stream<BmMtuChangedResponse> get onMtuChanged => _mtuChanged.stream;
+  @override
+  Stream<BmScanResponse> get onScanResponse => _scanResponse.stream;
+
+  @override
+  Future<bool> startScan(BmScanSettings request) async {
+    scheduleMicrotask(() {
+      if (advertised.isEmpty) return;
+      _scanResponse.add(
+        BmScanResponse(
+          advertisements: [
+            for (final id in advertised)
+              BmScanAdvertisement(
+                remoteId: id,
+                platformName: null,
+                advName: advertisedNames[id] ?? 'sst-cam-0001',
+                connectable: true,
+                txPowerLevel: null,
+                appearance: null,
+                manufacturerData: const {},
+                serviceData: const {},
+                serviceUuids: [_svcUuid],
+                rssi: -50,
+              ),
+          ],
+          success: true,
+          errorCode: 0,
+          errorString: '',
+        ),
+      );
+    });
+    return true;
+  }
+
+  @override
+  Future<bool> stopScan(BmStopScanRequest request) async => true;
 
   void _emitConnectionState(DeviceIdentifier id, BmConnectionStateEnum state) {
     _connectionState.add(
@@ -426,6 +471,15 @@ void main() {
     platform.stallConnect = false;
     platform.failNextSetNotify = false;
     platform.connecting.clear();
+    // Every device id used in this file advertises by default — connect()
+    // scan-resolves the live address before dialing, so an unadvertised id
+    // fails fast with "Camera not found" (the rotation tests below override).
+    platform.advertised
+      ..clear()
+      ..addAll([
+        for (var i = 1; i <= 9; i++) DeviceIdentifier('AA:BB:CC:00:00:0$i'),
+      ]);
+    platform.advertisedNames.clear();
   });
 
   group('BleServiceImpl reconnect (real impl over fake platform)', () {
@@ -708,5 +762,104 @@ void main() {
       expect(await svc.getDeviceInfo(deviceId), isNotNull);
       await svc.disconnect(deviceId);
     });
+  });
+
+  group('address resolution before connect (stale remoteId / GATT 147)', () {
+    // Field bug (2026-07-08, real Jetson + phone): the camera's BT address is
+    // NOT stable across reboots (Realtek RTL8822CE has no persistent public
+    // MAC), so every stored-id path (one-tap banner, auto-reconnect, retry)
+    // dialed a dead address blind and the Android stack failed with error 147
+    // after its full 30 s wait. connect() must resolve the LIVE address by
+    // scanning first.
+
+    test('camera rebooted onto a new address: connect(staleId) rebinds to '
+        'the sole advertising sst-cam and completes the handshake', () async {
+      const staleId = 'AA:BB:CC:00:00:08'; // persisted before the reboot
+      const liveId = 'AA:BB:CC:00:00:09'; // what the camera advertises NOW
+      final svc = BleServiceImpl(
+        disconnectSettle: Duration.zero,
+        resolveRebindGrace: Duration.zero,
+      );
+      addTearDown(svc.dispose);
+
+      platform.advertised
+        ..clear()
+        ..add(DeviceIdentifier(liveId));
+
+      // The app-level identity stays the stale id — streams and commands are
+      // keyed by it; the rebound address is a transport detail.
+      await svc.connect(staleId);
+      expect(platform.connected, contains(DeviceIdentifier(liveId)));
+      expect(
+        await svc.getDeviceInfo(staleId),
+        isNotNull,
+        reason: 'commands keyed by the requested id must ride the rebound link',
+      );
+      await svc.disconnect(staleId);
+      await Future<void>.delayed(Duration.zero);
+      expect(platform.connected, isNot(contains(DeviceIdentifier(liveId))));
+    });
+
+    test('camera not advertising at all: connect fails fast with a clear '
+        'message instead of the 30 s platform timeout', () async {
+      const deviceId = 'AA:BB:CC:00:00:08';
+      final svc = BleServiceImpl(
+        disconnectSettle: Duration.zero,
+        resolveScanBudget: const Duration(milliseconds: 200),
+      );
+      addTearDown(svc.dispose);
+
+      platform.advertised.clear();
+
+      final sw = Stopwatch()..start();
+      await expectLater(
+        svc.connect(deviceId),
+        throwsA(
+          isA<BleConnectionException>().having(
+            (e) => e.toString(),
+            'message',
+            contains('Camera not found'),
+          ),
+        ),
+      );
+      expect(
+        sw.elapsedMilliseconds,
+        lessThan(2000),
+        reason: 'the failure must come from the scan budget, not GATT 147',
+      );
+      expect(platform.connectCalls, 0, reason: 'nothing to dial — no attempt');
+    });
+
+    test(
+      'several unknown cameras in range: connect refuses to guess',
+      () async {
+        const staleId = 'AA:BB:CC:00:00:08';
+        final svc = BleServiceImpl(
+          disconnectSettle: Duration.zero,
+          resolveScanBudget: const Duration(milliseconds: 300),
+          resolveRebindGrace: Duration.zero,
+        );
+        addTearDown(svc.dispose);
+
+        platform.advertised
+          ..clear()
+          ..addAll([
+            DeviceIdentifier('AA:BB:CC:00:00:0A'),
+            DeviceIdentifier('AA:BB:CC:00:00:0B'),
+          ]);
+
+        await expectLater(
+          svc.connect(staleId),
+          throwsA(
+            isA<BleConnectionException>().having(
+              (e) => e.toString(),
+              'message',
+              contains('Discover'),
+            ),
+          ),
+        );
+        expect(platform.connectCalls, 0);
+      },
+    );
   });
 }
