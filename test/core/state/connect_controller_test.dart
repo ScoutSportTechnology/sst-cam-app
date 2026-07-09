@@ -360,10 +360,40 @@ void main() {
   });
 
   group('Typed failures — link dropped, no half-hydrated state', () {
-    test('snapshot timeout → BleHandshakeException, disconnected, no partial '
-        'hydration', () async {
+    test('one-shot snapshot failure is recovered by the transparent retry — '
+        'connect succeeds, no error surfaces', () async {
+      // The first GetSessionSnapshot times out (self-clearing one-shot); the
+      // retry re-runs the whole handshake and its second snapshot succeeds.
+      // Models a fast reconnect landing during the camera's radio settle after
+      // a WiFi-Direct group teardown — the user must NOT see a spurious error.
       mock.failNextSessionSnapshot = true;
-      // Firmware state that would have been adopted had the snapshot arrived.
+      mock.lastActiveCamera = 1;
+      mock.lastPreviewLayout = PreviewLayout.sideBySide;
+
+      final container = makeContainer();
+
+      CameraConnectionState? current;
+      mock.connectionStateStream(_kDeviceId).listen((s) => current = s);
+
+      // No throw — the retry recovered.
+      await container.read(connectControllerProvider).connect(_kDeviceId);
+
+      expect(current, CameraConnectionState.connected);
+      expect(container.read(sessionSnapshotProvider), isNotNull);
+      expect(container.read(activeCameraIdProvider), _kDeviceId);
+      // Two snapshot reads prove the retry ran: the failed first attempt + the
+      // successful retry.
+      expect(
+        mock.receivedCommands.whereType<GetSessionSnapshotCommand>().length,
+        2,
+      );
+    });
+
+    test('persistent snapshot failure exhausts the retry → '
+        'BleHandshakeException, disconnected, no partial hydration', () async {
+      // Every snapshot NACKs, so both the first attempt and the transparent
+      // retry fail — the error surfaces terminally with the link dropped.
+      mock.failAllSessionSnapshot = true;
       mock.lastActiveCamera = 1;
       mock.lastPreviewLayout = PreviewLayout.sideBySide;
 
@@ -377,6 +407,11 @@ void main() {
         throwsA(isA<BleHandshakeException>()),
       );
 
+      // Both attempts ran (retry exhausted), then surfaced.
+      expect(
+        mock.receivedCommands.whereType<GetSessionSnapshotCommand>().length,
+        2,
+      );
       // Link dropped; nothing was hydrated or marked active.
       expect(current, CameraConnectionState.disconnected);
       expect(container.read(sessionSnapshotProvider), isNull);
