@@ -49,6 +49,8 @@ class BleServiceImpl implements BleService {
   BleServiceImpl({
     this.connectTimeout = const Duration(seconds: 20),
     this.disconnectSettle = const Duration(milliseconds: 2500),
+    this.resolveScanBudget = const Duration(seconds: 7),
+    this.resolveRebindGrace = const Duration(milliseconds: 2500),
   });
 
   /// Budget for the platform-level connect. Deliberately BELOW the connect
@@ -69,6 +71,26 @@ class BleServiceImpl implements BleService {
   /// and died with android error 147 (GATT_CONNECTION_TIMEOUT). Sized to
   /// outlast that whole teardown + re-advertise sequence with margin.
   final Duration disconnectSettle;
+
+  /// Budget for the pre-connect address-resolution scan. Field bug
+  /// (2026-07-08, real Jetson + phone): the camera's BT address is NOT stable
+  /// — the Realtek RTL8822CE has no persistent public MAC, so the kernel
+  /// assigns a fresh static-random address per boot. A connect to a persisted
+  /// remoteId dialed the OLD address blind and the Android stack waited its
+  /// full 30 s for an advert that never came, failing with android error 147
+  /// (GATT_CONNECTION_TIMEOUT) on every stored-id path (one-tap banner,
+  /// auto-reconnect, retry) after any camera reboot. [connect] therefore
+  /// scans first and rebinds to the address the camera advertises NOW; when
+  /// nothing is found it fails within this budget with a clear message
+  /// instead of the 30 s stack timeout.
+  final Duration resolveScanBudget;
+
+  /// How long after the first sighting of a DIFFERENT sst-cam to keep waiting
+  /// for the requested address before rebinding to that sole candidate. Long
+  /// enough for a live requested address to answer the scan (adverts arrive
+  /// within ~1-2 s on a low-latency scan), short enough that the common
+  /// single-camera rebind doesn't sit out the whole scan budget.
+  final Duration resolveRebindGrace;
 
   // Seeded so a late subscriber (e.g. re-entering the discovery page) replays the
   // last known device list immediately instead of seeing nothing until the next
@@ -245,10 +267,105 @@ class BleServiceImpl implements BleService {
   // Connection
   // ---------------------------------------------------------------------------
 
+  /// Resolve the address the camera advertises RIGHT NOW before dialing.
+  ///
+  /// The remoteId the app persists is a BT address, and the camera's address
+  /// is ephemeral (see [resolveScanBudget]). Resolution rules, in order:
+  ///
+  ///  1. Requested address already platform-connected → use it (silent-rejoin
+  ///     reconnects must not scan against a live link).
+  ///  2. Requested address seen advertising → use it (address still valid).
+  ///  3. Exactly one OTHER sst-cam advertising and the requested address
+  ///     stayed silent through [resolveRebindGrace] → rebind to it (the
+  ///     camera rebooted onto a new address; identity follows the name
+  ///     prefix + service UUID filter, not the stale MAC).
+  ///  4. Nothing found by [resolveScanBudget] → fail fast with a clear
+  ///     message; several unknown cameras → send the user to Discover.
+  ///
+  /// The caller keeps its slot keyed by the REQUESTED id — the rebound
+  /// address is a transport detail confined to the platform handle, so
+  /// every stream/command keyed by the app-level id keeps working.
+  Future<DeviceIdentifier> _resolveRemoteId(String deviceId) async {
+    final target = DeviceIdentifier(deviceId);
+    if (FlutterBluePlus.connectedDevices.any((d) => d.remoteId == target)) {
+      return target;
+    }
+
+    final seen = <DeviceIdentifier>{};
+    final resolved = Completer<DeviceIdentifier>();
+    Timer? rebindGraceTimer;
+
+    void considerRebind() {
+      // Fires only after the grace elapsed without the requested address
+      // showing up: a SINGLE other camera is unambiguous — take it.
+      if (resolved.isCompleted) return;
+      final others = seen.where((id) => id != target).toList();
+      if (others.length == 1) resolved.complete(others.first);
+    }
+
+    final sub = FlutterBluePlus.onScanResults.listen((results) {
+      for (final r in results) {
+        final name = r.advertisementData.advName.toLowerCase();
+        if (!name.startsWith(_kNamePrefix)) continue;
+        final id = r.device.remoteId;
+        if (id == target) {
+          if (!resolved.isCompleted) resolved.complete(target);
+          return;
+        }
+        if (seen.add(id)) {
+          rebindGraceTimer ??= Timer(resolveRebindGrace, considerRebind);
+        }
+      }
+    });
+
+    // Piggyback on an already-running UI scan (starting a second platform
+    // scan would restart it under the discovery page); otherwise run our own
+    // short one. `startScan`'s future completes when the scan STARTS — the
+    // listener above carries it from there.
+    final ownScan = !_isScanning;
+    try {
+      if (ownScan) {
+        try {
+          await FlutterBluePlus.startScan(
+            withServices: [_serviceUuid],
+            timeout: resolveScanBudget,
+          );
+        } catch (e) {
+          // Resolution is an optimization on top of the connect — a scan-layer
+          // failure (permission revoked mid-session, platform without scan
+          // support) must degrade to the old direct dial, not remove the
+          // ability to connect.
+          _log.warn('address-resolution scan unavailable, dialing direct', e);
+          return target;
+        }
+      }
+      return await resolved.future.timeout(
+        resolveScanBudget,
+        onTimeout: () {
+          if (seen.isEmpty) {
+            throw BleConnectionException(
+              'Camera not found — make sure it is powered on and in range.',
+            );
+          }
+          throw BleConnectionException(
+            'Several cameras in range but none matches this one — '
+            'reconnect from the Discover page.',
+          );
+        },
+      );
+    } finally {
+      rebindGraceTimer?.cancel();
+      await sub.cancel();
+      if (ownScan) {
+        unawaited(FlutterBluePlus.stopScan().catchError((_) {}));
+      }
+    }
+  }
+
   @override
   Future<void> connect(String deviceId) async {
     _log.info('connecting to camera $deviceId');
-    final device = BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
+    var device = BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
     // Reuse the persistent slot so any stream subscribed BEFORE connect (the
     // discovery row watches connectionStateStream at build time) receives the
     // connecting/connected transitions on the same controller.
@@ -292,6 +409,21 @@ class BleServiceImpl implements BleService {
           await Future<void>.delayed(wait);
           ensureCurrent();
         }
+      }
+
+      // Resolve the camera's CURRENT address before dialing — the persisted
+      // remoteId goes stale whenever the camera reboots (non-persistent BT
+      // MAC; see [resolveScanBudget]). Throws fast when the camera isn't
+      // advertising at all, instead of the 30 s platform GATT 147 timeout.
+      final resolvedId = await _resolveRemoteId(deviceId);
+      ensureCurrent();
+      if (resolvedId.str != deviceId) {
+        _log.info(
+          'camera $deviceId now advertises as ${resolvedId.str} — '
+          'rebinding platform handle (address rotated across reboot)',
+        );
+        device = BluetoothDevice(remoteId: resolvedId);
+        conn._device = device;
       }
 
       // Bounded below the controller's handshake wall — see [connectTimeout].
