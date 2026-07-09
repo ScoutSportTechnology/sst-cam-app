@@ -41,12 +41,16 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../ble/ble_providers.dart';
 import '../ble/ble_service.dart';
 import '../models/device.dart';
+import '../services/log_service.dart';
 import 'camera_selection.dart' show activeCameraIdProvider;
 import 'connect_controller.dart';
+
+final _log = Logger('Reconnect');
 
 /// Backoff curve for reconnect attempts. Overridable in tests (and tunable on
 /// metal) via [reconnectBackoffProvider].
@@ -165,6 +169,7 @@ class ReconnectController extends Notifier<ReconnectState> {
   /// unexpected drop), and clears the active camera. The WiFi group teardown
   /// then proceeds normally in wifi_handoff via the camera-change branch.
   Future<void> manualDisconnect(String deviceId) async {
+    _log.info('manual disconnect → $deviceId (loop disarmed)');
     _stopLoop();
     try {
       await ref.read(bleServiceProvider).disconnect(deviceId);
@@ -176,6 +181,7 @@ class ReconnectController extends Notifier<ReconnectState> {
   void _onBluetooth(bool on) {
     _bluetoothOn = on;
     if (!on && state.phase == ReconnectPhase.reconnecting) {
+      _log.warn('bluetooth off mid-reconnect → giving up');
       _giveUp(ReconnectGiveUpReason.bluetoothOff);
     }
   }
@@ -229,6 +235,7 @@ class ReconnectController extends Notifier<ReconnectState> {
   }
 
   void _arm(String deviceId) {
+    _log.warn('unexpected drop → arming auto-reconnect for $deviceId');
     _attempts = 0;
     state = ReconnectState(
       phase: ReconnectPhase.reconnecting,
@@ -240,6 +247,10 @@ class ReconnectController extends Notifier<ReconnectState> {
   void _scheduleNext(String deviceId) {
     _retryTimer?.cancel();
     final delay = ref.read(reconnectBackoffProvider).delayFor(_attempts);
+    _log.debug(
+      'next reconnect attempt for $deviceId in ${delay.inSeconds}s '
+      '(attempts so far: $_attempts)',
+    );
     _retryTimer = Timer(delay, () => _attempt(deviceId));
   }
 
@@ -251,21 +262,26 @@ class ReconnectController extends Notifier<ReconnectState> {
       deviceId: deviceId,
       attempt: _attempts,
     );
+    _log.info('reconnect attempt #$_attempts → $deviceId');
     try {
       // Full U1 handshake — shared entry point, in-flight dedup included.
       await ref.read(connectControllerProvider).connect(deviceId);
+      _log.info('reconnect attempt #$_attempts SUCCEEDED → $deviceId');
       _stopLoop(); // authoritative even if the connected emission lags
     } on BleProtocolVersionException {
+      _log.error('reconnect → protocol mismatch, giving up (permanent)');
       _giveUp(ReconnectGiveUpReason.protocolMismatch);
-    } catch (_) {
+    } catch (e) {
       // Transient (link, handshake, timeout) — keep going on the cadence.
       // The connect controller already dropped the link and surfaced/typed
       // the failure; there is nothing to bubble from a background attempt.
+      _log.warn('reconnect attempt #$_attempts failed ($e) — will retry');
       if (state.isReconnecting(deviceId)) _scheduleNext(deviceId);
     }
   }
 
   void _giveUp(ReconnectGiveUpReason reason) {
+    _log.warn('reconnect loop gave up: $reason (after $_attempts attempts)');
     _retryTimer?.cancel();
     _retryTimer = null;
     state = ReconnectState(
