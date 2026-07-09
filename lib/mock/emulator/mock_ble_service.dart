@@ -1892,8 +1892,14 @@ class MockBleService implements BleService {
   bool mockWifiGroupUp = false;
 
   /// When true the next GetSessionSnapshot answers TIMEOUT (handshake-failure
-  /// path: the connect controller must fail typed and drop the link).
+  /// path: the connect controller must fail typed and drop the link). One-shot:
+  /// self-clears after firing, so a transparent connect retry recovers.
   bool failNextSessionSnapshot = false;
+
+  /// When true EVERY GetSessionSnapshot answers TIMEOUT (persistent): models a
+  /// firmware that keeps NACKing so the connect controller's transient retry
+  /// exhausts and the failure surfaces terminally.
+  bool failAllSessionSnapshot = false;
 
   /// The last absolute match-state overwrite received (reconcile push).
   SetMatchStateCommand? lastSetMatchState;
@@ -1902,7 +1908,7 @@ class MockBleService implements BleService {
   int? lastSetDeviceTimeEpochMs;
 
   proto.CommandResponse _buildSessionSnapshotResponse(String correlationId) {
-    if (failNextSessionSnapshot) {
+    if (failNextSessionSnapshot || failAllSessionSnapshot) {
       failNextSessionSnapshot = false;
       return proto.CommandResponse(
         correlationId: correlationId,

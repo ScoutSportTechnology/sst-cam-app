@@ -83,6 +83,15 @@ class ConnectController {
   static const _kHandshakeTimeout = Duration(seconds: 30);
   final Duration handshakeTimeout;
 
+  // A force-kill followed by a fast reconnect can land while the camera is
+  // still settling its radio — the WiFi-Direct P2P group teardown perturbs the
+  // shared BT/WiFi combo (RTL8822CE coexistence), so the first attempt links up
+  // then drops mid-handshake and a second attempt after the link settles
+  // reliably succeeds. Retry the whole handshake once, transparently, so the
+  // user never sees a spurious error and taps twice. Only version skew is
+  // permanent (a retry cannot fix it).
+  static const _kTransientConnectRetries = 1;
+
   // In-flight dedup (lifecycle-correctness learning): concurrent connect
   // requests for the same device share one attempt — a double tap or a manual
   // tap racing U6's reconnect loop must never run two handshakes at once.
@@ -109,7 +118,7 @@ class ConnectController {
     final sw = Stopwatch()..start();
     _log.info('connect start → $deviceId');
     try {
-      await _handshake(svc, deviceId).timeout(handshakeTimeout);
+      await _runHandshakeWithRetry(svc, deviceId);
 
       // Success side effects shared by every former call site: mark the
       // camera active and persist it for the one-tap reconnect CTA
@@ -151,6 +160,41 @@ class ConnectController {
       throw BleHandshakeException('Connect handshake failed: $e');
     } finally {
       _inFlight.remove(deviceId);
+    }
+  }
+
+  /// Run the handshake, transparently retrying once on a transient failure
+  /// (see [_kTransientConnectRetries]). Between attempts the link is dropped so
+  /// the retry dials clean — `disconnect` stamps the teardown time, which makes
+  /// the next `connect`'s disconnectSettle gate wait out the radio before
+  /// re-dialing. Version skew rethrows immediately: it is permanent, and a
+  /// silent retry would only delay the "update the app" prompt the user needs.
+  Future<void> _runHandshakeWithRetry(BleService svc, String deviceId) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        await _handshake(svc, deviceId).timeout(handshakeTimeout);
+        return;
+      } on BleProtocolVersionException {
+        rethrow;
+      } catch (e) {
+        if (attempt >= _kTransientConnectRetries) {
+          rethrow;
+        }
+        attempt++;
+        _log.warn(
+          'connect transient failure (retry $attempt/$_kTransientConnectRetries) '
+          '→ $deviceId: $e — dropping link and retrying',
+        );
+        // Drop the link + clear any half-hydrated snapshot from the aborted
+        // attempt; the retry re-runs the whole handshake and re-populates it.
+        _ref.read(sessionSnapshotProvider.notifier).state = null;
+        try {
+          await svc.disconnect(deviceId);
+        } catch (_) {
+          // Best-effort teardown before the retry — ignore.
+        }
+      }
     }
   }
 
