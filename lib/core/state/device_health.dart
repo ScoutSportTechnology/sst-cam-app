@@ -33,12 +33,16 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../ble/ble_providers.dart';
 import '../models/device.dart';
 import '../models/telemetry.dart';
+import '../services/log_service.dart';
 import 'camera_selection.dart' show activeCameraIdProvider;
 import 'connect_controller.dart' show sessionSnapshotProvider;
+
+final _log = Logger('DeviceHealth');
 
 /// How long a health reading stays trusted (≈5 missed 1 Hz telemetry polls).
 /// A provider (not a const) so tests can override it to a short window.
@@ -122,9 +126,12 @@ class DeviceHealthController extends Notifier<DeviceHealthState> {
         return;
       }
       _armStaleTimer();
-      state = DeviceHealthState(
-        camera0: t.camera0Health ?? CameraHealth.unknown,
-        camera1: t.camera1Health ?? CameraHealth.unknown,
+      _apply(
+        DeviceHealthState(
+          camera0: t.camera0Health ?? CameraHealth.unknown,
+          camera1: t.camera1Health ?? CameraHealth.unknown,
+        ),
+        'telemetry',
       );
     });
 
@@ -146,8 +153,31 @@ class DeviceHealthController extends Notifier<DeviceHealthState> {
       // No successful health reading for the whole window while connected:
       // the last value is stale — degrade to unknown so a stale OK cannot
       // hold the gate open forever (nor a stale DOWN hold it shut).
-      state = DeviceHealthState.unreported;
+      _log.warn('health reading stale — degrading to unknown');
+      _apply(DeviceHealthState.unreported, 'stale-timer');
     });
+  }
+
+  /// Set the new health, logging the FOLDED device-level transition (the level
+  /// the capture gate + banner key off) whenever it changes. Per-camera detail
+  /// rides the same line so a DOWN camera is identifiable in the log. Health is
+  /// central to the whole state-health cycle, so every transition is recorded.
+  void _apply(DeviceHealthState next, String source) {
+    final prev = state.device;
+    state = next;
+    if (next.device == prev) return;
+    final msg =
+        'health $prev → ${next.device} ($source; '
+        'cam0=${next.camera0.name} cam1=${next.camera1.name})';
+    switch (next.device) {
+      case DeviceHealth.inoperable:
+        _log.error(msg);
+      case DeviceHealth.recovering:
+        _log.warn(msg);
+      case DeviceHealth.ok:
+      case DeviceHealth.unknown:
+        _log.info(msg);
+    }
   }
 }
 

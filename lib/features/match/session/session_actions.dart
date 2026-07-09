@@ -7,13 +7,16 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
 import '../../../core/models/device.dart';
 import '../../../core/models/streaming.dart' show resolveWireStream, joinRtmp;
+import '../../../core/services/log_service.dart';
 import '../../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/notify.dart';
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 import '../../settings/streaming/streaming_destination_form_sheet.dart'
     show showStreamingDestinationFormSheet;
@@ -21,15 +24,24 @@ import 'event_sheet.dart';
 import 'session_modals.dart';
 import 'session_state.dart';
 
+final _log = Logger('SessionActions');
+
 /// Sends [cmd] only when a camera is connected. Returns true when the command
 /// was dispatched, false when skipped (no device / not connected) — callers that
 /// mutate UI state on the back of a send (e.g. streaming on/off) gate on this so
 /// app and camera don't diverge.
 bool sendIfConnected(WidgetRef ref, BleCommand cmd) {
   final id = ref.read(activeCameraIdProvider);
-  if (id == null) return false;
+  if (id == null) {
+    _log.debug('skip ${cmd.runtimeType}: no active camera');
+    return false;
+  }
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
-  if (connState != CameraConnectionState.connected) return false;
+  if (connState != CameraConnectionState.connected) {
+    _log.warn('skip ${cmd.runtimeType}: camera not connected ($connState)');
+    return false;
+  }
+  _log.debug('send ${cmd.runtimeType} → $id');
   unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
   return true;
 }
@@ -41,19 +53,26 @@ bool sendIfConnected(WidgetRef ref, BleCommand cmd) {
 /// snackbar, never a silent failure (U3).
 bool sendStartIfConnected(BuildContext context, WidgetRef ref, BleCommand cmd) {
   final id = ref.read(activeCameraIdProvider);
-  if (id == null) return false;
+  if (id == null) {
+    _log.debug('skip START ${cmd.runtimeType}: no active camera');
+    return false;
+  }
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
-  if (connState != CameraConnectionState.connected) return false;
+  if (connState != CameraConnectionState.connected) {
+    _log.warn('skip START ${cmd.runtimeType}: not connected ($connState)');
+    return false;
+  }
+  _log.info('start-capture ${cmd.runtimeType} → $id');
   unawaited(
     ref.read(bleServiceProvider).sendCommand<void>(id, cmd).then((resp) {
-      if (resp.isDeviceInoperable && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Camera inoperable — could not start. See Diagnostics for '
-              'details.',
-            ),
-          ),
+      if (resp.isDeviceInoperable) {
+        // Log fires regardless of mount state (that is the point); the helper
+        // guards the actual snackbar on context.mounted internally.
+        showErrorSnack(
+          // ignore: use_build_context_synchronously
+          context,
+          'Camera inoperable — could not start. See Diagnostics for details.',
+          source: 'SessionActions',
         );
       }
     }),
@@ -80,6 +99,7 @@ Future<void> toggleSessionStream(
   LiveMatchState state,
 ) async {
   if (state.streaming) {
+    _log.info('stream toggle → stop');
     sendIfConnected(
       ref,
       StreamingControlCommand(action: StreamingControlAction.stop),
@@ -87,6 +107,7 @@ Future<void> toggleSessionStream(
     ctl.setStreaming(false);
     return;
   }
+  _log.info('stream toggle → start (resolving destination)');
 
   final matchId = ref.read(liveMatchProvider.notifier).matchId;
   String? wireUrl;
@@ -118,12 +139,16 @@ Future<void> toggleSessionStream(
       }
       wireUrl = resolved.wireUrl;
     }
-  } catch (_) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not start streaming.')),
-      );
-    }
+  } catch (e, st) {
+    // Log fires regardless of mount state; helper guards the snackbar itself.
+    showErrorSnack(
+      // ignore: use_build_context_synchronously
+      context,
+      'Could not start streaming.',
+      source: 'SessionActions',
+      error: e,
+      stackTrace: st,
+    );
     return;
   }
 
@@ -142,11 +167,11 @@ Future<void> toggleSessionStream(
   // never received the command.
   if (sent) {
     ctl.setStreaming(true);
-  } else if (context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Camera disconnected — streaming not started.'),
-      ),
+  } else {
+    showWarnSnack(
+      context,
+      'Camera disconnected — streaming not started.',
+      source: 'SessionActions',
     );
   }
 }
@@ -160,6 +185,10 @@ Future<void> sessionKickoff(
   LiveMatchController ctl,
   LiveMatchState state,
 ) async {
+  _log.info(
+    'kickoff period=${state.currentPeriod + 1} '
+    'rec=${state.rec} streaming=${state.streaming}',
+  );
   // Kickoff prompt — only on the very first period. Subsequent periods
   // continue with whatever recording / streaming state is active.
   if (state.currentPeriod != 0) {
@@ -238,6 +267,7 @@ Future<void> confirmSessionEnd(
 ) async {
   final recOn = state.rec != RecState.idle;
   final streamOn = state.streaming;
+  _log.info('end-match confirm rec=$recOn stream=$streamOn');
   if (!recOn && !streamOn) {
     // Nothing is running — no toggles to ask about, just end.
     sendIfConnected(
@@ -301,6 +331,7 @@ void showSessionEventSheet(
     builder: (_) => EventSheet(
       homeTeamId: homeTeamId,
       onSave: (type, team, jersey) {
+        _log.info('event "$type" team=$team jersey=${jersey ?? "-"}');
         // Build the param map the firmware uses for {{param}} substitution in
         // the event-banner templates (e.g. "{{player}}"). The firmware is the
         // sole overlay renderer now (A6a), so these keys must match the

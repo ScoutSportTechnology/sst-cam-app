@@ -21,14 +21,18 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../core/state/connect_controller.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/state/reconnect_controller.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/notify.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../discovery/discovery_page.dart';
+
+final _log = Logger('ConnectBanner');
 
 class ConnectCameraBanner extends ConsumerStatefulWidget {
   const ConnectCameraBanner({super.key});
@@ -48,6 +52,7 @@ class _ConnectCameraBannerState extends ConsumerState<ConnectCameraBanner> {
       final lastId = lastIdAsync.valueOrNull;
       if (lastId == null) {
         // First-launch path: just push DiscoveryPage.
+        _log.info('one-tap connect: no last camera → open Discover');
         if (!mounted) return;
         await Navigator.of(
           context,
@@ -58,18 +63,23 @@ class _ConnectCameraBannerState extends ConsumerState<ConnectCameraBanner> {
       // One-tap reconnect through the universal handshake. Success side
       // effects (active-camera id, selection adoption from the firmware
       // snapshot, last-connected persistence) live in the controller.
+      _log.info('one-tap reconnect → $lastId');
       try {
         await ref.read(connectControllerProvider).connect(lastId);
-      } catch (_) {
+        _log.info('one-tap reconnect OK → $lastId');
+      } catch (e, st) {
         // BleConnectionException, BleHandshakeException, anything else —
-        // same user-facing fallback per the plan (link already dropped).
+        // same user-facing fallback per the plan (link already dropped). The
+        // logged notice carries the underlying cause (e.g. the GATT failure)
+        // so a faded snackbar is no longer the only trace of it.
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Couldn't reconnect to last camera — searching for cameras.",
-            ),
-          ),
+        showErrorSnack(
+          // ignore: use_build_context_synchronously
+          context,
+          "Couldn't reconnect to last camera — searching for cameras.",
+          source: 'ConnectBanner',
+          error: e,
+          stackTrace: st,
         );
         await Navigator.of(
           context,

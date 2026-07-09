@@ -26,12 +26,14 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../ble/ble_providers.dart';
 import '../ble/ble_service.dart';
 import '../models/command.dart';
 import '../models/preview_layout.dart';
 import '../models/session_snapshot.dart';
+import '../services/log_service.dart';
 import '../wifi/wifi_providers.dart' show previewLayoutProvider;
 import '../../features/camera/camera_state.dart'
     show activeCameraIdProvider, activeOutputCameraProvider;
@@ -51,6 +53,8 @@ import 'persisted_match_store.dart';
 /// that need firmware actuals the selection providers don't carry — activity
 /// flags, recording elapsed, match state/clock (U2 restore), per-camera
 /// health (U3 gate folds this with live telemetry), last-session summary.
+final _log = Logger('ConnectController');
+
 final sessionSnapshotProvider = StateProvider<SessionSnapshot?>((_) => null);
 
 /// A LOCAL follow-up failure from the last handshake's reconcile (persisted
@@ -91,7 +95,10 @@ class ConnectController {
   /// timeout — in every failure case the link has already been dropped.
   Future<void> connect(String deviceId) {
     final existing = _inFlight[deviceId];
-    if (existing != null) return existing;
+    if (existing != null) {
+      _log.debug('connect($deviceId) joined in-flight attempt');
+      return existing;
+    }
     final attempt = _connect(deviceId);
     _inFlight[deviceId] = attempt;
     return attempt;
@@ -99,6 +106,8 @@ class ConnectController {
 
   Future<void> _connect(String deviceId) async {
     final svc = _ref.read(bleServiceProvider);
+    final sw = Stopwatch()..start();
+    _log.info('connect start → $deviceId');
     try {
       await _handshake(svc, deviceId).timeout(handshakeTimeout);
 
@@ -109,7 +118,17 @@ class ConnectController {
       unawaited(
         _ref.read(lastConnectedDeviceIdProvider.notifier).set(deviceId),
       );
-    } catch (e) {
+      _log.info('connect OK → $deviceId in ${sw.elapsedMilliseconds}ms');
+    } catch (e, st) {
+      // Log the raw cause (with the GATT code / platform message on the
+      // attached error) before it is normalized to a typed exception below —
+      // this is the line that makes a failed connect diagnosable after the
+      // fact instead of only surfacing as a faded snackbar.
+      _log.error(
+        'connect FAILED → $deviceId after ${sw.elapsedMilliseconds}ms: $e',
+        e,
+        st,
+      );
       // Drop the link on ANY failure so no half-hydrated state survives. A
       // late completion of the abandoned handshake cannot resurrect the
       // connection: completeHandshake() no-ops unless the device is still
@@ -141,24 +160,33 @@ class ConnectController {
     // 1. Wire link. The service resolves at `reconciling` — session-affecting
     //    UI gates on `connected` only, so everything stays locked from here
     //    until completeHandshake() (prevents a Record tap racing the snapshot).
+    _log.debug('handshake[1/7] link up $deviceId');
     await svc.connect(deviceId);
 
     // 2. Protocol gate — refuse the session on version skew before pushing
     //    or reading anything else (bluetooth.proto: consumers MUST refuse on
     //    mismatch, not silently proceed).
+    _log.debug('handshake[2/7] protocol gate');
     final info = await svc.getDeviceInfo(deviceId);
     if (info == null) {
       throw const BleHandshakeException('device info read failed');
     }
     if (info.protocolVersion != kAppProtocolVersion) {
+      _log.warn(
+        'protocol skew: app=$kAppProtocolVersion fw=${info.protocolVersion}',
+      );
       throw BleProtocolVersionException(
         expected: kAppProtocolVersion,
         actual: info.protocolVersion,
       );
     }
+    _log.debug(
+      'handshake[2/7] OK fw=${info.firmwareVersion} proto=${info.protocolVersion}',
+    );
 
     // 3. Time push — fixes device-LOCAL timestamps (file mtimes, summary
     //    fields); wire clocks stay monotonic so nothing else depends on it.
+    _log.debug('handshake[3/7] time push');
     final timeResp = await svc.sendCommand<void>(
       deviceId,
       SetDeviceTimeCommand(epochMs: DateTime.now().millisecondsSinceEpoch),
@@ -172,6 +200,7 @@ class ConnectController {
 
     // 4. Snapshot — the firmware's ACTUAL state (a session outlives the BLE
     //    connection; never assume idle/defaults).
+    _log.debug('handshake[4/7] snapshot');
     final snapResp = await svc.sendCommand<SessionSnapshot>(
       deviceId,
       GetSessionSnapshotCommand(),
@@ -183,10 +212,18 @@ class ConnectController {
         '${snapResp.errorMessage ?? snapResp.status.name}',
       );
     }
+    _log.info(
+      'handshake snapshot: phase=${snapshot.sessionPhase} '
+      'rec=${snapshot.isRecording} stream=${snapshot.isStreaming} '
+      'cam=${snapshot.activeCameraIndex}',
+    );
 
     // 5. Rehydrate, 6. reconcile, 7. unlock.
+    _log.debug('handshake[5/7] rehydrate providers');
     _rehydrate(deviceId, snapshot);
+    _log.debug('handshake[6/7] reconcile');
     await _reconcile(svc, deviceId, snapshot);
+    _log.debug('handshake[7/7] complete → connected');
     svc.completeHandshake(deviceId);
   }
 
@@ -247,6 +284,10 @@ class ConnectController {
     }
 
     final liveCtl = _ref.read(liveMatchProvider.notifier);
+    _log.debug(
+      'reconcile: sessionActive=$sessionActive runningUuid=$runningUuid '
+      'persisted=${persisted?.matchUuid ?? "none"}',
+    );
 
     // 1. Persisted match matches the running session → silent rejoin:
     //    push app scores (wire), restore the scoreboard, adopt the fw clock.
@@ -254,6 +295,7 @@ class ConnectController {
         persisted.isMidMatch &&
         sessionActive &&
         persisted.matchUuid == runningUuid) {
+      _log.info('reconcile branch 1: silent rejoin (persisted == running)');
       await _pushScores(svc, deviceId, persisted.scoreA, persisted.scoreB);
       try {
         liveCtl.restoreFromPersisted(
@@ -276,6 +318,7 @@ class ConnectController {
         sessionActive &&
         liveCtl.matchId == runningUuid &&
         isLiveMatchRunning(_ref.read(liveMatchProvider))) {
+      _log.info('reconcile branch 2: rejoin from in-memory match');
       final live = _ref.read(liveMatchProvider);
       await _pushScores(svc, deviceId, live.scoreHome, live.scoreAway);
       try {
@@ -296,6 +339,7 @@ class ConnectController {
     //    FIRST so the row is never orphaned and is cleared exactly once.
     if (persisted != null &&
         (!sessionActive || persisted.matchUuid != runningUuid)) {
+      _log.info('reconcile branch 3: settle stale persisted match');
       try {
         await _settleStalePersisted(deviceId, snapshot, persisted, liveCtl);
       } catch (e) {
@@ -309,6 +353,7 @@ class ConnectController {
     if (sessionActive &&
         persisted?.matchUuid != runningUuid &&
         liveCtl.matchId != runningUuid) {
+      _log.info('reconcile branch 4: adopt firmware-only session view');
       try {
         liveCtl.adoptFirmwareView(
           ms!,
@@ -392,6 +437,9 @@ class ConnectController {
   }
 
   void _localIssue(String message) {
+    // Local (non-wire) reconcile hiccup — the connect still succeeds, but the
+    // problem must be recoverable from the log, not just the transient banner.
+    _log.warn('local reconcile issue: $message');
     _ref.read(connectLocalIssueProvider.notifier).state = message;
   }
 }
