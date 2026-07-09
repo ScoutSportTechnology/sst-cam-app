@@ -192,11 +192,14 @@ class WifiHandoffController extends Notifier<void> {
   /// camera change, or give-up teardown.
   void _bringUp(String id, WifiService wifi, int attempt) {
     final policy = ref.read(wifiBringUpRetryProvider);
+    _log.info(
+      'WiFi-Direct bring-up for $id (attempt $attempt/${policy.maxAttempts})',
+    );
     unawaited(
       wifi
           .connectGroup(id)
           .then<void>(
-            (_) {},
+            (_) => _log.info('WiFi-Direct group up for $id'),
             onError: (Object e) {
               _log.warn(
                 'connectGroup failed '
