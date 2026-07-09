@@ -210,5 +210,83 @@ void main() {
         expect(_controllerOf(tester), isNot(same(before)));
       },
     );
+
+    testWidgets(
+      'silent stall — frozen frame while "playing" (no error, no stop edge) '
+      '→ automatic cycle after the stall window',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness());
+        await tester.pump();
+        final before = _controllerOf(tester);
+
+        // Frames flow: position advances across watchdog ticks (this arms the
+        // frozen-frame detection by proving the position signal is live).
+        before.value = before.value.copyWith(
+          isPlaying: true,
+          playingState: PlayingState.playing,
+          position: const Duration(seconds: 1),
+        );
+        await tester.pump(LivePreviewView.stallCheckInterval);
+        before.value = before.value.copyWith(
+          position: const Duration(seconds: 3),
+        );
+        await tester.pump(LivePreviewView.stallCheckInterval);
+
+        // Camera pipeline restarts underneath: VLC keeps claiming "playing"
+        // but the position pins — the exact metal failure that needed a
+        // manual Stop → Preview.
+        await tester.pump(
+          LivePreviewView.stallWindow + LivePreviewView.stallCheckInterval * 2,
+        );
+        await tester.pump(LivePreviewView.vlcRestartDelay);
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        expect(_controllerOf(tester), isNot(same(before)));
+      },
+    );
+
+    testWidgets(
+      'silent stall — pinned in buffering forever (never reaches playing) '
+      '→ automatic cycle after the stall window',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness());
+        await tester.pump();
+        final before = _controllerOf(tester);
+
+        before.value = before.value.copyWith(
+          isPlaying: false,
+          playingState: PlayingState.buffering,
+        );
+        await tester.pump(
+          LivePreviewView.stallWindow + LivePreviewView.stallCheckInterval * 2,
+        );
+        await tester.pump(LivePreviewView.vlcRestartDelay);
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        expect(_controllerOf(tester), isNot(same(before)));
+      },
+    );
+
+    testWidgets('a healthy advancing stream is never cycled by the watchdog', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildHarness());
+      await tester.pump();
+      final before = _controllerOf(tester);
+
+      before.value = before.value.copyWith(
+        isPlaying: true,
+        playingState: PlayingState.playing,
+        position: const Duration(seconds: 1),
+      );
+      // Position keeps moving every tick — well past the stall window.
+      for (var i = 2; i < 10; i++) {
+        await tester.pump(LivePreviewView.stallCheckInterval);
+        before.value = before.value.copyWith(position: Duration(seconds: i));
+      }
+      await tester.pump(LivePreviewView.vlcRestartDelay);
+      await tester.pump();
+      expect(_controllerOf(tester), same(before));
+    });
   });
 }

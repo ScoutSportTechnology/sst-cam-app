@@ -71,6 +71,19 @@ class LivePreviewView extends ConsumerStatefulWidget {
   /// hammer a camera that is mid-restart, short enough to feel automatic.
   static const vlcRestartDelay = Duration(seconds: 3);
 
+  /// Cadence of the silent-stall watchdog (see [stallWindow]).
+  static const stallCheckInterval = Duration(seconds: 2);
+
+  /// How long the client may sit with no observable progress (position and
+  /// playing state both frozen) before it is treated as silently stalled and
+  /// cycled. Field bug (2026-07-08, real Jetson + phone): when the camera's
+  /// pipeline restarts under the preview, VLC often neither errors nor
+  /// transitions to stopped/ended — it pins on a frozen frame ("playing") or
+  /// sits in buffering forever, so the error/stop-edge restart above never
+  /// fired and the pane needed a manual Stop → Preview. Generous enough to
+  /// ride out a slow RTSP (re)connect, short enough to feel automatic.
+  static const stallWindow = Duration(seconds: 8);
+
   @override
   ConsumerState<LivePreviewView> createState() => _LivePreviewViewState();
 }
@@ -82,6 +95,24 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   bool _vlcError = false;
   bool _vlcPlaying = false;
   Timer? _vlcRestartTimer;
+
+  // Silent-stall watchdog state — see [LivePreviewView.stallWindow]. Progress
+  // is "position moved or playing state changed"; when neither happens for a
+  // whole stall window (counted in watchdog ticks, so the logic follows the
+  // timer rather than the wall clock) the client is cycled like an explicit
+  // error would be.
+  Timer? _stallTicker;
+  Duration _stallLastPosition = Duration.zero;
+  PlayingState? _stallLastState;
+  int _stallTicksWithoutProgress = 0;
+  static final int _stallTickLimit =
+      LivePreviewView.stallWindow.inMilliseconds ~/
+      LivePreviewView.stallCheckInterval.inMilliseconds;
+  // Frozen-frame detection ("playing" but position pinned) is armed only once
+  // the position has been seen advancing for THIS controller — on a source
+  // where VLC never reports position (so a frozen position is meaningless)
+  // the watchdog must not cycle a healthy stream every window.
+  bool _sawPositionAdvance = false;
 
   void _enablePreview() {
     ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state = true;
@@ -110,6 +141,8 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   void _tearDownVlc() {
     _vlcRestartTimer?.cancel();
     _vlcRestartTimer = null;
+    _stallTicker?.cancel();
+    _stallTicker = null;
     _disposeVlc(_vlc);
     _vlc = null;
     _vlcUrl = null;
@@ -120,8 +153,30 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   @override
   void dispose() {
     _vlcRestartTimer?.cancel();
+    _stallTicker?.cancel();
     _disposeVlc(_vlc);
     super.dispose();
+  }
+
+  void _checkStall() {
+    final value = _vlc?.value;
+    if (value == null) return;
+    final positionMoved = value.position != _stallLastPosition;
+    if (positionMoved || value.playingState != _stallLastState) {
+      _stallLastPosition = value.position;
+      _stallLastState = value.playingState;
+      _stallTicksWithoutProgress = 0;
+      if (positionMoved) _sawPositionAdvance = true;
+      return;
+    }
+    if (value.playingState == PlayingState.paused) return;
+    if (++_stallTicksWithoutProgress < _stallTickLimit) return;
+    // Frozen frame while "playing" (armed once position proved live), or
+    // pinned pre-playback (buffering/initializing/stopped limbo with no error
+    // event) — either way nothing will ever move again without a cycle.
+    final frozenPlaying = value.isPlaying && _sawPositionAdvance;
+    final pinnedStarting = !value.isPlaying;
+    if (frozenPlaying || pinnedStarting) _scheduleVlcRestart();
   }
 
   void _onVlcChange() {
@@ -175,6 +230,17 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     _vlcUrl = url;
     _vlcError = false;
     _vlcPlaying = false;
+    // Fresh watchdog per controller — a rebound client starts with a clean
+    // progress baseline and re-proves its position signal.
+    _stallLastPosition = controller.value.position;
+    _stallLastState = controller.value.playingState;
+    _stallTicksWithoutProgress = 0;
+    _sawPositionAdvance = false;
+    _stallTicker?.cancel();
+    _stallTicker = Timer.periodic(
+      LivePreviewView.stallCheckInterval,
+      (_) => _checkStall(),
+    );
   }
 
   @override
