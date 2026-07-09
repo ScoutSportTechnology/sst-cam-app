@@ -20,6 +20,8 @@ import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
 import '../../core/models/overlay_layout.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
+import '../settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
 import '../settings/sport_presets/sport_presets_state.dart'
     show sportPresetsForSportProvider, SportPreset;
 import '../settings/users/users_state.dart' show activeUserProvider;
@@ -106,6 +108,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   _Dest _dest = _Dest.none;
   final TextEditingController _streamUrlCtl = TextEditingController();
   final TextEditingController _streamKeyCtl = TextEditingController();
+  // Saved destination (Settings → Streaming) currently filling the fields
+  // above; null = manual entry. Selecting one is a FILL, not a bind — the
+  // operator can still tweak the URL/key inline for this match.
+  String? _savedDestId;
 
   // Session push state (U9).
   bool _pushing = false;
@@ -134,6 +140,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     // U3 health gate: starting a match leads straight into capture — blocked
     // while the device is inoperable (or health unknown while connected).
     final captureBlocked = ref.watch(captureBlockedProvider);
+
+    // Saved destinations (Settings → Streaming) offered as one-tap fills in
+    // the Streaming card below.
+    final savedDests =
+        ref.watch(streamingDestinationsControllerProvider).valueOrNull ??
+        const <StreamingDestination>[];
 
     // Firmware-advertised capture modes (R16). Empty when disconnected or on
     // firmware that predates supported_modes → the quality pickers render
@@ -284,6 +296,25 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Saved destinations (Settings → Streaming) as a one-tap
+                  // fill. Hidden while the user has none saved.
+                  if (savedDests.isNotEmpty) ...[
+                    SetupDropdownRow<String>(
+                      label: 'Saved destination',
+                      value: _savedDestId ?? '',
+                      items: ['', ...savedDests.map((d) => d.id)],
+                      labelOf: (id) => id.isEmpty
+                          ? 'Manual entry'
+                          : savedDests.firstWhere((d) => d.id == id).name,
+                      onChanged: (id) => setState(
+                        () => _applySavedDestination(
+                          id.isEmpty ? null : id,
+                          savedDests,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, color: T.rule),
+                  ],
                   SetupDropdownRow<_Dest>(
                     label: 'Destination',
                     value: _dest,
@@ -584,6 +615,31 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   /// Whether the streaming selection is complete enough to start the match:
   /// either record-only (none) or a destination with a scheme-valid URL.
   bool _streamReady() => _dest == _Dest.none || _resolvedStream() != null;
+
+  /// Fill the per-match protocol + URL/key fields from a saved destination
+  /// (Settings → Streaming). Null switches back to manual entry, leaving the
+  /// current field contents in place for further editing.
+  void _applySavedDestination(
+    String? id,
+    List<StreamingDestination> savedDests,
+  ) {
+    _savedDestId = id;
+    if (id == null) return;
+    final dest = savedDests.firstWhere((d) => d.id == id);
+    _dest = switch (dest.protocol) {
+      StreamingProtocol.rtmp => _Dest.rtmp,
+      StreamingProtocol.rtmps => _Dest.rtmps,
+      StreamingProtocol.rtsp => _Dest.rtsp,
+    };
+    switch (dest.config) {
+      case RtmpConfig(:final url, :final streamKey):
+        _streamUrlCtl.text = url;
+        _streamKeyCtl.text = streamKey;
+      case RtspConfig(:final url):
+        _streamUrlCtl.text = url;
+        _streamKeyCtl.text = '';
+    }
+  }
 
   Future<void> _editCustom(BuildContext context) async {
     final result = await showDialog<(int, int)>(
