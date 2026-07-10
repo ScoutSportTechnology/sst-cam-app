@@ -88,6 +88,55 @@ void finalizeMatchToLibrary(WidgetRef ref) {
   unawaited(ref.read(liveMatchProvider.notifier).finalizeToLibrary());
 }
 
+/// Resolves the per-match RTMP wire URL for a streaming START: the credential
+/// stored on the match at setup, or — if none — a one-off prompt (stored on the
+/// match). Returns null to mean "start nothing" (prompt cancelled, unresolvable,
+/// or a DB/resolution error — the error case shows a snack).
+///
+/// Shared by the mid-match toggle AND the kickoff prompt so BOTH dispatch a
+/// START that carries the destination: a START with no rtmpUrl is rejected by
+/// the firmware ("no destination provided or configured") and streams nothing.
+Future<String?> resolveStreamWireUrl(BuildContext context, WidgetRef ref) async {
+  final matchId = ref.read(liveMatchProvider.notifier).matchId;
+  try {
+    if (matchId != null) {
+      final m = await ref.read(teamsDaoProvider).getMatchById(matchId);
+      final url = m?.rtmpUrl;
+      if (url != null && url.isNotEmpty) {
+        final key = m!.streamKey;
+        return (key == null || key.isEmpty) ? url : joinRtmp(url, key);
+      }
+    }
+    if (!context.mounted) return null;
+    // Same URL+key (and RTSP) form as setup — entered fresh for this match.
+    final draft = await showStreamingDestinationFormSheet(context);
+    if (draft == null) return null; // cancelled — start nothing
+    final resolved = resolveWireStream(draft.config);
+    if (resolved == null) return null;
+    if (matchId != null) {
+      await ref
+          .read(teamsDaoProvider)
+          .setMatchStreamingCredential(
+            matchId,
+            rtmpUrl: resolved.storeUrl,
+            streamKey: resolved.storeKey,
+          );
+    }
+    return resolved.wireUrl;
+  } catch (e, st) {
+    // Log fires regardless of mount state; helper guards the snackbar itself.
+    showErrorSnack(
+      // ignore: use_build_context_synchronously
+      context,
+      'Could not start streaming.',
+      source: 'SessionActions',
+      error: e,
+      stackTrace: st,
+    );
+    return null;
+  }
+}
+
 /// Toggle streaming mid-match. Stopping is unconditional. Starting resolves
 /// the per-match credential: use the one stored at setup, or — if none — prompt
 /// for a one-off, store it on the match, then start. Cancelling the prompt
@@ -109,48 +158,8 @@ Future<void> toggleSessionStream(
   }
   _log.info('stream toggle → start (resolving destination)');
 
-  final matchId = ref.read(liveMatchProvider.notifier).matchId;
-  String? wireUrl;
-  try {
-    if (matchId != null) {
-      final m = await ref.read(teamsDaoProvider).getMatchById(matchId);
-      final url = m?.rtmpUrl;
-      if (url != null && url.isNotEmpty) {
-        final key = m!.streamKey;
-        wireUrl = (key == null || key.isEmpty) ? url : joinRtmp(url, key);
-      }
-    }
-
-    if (wireUrl == null) {
-      if (!context.mounted) return;
-      // Same URL+key (and RTSP) form as setup — entered fresh for this match.
-      final draft = await showStreamingDestinationFormSheet(context);
-      if (draft == null) return; // cancelled — start nothing
-      final resolved = resolveWireStream(draft.config);
-      if (resolved == null) return;
-      if (matchId != null) {
-        await ref
-            .read(teamsDaoProvider)
-            .setMatchStreamingCredential(
-              matchId,
-              rtmpUrl: resolved.storeUrl,
-              streamKey: resolved.storeKey,
-            );
-      }
-      wireUrl = resolved.wireUrl;
-    }
-  } catch (e, st) {
-    // Log fires regardless of mount state; helper guards the snackbar itself.
-    showErrorSnack(
-      // ignore: use_build_context_synchronously
-      context,
-      'Could not start streaming.',
-      source: 'SessionActions',
-      error: e,
-      stackTrace: st,
-    );
-    return;
-  }
+  final wireUrl = await resolveStreamWireUrl(context, ref);
+  if (wireUrl == null) return; // cancelled / unresolvable — start nothing
 
   if (!context.mounted) return;
   final sent = sendStartIfConnected(
@@ -243,17 +252,27 @@ Future<void> sessionKickoff(
       ),
     );
   }
+  var streamingStarted = false;
   if (choice.$2 == true) {
-    sendStartIfConnected(
-      context,
-      ref,
-      StreamingControlCommand(
-        action: StreamingControlAction.start,
-        quality: state.streamQuality,
-      ),
-    );
+    // Resolve the destination exactly like the mid-match toggle — a START with
+    // no rtmpUrl is rejected by the firmware ("no destination provided"), which
+    // is the bug where kickoff-streaming silently did nothing.
+    final wireUrl = await resolveStreamWireUrl(context, ref);
+    if (wireUrl != null && context.mounted) {
+      streamingStarted = sendStartIfConnected(
+        context,
+        ref,
+        StreamingControlCommand(
+          action: StreamingControlAction.start,
+          rtmpUrl: wireUrl,
+          quality: state.streamQuality,
+        ),
+      );
+    }
   }
-  ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);
+  // Reflect the ACTUAL started state, not the prompt choice — a cancelled or
+  // failed destination resolution must not leave the UI showing "streaming".
+  ctl.startPeriod(startRecording: choice.$1, startStreaming: streamingStarted);
 }
 
 /// End-of-match flow: confirm via the end prompt (when anything is running),
