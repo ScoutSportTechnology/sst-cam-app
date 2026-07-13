@@ -154,6 +154,9 @@ class _StubBleService implements BleService {
     required bool reachable,
   }) async => throw UnimplementedError();
   @override
+  Future<void> ensureBonded(String deviceId) async =>
+      throw UnimplementedError();
+  @override
   Future<void> dispose() async {}
 }
 

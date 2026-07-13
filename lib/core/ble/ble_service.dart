@@ -219,6 +219,16 @@ abstract class BleService {
     required bool reachable,
   }) async => throw UnimplementedError('confirmPreviewReachable not supported');
 
+  /// Ensure the BLE link to [deviceId] is BONDED before sending secrets. A bonded
+  /// link is encrypted at the link layer, so the WiFi passphrase (sent over the
+  /// write-without-response command characteristic) never crosses a cleartext
+  /// channel (INV6/AE7). Idempotent — returns immediately if already bonded.
+  /// Throws if bonding is rejected/times out (the caller must NOT send credentials
+  /// then; the firmware gate rejects an unbonded link anyway). Concrete default
+  /// throws so only the real/mock services that drive provisioning implement it.
+  Future<void> ensureBonded(String deviceId) async =>
+      throw UnimplementedError('ensureBonded not supported');
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------

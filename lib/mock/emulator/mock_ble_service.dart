@@ -2211,6 +2211,16 @@ class MockBleService implements BleService {
     );
   }
 
+  /// True once [ensureBonded] has been called for the emulated camera — lets a
+  /// test assert the bond happened before credentials were sent.
+  bool bonded = false;
+
+  @override
+  Future<void> ensureBonded(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    bonded = true;
+  }
+
   @override
   Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
     await Future.delayed(const Duration(milliseconds: 40));

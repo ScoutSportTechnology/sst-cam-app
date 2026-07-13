@@ -865,6 +865,32 @@ class BleServiceImpl implements BleService {
   }
 
   @override
+  Future<void> ensureBonded(String deviceId) async {
+    final device = BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
+    // bondState replays the current value, so .first is the live state.
+    final current = await device.bondState.first;
+    if (current == BluetoothBondState.bonded) {
+      _log.info('link to $deviceId already bonded');
+      return;
+    }
+    _log.info(
+      'bonding link to $deviceId (createBond) before sending credentials',
+    );
+    try {
+      // Android Just Works pairing against the camera's NoInputNoOutput agent —
+      // no user prompt. Completes when the link is bonded (hence encrypted).
+      await device.createBond();
+    } catch (e) {
+      throw BleConnectionException(
+        'could not secure (pair) the connection: $e',
+      );
+    }
+    _log.info(
+      'link to $deviceId bonded — credentials will cross an encrypted link',
+    );
+  }
+
+  @override
   Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async {
     final r = await sendCommand<DeviceInfoResponse>(
       deviceId,

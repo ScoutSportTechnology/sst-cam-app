@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/models/command.dart' show DeviceInfoResponse;
+import 'package:sst_cam_app/core/models/network_config.dart'
+    show NetworkConfig, NetworkConfigResult;
 import 'package:sst_cam_app/core/wifi/wifi_handoff.dart'
     show
         PreviewReachabilityProbe,
@@ -37,6 +39,34 @@ MockBleService _newBle() => MockBleService(
   connectionDelay: Duration.zero,
   randomSeed: 1,
 );
+
+/// A BLE service whose bond step always fails, and which counts setNetworkConfig
+/// calls — so a test can prove credentials are never sent when bonding fails.
+class _BondFailBle extends MockBleService {
+  _BondFailBle()
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        randomSeed: 1,
+      );
+
+  int setCalls = 0;
+
+  @override
+  Future<void> ensureBonded(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    throw Exception('bond rejected');
+  }
+
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) async {
+    setCalls++;
+    return super.setNetworkConfig(deviceId, config);
+  }
+}
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -95,6 +125,31 @@ void main() {
 
       expect(find.text('Connected'), findsOneWidget);
       expect(find.textContaining('streaming are on'), findsOneWidget);
+      // The link was bonded before credentials were sent (INV6/AE7).
+      expect(ble.bonded, isTrue);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'bonding fails → friendly message, credentials never sent (INV6/AE7)',
+    (tester) async {
+      final ble = _BondFailBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 120));
+
+      // The provision aborted at the bond step: no SetNetworkConfig was sent, so
+      // the passphrase never crossed the (unencrypted) link, and the user sees a
+      // friendly failure rather than "Connected".
+      expect(ble.setCalls, 0);
+      expect(find.text('Connected'), findsNothing);
 
       await ble.dispose();
       await wifi.dispose();

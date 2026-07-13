@@ -293,6 +293,12 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     });
 
     try {
+      // Secure the link FIRST: bond so the credential write crosses an encrypted
+      // BLE link (INV6/AE7). If bonding fails the firmware gate would reject the
+      // credentials anyway, so surface a friendly error and never send them.
+      await ref.read(bleServiceProvider).ensureBonded(deviceId);
+      if (!mounted) return;
+
       // Provision ONLY the phone's current SSID (INV1), over DHCP. Preserve the
       // Ethernet editor's stored intent; the STA join begins the migration.
       final config = _collect().copyWith(
