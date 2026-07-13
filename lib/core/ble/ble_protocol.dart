@@ -491,6 +491,14 @@ class BleProtocol {
       correlationId: correlationId,
       getNetworkConfig: proto.GetNetworkConfigCommand(),
     ),
+    ConfirmPreviewReachableCommand(:final migrationId, :final reachable) =>
+      proto.Command(
+        correlationId: correlationId,
+        confirmPreviewReachable: proto.ConfirmPreviewReachableCommand(
+          migrationId: migrationId,
+          reachable: reachable,
+        ),
+      ),
   };
 
   /// Maps the dart [NetworkConfig] view model to the wire `proto.NetworkConfig`
@@ -661,6 +669,24 @@ class BleProtocol {
                 ethernetAddress: nc.ethernetAddress,
                 wifiUp: nc.wifiUp,
                 wifiStatus: nc.wifiStatus,
+                // Shared-WiFi (STA) migration handshake (protocol_version >= 4):
+                // populated only on the SetNetworkConfig reply that begins a
+                // migration; zero/empty otherwise.
+                migrationId: nc.migrationId,
+                previewEndpoint: nc.previewEndpoint,
+                previewCredential: nc.previewCredential,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.confirmPreviewReachable:
+        // The connectivity arbiter's verdict after the app's reachability
+        // confirm/deny: whether the camera finalized S2 (shared WiFi) or
+        // reverted to S1.
+        final cpr = resp.confirmPreviewReachable;
+        return BleCommandResponse.ok(
+          ConfirmPreviewReachableResult(
+                migrationId: cpr.migrationId,
+                inSharedWifi: cpr.inSharedWifi,
               )
               as T?,
         );

@@ -206,6 +206,19 @@ abstract class BleService {
   /// Read the camera's current uplink config + live status.
   Future<NetworkConfigResult> getNetworkConfig(String deviceId);
 
+  /// Report the app's shared-WiFi (STA) migration reachability verdict back to
+  /// the camera (protocol_version >= 4). [migrationId] echoes the value the
+  /// migration [NetworkConfigResult] carried; [reachable] true finalizes S2
+  /// (streaming enabled), false reverts to S1. Returns the mode the arbiter
+  /// settled into. Concrete default throws so only the real/mock services that
+  /// actually drive provisioning need to implement it — existing test fakes are
+  /// unaffected.
+  Future<ConfirmPreviewReachableResult> confirmPreviewReachable(
+    String deviceId, {
+    required int migrationId,
+    required bool reachable,
+  }) async => throw UnimplementedError('confirmPreviewReachable not supported');
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------

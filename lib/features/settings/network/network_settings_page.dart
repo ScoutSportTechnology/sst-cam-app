@@ -1,20 +1,38 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/ble/ble_service.dart'
     show BleNetworkConfigUnsupportedException;
+import '../../../core/errors/friendly_status.dart';
+import '../../../core/models/command.dart'
+    show kSharedWifiProvisioningProtocolVersion;
 import '../../../core/models/network_config.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
+import '../../../core/wifi/wifi_handoff.dart' show previewProbeProvider;
+import '../../../core/wifi/wifi_providers.dart' show wifiServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 
-/// Settings → Network: configure the camera's internet **uplink** (the
-/// cloud-streaming path), separate from the WiFi-Direct link that carries
-/// control + live preview. Ethernet and a (gated) WiFi STA, each enable/disable
-/// with DHCP or static IP. Reads the current config from the camera over BLE on
-/// open, pushes changes on Save, and shows the camera's live per-interface
-/// status. (R3–R7, R10.)
+/// Settings → Network. Two distinct affordances:
+///
+///  * **Connect to your Wi-Fi (provisioning, U6).** A one-tap action that
+///    provisions ONLY the phone's current SSID (INV1 — never a scan/pick-any
+///    list) so the camera migrates from its WiFi-Direct GO (S1) to joining the
+///    phone's network as STA (S2), which enables cloud streaming and moves live
+///    preview onto the LAN. On submit the app shows a "Switching to your
+///    network…" transition, probes the camera's authenticated LAN preview, then
+///    confirms/denies the migration by its migration-id. Gated on the camera
+///    reporting protocol_version >= 4.
+///  * **Advanced network settings (legacy uplink editor).** The static-IP/DHCP
+///    Ethernet + WiFi-STA editor: reads the camera's uplink config over BLE on
+///    open, pushes changes on Apply, shows live per-interface status. (R3–R7,
+///    R10.)
+///
+/// Connectivity/streaming/network failures are rendered as friendly, secret
+/// redacting copy via [FriendlyStatus] (U7 + U8).
 class NetworkSettingsPage extends ConsumerStatefulWidget {
   const NetworkSettingsPage({super.key});
 
@@ -31,7 +49,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   final _ethGateway = TextEditingController();
   final _ethDns = TextEditingController();
 
-  // WiFi STA
+  // WiFi STA (legacy advanced editor)
   bool _wifiEnabled = false;
   bool _wifiDhcp = true;
   final _wifiSsid = TextEditingController();
@@ -39,6 +57,14 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   final _wifiAddress = TextEditingController();
   final _wifiGateway = TextEditingController();
   final _wifiDns = TextEditingController();
+
+  // Provisioning (U6): the phone's current SSID + a one-shot password field.
+  final _provisionPassword = TextEditingController();
+  String? _phoneSsid;
+  bool _provisioning = false;
+  bool _provisionConnected = false;
+  // The friendly outcome of the last provisioning attempt (U7), or null.
+  FriendlyStatus? _provisionStatus;
 
   // The toggle DISPLAY (_ethEnabled/_wifiEnabled) is live-derived (configured
   // intent OR real link state). But persisting must not silently flip stored
@@ -58,7 +84,10 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
 
   bool _loading = true;
   bool _saving = false;
+  // A static, secret-free blocking message (no camera / unsupported firmware).
   String? _error;
+  // A friendly, redacting failure for a save/load fault (U8).
+  FriendlyStatus? _friendly;
   NetworkConfigResult? _status;
 
   @override
@@ -78,6 +107,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       _wifiAddress,
       _wifiGateway,
       _wifiDns,
+      _provisionPassword,
     ]) {
       c.dispose();
     }
@@ -96,6 +126,9 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       return;
     }
     final gen = ++_loadGen;
+    // Read the phone's own SSID in parallel — it only feeds the provisioning
+    // card and must never block or fail the config load.
+    unawaited(_loadPhoneSsid(gen));
     try {
       final result = await ref
           .read(bleServiceProvider)
@@ -115,10 +148,26 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       });
     } catch (e) {
       if (!mounted || gen != _loadGen || _saving) return;
+      // U8: humanize + redact the read failure rather than surfacing raw `$e`.
       setState(() {
         _loading = false;
-        _error = 'Could not read network config: $e';
+        _friendly = FriendlyStatus.forOutcome(
+          ConnectivityOutcome.configReadFailure,
+          rawDetail: e.toString(),
+        );
       });
+    }
+  }
+
+  Future<void> _loadPhoneSsid(int gen) async {
+    try {
+      final ssid = await ref.read(wifiServiceProvider).currentSsid();
+      if (!mounted || gen != _loadGen) return;
+      setState(() => _phoneSsid = ssid);
+    } catch (_) {
+      // SSID unavailable → treat as phone offline (provision disabled).
+      if (!mounted || gen != _loadGen) return;
+      setState(() => _phoneSsid = null);
     }
   }
 
@@ -150,6 +199,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       _status = result;
       _loading = false;
       _error = null;
+      _friendly = null;
       // Fold the save-complete flag into this same rebuild to avoid a second
       // setState (button flicker between field update and 'Saving…' clearing).
       if (clearSaving) _saving = false;
@@ -213,15 +263,127 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       });
     } catch (e) {
       if (!mounted) return;
+      // U8: humanize + redact the write failure rather than surfacing raw `$e`.
       setState(() {
         _saving = false;
-        _error = 'Save failed: $e';
+        _friendly = FriendlyStatus.forOutcome(
+          ConnectivityOutcome.configWriteFailure,
+          rawDetail: e.toString(),
+        );
+      });
+    }
+  }
+
+  /// U6 — provision the phone's current network: enable the WiFi STA uplink with
+  /// that SSID + the entered password, then run the migration handshake (probe
+  /// the authenticated LAN preview → confirm/deny by migration-id).
+  Future<void> _provision() async {
+    if (_provisioning) return;
+    final deviceId = _deviceId;
+    final ssid = _phoneSsid;
+    if (deviceId == null || ssid == null) return;
+    FocusScope.of(context).unfocus();
+    // Supersede any in-flight load so it can't clobber the transition state.
+    _loadGen++;
+    setState(() {
+      _provisioning = true;
+      _provisionConnected = false;
+      _provisionStatus = null;
+      _friendly = null;
+    });
+
+    try {
+      // Provision ONLY the phone's current SSID (INV1), over DHCP. Preserve the
+      // Ethernet editor's stored intent; the STA join begins the migration.
+      final config = _collect().copyWith(
+        wifi: WifiUplink(
+          enabled: true,
+          ssid: ssid,
+          password: _provisionPassword.text,
+        ),
+      );
+      final result = await ref
+          .read(bleServiceProvider)
+          .setNetworkConfig(deviceId, config);
+      if (!mounted) return;
+
+      if (!result.isMigrating) {
+        // Firmware accepted the config but did not begin a migration (e.g. it
+        // couldn't join the network) — friendly "couldn't join" (U7).
+        setState(() {
+          _provisioning = false;
+          _provisionStatus = FriendlyStatus.forOutcome(
+            ConnectivityOutcome.couldntJoin,
+          );
+        });
+        return;
+      }
+
+      // Probe the AUTHENTICATED LAN preview (OQ2). The probe timeout is strictly
+      // shorter than the firmware self-revert window, so our confirm/deny always
+      // beats the firmware backstop.
+      final reachable = await ref
+          .read(previewProbeProvider)
+          .probe(result.previewEndpoint, result.previewCredential);
+
+      // Confirm (reachable) or deny (isolation) by migration-id. A confirm fault
+      // is treated as a failed migration (stay in S1).
+      ConfirmPreviewReachableResult confirm;
+      try {
+        confirm = await ref
+            .read(bleServiceProvider)
+            .confirmPreviewReachable(
+              deviceId,
+              migrationId: result.migrationId,
+              reachable: reachable,
+            );
+      } catch (_) {
+        confirm = ConfirmPreviewReachableResult(
+          migrationId: result.migrationId,
+          inSharedWifi: false,
+        );
+      }
+      if (!mounted) return;
+
+      final success = reachable && confirm.inSharedWifi;
+      setState(() {
+        _provisioning = false;
+        _provisionConnected = success;
+        _provisionStatus = success
+            ? null
+            // Not reachable (client/AP isolation) → friendly isolation copy (U7).
+            : FriendlyStatus.forOutcome(ConnectivityOutcome.isolated);
+      });
+    } on BleNetworkConfigUnsupportedException {
+      if (!mounted) return;
+      setState(() {
+        _provisioning = false;
+        _provisionStatus = FriendlyStatus.forOutcome(
+          ConnectivityOutcome.couldntJoin,
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // Classify (e.g. wrong password vs a generic join failure) + redact (U8).
+      setState(() {
+        _provisioning = false;
+        _provisionStatus = FriendlyStatus.fromError(
+          e,
+          fallback: ConnectivityOutcome.couldntJoin,
+        );
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final deviceId = _deviceId;
+    final info = deviceId == null
+        ? null
+        : ref.watch(connectedDeviceInfoProvider(deviceId)).valueOrNull;
+    final supportsProvisioning =
+        (info?.protocolVersion ?? 0) >= kSharedWifiProvisioningProtocolVersion;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Network')),
       body: _loading
@@ -239,6 +401,24 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                       ),
                     ),
                   ),
+                if (_friendly != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _FriendlyBanner(status: _friendly!),
+                  ),
+                if (deviceId != null && supportsProvisioning) ...[
+                  _ProvisioningCard(
+                    phoneSsid: _phoneSsid,
+                    passwordController: _provisionPassword,
+                    provisioning: _provisioning,
+                    connected: _provisionConnected,
+                    status: _provisionStatus,
+                    onConnect: _provision,
+                  ),
+                  const SizedBox(height: 24),
+                ],
+                const _AdvancedHeader(),
+                const SizedBox(height: 8),
                 Text(
                   'The camera streams to the cloud over this uplink — separate '
                   'from the WiFi-Direct link used for control + live preview.',
@@ -329,6 +509,214 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
           border: const OutlineInputBorder(),
         ),
       ),
+    );
+  }
+}
+
+/// U6 — one-tap provisioning of the phone's CURRENT network only (INV1). Shows
+/// that SSID (never a scan/pick list), a password field, a "Switching…"
+/// transition, and the friendly outcome (U7).
+class _ProvisioningCard extends StatelessWidget {
+  const _ProvisioningCard({
+    required this.phoneSsid,
+    required this.passwordController,
+    required this.provisioning,
+    required this.connected,
+    required this.status,
+    required this.onConnect,
+  });
+
+  final String? phoneSsid;
+  final TextEditingController passwordController;
+  final bool provisioning;
+  final bool connected;
+  final FriendlyStatus? status;
+  final Future<void> Function() onConnect;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final offline = phoneSsid == null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Connect the camera to your Wi-Fi',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Puts the camera on the same Wi-Fi as your phone so live preview '
+              'moves onto your network and cloud streaming turns on. The camera '
+              'only ever joins the network your phone is on.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            if (offline)
+              // Phone not on WiFi → provision disabled + streaming greyed.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Join a Wi-Fi network on your phone to connect the camera to '
+                  'it. Until then, streaming stays off — recording and the '
+                  'direct live preview still work.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              )
+            else ...[
+              // The phone's CURRENT SSID only (read-only, INV1).
+              InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Your Wi-Fi network',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.wifi),
+                ),
+                child: Text(phoneSsid!),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                enabled: !provisioning,
+                decoration: const InputDecoration(
+                  labelText: 'Wi-Fi password',
+                  helperText: 'Enter it once — your phone keeps it hidden.',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (provisioning)
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Switching to your network…',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                )
+              else
+                WfButton(
+                  label: connected ? 'Connected' : 'Connect',
+                  variant: WfButtonVariant.primary,
+                  onPressed: onConnect,
+                ),
+              if (connected && status == null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.check_circle, size: 16, color: T.ok),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Connected to your Wi-Fi — live preview and streaming '
+                        'are on.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              if (status != null) ...[
+                const SizedBox(height: 12),
+                _FriendlyBanner(status: status!),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Renders a [FriendlyStatus]: the human message + action hint, with the raw
+/// (already-redacted) detail behind a collapsed "Details" affordance (U8).
+class _FriendlyBanner extends StatelessWidget {
+  const _FriendlyBanner({required this.status});
+
+  final FriendlyStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(status.message, style: theme.textTheme.bodyMedium),
+          if (status.actionHint != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              status.actionHint!,
+              style: theme.textTheme.bodySmall?.copyWith(color: T.ink2),
+            ),
+          ],
+          if (status.debugDetail != null) ...[
+            const SizedBox(height: 4),
+            Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(bottom: 8),
+                title: Text('Details', style: theme.textTheme.bodySmall),
+                children: [
+                  // Already redacted by FriendlyStatus — no SSID/passphrase.
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      status.debugDetail!,
+                      style: const TextStyle(
+                        fontFamily: T.mono,
+                        fontSize: 11,
+                        color: T.ink2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AdvancedHeader extends StatelessWidget {
+  const _AdvancedHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(Icons.tune, size: 16, color: T.ink2),
+        const SizedBox(width: 8),
+        Text(
+          'Advanced network settings',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+      ],
     );
   }
 }

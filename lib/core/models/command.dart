@@ -51,10 +51,13 @@ class DeviceInfoResponse {
 /// v3: proto U6 (RebootCommand + record/stream quality + supported_modes).
 /// v4: state-health cycle (GetSessionSnapshot / SetMatchState / SetDeviceTime,
 /// MatchState 9-11, per-camera health, auto_stop_minutes, DEVICE_INOPERABLE).
+/// v5: connectivity migration and LAN-path confirmation.
 /// Bumped with the firmware (device.handler kProtocolVersion) as a coordinated
 /// release — a connected camera is therefore always exactly this version, so
 /// the Reboot action gates on connection alone.
-const int kAppProtocolVersion = 4;
+const int kAppProtocolVersion = 5;
+
+const int kSharedWifiProvisioningProtocolVersion = 5;
 
 // Device
 class GetDeviceInfoCommand extends BleCommand {}
@@ -443,6 +446,22 @@ class SetNetworkConfigCommand extends BleCommand {
 /// Read the camera's current uplink config + live status. Replies with
 /// [NetworkConfigResult].
 class GetNetworkConfigCommand extends BleCommand {}
+
+/// The app's reachability verdict that finalizes or aborts a shared-WiFi (STA)
+/// migration begun by a [SetNetworkConfigCommand] with `wifi.enabled = true`
+/// (protocol_version >= 4). [migrationId] echoes the value the app saw in the
+/// migration [NetworkConfigResult]; the firmware ignores a verdict for a
+/// superseded migration (epoch guard). [reachable] true finalizes S2 (STA-only,
+/// streaming allowed); false reverts to S1 (WiFi-Direct GO restored). Replies
+/// with [ConfirmPreviewReachableResult].
+class ConfirmPreviewReachableCommand extends BleCommand {
+  ConfirmPreviewReachableCommand({
+    required this.migrationId,
+    required this.reachable,
+  });
+  final int migrationId;
+  final bool reachable;
+}
 
 // ---------------------------------------------------------------------------
 

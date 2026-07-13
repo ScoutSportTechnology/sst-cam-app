@@ -30,6 +30,27 @@ class WifiP2pChannel {
         .timeout(const Duration(seconds: 15));
   }
 
+  /// The SSID of the WiFi network the phone is currently joined to, or null when
+  /// the phone is not on WiFi (or the SSID is unavailable — e.g. location
+  /// permission not granted, or the OS returns `<unknown ssid>`). Never throws:
+  /// a [MissingPluginException]/[PlatformException] resolves to null so callers
+  /// treat "SSID unknown" the same as "phone offline".
+  Future<String?> currentSsid() async {
+    try {
+      final ssid = await _method
+          .invokeMethod<String>('currentSsid')
+          .timeout(const Duration(seconds: 5));
+      if (ssid == null || ssid.isEmpty) return null;
+      return ssid;
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    } on Exception {
+      return null;
+    }
+  }
+
   /// Integer state codes pushed by the native `BroadcastReceiver`:
   ///   0 = idle
   ///   1 = starting

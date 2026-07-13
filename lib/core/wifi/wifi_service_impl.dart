@@ -168,6 +168,24 @@ class WifiServiceImpl implements WifiService {
   };
 
   @override
+  Future<String?> currentSsid() async {
+    // iOS: reading the current SSID needs special entitlements we don't hold;
+    // the provisioning flow is Android-only in practice, so treat as unknown.
+    if (Platform.isIOS) return null;
+    final ssid = await _channel.currentSsid();
+    if (ssid == null) return null;
+    // Android's WifiInfo.getSSID() wraps the SSID in double quotes and returns
+    // the sentinel "<unknown ssid>" when it can't read it (permission / not
+    // connected) — normalize both to a clean value / null.
+    var s = ssid.trim();
+    if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+      s = s.substring(1, s.length - 1);
+    }
+    if (s.isEmpty || s.toLowerCase() == '<unknown ssid>') return null;
+    return s;
+  }
+
+  @override
   Future<WifiDirectGroup> connectGroup(String deviceId) async {
     // Serialize concurrent calls for the same device — second caller awaits the
     // already-running connect sequence instead of starting a duplicate.

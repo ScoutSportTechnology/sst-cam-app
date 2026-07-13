@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.wifi.WifiManager
 import android.net.wifi.p2p.*
 import android.os.Build
 import android.util.Log
@@ -64,7 +65,27 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
                 connect(ssid, psk, result)
             }
             "disconnect" -> disconnect(result)
+            "currentSsid" -> result.success(currentSsid())
             else -> result.notImplemented()
+        }
+    }
+
+    // The SSID of the WiFi network the phone is currently joined to, or null when
+    // not on WiFi / unavailable. WifiInfo.getSSID() returns the SSID wrapped in
+    // double quotes, or the sentinel "<unknown ssid>" without the location
+    // permission — the Dart side normalizes both. Never throws.
+    private fun currentSsid(): String? {
+        return try {
+            val wifi = context.applicationContext
+                .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            @Suppress("DEPRECATION")
+            val info = wifi?.connectionInfo ?: return null
+            @Suppress("DEPRECATION")
+            val ssid = info.ssid
+            if (ssid.isNullOrEmpty()) null else ssid
+        } catch (e: Throwable) {
+            Log.w(TAG, "currentSsid failed: $e")
+            null
         }
     }
 

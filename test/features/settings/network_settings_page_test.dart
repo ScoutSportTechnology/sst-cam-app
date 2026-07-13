@@ -10,8 +10,11 @@ import 'package:sst_cam_app/core/ble/ble_service.dart'
 import 'package:sst_cam_app/core/models/network_config.dart';
 import 'package:sst_cam_app/features/camera/camera_state.dart'
     show activeCameraIdProvider;
+import 'package:sst_cam_app/core/wifi/wifi_providers.dart'
+    show wifiServiceProvider;
 import 'package:sst_cam_app/features/settings/network/network_settings_page.dart';
 import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 
 MockBleService _newMock() => MockBleService(
   scanDeviceAppearDelays: const [Duration.zero],
@@ -77,6 +80,11 @@ Future<void> _pump(WidgetTester tester, MockBleService mock) async {
     ProviderScope(
       overrides: [
         bleServiceProvider.overrideWithValue(mock),
+        // The page reads the phone's own SSID for provisioning; override the
+        // WiFi service so it never touches the (unhandled) platform channel.
+        wifiServiceProvider.overrideWithValue(
+          MockWifiService(mockPhoneSsid: null),
+        ),
         activeCameraIdProvider.overrideWith((ref) => 'sst-cam-0001'),
       ],
       child: const MaterialApp(home: NetworkSettingsPage()),
@@ -222,7 +230,8 @@ void main() {
 
   // --- Save-error path (T05) -----------------------------------------------
 
-  testWidgets('setNetworkConfig throws → "Save failed" shown', (tester) async {
+  testWidgets('setNetworkConfig throws → friendly write-failure copy shown '
+      '(U8, no raw error)', (tester) async {
     final mock = _ScriptedBleService(setThrows: Exception('boom'));
     await _pump(tester, mock);
 
@@ -230,7 +239,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.textContaining('Save failed'), findsOneWidget);
+    expect(
+      find.textContaining("Couldn't save the camera's network settings"),
+      findsOneWidget,
+    );
 
     await mock.dispose();
   });
@@ -276,7 +288,7 @@ void main() {
     await _pump(tester, mock);
 
     expect(
-      find.textContaining('Could not read network config'),
+      find.textContaining("Couldn't read the camera's network settings"),
       findsOneWidget,
     );
 

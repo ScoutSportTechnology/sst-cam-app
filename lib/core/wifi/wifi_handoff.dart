@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
@@ -30,6 +32,117 @@ class WifiBringUpRetry {
 
 final wifiBringUpRetryProvider = Provider<WifiBringUpRetry>(
   (_) => const WifiBringUpRetry(),
+);
+
+// ---------------------------------------------------------------------------
+// Shared-WiFi (STA) migration — authenticated preview reachability probe (U6)
+// ---------------------------------------------------------------------------
+
+/// How long the app waits for the authenticated STA/LAN preview to answer
+/// before declaring the network unreachable (isolation) and denying the
+/// migration. This MUST be strictly shorter than [kFirmwareSelfRevertWindow]
+/// so the app's confirm/deny always beats the firmware's backstop timer — the
+/// app owns the verdict; the firmware timeout only covers a crashed app
+/// (KTD5 / OQ1). Enforced by an assertion at construction and in tests.
+const Duration kPreviewProbeTimeout = Duration(seconds: 10);
+
+/// The firmware's self-revert backstop: if no confirm arrives within this
+/// window after entering `Migrating`, the camera reverts to S1 on its own.
+/// Mirrored here only to keep the app probe strictly shorter (documented, not
+/// enforced on the wire).
+const Duration kFirmwareSelfRevertWindow = Duration(seconds: 20);
+
+/// Fixed RTSP port + path the firmware serves the migration preview on
+/// (`rtsp://<previewEndpoint>:8554/preview`).
+const int _kPreviewRtspPort = 8554;
+const String _kPreviewRtspPath = '/preview';
+
+/// Probes whether the camera's authenticated STA/LAN preview is reachable
+/// (OQ2). Injected via [previewProbeProvider] so tests drive the reachable /
+/// isolated branches without a real socket.
+abstract class PreviewReachabilityProbe {
+  /// Returns true when the preview at [endpoint] answers an AUTHENTICATED probe
+  /// (so it exercises both routing AND auth), false on isolation / auth failure
+  /// / timeout. [credential] is the "user:pass" Basic-auth pair. Never throws.
+  Future<bool> probe(String endpoint, String credential);
+}
+
+/// Default probe: an authenticated RTSP `DESCRIBE` against
+/// `rtsp://<endpoint>:8554/preview`. This is the cheapest check that also
+/// exercises auth — a client-isolated AP fails the TCP connect (routing) while
+/// a routable-but-unauthorized endpoint answers `401`; only a `2xx` counts as
+/// reachable. Bounded by [kPreviewProbeTimeout].
+class RtspDescribeProbe implements PreviewReachabilityProbe {
+  // Not const: the invariant is a runtime assert (a Duration comparison is not
+  // const-evaluable) — the app probe timeout MUST be strictly shorter than the
+  // firmware self-revert window.
+  RtspDescribeProbe({this.timeout = kPreviewProbeTimeout})
+    : assert(
+        timeout < kFirmwareSelfRevertWindow,
+        'app probe timeout must be strictly shorter than the firmware '
+        'self-revert window',
+      );
+
+  final Duration timeout;
+
+  @override
+  Future<bool> probe(String endpoint, String credential) async {
+    final host = endpoint.trim();
+    if (host.isEmpty) return false;
+    Socket? socket;
+    final deadline = DateTime.now().add(timeout);
+    try {
+      socket = await Socket.connect(host, _kPreviewRtspPort, timeout: timeout);
+      final url = 'rtsp://$host:$_kPreviewRtspPort$_kPreviewRtspPath';
+      final auth = base64.encode(utf8.encode(credential));
+      socket.write(
+        'DESCRIBE $url RTSP/1.0\r\n'
+        'CSeq: 1\r\n'
+        'Authorization: Basic $auth\r\n'
+        'Accept: application/sdp\r\n'
+        '\r\n',
+      );
+      await socket.flush();
+
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining.isNegative) return false;
+      // Read the status line; a 2xx means routed AND authenticated.
+      final response = await socket
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .join()
+          .timeout(remaining, onTimeout: () => '');
+      final statusLine = response.split('\r\n').firstOrNull ?? '';
+      // "RTSP/1.0 200 OK" → reachable; "401"/other → not reachable.
+      final match = RegExp(r'RTSP/\d\.\d\s+(\d{3})').firstMatch(statusLine);
+      final code = match == null ? 0 : int.tryParse(match.group(1)!) ?? 0;
+      final reachable = code >= 200 && code < 300;
+      if (!reachable) {
+        debugPrint(
+          '[preview-probe] non-2xx status "$statusLine" → not reachable',
+        );
+      }
+      return reachable;
+    } on SocketException catch (e) {
+      // No route to host / connection refused / timeout → isolation.
+      debugPrint('[preview-probe] socket failure → isolated: ${e.osError}');
+      return false;
+    } on TimeoutException {
+      debugPrint('[preview-probe] timed out → isolated');
+      return false;
+    } on Object catch (e) {
+      debugPrint('[preview-probe] unexpected failure → not reachable: $e');
+      return false;
+    } finally {
+      socket?.destroy();
+    }
+  }
+}
+
+/// The active preview-reachability probe. Defaults to [RtspDescribeProbe];
+/// overridden in tests with a fake that scripts reachable / isolated.
+final previewProbeProvider = Provider<PreviewReachabilityProbe>(
+  (ref) => RtspDescribeProbe(),
 );
 
 /// Single owner of the WiFi Direct group lifecycle. Watches the active BLE

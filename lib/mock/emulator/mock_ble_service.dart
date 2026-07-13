@@ -803,7 +803,9 @@ class MockBleService implements BleService {
   proto.Command _encodeCommand(BleCommand cmd, String correlationId) {
     // Uplink config uses the dedicated set/getNetworkConfig methods, not the
     // generic sendCommand round-trip the emulator's encode path serves.
-    if (cmd is SetNetworkConfigCommand || cmd is GetNetworkConfigCommand) {
+    if (cmd is SetNetworkConfigCommand ||
+        cmd is GetNetworkConfigCommand ||
+        cmd is ConfirmPreviewReachableCommand) {
       throw UnsupportedError(
         'network config uses the direct set/getNetworkConfig path',
       );
@@ -1103,7 +1105,8 @@ class MockBleService implements BleService {
         status: proto.ResponseStatus.OK,
       ),
       SetNetworkConfigCommand() ||
-      GetNetworkConfigCommand() => throw UnsupportedError(
+      GetNetworkConfigCommand() ||
+      ConfirmPreviewReachableCommand() => throw UnsupportedError(
         'network config uses the direct set/getNetworkConfig path',
       ),
     };
@@ -1256,7 +1259,8 @@ class MockBleService implements BleService {
       ),
       StopWifiDirectCommand() => BleCommandResponse.ok(null as T?),
       SetNetworkConfigCommand() ||
-      GetNetworkConfigCommand() => throw UnsupportedError(
+      GetNetworkConfigCommand() ||
+      ConfirmPreviewReachableCommand() => throw UnsupportedError(
         'network config uses the direct set/getNetworkConfig path',
       ),
     };
@@ -2146,6 +2150,14 @@ class MockBleService implements BleService {
 
   NetworkConfig _uplinkConfig = const NetworkConfig();
 
+  // Emulated shared-WiFi (STA) migration state (protocol_version >= 4): the last
+  // migration id minted by a wifi-enabled SetNetworkConfig, and whether the
+  // emulated arbiter is currently in shared-WiFi (S2). The emulated firmware
+  // "reaches" S2 only after the app confirms reachable.
+  int _migrationCounter = 0;
+  int _pendingMigrationId = 0;
+  bool _inSharedWifi = false;
+
   @override
   Future<NetworkConfigResult> setNetworkConfig(
     String deviceId,
@@ -2153,7 +2165,50 @@ class MockBleService implements BleService {
   ) async {
     await Future.delayed(const Duration(milliseconds: 60));
     _uplinkConfig = config;
+    // Enabling the WiFi STA uplink begins a P2P->STA migration: the emulated
+    // arbiter tears down the GO, joins as STA, mints a per-session RTSP
+    // credential, and reports the LAN endpoint + migration id for the app to
+    // probe + confirm.
+    if (config.wifi.enabled && config.wifi.ssid.isNotEmpty) {
+      _pendingMigrationId = ++_migrationCounter;
+      _inSharedWifi = false;
+      return NetworkConfigResult(
+        config: config,
+        ethernetUp: config.ethernet.enabled,
+        ethernetAddress: config.ethernet.enabled ? '10.10.1.30/24' : '',
+        // STA link not confirmed up until the app's reachability confirm.
+        wifiUp: false,
+        wifiStatus: 'migrating to shared WiFi…',
+        migrationId: _pendingMigrationId,
+        previewEndpoint: '192.168.1.50',
+        previewCredential: 'preview:emulated-secret',
+      );
+    }
+    _pendingMigrationId = 0;
+    _inSharedWifi = false;
     return _uplinkStatus(config);
+  }
+
+  @override
+  Future<ConfirmPreviewReachableResult> confirmPreviewReachable(
+    String deviceId, {
+    required int migrationId,
+    required bool reachable,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 40));
+    // Epoch guard: a verdict for a superseded migration is ignored (stays S1).
+    if (migrationId != _pendingMigrationId || _pendingMigrationId == 0) {
+      return ConfirmPreviewReachableResult(
+        migrationId: migrationId,
+        inSharedWifi: _inSharedWifi,
+      );
+    }
+    _inSharedWifi = reachable;
+    if (!reachable) _pendingMigrationId = 0;
+    return ConfirmPreviewReachableResult(
+      migrationId: migrationId,
+      inSharedWifi: reachable,
+    );
   }
 
   @override

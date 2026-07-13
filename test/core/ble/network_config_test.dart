@@ -43,22 +43,35 @@ void main() {
     },
   );
 
-  test(
-    'wifi-STA uplink reports gated unavailable (single radio = GO)',
-    () async {
-      final ble = _newMock();
-      const config = NetworkConfig(
-        wifi: WifiUplink(enabled: true, ssid: 'venue', password: 'secret'),
-      );
+  test('wifi-STA uplink begins a shared-WiFi (STA) migration — gate opened, '
+      'protocol v4 (KTD2)', () async {
+    final ble = _newMock();
+    const config = NetworkConfig(
+      wifi: WifiUplink(enabled: true, ssid: 'venue', password: 'secret'),
+    );
 
-      final result = await ble.setNetworkConfig(deviceId, config);
-      expect(result.config.wifi.ssid, 'venue');
-      expect(result.wifiUp, isFalse);
-      expect(result.wifiStatus, contains('unavailable'));
+    final result = await ble.setNetworkConfig(deviceId, config);
+    expect(result.config.wifi.ssid, 'venue');
+    // The connectivity arbiter starts a migration: a non-zero migration id +
+    // an authenticated LAN preview endpoint/credential for the app to probe.
+    expect(result.isMigrating, isTrue);
+    expect(result.migrationId, isNot(0));
+    expect(result.previewEndpoint, isNotEmpty);
+    expect(result.previewCredential, isNotEmpty);
+    // STA is not reported "up" until the app confirms reachability.
+    expect(result.wifiUp, isFalse);
 
-      await ble.dispose();
-    },
-  );
+    // The app probes, then confirms reachable → the arbiter settles into S2.
+    final confirm = await ble.confirmPreviewReachable(
+      deviceId,
+      migrationId: result.migrationId,
+      reachable: true,
+    );
+    expect(confirm.migrationId, result.migrationId);
+    expect(confirm.inSharedWifi, isTrue);
+
+    await ble.dispose();
+  });
 
   test('defaults: both uplinks disabled, nothing up', () async {
     final ble = _newMock();

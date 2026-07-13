@@ -16,6 +16,18 @@ import '../models/wifi.dart';
 /// dance is hidden behind [connectGroup].
 abstract class WifiService {
   // ---------------------------------------------------------------------------
+  // Phone network (for app-provisioned shared-WiFi — INV1)
+  // ---------------------------------------------------------------------------
+
+  /// The SSID of the WiFi network the PHONE is currently joined to, or null when
+  /// the phone is not on WiFi (or the SSID can't be read). Used by the
+  /// provisioning flow to offer the operator ONLY the phone's current network
+  /// (INV1 — never a scan/pick-any-SSID list; Android 10+ blocks reading the
+  /// saved passphrase, so the operator types it once). Concrete default returns
+  /// null so test fakes need not implement it.
+  Future<String?> currentSsid() async => null;
+
+  // ---------------------------------------------------------------------------
   // Group lifecycle
   // ---------------------------------------------------------------------------
 

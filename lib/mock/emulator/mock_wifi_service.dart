@@ -67,6 +67,7 @@ class MockWifiService implements WifiService {
     this.downloadFailureRate = 0.0,
     this.mockSsid = 'DIRECT-mock-sst-cam',
     this.mockPsk = 'mock-psk-1234',
+    this.mockPhoneSsid = 'Emulated-Home-WiFi',
     int? randomSeed,
     VideoPathService? videoPathService,
     Dio? httpClient,
@@ -98,6 +99,16 @@ class MockWifiService implements WifiService {
   /// PSK used when building the fake [WifiDirectGroup]. Override in tests to
   /// avoid compile-time credential constants in production paths.
   final String mockPsk;
+
+  /// The phone's "current" WiFi SSID reported by [currentSsid]. Null simulates a
+  /// phone that is not on WiFi (provisioning disabled / streaming greyed).
+  final String? mockPhoneSsid;
+
+  @override
+  Future<String?> currentSsid() async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    return mockPhoneSsid;
+  }
 
   final Random _rng;
   final VideoPathService _videoPathService;

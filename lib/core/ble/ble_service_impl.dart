@@ -837,6 +837,34 @@ class BleServiceImpl implements BleService {
       _networkConfig(deviceId, GetNetworkConfigCommand(), 'getNetworkConfig');
 
   @override
+  Future<ConfirmPreviewReachableResult> confirmPreviewReachable(
+    String deviceId, {
+    required int migrationId,
+    required bool reachable,
+  }) async {
+    final resp = await sendCommand<ConfirmPreviewReachableResult>(
+      deviceId,
+      ConfirmPreviewReachableCommand(
+        migrationId: migrationId,
+        reachable: reachable,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'confirmPreviewReachable failed: ${resp.errorMessage}',
+      );
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw const BleConnectionException(
+        'confirmPreviewReachable: firmware returned no '
+        'ConfirmPreviewReachableResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
   Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async {
     final r = await sendCommand<DeviceInfoResponse>(
       deviceId,
