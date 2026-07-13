@@ -61,6 +61,10 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   // Provisioning (U6): the phone's current SSID + a one-shot password field.
   final _provisionPassword = TextEditingController();
   String? _phoneSsid;
+  // The phone's current WiFi frequency (MHz); 0 = unknown. Used to validate the
+  // band BEFORE provisioning — the camera can only join 5 GHz (2.4 GHz contends
+  // with its Bluetooth radio).
+  int _phoneWifiFreqMhz = 0;
   bool _provisioning = false;
   bool _provisionConnected = false;
   // The friendly outcome of the last provisioning attempt (U7), or null.
@@ -161,15 +165,25 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
 
   Future<void> _loadPhoneSsid(int gen) async {
     try {
-      final ssid = await ref.read(wifiServiceProvider).currentSsid();
+      final wifi = ref.read(wifiServiceProvider);
+      final ssid = await wifi.currentSsid();
+      final freq = await wifi.currentWifiFrequencyMhz();
       if (!mounted || gen != _loadGen) return;
-      setState(() => _phoneSsid = ssid);
+      setState(() {
+        _phoneSsid = ssid;
+        _phoneWifiFreqMhz = freq;
+      });
     } catch (_) {
       // SSID unavailable → treat as phone offline (provision disabled).
       if (!mounted || gen != _loadGen) return;
       setState(() => _phoneSsid = null);
     }
   }
+
+  // The phone is on a 2.4 GHz network the camera cannot join (5 GHz required).
+  // Unknown frequency (0) is NOT treated as 2.4 GHz — let the attempt proceed.
+  bool get _phoneOn24Ghz =>
+      _phoneWifiFreqMhz >= 2400 && _phoneWifiFreqMhz < 2500;
 
   void _apply(NetworkConfigResult result, {bool clearSaving = false}) {
     final config = result.config;
@@ -283,6 +297,19 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     final ssid = _phoneSsid;
     if (deviceId == null || ssid == null) return;
     FocusScope.of(context).unfocus();
+    // Validate the band FIRST: the camera can only join a 5 GHz Wi-Fi (its single
+    // radio holds Bluetooth on 2.4 GHz), so a 2.4 GHz network never associates.
+    // Fail fast with the clear "switch to 5 GHz" message rather than attempting a
+    // join that would take ~15s and revert.
+    if (_phoneOn24Ghz) {
+      setState(() {
+        _provisionConnected = false;
+        _provisionStatus = FriendlyStatus.forOutcome(
+          ConnectivityOutcome.needs5GHz,
+        );
+      });
+      return;
+    }
     // Supersede any in-flight load so it can't clobber the transition state.
     _loadGen++;
     setState(() {

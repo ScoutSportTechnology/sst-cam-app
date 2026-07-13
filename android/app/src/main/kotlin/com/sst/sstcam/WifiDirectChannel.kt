@@ -66,6 +66,7 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
             }
             "disconnect" -> disconnect(result)
             "currentSsid" -> result.success(currentSsid())
+            "currentWifiFrequencyMhz" -> result.success(currentWifiFrequencyMhz())
             else -> result.notImplemented()
         }
     }
@@ -86,6 +87,22 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
         } catch (e: Throwable) {
             Log.w(TAG, "currentSsid failed: $e")
             null
+        }
+    }
+
+    // The frequency (MHz) of the WiFi the phone is currently joined to, or 0 when
+    // not on WiFi / unavailable. ~2400-2500 = 2.4 GHz, ~4900-5900 = 5 GHz. Lets the
+    // app validate the band BEFORE provisioning (the camera's RTL8822CE can't hold
+    // a 2.4 GHz STA while Bluetooth is active). Never throws.
+    private fun currentWifiFrequencyMhz(): Int {
+        return try {
+            val wifi = context.applicationContext
+                .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            @Suppress("DEPRECATION")
+            wifi?.connectionInfo?.frequency ?: 0
+        } catch (e: Throwable) {
+            Log.w(TAG, "currentWifiFrequencyMhz failed: $e")
+            0
         }
     }
 

@@ -27,6 +27,13 @@ abstract class WifiService {
   /// null so test fakes need not implement it.
   Future<String?> currentSsid() async => null;
 
+  /// The phone's current WiFi frequency in MHz (0 = unknown / not on WiFi).
+  /// ~2400-2500 = 2.4 GHz, ~4900-5900 = 5 GHz. The provisioning flow validates
+  /// this up front: the camera's single radio carries Bluetooth on 2.4 GHz, so it
+  /// can only join a 5 GHz Wi-Fi. Concrete default returns 0 so fakes need not
+  /// implement it.
+  Future<int> currentWifiFrequencyMhz() async => 0;
+
   // ---------------------------------------------------------------------------
   // Group lifecycle
   // ---------------------------------------------------------------------------

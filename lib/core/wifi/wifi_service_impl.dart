@@ -196,6 +196,12 @@ class WifiServiceImpl implements WifiService {
   }
 
   @override
+  Future<int> currentWifiFrequencyMhz() async {
+    if (Platform.isIOS) return 0;
+    return _channel.currentWifiFrequencyMhz();
+  }
+
+  @override
   Future<WifiDirectGroup> connectGroup(String deviceId) async {
     // Serialize concurrent calls for the same device — second caller awaits the
     // already-running connect sequence instead of starting a duplicate.

@@ -21,6 +21,11 @@ enum ConnectivityOutcome {
   /// The camera couldn't join the network (association failed, not auth).
   couldntJoin,
 
+  /// The phone's Wi-Fi is a 2.4 GHz network. The camera's single radio carries
+  /// the Bluetooth control link on 2.4 GHz, so it can only join a 5 GHz Wi-Fi
+  /// (2.4 GHz association is torn down by radio coexistence). Validated up front.
+  needs5GHz,
+
   /// The network is client-isolated — devices can't reach each other, so the
   /// LAN preview probe failed even though the camera joined.
   isolated,
@@ -128,6 +133,13 @@ class FriendlyStatus {
           "The camera couldn't join that network. It's still connected over "
               "Bluetooth — recording works.",
           "Try again or pick another network.",
+        );
+      case ConnectivityOutcome.needs5GHz:
+        return (
+          "This looks like a 2.4 GHz Wi-Fi network. The camera can only join a "
+              "5 GHz Wi-Fi — while it's connected over Bluetooth its radio can't "
+              "hold a 2.4 GHz Wi-Fi at the same time.",
+          "Switch your phone's hotspot (or Wi-Fi) to 5 GHz, then try again.",
         );
       case ConnectivityOutcome.droppedMidSession:
         return (

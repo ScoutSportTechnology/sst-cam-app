@@ -51,6 +51,23 @@ class WifiP2pChannel {
     }
   }
 
+  /// The phone's current WiFi frequency in MHz (0 = unknown / not on WiFi).
+  /// ~2400-2500 = 2.4 GHz, ~4900-5900 = 5 GHz. Any failure resolves to 0.
+  Future<int> currentWifiFrequencyMhz() async {
+    try {
+      final mhz = await _method
+          .invokeMethod<int>('currentWifiFrequencyMhz')
+          .timeout(const Duration(seconds: 5));
+      return mhz ?? 0;
+    } on PlatformException {
+      return 0;
+    } on MissingPluginException {
+      return 0;
+    } on Exception {
+      return 0;
+    }
+  }
+
   /// Integer state codes pushed by the native `BroadcastReceiver`:
   ///   0 = idle
   ///   1 = starting

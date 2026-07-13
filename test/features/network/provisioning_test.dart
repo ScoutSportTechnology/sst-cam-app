@@ -134,6 +134,30 @@ void main() {
   );
 
   testWidgets(
+    'phone on 2.4 GHz → validated up front: needs-5GHz message, nothing sent',
+    (tester) async {
+      final ble = _BondFailBle(); // counts setNetworkConfig; must stay 0
+      final wifi = MockWifiService(
+        mockPhoneSsid: 'Field-House-WiFi',
+        mockPhoneFrequencyMhz: 2437, // 2.4 GHz (ch 6)
+      );
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Blocked before any BLE traffic — clear "switch to 5 GHz" guidance.
+      expect(find.textContaining('5 GHz'), findsWidgets);
+      expect(ble.setCalls, 0);
+      expect(find.text('Connected'), findsNothing);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
     'bonding fails → friendly message, credentials never sent (INV6/AE7)',
     (tester) async {
       final ble = _BondFailBle();
