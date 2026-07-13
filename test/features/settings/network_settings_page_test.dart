@@ -94,18 +94,22 @@ Future<void> _pump(WidgetTester tester, MockBleService mock) async {
 }
 
 void main() {
-  testWidgets('loads config and renders both uplink sections', (tester) async {
-    final mock = _newMock();
-    await _pump(tester, mock);
+  testWidgets(
+    'Advanced editor is Ethernet-only (WiFi is the provisioning card)',
+    (tester) async {
+      final mock = _newMock();
+      await _pump(tester, mock);
 
-    expect(find.text('Ethernet'), findsOneWidget);
-    expect(find.text('WiFi'), findsOneWidget);
-    expect(find.text('Apply'), findsOneWidget);
-    // Fresh camera: both uplinks default off, so no IP fields are shown yet.
-    expect(find.widgetWithText(TextField, 'SSID'), findsNothing);
+      // The legacy Advanced uplink editor manages Ethernet only. The WiFi uplink is
+      // provisioned exclusively via the phone's-SSID card (INV1) — there is no
+      // free-form "type any SSID" editor.
+      expect(find.text('Ethernet'), findsOneWidget);
+      expect(find.text('Apply'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'SSID'), findsNothing);
 
-    await mock.dispose();
-  });
+      await mock.dispose();
+    },
+  );
 
   testWidgets('enabling ethernet reveals it and Apply pushes the config', (
     tester,

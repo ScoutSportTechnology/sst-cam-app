@@ -353,6 +353,19 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
             ? null
             // Not reachable (client/AP isolation) → friendly isolation copy (U7).
             : FriendlyStatus.forOutcome(ConnectivityOutcome.isolated);
+        // Mirror the outcome into the uplink-config state the Advanced "Apply"
+        // preserves (SetNetworkConfig is a full replace) — so applying an ethernet
+        // change never clobbers or resurrects the WiFi uplink. On success the STA
+        // is up on the phone's network (DHCP); on failure the firmware reverted to
+        // S1, so WiFi is off.
+        _wifiConfigEnabled = success;
+        _wifiEnabled = success;
+        _wifiToggleDirty = false;
+        if (success) {
+          _wifiDhcp = true;
+          _wifiSsid.text = _phoneSsid ?? _wifiSsid.text;
+          _wifiPassword.text = _provisionPassword.text;
+        }
       });
     } on BleNetworkConfigUnsupportedException {
       if (!mounted) return;
@@ -427,8 +440,6 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                 const SizedBox(height: 16),
                 _ethernetSection(context),
                 const SizedBox(height: 24),
-                _wifiSection(context),
-                const SizedBox(height: 24),
                 WfButton(
                   label: _saving ? 'Saving…' : 'Apply',
                   variant: WfButtonVariant.primary,
@@ -461,34 +472,6 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
           _field('IP address (CIDR, e.g. 10.0.0.5/24)', _ethAddress),
           _field('Gateway', _ethGateway),
           _field('DNS', _ethDns),
-        ],
-      ],
-    );
-  }
-
-  Widget _wifiSection(BuildContext context) {
-    return _UplinkSection(
-      title: 'WiFi',
-      enabled: _wifiEnabled,
-      onEnabledChanged: (v) => setState(() {
-        _wifiEnabled = v;
-        _wifiToggleDirty = true;
-      }),
-      statusUp: _status?.wifiUp ?? false,
-      // Only show the address when the wifi uplink is actually up; no verbose
-      // status text (the gated "unavailable" message was too long).
-      statusText: (_status?.wifiUp ?? false) ? (_status?.wifiStatus ?? '') : '',
-      children: [
-        _field('SSID', _wifiSsid),
-        _field('Password', _wifiPassword, obscure: true),
-        _DhcpToggle(
-          dhcp: _wifiDhcp,
-          onChanged: (v) => setState(() => _wifiDhcp = v),
-        ),
-        if (!_wifiDhcp) ...[
-          _field('IP address (CIDR)', _wifiAddress),
-          _field('Gateway', _wifiGateway),
-          _field('DNS', _wifiDns),
         ],
       ],
     );
