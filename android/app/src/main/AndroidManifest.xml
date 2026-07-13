@@ -3,7 +3,14 @@
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />
+    <!-- ACCESS_FINE_LOCATION is required on ALL API levels to read the phone's
+         CURRENTLY-CONNECTED SSID (WifiInfo.getSSID() is location-gated on Android
+         10+; NEARBY_WIFI_DEVICES with neverForLocation does NOT unlock it). Do NOT
+         cap this at 32 — capping it left Android 13+ unable to detect the phone's
+         Wi-Fi, so the provisioning card fell back to its offline hint. BLE scanning
+         stays location-free via BLUETOOTH_SCAN neverForLocation. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- WifiP2pManager.connect()/removeGroup() require CHANGE_WIFI_STATE on ALL
          API levels — capping it at 32 left Android 13+ without it, so the P2P
          join failed and the preview hero card showed "WIFI · FAILED". -->

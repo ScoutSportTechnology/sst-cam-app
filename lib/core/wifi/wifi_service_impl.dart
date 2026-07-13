@@ -172,6 +172,16 @@ class WifiServiceImpl implements WifiService {
     // iOS: reading the current SSID needs special entitlements we don't hold;
     // the provisioning flow is Android-only in practice, so treat as unknown.
     if (Platform.isIOS) return null;
+    // Android 10+ gates WifiInfo.getSSID() behind the (fine) LOCATION permission
+    // + location services — without it the OS returns the "<unknown ssid>"
+    // sentinel. Ensure the permission (prompting once) so we can offer the phone's
+    // real network. A denial leaves the SSID unknown (the provisioning card falls
+    // back to its offline hint), never throws.
+    var status = await Permission.locationWhenInUse.status;
+    if (!status.isGranted) {
+      status = await Permission.locationWhenInUse.request();
+    }
+    if (!status.isGranted) return null;
     final ssid = await _channel.currentSsid();
     if (ssid == null) return null;
     // Android's WifiInfo.getSSID() wraps the SSID in double quotes and returns
