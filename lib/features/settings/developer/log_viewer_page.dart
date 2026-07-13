@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/errors/friendly_status.dart' show redactSecrets;
 import '../../../core/services/log_service.dart';
 import '../../../core/theme/tokens.dart';
 
@@ -9,7 +10,12 @@ import '../../../core/theme/tokens.dart';
 /// since adb isn't always available. adb/logcat stays the primary path. Each
 /// line renders in the standardized structure with the level color-highlighted.
 class LogViewerPage extends StatelessWidget {
-  const LogViewerPage({super.key, this.title = 'Logs', this.filter});
+  const LogViewerPage({
+    super.key,
+    this.title = 'Logs',
+    this.filter,
+    this.redact = false,
+  });
 
   /// App-bar title — distinguishes the App vs Camera-link views.
   final String title;
@@ -17,6 +23,14 @@ class LogViewerPage extends StatelessWidget {
   /// Optional entry predicate. When set, only matching entries render/export —
   /// used for the live "Camera link" view (the BLE/WiFi comms the app captures).
   final bool Function(LogEntry)? filter;
+
+  /// U8 redaction: when true, every rendered + exported line is passed through
+  /// [redactSecrets] so an SSID / passphrase logged by the WiFi handoff can
+  /// never leak through this debug/diagnostics affordance. Set for the
+  /// connectivity ("Camera link") view.
+  final bool redact;
+
+  String _line(String raw) => redact ? redactSecrets(raw) : raw;
 
   /// Color for a log level's highlighted token.
   static Color _levelColor(String level) {
@@ -50,7 +64,7 @@ class LogViewerPage extends StatelessWidget {
             onPressed: () async {
               final f = filter;
               final selected = f == null ? log.entries : log.entries.where(f);
-              final text = selected.map((e) => e.formatted).join('\n');
+              final text = selected.map((e) => _line(e.formatted)).join('\n');
               await Clipboard.setData(ClipboardData(text: text));
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -109,7 +123,7 @@ class LogViewerPage extends StatelessWidget {
                       ),
                       TextSpan(text: ' [${e.source} (${e.isolate})]: '),
                       TextSpan(
-                        text: e.message,
+                        text: _line(e.message),
                         style: const TextStyle(color: T.ink2),
                       ),
                     ],

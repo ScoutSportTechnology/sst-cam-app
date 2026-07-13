@@ -148,6 +148,12 @@ class _StubBleService implements BleService {
   Future<NetworkConfigResult> getNetworkConfig(String deviceId) async =>
       throw UnimplementedError();
   @override
+  Future<ConfirmPreviewReachableResult> confirmPreviewReachable(
+    String deviceId, {
+    required int migrationId,
+    required bool reachable,
+  }) async => throw UnimplementedError();
+  @override
   Future<void> dispose() async {}
 }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'streaming_state.dart';
+import '../../../core/errors/friendly_status.dart' show redactSecrets;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/widgets/wf_chip.dart';
@@ -24,7 +25,10 @@ class StreamingDestinationsPage extends ConsumerWidget {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-              'Could not load streaming destinations: $e',
+              // U8: a destination error can embed a stream key — redact the raw
+              // detail before showing it.
+              "Couldn't load your streaming destinations — try again. "
+              '${redactSecrets(e.toString())}',
               textAlign: TextAlign.center,
               style: const TextStyle(color: T.ink2, fontSize: 12),
             ),
