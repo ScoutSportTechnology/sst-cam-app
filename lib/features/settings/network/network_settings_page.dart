@@ -521,7 +521,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
 /// U6 — one-tap provisioning of the phone's CURRENT network only (INV1). Shows
 /// that SSID (never a scan/pick list), a password field, a "Switching…"
 /// transition, and the friendly outcome (U7).
-class _ProvisioningCard extends StatelessWidget {
+class _ProvisioningCard extends StatefulWidget {
   const _ProvisioningCard({
     required this.phoneSsid,
     required this.passwordController,
@@ -539,7 +539,20 @@ class _ProvisioningCard extends StatelessWidget {
   final Future<void> Function() onConnect;
 
   @override
+  State<_ProvisioningCard> createState() => _ProvisioningCardState();
+}
+
+class _ProvisioningCardState extends State<_ProvisioningCard> {
+  bool _obscure = true;
+
+  @override
   Widget build(BuildContext context) {
+    final phoneSsid = widget.phoneSsid;
+    final passwordController = widget.passwordController;
+    final provisioning = widget.provisioning;
+    final connected = widget.connected;
+    final status = widget.status;
+    final onConnect = widget.onConnect;
     final theme = Theme.of(context);
     final offline = phoneSsid == null;
     return Card(
@@ -584,17 +597,24 @@ class _ProvisioningCard extends StatelessWidget {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.wifi),
                 ),
-                child: Text(phoneSsid!),
+                child: Text(phoneSsid),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: passwordController,
-                obscureText: true,
+                obscureText: _obscure,
                 enabled: !provisioning,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Wi-Fi password',
                   helperText: 'Enter it once — your phone keeps it hidden.',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    tooltip: _obscure ? 'Show password' : 'Hide password',
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -639,7 +659,7 @@ class _ProvisioningCard extends StatelessWidget {
               ],
               if (status != null) ...[
                 const SizedBox(height: 12),
-                _FriendlyBanner(status: status!),
+                _FriendlyBanner(status: status),
               ],
             ],
           ],
