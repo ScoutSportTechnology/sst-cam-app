@@ -396,10 +396,26 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final deviceId = _deviceId;
-    final info = deviceId == null
-        ? null
-        : ref.watch(connectedDeviceInfoProvider(deviceId)).valueOrNull;
+    // WATCH the active camera so a disconnect rebuilds this page (a stale read
+    // would keep showing the last camera's uplink after it's gone).
+    final deviceId = ref.watch(activeCameraIdProvider);
+    // No camera connected → the whole page is meaningless (there's nothing to
+    // provision or configure). Show a single hint, not a stale Ethernet card.
+    if (deviceId == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Network')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Connect to a camera to configure its network.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+    final info = ref.watch(connectedDeviceInfoProvider(deviceId)).valueOrNull;
     final supportsProvisioning =
         (info?.protocolVersion ?? 0) >= kSharedWifiProvisioningProtocolVersion;
 
@@ -425,7 +441,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _FriendlyBanner(status: _friendly!),
                   ),
-                if (deviceId != null && supportsProvisioning) ...[
+                if (supportsProvisioning) ...[
                   _ProvisioningCard(
                     phoneSsid: _phoneSsid,
                     passwordController: _provisionPassword,
