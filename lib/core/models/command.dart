@@ -524,6 +524,8 @@ class BleCommandResponse<T> {
         errorMessage: message,
       );
 
-  factory BleCommandResponse.timeout() =>
-      BleCommandResponse(status: BleResponseStatus.timeout);
+  factory BleCommandResponse.timeout() => BleCommandResponse(
+    status: BleResponseStatus.timeout,
+    errorMessage: 'the camera did not respond in time',
+  );
 }

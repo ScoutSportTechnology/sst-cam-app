@@ -36,6 +36,14 @@ const _kNamePrefix = 'sst-cam-';
 // Overall budget for one command round-trip (ack-gated frame writes + response).
 const _kCommandTimeout = Duration(seconds: 10);
 
+/// SetNetworkConfig that begins a Wi-Fi migration blocks the firmware response
+/// on the FULL STA join (regdomain scan + wpa association + DHCP), which can run
+/// well past the default 10s command budget. A short timeout surfaces as a bare
+/// "setNetworkConfig failed: null" even though the camera is still joining. Give
+/// the migration command a generous ceiling; a real failure (wrong password)
+/// still returns its reason well before this.
+const _kNetworkMigrationTimeout = Duration(seconds: 45);
+
 // Time remaining until [deadline], clamped at zero so Future.timeout never gets a
 // negative Duration.
 Duration _remainingUntil(DateTime deadline) {
@@ -640,8 +648,9 @@ class BleServiceImpl implements BleService {
   @override
   Future<BleCommandResponse<T>> sendCommand<T>(
     String deviceId,
-    BleCommand command,
-  ) async {
+    BleCommand command, {
+    Duration? timeout,
+  }) async {
     final conn = _devices[deviceId];
     if (conn == null || conn._cmdWrite == null) {
       return BleCommandResponse.error('Device $deviceId not connected');
@@ -658,6 +667,7 @@ class BleServiceImpl implements BleService {
         corrId,
         frames,
         'Command ${command.runtimeType} for $deviceId',
+        timeout: timeout,
       );
       return BleProtocol.decodeResponse<T>(responseBytes, corrId);
     } on BleTimeoutException {
@@ -830,6 +840,7 @@ class BleServiceImpl implements BleService {
     deviceId,
     SetNetworkConfigCommand(config: config),
     'setNetworkConfig',
+    timeout: _kNetworkMigrationTimeout,
   );
 
   @override
@@ -904,9 +915,14 @@ class BleServiceImpl implements BleService {
   Future<NetworkConfigResult> _networkConfig(
     String deviceId,
     BleCommand command,
-    String label,
-  ) async {
-    final resp = await sendCommand<NetworkConfigResult>(deviceId, command);
+    String label, {
+    Duration? timeout,
+  }) async {
+    final resp = await sendCommand<NetworkConfigResult>(
+      deviceId,
+      command,
+      timeout: timeout,
+    );
     if (!resp.isOk) {
       if (resp.isUnsupported) {
         // Old firmware predating the NetworkConfig command surface — surface a
@@ -1091,14 +1107,15 @@ class _ConnectedDevice {
   Future<List<int>> _sendFramesAndAwait(
     String corrId,
     List<Uint8List> frames,
-    String timeoutLabel,
-  ) async {
+    String timeoutLabel, {
+    Duration? timeout,
+  }) async {
     final completer = Completer<List<int>>();
     _pendingRequests[corrId] = completer;
     try {
       // One shared deadline spans the ack-gated writes AND the response wait, so
       // a multi-chunk command cannot stack per-chunk timeouts past the budget.
-      final deadline = DateTime.now().add(_kCommandTimeout);
+      final deadline = DateTime.now().add(timeout ?? _kCommandTimeout);
       await _writeFrames(corrId, frames, deadline);
       return await completer.future.timeout(
         _remainingUntil(deadline),
