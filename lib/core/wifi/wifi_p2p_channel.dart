@@ -75,10 +75,10 @@ class WifiP2pChannel {
   /// its internet capability. Returns true when bound. Any failure resolves to
   /// false (probe falls back to unbound behaviour). Always pair with
   /// [clearProcessNetworkBinding] in a finally.
-  Future<bool> bindProcessToWifi() async {
+  Future<bool> bindProcessToWifi(String host) async {
     try {
       final ok = await _method
-          .invokeMethod<bool>('bindProcessToWifi')
+          .invokeMethod<bool>('bindProcessToWifi', {'host': host})
           .timeout(const Duration(seconds: 5));
       return ok ?? false;
     } on PlatformException {

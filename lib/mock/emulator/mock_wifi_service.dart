@@ -124,7 +124,8 @@ class MockWifiService implements WifiService {
   }
 
   @override
-  Future<bool> bindProcessToWifi() async => true; // no P2P/STA split in the mock
+  Future<bool> bindProcessToWifi(String host) async =>
+      true; // no P2P/STA split in the mock
 
   @override
   Future<void> clearProcessNetworkBinding() async {}

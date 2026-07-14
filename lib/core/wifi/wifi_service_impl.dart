@@ -202,9 +202,9 @@ class WifiServiceImpl implements WifiService {
   }
 
   @override
-  Future<bool> bindProcessToWifi() async {
+  Future<bool> bindProcessToWifi(String host) async {
     if (Platform.isIOS) return true; // no P2P/STA split to disambiguate on iOS
-    return _channel.bindProcessToWifi();
+    return _channel.bindProcessToWifi(host);
   }
 
   @override

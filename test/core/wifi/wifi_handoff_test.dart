@@ -127,7 +127,7 @@ void main() {
       final calls = <String>[];
       final probe = RtspDescribeProbe(
         timeout: shortTimeout,
-        bindToWifi: () async {
+        bindToWifi: (host) async {
           calls.add('bind');
           return true;
         },
@@ -148,7 +148,7 @@ void main() {
       final calls = <String>[];
       final probe = RtspDescribeProbe(
         timeout: shortTimeout,
-        bindToWifi: () async {
+        bindToWifi: (host) async {
           calls.add('bind');
           return false; // no Wi-Fi network to bind
         },
@@ -163,6 +163,20 @@ void main() {
     test('no binder wired → probe still runs without crashing', () async {
       final probe = RtspDescribeProbe(timeout: shortTimeout);
       expect(await probe.probe(unroutable, 'user:pass'), isFalse);
+    });
+
+    test('passes the target camera host to the binder (route selection)', () async {
+      String? boundHost;
+      final probe = RtspDescribeProbe(
+        timeout: shortTimeout,
+        bindToWifi: (host) async {
+          boundHost = host;
+          return true;
+        },
+        clearBinding: () async {},
+      );
+      await probe.probe('10.10.1.142', 'user:pass');
+      expect(boundHost, '10.10.1.142');
     });
 
     test('200 OK from a PERSISTENT server → reachable, without waiting for close',

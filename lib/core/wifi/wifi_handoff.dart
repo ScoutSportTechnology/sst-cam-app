@@ -79,7 +79,7 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
   RtspDescribeProbe({
     this.timeout = kPreviewProbeTimeout,
     this.port = _kPreviewRtspPort,
-    Future<bool> Function()? bindToWifi,
+    Future<bool> Function(String host)? bindToWifi,
     Future<void> Function()? clearBinding,
   }) : _bindToWifi = bindToWifi,
        _clearBinding = clearBinding,
@@ -100,7 +100,7 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
   /// WiFi-Direct (P2P) interface and never reach a camera on the shared Wi-Fi,
   /// which reads as a false "isolation" (OQ2). Injected so tests assert the
   /// bind-before-connect / clear-in-finally order without a real socket.
-  final Future<bool> Function()? _bindToWifi;
+  final Future<bool> Function(String host)? _bindToWifi;
   final Future<void> Function()? _clearBinding;
 
   @override
@@ -114,7 +114,7 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
       // Route the probe over the phone's Wi-Fi (STA), not the WiFi-Direct (P2P)
       // interface, before opening the socket. Best-effort: on failure we fall
       // back to an unbound connect rather than aborting the probe.
-      bound = _bindToWifi != null && await _bindToWifi();
+      bound = _bindToWifi != null && await _bindToWifi(host);
       socket = await Socket.connect(host, port, timeout: timeout);
       final url = 'rtsp://$host:$port$_kPreviewRtspPath';
       final auth = base64.encode(utf8.encode(credential));
