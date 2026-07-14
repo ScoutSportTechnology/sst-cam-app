@@ -76,22 +76,40 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
   // Not const: the invariant is a runtime assert (a Duration comparison is not
   // const-evaluable) — the app probe timeout MUST be strictly shorter than the
   // firmware self-revert window.
-  RtspDescribeProbe({this.timeout = kPreviewProbeTimeout})
-    : assert(
-        timeout < kFirmwareSelfRevertWindow,
-        'app probe timeout must be strictly shorter than the firmware '
-        'self-revert window',
-      );
+  RtspDescribeProbe({
+    this.timeout = kPreviewProbeTimeout,
+    Future<bool> Function()? bindToWifi,
+    Future<void> Function()? clearBinding,
+  }) : _bindToWifi = bindToWifi,
+       _clearBinding = clearBinding,
+       assert(
+         timeout < kFirmwareSelfRevertWindow,
+         'app probe timeout must be strictly shorter than the firmware '
+         'self-revert window',
+       );
 
   final Duration timeout;
+
+  /// Pins the process to the phone's Wi-Fi (STA) network before the connect and
+  /// clears it after — without this, on Android a bare socket can egress the
+  /// WiFi-Direct (P2P) interface and never reach a camera on the shared Wi-Fi,
+  /// which reads as a false "isolation" (OQ2). Injected so tests assert the
+  /// bind-before-connect / clear-in-finally order without a real socket.
+  final Future<bool> Function()? _bindToWifi;
+  final Future<void> Function()? _clearBinding;
 
   @override
   Future<bool> probe(String endpoint, String credential) async {
     final host = endpoint.trim();
     if (host.isEmpty) return false;
     Socket? socket;
+    var bound = false;
     final deadline = DateTime.now().add(timeout);
     try {
+      // Route the probe over the phone's Wi-Fi (STA), not the WiFi-Direct (P2P)
+      // interface, before opening the socket. Best-effort: on failure we fall
+      // back to an unbound connect rather than aborting the probe.
+      bound = _bindToWifi != null && await _bindToWifi();
       socket = await Socket.connect(host, _kPreviewRtspPort, timeout: timeout);
       final url = 'rtsp://$host:$_kPreviewRtspPort$_kPreviewRtspPath';
       final auth = base64.encode(utf8.encode(credential));
@@ -135,15 +153,21 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
       return false;
     } finally {
       socket?.destroy();
+      if (bound) await _clearBinding?.call();
     }
   }
 }
 
-/// The active preview-reachability probe. Defaults to [RtspDescribeProbe];
+/// The active preview-reachability probe. Defaults to [RtspDescribeProbe] wired
+/// to bind the process to the phone's Wi-Fi (STA) network for the probe;
 /// overridden in tests with a fake that scripts reachable / isolated.
-final previewProbeProvider = Provider<PreviewReachabilityProbe>(
-  (ref) => RtspDescribeProbe(),
-);
+final previewProbeProvider = Provider<PreviewReachabilityProbe>((ref) {
+  final wifi = ref.read(wifiServiceProvider);
+  return RtspDescribeProbe(
+    bindToWifi: wifi.bindProcessToWifi,
+    clearBinding: wifi.clearProcessNetworkBinding,
+  );
+});
 
 /// Single owner of the WiFi Direct group lifecycle. Watches the active BLE
 /// camera and its connection state; brings the WiFi group up automatically

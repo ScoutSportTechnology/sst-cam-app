@@ -123,6 +123,12 @@ class MockWifiService implements WifiService {
     return mockPhoneFrequencyMhz;
   }
 
+  @override
+  Future<bool> bindProcessToWifi() async => true; // no P2P/STA split in the mock
+
+  @override
+  Future<void> clearProcessNetworkBinding() async {}
+
   final Random _rng;
   final VideoPathService _videoPathService;
   final Dio _dio;

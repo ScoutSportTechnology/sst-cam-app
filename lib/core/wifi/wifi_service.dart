@@ -34,6 +34,19 @@ abstract class WifiService {
   /// implement it.
   Future<int> currentWifiFrequencyMhz() async => 0;
 
+  /// Pin the process's sockets to the phone's infrastructure Wi-Fi (STA) network
+  /// so a reachability probe reaches a camera on the shared Wi-Fi. Both the
+  /// WiFi-Direct (P2P) group and the STA link are TRANSPORT_WIFI, so an unbound
+  /// socket can egress the P2P interface and never reach the STA subnet — the
+  /// migration preview probe binds here first (OQ2). Returns true when bound;
+  /// concrete default returns true (a no-op "bound") so fakes/mocks need not
+  /// implement it. Always pair with [clearProcessNetworkBinding] in a finally.
+  Future<bool> bindProcessToWifi() async => true;
+
+  /// Undo [bindProcessToWifi] — return the process to default network selection.
+  /// Concrete default is a no-op so fakes/mocks need not implement it.
+  Future<void> clearProcessNetworkBinding() async {}
+
   // ---------------------------------------------------------------------------
   // Group lifecycle
   // ---------------------------------------------------------------------------

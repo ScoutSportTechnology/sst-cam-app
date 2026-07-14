@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.net.wifi.p2p.*
 import android.os.Build
@@ -67,6 +69,11 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
             "disconnect" -> disconnect(result)
             "currentSsid" -> result.success(currentSsid())
             "currentWifiFrequencyMhz" -> result.success(currentWifiFrequencyMhz())
+            "bindProcessToWifi" -> result.success(bindProcessToWifi())
+            "clearProcessNetworkBinding" -> {
+                clearProcessNetworkBinding()
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -103,6 +110,48 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
         } catch (e: Throwable) {
             Log.w(TAG, "currentWifiFrequencyMhz failed: $e")
             0
+        }
+    }
+
+    // Pin this process's sockets to the phone's infrastructure Wi-Fi (STA)
+    // network for the duration of a reachability probe. Both the WiFi-Direct
+    // (P2P) group and the STA link report TRANSPORT_WIFI, so a bare socket can
+    // egress the P2P interface and never reach a camera on the shared Wi-Fi —
+    // the STA link is distinguished by NET_CAPABILITY_INTERNET (the P2P group
+    // has none). Returns true when a Wi-Fi network was found and bound. Always
+    // pair with clearProcessNetworkBinding() in a finally. Never throws.
+    private fun bindProcessToWifi(): Boolean {
+        return try {
+            val cm = context.applicationContext
+                .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return false
+            val nets = cm.allNetworks
+            val staNet = nets.firstOrNull { net ->
+                val caps = cm.getNetworkCapabilities(net)
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            } ?: nets.firstOrNull { net ->
+                cm.getNetworkCapabilities(net)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            } ?: return false
+            val ok = cm.bindProcessToNetwork(staNet)
+            Log.d(TAG, "bindProcessToWifi -> $ok")
+            ok
+        } catch (e: Throwable) {
+            Log.w(TAG, "bindProcessToWifi failed: $e")
+            false
+        }
+    }
+
+    // Undo bindProcessToWifi() — return the process to the system default
+    // network selection. Never throws.
+    private fun clearProcessNetworkBinding() {
+        try {
+            val cm = context.applicationContext
+                .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            cm?.bindProcessToNetwork(null)
+        } catch (e: Throwable) {
+            Log.w(TAG, "clearProcessNetworkBinding failed: $e")
         }
     }
 

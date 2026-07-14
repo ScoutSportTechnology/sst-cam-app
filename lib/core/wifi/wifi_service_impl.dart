@@ -202,6 +202,18 @@ class WifiServiceImpl implements WifiService {
   }
 
   @override
+  Future<bool> bindProcessToWifi() async {
+    if (Platform.isIOS) return true; // no P2P/STA split to disambiguate on iOS
+    return _channel.bindProcessToWifi();
+  }
+
+  @override
+  Future<void> clearProcessNetworkBinding() async {
+    if (Platform.isIOS) return;
+    await _channel.clearProcessNetworkBinding();
+  }
+
+  @override
   Future<WifiDirectGroup> connectGroup(String deviceId) async {
     // Serialize concurrent calls for the same device — second caller awaits the
     // already-running connect sequence instead of starting a duplicate.

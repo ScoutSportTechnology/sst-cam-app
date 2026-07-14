@@ -68,6 +68,44 @@ class WifiP2pChannel {
     }
   }
 
+  /// Pin the process's sockets to the phone's infrastructure Wi-Fi (STA)
+  /// network. Both the WiFi-Direct (P2P) group and the STA link report
+  /// TRANSPORT_WIFI, so an unbound socket can egress the P2P interface and never
+  /// reach a camera on the shared Wi-Fi; the native side selects the STA link by
+  /// its internet capability. Returns true when bound. Any failure resolves to
+  /// false (probe falls back to unbound behaviour). Always pair with
+  /// [clearProcessNetworkBinding] in a finally.
+  Future<bool> bindProcessToWifi() async {
+    try {
+      final ok = await _method
+          .invokeMethod<bool>('bindProcessToWifi')
+          .timeout(const Duration(seconds: 5));
+      return ok ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    } on Exception {
+      return false;
+    }
+  }
+
+  /// Undo [bindProcessToWifi] — return the process to default network selection.
+  /// Never throws.
+  Future<void> clearProcessNetworkBinding() async {
+    try {
+      await _method
+          .invokeMethod<void>('clearProcessNetworkBinding')
+          .timeout(const Duration(seconds: 5));
+    } on PlatformException {
+      // ignore — best-effort cleanup
+    } on MissingPluginException {
+      // ignore
+    } on Exception {
+      // ignore
+    }
+  }
+
   /// Integer state codes pushed by the native `BroadcastReceiver`:
   ///   0 = idle
   ///   1 = starting

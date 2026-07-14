@@ -115,6 +115,56 @@ Future<void> _settle() =>
     Future<void>.delayed(const Duration(milliseconds: 550));
 
 void main() {
+  group('RtspDescribeProbe Wi-Fi binding (OQ2)', () {
+    // 192.0.2.1 is TEST-NET-1 (RFC 5737) — guaranteed unroutable, so the socket
+    // connect fails fast and the probe returns false without a real camera. The
+    // point of these tests is the bind/clear ORDER around that attempt.
+    const unroutable = '192.0.2.1';
+    const shortTimeout = Duration(milliseconds: 300);
+
+    test('binds to Wi-Fi before connect and clears binding in finally', () async {
+      final calls = <String>[];
+      final probe = RtspDescribeProbe(
+        timeout: shortTimeout,
+        bindToWifi: () async {
+          calls.add('bind');
+          return true;
+        },
+        clearBinding: () async => calls.add('clear'),
+      );
+
+      final reachable = await probe.probe(unroutable, 'user:pass');
+
+      expect(reachable, isFalse);
+      expect(
+        calls,
+        ['bind', 'clear'],
+        reason: 'must bind before the connect and clear in the finally',
+      );
+    });
+
+    test('does not clear when binding did not take (returned false)', () async {
+      final calls = <String>[];
+      final probe = RtspDescribeProbe(
+        timeout: shortTimeout,
+        bindToWifi: () async {
+          calls.add('bind');
+          return false; // no Wi-Fi network to bind
+        },
+        clearBinding: () async => calls.add('clear'),
+      );
+
+      await probe.probe(unroutable, 'user:pass');
+
+      expect(calls, ['bind'], reason: 'clear only runs when a bind took effect');
+    });
+
+    test('no binder wired → probe still runs without crashing', () async {
+      final probe = RtspDescribeProbe(timeout: shortTimeout);
+      expect(await probe.probe(unroutable, 'user:pass'), isFalse);
+    });
+  });
+
   test('BLE connect brings the WiFi group up exactly once', () async {
     final ble = _FakeBle();
     final wifi = _FakeWifi();
