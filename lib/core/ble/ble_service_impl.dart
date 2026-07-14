@@ -478,13 +478,13 @@ class BleServiceImpl implements BleService {
       ensureCurrent();
       conn._startResponseListener();
 
-      // Link is up and the command channel works, but the §9b handshake
-      // (protocol gate → time push → snapshot → rehydrate → reconcile) has
-      // not run yet — that is the connect controller's job. Expose
-      // `reconciling` so session-affecting UI (which gates on `connected`
-      // only) stays locked until completeHandshake().
       conn._connController.add(CameraConnectionState.reconciling);
       _log.info('camera $deviceId link up — awaiting handshake');
+      unawaited(
+        ensureBonded(deviceId).catchError(
+          (Object e) => _log.warning('bond on connect failed for $deviceId: $e'),
+        ),
+      );
 
       // Listen for unexpected disconnection. Keep the slot (replays
       // disconnected to existing/late subscribers) — only tear down the
