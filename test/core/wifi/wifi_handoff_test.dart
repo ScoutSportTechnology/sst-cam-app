@@ -11,6 +11,7 @@
 // re-formation kills Argus capture mid-session). Teardown happens only when
 // the loop gives up.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -162,6 +163,58 @@ void main() {
     test('no binder wired → probe still runs without crashing', () async {
       final probe = RtspDescribeProbe(timeout: shortTimeout);
       expect(await probe.probe(unroutable, 'user:pass'), isFalse);
+    });
+
+    test('200 OK from a PERSISTENT server → reachable, without waiting for close',
+        () async {
+      // GstRtspServer keeps the connection OPEN after answering (RTSP is
+      // persistent). The probe must parse the status line as it arrives, not
+      // read to EOF — otherwise it hangs until the timeout and falsely denies.
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+      server.listen((c) {
+        c.write('RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n');
+        // deliberately never close the connection
+      });
+
+      final probe = RtspDescribeProbe(
+        timeout: const Duration(seconds: 3),
+        port: server.port,
+      );
+      final sw = Stopwatch()..start();
+      final reachable = await probe.probe('127.0.0.1', 'user:pass');
+      sw.stop();
+
+      expect(reachable, isTrue);
+      expect(
+        sw.elapsed,
+        lessThan(const Duration(seconds: 2)),
+        reason: 'must parse the status line immediately, not hang to timeout',
+      );
+    });
+
+    test('401 from the server → not reachable', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+      server.listen((c) {
+        c.write('RTSP/1.0 401 Unauthorized\r\nCSeq: 1\r\n\r\n');
+      });
+      final probe = RtspDescribeProbe(
+        timeout: const Duration(seconds: 2),
+        port: server.port,
+      );
+      expect(await probe.probe('127.0.0.1', 'user:pass'), isFalse);
+    });
+
+    test('server accepts but never answers → times out, not reachable', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+      server.listen((_) {/* accept, stay silent */});
+      final probe = RtspDescribeProbe(
+        timeout: const Duration(milliseconds: 400),
+        port: server.port,
+      );
+      expect(await probe.probe('127.0.0.1', 'user:pass'), isFalse);
     });
   });
 

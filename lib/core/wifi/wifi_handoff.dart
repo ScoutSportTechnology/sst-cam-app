@@ -78,6 +78,7 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
   // firmware self-revert window.
   RtspDescribeProbe({
     this.timeout = kPreviewProbeTimeout,
+    this.port = _kPreviewRtspPort,
     Future<bool> Function()? bindToWifi,
     Future<void> Function()? clearBinding,
   }) : _bindToWifi = bindToWifi,
@@ -89,6 +90,10 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
        );
 
   final Duration timeout;
+
+  /// The RTSP port to probe. Fixed at [_kPreviewRtspPort] in production;
+  /// injectable so tests can point at a local server.
+  final int port;
 
   /// Pins the process to the phone's Wi-Fi (STA) network before the connect and
   /// clears it after — without this, on Android a bare socket can egress the
@@ -110,8 +115,8 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
       // interface, before opening the socket. Best-effort: on failure we fall
       // back to an unbound connect rather than aborting the probe.
       bound = _bindToWifi != null && await _bindToWifi();
-      socket = await Socket.connect(host, _kPreviewRtspPort, timeout: timeout);
-      final url = 'rtsp://$host:$_kPreviewRtspPort$_kPreviewRtspPath';
+      socket = await Socket.connect(host, port, timeout: timeout);
+      final url = 'rtsp://$host:$port$_kPreviewRtspPath';
       final auth = base64.encode(utf8.encode(credential));
       socket.write(
         'DESCRIBE $url RTSP/1.0\r\n'
@@ -124,13 +129,24 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
 
       final remaining = deadline.difference(DateTime.now());
       if (remaining.isNegative) return false;
-      // Read the status line; a 2xx means routed AND authenticated.
-      final response = await socket
-          .cast<List<int>>()
-          .transform(utf8.decoder)
-          .join()
-          .timeout(remaining, onTimeout: () => '');
-      final statusLine = response.split('\r\n').firstOrNull ?? '';
+      // Read ONLY until the RTSP status line arrives. RTSP is a persistent
+      // connection — the server keeps the socket OPEN after answering, so
+      // reading to EOF (`.join()`) hangs until the timeout even though the
+      // "RTSP/1.0 200 OK" already came back. Accumulate decoded chunks until the
+      // first CRLF, then stop. A 2xx means routed AND authenticated.
+      final buffer = StringBuffer();
+      try {
+        await for (final chunk in socket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .timeout(remaining)) {
+          buffer.write(chunk);
+          if (buffer.toString().contains('\r\n')) break;
+        }
+      } on TimeoutException {
+        // No response within the window → parsed as unreachable below.
+      }
+      final statusLine = buffer.toString().split('\r\n').firstOrNull ?? '';
       // "RTSP/1.0 200 OK" → reachable; "401"/other → not reachable.
       final match = RegExp(r'RTSP/\d\.\d\s+(\d{3})').firstMatch(statusLine);
       final code = match == null ? 0 : int.tryParse(match.group(1)!) ?? 0;
