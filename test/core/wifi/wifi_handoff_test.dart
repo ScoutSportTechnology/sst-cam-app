@@ -220,6 +220,28 @@ void main() {
       expect(await probe.probe('127.0.0.1', 'user:pass'), isFalse);
     });
 
+    test('retries a transient failure and succeeds on a later attempt', () async {
+      // The first connection is dropped (mimics the stale-ARP EHOSTUNREACH on
+      // the freshly-appeared STA IP); the retry gets a clean 200.
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+      var conn = 0;
+      server.listen((c) {
+        conn++;
+        if (conn == 1) {
+          c.destroy(); // first attempt: no status line
+        } else {
+          c.write('RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n');
+        }
+      });
+      final probe = RtspDescribeProbe(
+        timeout: const Duration(seconds: 6), // room for one retry (1.2s delay)
+        port: server.port,
+      );
+      expect(await probe.probe('127.0.0.1', 'user:pass'), isTrue);
+      expect(conn, greaterThanOrEqualTo(2), reason: 'must have retried');
+    });
+
     test('server accepts but never answers → times out, not reachable', () async {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(server.close);

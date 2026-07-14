@@ -57,6 +57,17 @@ const Duration kFirmwareSelfRevertWindow = Duration(seconds: 20);
 const int _kPreviewRtspPort = 8554;
 const String _kPreviewRtspPath = '/preview';
 
+/// Delay between probe attempts. The camera's STA IP only appeared moments ago,
+/// so the first connect can hit a STALE NEGATIVE ARP entry on the phone
+/// (EHOSTUNREACH / errno 113 returned instantly without re-resolving). That
+/// failed connect kicks a fresh ARP resolution; this delay (> the ~1s ARP
+/// retransmit) lets the retry resolve and succeed.
+const Duration _kProbeRetryDelay = Duration(milliseconds: 1200);
+
+/// Per-attempt connect/read ceiling so one stuck attempt can't eat the whole
+/// probe budget (the outer [RtspDescribeProbe.timeout] bounds the retry loop).
+const Duration _kProbeAttemptTimeout = Duration(seconds: 3);
+
 /// Probes whether the camera's authenticated STA/LAN preview is reachable
 /// (OQ2). Injected via [previewProbeProvider] so tests drive the reachable /
 /// isolated branches without a real socket.
@@ -107,15 +118,43 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
   Future<bool> probe(String endpoint, String credential) async {
     final host = endpoint.trim();
     if (host.isEmpty) return false;
-    Socket? socket;
     var bound = false;
     final deadline = DateTime.now().add(timeout);
     try {
       // Route the probe over the phone's Wi-Fi (STA), not the WiFi-Direct (P2P)
-      // interface, before opening the socket. Best-effort: on failure we fall
-      // back to an unbound connect rather than aborting the probe.
+      // interface, before opening the socket (OQ2). Bind once — it holds for the
+      // whole retry loop. Best-effort: on failure we fall back to unbound.
       bound = _bindToWifi != null && await _bindToWifi(host);
-      socket = await Socket.connect(host, port, timeout: timeout);
+
+      // Retry until reachable or the deadline: the camera holds its STA IP for
+      // the whole self-revert window, and the first attempt often fails on a
+      // stale negative ARP entry (see [_kProbeRetryDelay]).
+      while (true) {
+        if (await _attemptOnce(host, credential, deadline)) return true;
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining <= _kProbeRetryDelay) return false;
+        await Future<void>.delayed(_kProbeRetryDelay);
+      }
+    } finally {
+      if (bound) await _clearBinding?.call();
+    }
+  }
+
+  /// One connect → authenticated RTSP DESCRIBE → status-line read. Returns true
+  /// only on a 2xx; never throws (failures resolve to false so the caller can
+  /// retry). Bounded by [deadline] and [_kProbeAttemptTimeout].
+  Future<bool> _attemptOnce(
+    String host,
+    String credential,
+    DateTime deadline,
+  ) async {
+    Socket? socket;
+    try {
+      var remaining = deadline.difference(DateTime.now());
+      if (remaining.isNegative) return false;
+      final connectTimeout =
+          remaining < _kProbeAttemptTimeout ? remaining : _kProbeAttemptTimeout;
+      socket = await Socket.connect(host, port, timeout: connectTimeout);
       final url = 'rtsp://$host:$port$_kPreviewRtspPath';
       final auth = base64.encode(utf8.encode(credential));
       socket.write(
@@ -127,49 +166,45 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
       );
       await socket.flush();
 
-      final remaining = deadline.difference(DateTime.now());
+      remaining = deadline.difference(DateTime.now());
       if (remaining.isNegative) return false;
-      // Read ONLY until the RTSP status line arrives. RTSP is a persistent
-      // connection — the server keeps the socket OPEN after answering, so
-      // reading to EOF (`.join()`) hangs until the timeout even though the
-      // "RTSP/1.0 200 OK" already came back. Accumulate decoded chunks until the
-      // first CRLF, then stop. A 2xx means routed AND authenticated.
+      // Read ONLY until the RTSP status line arrives — RTSP is a persistent
+      // connection (the server keeps the socket open after answering), so
+      // reading to EOF would hang. A 2xx means routed AND authenticated.
       final buffer = StringBuffer();
+      final readCap =
+          remaining < _kProbeAttemptTimeout ? remaining : _kProbeAttemptTimeout;
       try {
         await for (final chunk in socket
             .cast<List<int>>()
             .transform(utf8.decoder)
-            .timeout(remaining)) {
+            .timeout(readCap)) {
           buffer.write(chunk);
           if (buffer.toString().contains('\r\n')) break;
         }
       } on TimeoutException {
-        // No response within the window → parsed as unreachable below.
+        // No response this attempt → parsed as unreachable below.
       }
       final statusLine = buffer.toString().split('\r\n').firstOrNull ?? '';
-      // "RTSP/1.0 200 OK" → reachable; "401"/other → not reachable.
       final match = RegExp(r'RTSP/\d\.\d\s+(\d{3})').firstMatch(statusLine);
       final code = match == null ? 0 : int.tryParse(match.group(1)!) ?? 0;
       final reachable = code >= 200 && code < 300;
       if (!reachable) {
-        debugPrint(
-          '[preview-probe] non-2xx status "$statusLine" → not reachable',
-        );
+        debugPrint('[preview-probe] non-2xx status "$statusLine" → retrying');
       }
       return reachable;
     } on SocketException catch (e) {
-      // No route to host / connection refused / timeout → isolation.
-      debugPrint('[preview-probe] socket failure → isolated: ${e.osError}');
+      // No route to host (stale ARP) / refused / timeout → retry.
+      debugPrint('[preview-probe] socket failure → retrying: ${e.osError}');
       return false;
     } on TimeoutException {
-      debugPrint('[preview-probe] timed out → isolated');
+      debugPrint('[preview-probe] timed out → retrying');
       return false;
     } on Object catch (e) {
-      debugPrint('[preview-probe] unexpected failure → not reachable: $e');
+      debugPrint('[preview-probe] unexpected failure → retrying: $e');
       return false;
     } finally {
       socket?.destroy();
-      if (bound) await _clearBinding?.call();
     }
   }
 }
