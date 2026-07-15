@@ -44,7 +44,16 @@ final wifiBringUpRetryProvider = Provider<WifiBringUpRetry>(
 /// so the app's confirm/deny always beats the firmware's backstop timer — the
 /// app owns the verdict; the firmware timeout only covers a crashed app
 /// (KTD5 / OQ1). Enforced by an assertion at construction and in tests.
-const Duration kPreviewProbeTimeout = Duration(seconds: 10);
+///
+/// U2 (R2): this is the retry BUDGET, and it is the load-bearing fix for
+/// one-tap connect — NOT the firmware's best-effort gratuitous ARP (U1), which
+/// a neighbour is free to ignore for a FAILED neigh entry. On the first tap the
+/// phone may hold a stale/negative ARP entry for the camera's just-appeared STA
+/// IP, so the first attempt fails fast (EHOSTUNREACH); the loop must fit several
+/// retries so at least one lands after the kernel re-resolves. At [_kProbeRetryDelay]
+/// (1.2s) spacing, a 12s budget affords ~9 fast-fail retries while still leaving
+/// an 8s margin under the 20s self-revert for the BLE confirm round-trip.
+const Duration kPreviewProbeTimeout = Duration(seconds: 12);
 
 /// The firmware's self-revert backstop: if no confirm arrives within this
 /// window after entering `Migrating`, the camera reverts to S1 on its own.
@@ -152,8 +161,9 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
     try {
       var remaining = deadline.difference(DateTime.now());
       if (remaining.isNegative) return false;
-      final connectTimeout =
-          remaining < _kProbeAttemptTimeout ? remaining : _kProbeAttemptTimeout;
+      final connectTimeout = remaining < _kProbeAttemptTimeout
+          ? remaining
+          : _kProbeAttemptTimeout;
       socket = await Socket.connect(host, port, timeout: connectTimeout);
       final url = 'rtsp://$host:$port$_kPreviewRtspPath';
       final auth = base64.encode(utf8.encode(credential));
@@ -172,13 +182,15 @@ class RtspDescribeProbe implements PreviewReachabilityProbe {
       // connection (the server keeps the socket open after answering), so
       // reading to EOF would hang. A 2xx means routed AND authenticated.
       final buffer = StringBuffer();
-      final readCap =
-          remaining < _kProbeAttemptTimeout ? remaining : _kProbeAttemptTimeout;
+      final readCap = remaining < _kProbeAttemptTimeout
+          ? remaining
+          : _kProbeAttemptTimeout;
       try {
-        await for (final chunk in socket
-            .cast<List<int>>()
-            .transform(utf8.decoder)
-            .timeout(readCap)) {
+        await for (final chunk
+            in socket
+                .cast<List<int>>()
+                .transform(utf8.decoder)
+                .timeout(readCap)) {
           buffer.write(chunk);
           if (buffer.toString().contains('\r\n')) break;
         }

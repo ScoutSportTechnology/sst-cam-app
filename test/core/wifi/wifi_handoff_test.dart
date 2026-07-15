@@ -123,26 +123,28 @@ void main() {
     const unroutable = '192.0.2.1';
     const shortTimeout = Duration(milliseconds: 300);
 
-    test('binds to Wi-Fi before connect and clears binding in finally', () async {
-      final calls = <String>[];
-      final probe = RtspDescribeProbe(
-        timeout: shortTimeout,
-        bindToWifi: (host) async {
-          calls.add('bind');
-          return true;
-        },
-        clearBinding: () async => calls.add('clear'),
-      );
+    test(
+      'binds to Wi-Fi before connect and clears binding in finally',
+      () async {
+        final calls = <String>[];
+        final probe = RtspDescribeProbe(
+          timeout: shortTimeout,
+          bindToWifi: (host) async {
+            calls.add('bind');
+            return true;
+          },
+          clearBinding: () async => calls.add('clear'),
+        );
 
-      final reachable = await probe.probe(unroutable, 'user:pass');
+        final reachable = await probe.probe(unroutable, 'user:pass');
 
-      expect(reachable, isFalse);
-      expect(
-        calls,
-        ['bind', 'clear'],
-        reason: 'must bind before the connect and clear in the finally',
-      );
-    });
+        expect(reachable, isFalse);
+        expect(calls, [
+          'bind',
+          'clear',
+        ], reason: 'must bind before the connect and clear in the finally');
+      },
+    );
 
     test('does not clear when binding did not take (returned false)', () async {
       final calls = <String>[];
@@ -157,7 +159,9 @@ void main() {
 
       await probe.probe(unroutable, 'user:pass');
 
-      expect(calls, ['bind'], reason: 'clear only runs when a bind took effect');
+      expect(calls, [
+        'bind',
+      ], reason: 'clear only runs when a bind took effect');
     });
 
     test('no binder wired → probe still runs without crashing', () async {
@@ -165,47 +169,52 @@ void main() {
       expect(await probe.probe(unroutable, 'user:pass'), isFalse);
     });
 
-    test('passes the target camera host to the binder (route selection)', () async {
-      String? boundHost;
-      final probe = RtspDescribeProbe(
-        timeout: shortTimeout,
-        bindToWifi: (host) async {
-          boundHost = host;
-          return true;
-        },
-        clearBinding: () async {},
-      );
-      await probe.probe('10.10.1.142', 'user:pass');
-      expect(boundHost, '10.10.1.142');
-    });
+    test(
+      'passes the target camera host to the binder (route selection)',
+      () async {
+        String? boundHost;
+        final probe = RtspDescribeProbe(
+          timeout: shortTimeout,
+          bindToWifi: (host) async {
+            boundHost = host;
+            return true;
+          },
+          clearBinding: () async {},
+        );
+        await probe.probe('10.10.1.142', 'user:pass');
+        expect(boundHost, '10.10.1.142');
+      },
+    );
 
-    test('200 OK from a PERSISTENT server → reachable, without waiting for close',
-        () async {
-      // GstRtspServer keeps the connection OPEN after answering (RTSP is
-      // persistent). The probe must parse the status line as it arrives, not
-      // read to EOF — otherwise it hangs until the timeout and falsely denies.
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(server.close);
-      server.listen((c) {
-        c.write('RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n');
-        // deliberately never close the connection
-      });
+    test(
+      '200 OK from a PERSISTENT server → reachable, without waiting for close',
+      () async {
+        // GstRtspServer keeps the connection OPEN after answering (RTSP is
+        // persistent). The probe must parse the status line as it arrives, not
+        // read to EOF — otherwise it hangs until the timeout and falsely denies.
+        final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(server.close);
+        server.listen((c) {
+          c.write('RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n');
+          // deliberately never close the connection
+        });
 
-      final probe = RtspDescribeProbe(
-        timeout: const Duration(seconds: 3),
-        port: server.port,
-      );
-      final sw = Stopwatch()..start();
-      final reachable = await probe.probe('127.0.0.1', 'user:pass');
-      sw.stop();
+        final probe = RtspDescribeProbe(
+          timeout: const Duration(seconds: 3),
+          port: server.port,
+        );
+        final sw = Stopwatch()..start();
+        final reachable = await probe.probe('127.0.0.1', 'user:pass');
+        sw.stop();
 
-      expect(reachable, isTrue);
-      expect(
-        sw.elapsed,
-        lessThan(const Duration(seconds: 2)),
-        reason: 'must parse the status line immediately, not hang to timeout',
-      );
-    });
+        expect(reachable, isTrue);
+        expect(
+          sw.elapsed,
+          lessThan(const Duration(seconds: 2)),
+          reason: 'must parse the status line immediately, not hang to timeout',
+        );
+      },
+    );
 
     test('401 from the server → not reachable', () async {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
@@ -220,38 +229,93 @@ void main() {
       expect(await probe.probe('127.0.0.1', 'user:pass'), isFalse);
     });
 
-    test('retries a transient failure and succeeds on a later attempt', () async {
-      // The first connection is dropped (mimics the stale-ARP EHOSTUNREACH on
-      // the freshly-appeared STA IP); the retry gets a clean 200.
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(server.close);
-      var conn = 0;
-      server.listen((c) {
-        conn++;
-        if (conn == 1) {
-          c.destroy(); // first attempt: no status line
-        } else {
-          c.write('RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n');
-        }
-      });
-      final probe = RtspDescribeProbe(
-        timeout: const Duration(seconds: 6), // room for one retry (1.2s delay)
-        port: server.port,
-      );
-      expect(await probe.probe('127.0.0.1', 'user:pass'), isTrue);
-      expect(conn, greaterThanOrEqualTo(2), reason: 'must have retried');
-    });
+    test(
+      'retries a transient failure and succeeds on a later attempt',
+      () async {
+        // The first connection is dropped (mimics the stale-ARP EHOSTUNREACH on
+        // the freshly-appeared STA IP); the retry gets a clean 200.
+        final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(server.close);
+        var conn = 0;
+        server.listen((c) {
+          conn++;
+          if (conn == 1) {
+            c.destroy(); // first attempt: no status line
+          } else {
+            c.write('RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n');
+          }
+        });
+        final probe = RtspDescribeProbe(
+          timeout: const Duration(
+            seconds: 6,
+          ), // room for one retry (1.2s delay)
+          port: server.port,
+        );
+        expect(await probe.probe('127.0.0.1', 'user:pass'), isTrue);
+        expect(conn, greaterThanOrEqualTo(2), reason: 'must have retried');
+      },
+    );
 
-    test('server accepts but never answers → times out, not reachable', () async {
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(server.close);
-      server.listen((_) {/* accept, stay silent */});
-      final probe = RtspDescribeProbe(
-        timeout: const Duration(milliseconds: 400),
-        port: server.port,
-      );
-      expect(await probe.probe('127.0.0.1', 'user:pass'), isFalse);
-    });
+    test(
+      'the DEFAULT budget affords multiple retries (R2 one-tap connect)',
+      () async {
+        // Mimic a stale-ARP first tap where U1's gratuitous ARP was ignored: the
+        // first two connects are dropped (as an EHOSTUNREACH would fail fast) and
+        // only the third answers 200. With the default retry budget this MUST
+        // still land reachable — the widened retry loop, not the best-effort ARP,
+        // is what closes one-tap connect.
+        final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(server.close);
+        var conn = 0;
+        server.listen((c) {
+          conn++;
+          if (conn < 3) {
+            c.destroy(); // first two attempts: no status line
+          } else {
+            c.write('RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n');
+          }
+        });
+        final probe = RtspDescribeProbe(port: server.port); // default budget
+        expect(await probe.probe('127.0.0.1', 'user:pass'), isTrue);
+        expect(
+          conn,
+          greaterThanOrEqualTo(3),
+          reason: 'must have retried twice',
+        );
+      },
+    );
+
+    test(
+      'retry budget stays under the self-revert window with confirm margin',
+      () {
+        // The whole retry loop is bounded by kPreviewProbeTimeout; it must finish
+        // with enough headroom for the app's BLE confirm to beat the firmware's
+        // self-revert backstop (KTD5) — assert a concrete margin, not just `<`.
+        expect(kPreviewProbeTimeout < kFirmwareSelfRevertWindow, isTrue);
+        final margin = kFirmwareSelfRevertWindow - kPreviewProbeTimeout;
+        expect(
+          margin >= const Duration(seconds: 4),
+          isTrue,
+          reason: 'need headroom for the BLE confirm before self-revert',
+        );
+      },
+    );
+
+    test(
+      'server accepts but never answers → times out, not reachable',
+      () async {
+        final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(server.close);
+        server.listen((_) {
+          /* accept, stay silent */
+        });
+        final probe = RtspDescribeProbe(
+          timeout: const Duration(milliseconds: 400),
+          port: server.port,
+        );
+        expect(await probe.probe('127.0.0.1', 'user:pass'), isFalse);
+      },
+    );
   });
 
   test('BLE connect brings the WiFi group up exactly once', () async {
