@@ -675,6 +675,11 @@ class BleProtocol {
                 migrationId: nc.migrationId,
                 previewEndpoint: nc.previewEndpoint,
                 previewCredential: nc.previewCredential,
+                // Ambient connected-state (R3): the arbiter's settled S2 mode +
+                // SSID, on both Set and Get replies. Defaults false/'' against
+                // firmware that predates these additive fields.
+                inSharedWifi: nc.inSharedWifi,
+                currentSsid: nc.currentSsid,
               )
               as T?,
         );

@@ -13,6 +13,7 @@ import '../../../core/models/network_config.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/wifi/wifi_handoff.dart' show previewProbeProvider;
+import '../../../core/state/db_providers.dart' show wifiCredentialsDaoProvider;
 import '../../../core/wifi/wifi_providers.dart' show wifiServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
 
@@ -66,7 +67,11 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   // with its Bluetooth radio).
   int _phoneWifiFreqMhz = 0;
   bool _provisioning = false;
-  bool _provisionConnected = false;
+  // The SSID the camera is currently connected to in shared-WiFi (S2), sourced
+  // from the firmware arbiter's settled state (R3). Null when not in S2. Drives
+  // the "Connected to <ssid>" card + the Disconnect / change-networks affordances
+  // — and lets the app tell an already-on-this-network re-tap from a real switch.
+  String? _connectedSsid;
   // The friendly outcome of the last provisioning attempt (U7), or null.
   FriendlyStatus? _provisionStatus;
 
@@ -211,6 +216,10 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       _wifiGateway.text = config.wifi.ip.gateway;
       _wifiDns.text = config.wifi.ip.dns;
       _status = result;
+      // Seed the connected-state from the arbiter's settled mode (R3), so the
+      // card shows "Connected to <ssid>" on reconnect without replaying the
+      // migration handshake. Sourced from the arbiter, never the echoed config.
+      _connectedSsid = result.inSharedWifi ? result.currentSsid : null;
       _loading = false;
       _error = null;
       _friendly = null;
@@ -296,6 +305,11 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     final deviceId = _deviceId;
     final ssid = _phoneSsid;
     if (deviceId == null || ssid == null) return;
+    // A CHANGE-NETWORKS switch: the camera is connected to one network and the
+    // phone has since moved to a different one, so this Connect tears the old STA
+    // down before joining the new — destructive on failure (R3). Captured before
+    // the state reset so the failure path can render the right copy.
+    final wasSwitch = _connectedSsid != null && _connectedSsid != ssid;
     FocusScope.of(context).unfocus();
     // Validate the band FIRST: the camera can only join a 5 GHz Wi-Fi (its single
     // radio holds Bluetooth on 2.4 GHz), so a 2.4 GHz network never associates.
@@ -303,7 +317,6 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     // join that would take ~15s and revert.
     if (_phoneOn24Ghz) {
       setState(() {
-        _provisionConnected = false;
         _provisionStatus = FriendlyStatus.forOutcome(
           ConnectivityOutcome.needs5GHz,
         );
@@ -314,7 +327,6 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     _loadGen++;
     setState(() {
       _provisioning = true;
-      _provisionConnected = false;
       _provisionStatus = null;
       _friendly = null;
     });
@@ -341,13 +353,28 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       if (!mounted) return;
 
       if (!result.isMigrating) {
-        // Firmware accepted the config but did not begin a migration (e.g. it
-        // couldn't join the network) — friendly "couldn't join" (U7).
+        // No migration began. Either the camera is ALREADY on this exact network
+        // (arbiter short-circuit → inSharedWifi true), or it genuinely couldn't
+        // start a join. Show the calm "already connected" for the former instead
+        // of the alarming "in progress" (R3).
         setState(() {
           _provisioning = false;
-          _provisionStatus = FriendlyStatus.forOutcome(
-            ConnectivityOutcome.couldntJoin,
-          );
+          if (result.inSharedWifi) {
+            _connectedSsid = result.currentSsid.isNotEmpty
+                ? result.currentSsid
+                : ssid;
+            _provisionStatus = FriendlyStatus.forOutcome(
+              ConnectivityOutcome.alreadyConnected,
+            );
+            _wifiConfigEnabled = true;
+            _wifiEnabled = true;
+            _wifiToggleDirty = false;
+          } else {
+            _connectedSsid = null;
+            _provisionStatus = FriendlyStatus.forOutcome(
+              ConnectivityOutcome.couldntJoin,
+            );
+          }
         });
         return;
       }
@@ -381,7 +408,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       final success = reachable && confirm.inSharedWifi;
       setState(() {
         _provisioning = false;
-        _provisionConnected = success;
+        _connectedSsid = success ? ssid : null;
         _provisionStatus = success
             ? null
             // Not reachable (client/AP isolation) → friendly isolation copy (U7).
@@ -411,11 +438,62 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     } catch (e) {
       if (!mounted) return;
       // Classify (e.g. wrong password vs a generic join failure) + redact (U8).
+      // A failed SWITCH is destructive — the firmware already reverted to the
+      // direct (P2P) connection — so render the clear "reverted to direct" copy
+      // rather than a generic join failure (R3).
+      setState(() {
+        _provisioning = false;
+        _connectedSsid = null;
+        _provisionStatus = wasSwitch
+            ? FriendlyStatus.forOutcome(
+                ConnectivityOutcome.switchFailedRevertedToP2p,
+              )
+            : FriendlyStatus.fromError(
+                e,
+                fallback: ConnectivityOutcome.couldntJoin,
+              );
+      });
+    }
+  }
+
+  /// Disconnect the camera from shared Wi-Fi: disable the WiFi uplink so the
+  /// firmware arbiter reverts to the direct (P2P) connection (R3). The Ethernet
+  /// editor's intent is preserved; only the WiFi uplink is turned off.
+  Future<void> _disconnect() async {
+    if (_provisioning) return;
+    final deviceId = _deviceId;
+    if (deviceId == null) return;
+    FocusScope.of(context).unfocus();
+    _loadGen++;
+    setState(() {
+      _provisioning = true;
+      _provisionStatus = null;
+      _friendly = null;
+    });
+    try {
+      final config = _collect().copyWith(
+        wifi: const WifiUplink(enabled: false),
+      );
+      final result = await ref
+          .read(bleServiceProvider)
+          .setNetworkConfig(deviceId, config);
+      if (!mounted) return;
+      setState(() {
+        _provisioning = false;
+        // The arbiter reverted to P2P, so inSharedWifi is now false.
+        _connectedSsid = result.inSharedWifi ? result.currentSsid : null;
+        _provisionStatus = null;
+        _wifiConfigEnabled = false;
+        _wifiEnabled = false;
+        _wifiToggleDirty = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
         _provisioning = false;
         _provisionStatus = FriendlyStatus.fromError(
           e,
-          fallback: ConnectivityOutcome.couldntJoin,
+          fallback: ConnectivityOutcome.configWriteFailure,
         );
       });
     }
@@ -473,9 +551,10 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                     phoneSsid: _phoneSsid,
                     passwordController: _provisionPassword,
                     provisioning: _provisioning,
-                    connected: _provisionConnected,
+                    connectedSsid: _connectedSsid,
                     status: _provisionStatus,
                     onConnect: _provision,
+                    onDisconnect: _disconnect,
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -553,17 +632,22 @@ class _ProvisioningCard extends StatefulWidget {
     required this.phoneSsid,
     required this.passwordController,
     required this.provisioning,
-    required this.connected,
+    required this.connectedSsid,
     required this.status,
     required this.onConnect,
+    required this.onDisconnect,
   });
 
   final String? phoneSsid;
   final TextEditingController passwordController;
   final bool provisioning;
-  final bool connected;
+
+  /// The SSID the camera is connected to in shared-WiFi (S2), or null when not
+  /// connected. Drives the connected banner + Disconnect / change-networks UI.
+  final String? connectedSsid;
   final FriendlyStatus? status;
   final Future<void> Function() onConnect;
+  final Future<void> Function() onDisconnect;
 
   @override
   State<_ProvisioningCard> createState() => _ProvisioningCardState();
@@ -572,16 +656,55 @@ class _ProvisioningCard extends StatefulWidget {
 class _ProvisioningCardState extends State<_ProvisioningCard> {
   bool _obscure = true;
 
+  Widget _busyRow(ThemeData theme, String label) => Row(
+    children: [
+      const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+      const SizedBox(width: 12),
+      Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+    ],
+  );
+
+  Widget _passwordField(
+    TextEditingController controller, {
+    required bool enabled,
+  }) => TextField(
+    controller: controller,
+    obscureText: _obscure,
+    enabled: enabled,
+    decoration: InputDecoration(
+      labelText: 'Wi-Fi password',
+      helperText: 'Enter it once — your phone keeps it hidden.',
+      border: const OutlineInputBorder(),
+      suffixIcon: IconButton(
+        icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+        tooltip: _obscure ? 'Show password' : 'Hide password',
+        onPressed: () => setState(() => _obscure = !_obscure),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final phoneSsid = widget.phoneSsid;
     final passwordController = widget.passwordController;
     final provisioning = widget.provisioning;
-    final connected = widget.connected;
+    final connectedSsid = widget.connectedSsid;
     final status = widget.status;
     final onConnect = widget.onConnect;
+    final onDisconnect = widget.onDisconnect;
     final theme = Theme.of(context);
+    final isConnected = connectedSsid != null;
+    // A switch is possible only when the phone has moved to a DIFFERENT network
+    // than the one the camera is on (INV1: the app only ever provisions the
+    // phone's current network).
+    final canSwitch =
+        isConnected && phoneSsid != null && phoneSsid != connectedSsid;
     final offline = phoneSsid == null;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -600,7 +723,68 @@ class _ProvisioningCardState extends State<_ProvisioningCard> {
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            if (offline)
+            if (isConnected) ...[
+              // Connected banner — the SSID is the arbiter's settled value (R3).
+              Row(
+                children: [
+                  Icon(Icons.check_circle, size: 16, color: T.ok),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Connected to "$connectedSsid" — live preview and '
+                      'streaming are on.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (provisioning)
+                _busyRow(theme, 'Working…')
+              else if (canSwitch) ...[
+                // The phone moved to a different network — offer a SWITCH, with
+                // the destructive warning (the current STA is torn down first).
+                _passwordField(passwordController, enabled: true),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.warning_amber, size: 16, color: T.warn),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Switching will disconnect "$connectedSsid" first.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: T.ink2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: WfButton(
+                        label: 'Switch to "$phoneSsid"',
+                        variant: WfButtonVariant.primary,
+                        onPressed: onConnect,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    WfButton(
+                      label: 'Disconnect',
+                      variant: WfButtonVariant.outline,
+                      onPressed: onDisconnect,
+                    ),
+                  ],
+                ),
+              ] else
+                WfButton(
+                  label: 'Disconnect',
+                  variant: WfButtonVariant.outline,
+                  onPressed: onDisconnect,
+                ),
+            ] else if (offline)
               // Phone not on WiFi → provision disabled + streaming greyed.
               Container(
                 width: double.infinity,
@@ -617,7 +801,8 @@ class _ProvisioningCardState extends State<_ProvisioningCard> {
                 ),
               )
             else ...[
-              // The phone's CURRENT SSID only (read-only, INV1).
+              // Not connected + phone on Wi-Fi → the one-tap Connect flow. The
+              // phone's CURRENT SSID only (read-only, INV1).
               InputDecorator(
                 decoration: const InputDecoration(
                   labelText: 'Your Wi-Fi network',
@@ -627,67 +812,20 @@ class _ProvisioningCardState extends State<_ProvisioningCard> {
                 child: Text(phoneSsid),
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: passwordController,
-                obscureText: _obscure,
-                enabled: !provisioning,
-                decoration: InputDecoration(
-                  labelText: 'Wi-Fi password',
-                  helperText: 'Enter it once — your phone keeps it hidden.',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscure ? Icons.visibility_off : Icons.visibility,
-                    ),
-                    tooltip: _obscure ? 'Show password' : 'Hide password',
-                    onPressed: () => setState(() => _obscure = !_obscure),
-                  ),
-                ),
-              ),
+              _passwordField(passwordController, enabled: !provisioning),
               const SizedBox(height: 12),
               if (provisioning)
-                Row(
-                  children: [
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Switching to your network…',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                  ],
-                )
+                _busyRow(theme, 'Switching to your network…')
               else
                 WfButton(
-                  label: connected ? 'Connected' : 'Connect',
+                  label: 'Connect',
                   variant: WfButtonVariant.primary,
                   onPressed: onConnect,
                 ),
-              if (connected && status == null) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.check_circle, size: 16, color: T.ok),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Connected to your Wi-Fi — live preview and streaming '
-                        'are on.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              if (status != null) ...[
-                const SizedBox(height: 12),
-                _FriendlyBanner(status: status),
-              ],
+            ],
+            if (status != null) ...[
+              const SizedBox(height: 12),
+              _FriendlyBanner(status: status),
             ],
           ],
         ),

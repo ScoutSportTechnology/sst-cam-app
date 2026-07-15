@@ -2157,6 +2157,12 @@ class MockBleService implements BleService {
   int _migrationCounter = 0;
   int _pendingMigrationId = 0;
   bool _inSharedWifi = false;
+  // The network the emulated arbiter is SETTLED on in S2 (mirrors U3's
+  // CurrentSsid); the in-flight one is promoted to these on a reachable confirm.
+  String _connectedSsid = '';
+  String _connectedPassword = '';
+  String _pendingSsid = '';
+  String _pendingPassword = '';
 
   @override
   Future<NetworkConfigResult> setNetworkConfig(
@@ -2164,14 +2170,26 @@ class MockBleService implements BleService {
     NetworkConfig config,
   ) async {
     await Future.delayed(const Duration(milliseconds: 60));
-    _uplinkConfig = config;
-    // Enabling the WiFi STA uplink begins a P2P->STA migration: the emulated
-    // arbiter tears down the GO, joins as STA, mints a per-session RTSP
-    // credential, and reports the LAN endpoint + migration id for the app to
-    // probe + confirm.
     if (config.wifi.enabled && config.wifi.ssid.isNotEmpty) {
+      // R3 already-connected short-circuit: settled in S2 on this exact network
+      // (same SSID AND same passphrase) → no migration, no radio churn, and the
+      // stored config is NOT replaced. Report the connected state so the app
+      // shows "already connected", not "in progress".
+      if (_inSharedWifi &&
+          config.wifi.ssid == _connectedSsid &&
+          config.wifi.password == _connectedPassword) {
+        return _uplinkStatus(_uplinkConfig);
+      }
+      // Fresh migrate, change-networks, or same-SSID/new-pass: begin a P2P->STA
+      // migration (a change-networks first reverts the old STA). The emulated
+      // arbiter tears down the GO, joins as STA, mints a per-session RTSP
+      // credential, and reports the endpoint + id for the app to probe + confirm.
+      _uplinkConfig = config;
       _pendingMigrationId = ++_migrationCounter;
       _inSharedWifi = false;
+      _connectedSsid = '';
+      _pendingSsid = config.wifi.ssid;
+      _pendingPassword = config.wifi.password;
       return NetworkConfigResult(
         config: config,
         ethernetUp: config.ethernet.enabled,
@@ -2184,8 +2202,11 @@ class MockBleService implements BleService {
         previewCredential: 'preview:emulated-secret',
       );
     }
+    // WiFi disabled → the arbiter reverts to P2P (S1).
+    _uplinkConfig = config;
     _pendingMigrationId = 0;
     _inSharedWifi = false;
+    _connectedSsid = '';
     return _uplinkStatus(config);
   }
 
@@ -2204,7 +2225,14 @@ class MockBleService implements BleService {
       );
     }
     _inSharedWifi = reachable;
-    if (!reachable) _pendingMigrationId = 0;
+    if (reachable) {
+      // Promote the in-flight network to the settled S2 state (mirrors U3).
+      _connectedSsid = _pendingSsid;
+      _connectedPassword = _pendingPassword;
+    } else {
+      _pendingMigrationId = 0;
+      _connectedSsid = '';
+    }
     return ConfirmPreviewReachableResult(
       migrationId: migrationId,
       inSharedWifi: reachable,
@@ -2243,6 +2271,9 @@ class MockBleService implements BleService {
         wifiStatus: config.wifi.enabled
             ? 'unavailable: single radio is dedicated to the WiFi-Direct GO'
             : '',
+        // Ambient connected-state (R3), sourced from the emulated arbiter.
+        inSharedWifi: _inSharedWifi,
+        currentSsid: _inSharedWifi ? _connectedSsid : '',
       );
 
   // Maps a proto ExportJobResponse to the dart ExportJob (used by the

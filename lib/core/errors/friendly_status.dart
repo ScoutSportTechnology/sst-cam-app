@@ -34,6 +34,17 @@ enum ConnectivityOutcome {
   /// connection.
   droppedMidSession,
 
+  /// The operator tapped Connect on the network the camera is ALREADY on — a
+  /// no-op, surfaced as a calm "you're already connected", never the alarming
+  /// "a network change is already in progress" (which is the true busy case).
+  alreadyConnected,
+
+  /// A change-networks (switch to a new Wi-Fi) FAILED. One radio can't hold two
+  /// STA sessions, so the switch tore the old network down before the new join;
+  /// on failure the camera fell back to the direct (P2P) connection rather than
+  /// silently breaking. This is the destructive-failure path.
+  switchFailedRevertedToP2p,
+
   /// Streaming was requested with no internet uplink present.
   noUplink,
 
@@ -147,6 +158,18 @@ class FriendlyStatus {
               "connection. Recording and preview still work; streaming is paused "
               "until Wi-Fi is back.",
           null,
+        );
+      case ConnectivityOutcome.alreadyConnected:
+        return (
+          "The camera is already connected to this Wi-Fi — live preview and "
+              "streaming are on.",
+          null,
+        );
+      case ConnectivityOutcome.switchFailedRevertedToP2p:
+        return (
+          "Couldn't switch to the new Wi-Fi, so the camera went back to a direct "
+              "connection. Recording and the direct live preview still work.",
+          "Check the new network, then try connecting again.",
         );
       case ConnectivityOutcome.noUplink:
         return (

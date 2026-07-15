@@ -112,6 +112,8 @@ class NetworkConfigResult {
     this.migrationId = 0,
     this.previewEndpoint = '',
     this.previewCredential = '',
+    this.inSharedWifi = false,
+    this.currentSsid = '',
   });
 
   final NetworkConfig config;
@@ -119,6 +121,18 @@ class NetworkConfigResult {
   final String ethernetAddress;
   final bool wifiUp;
   final String wifiStatus;
+
+  /// Ambient connected-state (R3): true iff the camera's arbiter is SETTLED in
+  /// shared-WiFi (S2/kStaOnly) — sourced from the firmware's arbiter, NOT
+  /// inferred from [wifiUp] (which reflects raw STA association, not the settled
+  /// mode). Populated on BOTH a Set reply and a plain Get, so the app can render
+  /// "connected to `<ssid>`" on reconnect without replaying the migration
+  /// handshake. False against firmware that predates the field.
+  final bool inSharedWifi;
+
+  /// The SSID the camera is connected to while [inSharedWifi]; empty otherwise.
+  /// Sourced from the arbiter's settled state, never a failed in-flight config.
+  final String currentSsid;
 
   /// Monotonic migration id for a shared-WiFi (STA) migration in progress; 0
   /// when the reply does not begin a migration. Echoed back in

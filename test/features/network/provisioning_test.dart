@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/models/command.dart' show DeviceInfoResponse;
 import 'package:sst_cam_app/core/models/network_config.dart'
-    show NetworkConfig, NetworkConfigResult;
+    show NetworkConfig, NetworkConfigResult, WifiUplink;
 import 'package:sst_cam_app/core/wifi/wifi_handoff.dart'
     show
         PreviewReachabilityProbe,
@@ -68,6 +68,49 @@ class _BondFailBle extends MockBleService {
   }
 }
 
+/// A BLE service that reports the camera ALREADY connected in shared-WiFi (S2)
+/// to [currentSsid] on load, so a test can exercise the reconnect / change-
+/// networks / Disconnect surface without replaying the migration handshake.
+class _ConnectedBle extends MockBleService {
+  _ConnectedBle({required this.currentSsid, this.switchFails = false})
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        randomSeed: 1,
+      );
+
+  final String currentSsid;
+  final bool switchFails;
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return NetworkConfigResult(
+      config: NetworkConfig(wifi: WifiUplink(enabled: true, ssid: currentSsid)),
+      ethernetUp: false,
+      ethernetAddress: '',
+      wifiUp: true,
+      wifiStatus: 'connected',
+      inSharedWifi: true,
+      currentSsid: currentSsid,
+    );
+  }
+
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // A change-networks that fails: the firmware has already reverted to P2P, so
+    // the handler returns ERROR — modelled here as a thrown BLE failure.
+    if (switchFails && config.wifi.enabled) {
+      throw Exception('failed to join wifi (check the password)');
+    }
+    return super.setNetworkConfig(deviceId, config);
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   required MockBleService ble,
@@ -123,10 +166,20 @@ void main() {
       await tester.pump(const Duration(milliseconds: 120));
       await tester.pump(const Duration(milliseconds: 120));
 
-      expect(find.text('Connected'), findsOneWidget);
+      // U4: a connected banner naming the SSID + a Disconnect action replace the
+      // old "Connected" button label.
+      expect(find.textContaining('Connected to'), findsOneWidget);
       expect(find.textContaining('streaming are on'), findsOneWidget);
+      expect(find.text('Disconnect'), findsOneWidget);
       // The link was bonded before credentials were sent (INV6/AE7).
       expect(ble.bonded, isTrue);
+
+      // U4: Disconnect reverts to P2P → the card returns to the Connect flow.
+      await tester.tap(find.text('Disconnect'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.text('Connect'), findsOneWidget);
+      expect(find.text('Disconnect'), findsNothing);
 
       await ble.dispose();
       await wifi.dispose();
@@ -239,6 +292,54 @@ void main() {
       // editor still renders.
       expect(find.text('Connect the camera to your Wi-Fi'), findsNothing);
       expect(find.text('Advanced network settings'), findsOneWidget);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'reconnect while camera is on a DIFFERENT network → connected banner + a '
+    'guarded Switch to the phone\'s network (R3 change-networks)',
+    (tester) async {
+      final ble = _ConnectedBle(currentSsid: 'Old-Net');
+      // The phone has since moved to a different Wi-Fi than the camera is on.
+      final wifi = MockWifiService(mockPhoneSsid: 'New-Net');
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      // The connected banner names the arbiter's SSID, and the change-networks
+      // affordance offers a guarded switch to the phone's current network.
+      expect(find.textContaining('Connected to'), findsOneWidget);
+      expect(find.textContaining('Old-Net'), findsWidgets);
+      expect(find.textContaining('Switch to'), findsOneWidget);
+      expect(find.textContaining('Switching will disconnect'), findsOneWidget);
+      expect(find.text('Disconnect'), findsOneWidget);
+      // Never the alarming "in progress" copy while merely connected.
+      expect(find.textContaining('already in progress'), findsNothing);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'change-networks that FAILS → "reverted to direct" copy, not a generic '
+    'error (R3 destructive-switch)',
+    (tester) async {
+      final ble = _ConnectedBle(currentSsid: 'Old-Net', switchFails: true);
+      final wifi = MockWifiService(mockPhoneSsid: 'New-Net');
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      await tester.tap(find.textContaining('Switch to'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+
+      // The destructive-failure path: the camera fell back to direct (P2P), and
+      // the copy says so rather than surfacing a raw join error.
+      expect(
+        find.textContaining('went back to a direct connection'),
+        findsOneWidget,
+      );
 
       await ble.dispose();
       await wifi.dispose();
