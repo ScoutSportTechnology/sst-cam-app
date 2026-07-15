@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../ble/ble_providers.dart';
 import '../models/preview_layout.dart';
 import '../models/wifi.dart';
+import 'wifi_connectivity_service.dart';
+import 'wifi_connectivity_service_impl.dart';
 import 'wifi_service.dart';
 import 'wifi_service_impl.dart';
 
@@ -16,6 +18,26 @@ final wifiServiceProvider = Provider<WifiService>((ref) {
   final svc = WifiServiceImpl(ble: ref.watch(bleServiceProvider));
   ref.onDispose(svc.dispose);
   return svc;
+});
+
+// ---------------------------------------------------------------------------
+// Phone-Wi-Fi observer (D1a / U5) — defaults to the native EventChannel impl;
+// dev (main.dart) overrides with a mock, tests override via
+// wifiConnectivityServiceProvider.overrideWithValue(...).
+// ---------------------------------------------------------------------------
+
+final wifiConnectivityServiceProvider = Provider<WifiConnectivityService>((
+  ref,
+) {
+  return WifiConnectivityServiceImpl();
+});
+
+/// Phone-Wi-Fi availability (D1a). Seeds `true` (available) until the native side
+/// reports otherwise, so a not-yet-settled state never triggers a spurious
+/// revert. Consumed by the shared-WiFi auto-revert controller, which confirms the
+/// camera is actually in S2 (via GetNetworkConfig) before acting.
+final wifiAvailableProvider = StreamProvider<bool>((ref) {
+  return ref.watch(wifiConnectivityServiceProvider).wifiAvailable();
 });
 
 // ---------------------------------------------------------------------------
