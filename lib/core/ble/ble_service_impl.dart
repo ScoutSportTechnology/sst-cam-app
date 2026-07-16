@@ -892,9 +892,27 @@ class BleServiceImpl implements BleService {
       // no user prompt. Completes when the link is bonded (hence encrypted).
       await device.createBond();
     } catch (e) {
-      throw BleConnectionException(
-        'could not secure (pair) the connection: $e',
+      // Asymmetric-bond self-heal. A failed createBond is almost always a stale
+      // half-bond: the camera's BlueZ was re-flashed / restarted and dropped its
+      // key while this phone still had one, or a prior pair half-completed. The
+      // pairing then fails SMP re-keying ("could not secure"). Clear the
+      // phone-side bond and retry ONCE so it re-keys from scratch, instead of
+      // dead-ending the user on an unrecoverable pairing error.
+      _log.warning(
+        'createBond failed for $deviceId ($e) — clearing stale bond, retrying once',
       );
+      try {
+        await device.removeBond();
+      } catch (_) {
+        // Nothing to remove (phone had no bond) — fine, fall through to retry.
+      }
+      try {
+        await device.createBond();
+      } catch (e2) {
+        throw BleConnectionException(
+          'could not secure (pair) the connection: $e2',
+        );
+      }
     }
     _log.info(
       'link to $deviceId bonded — credentials will cross an encrypted link',
