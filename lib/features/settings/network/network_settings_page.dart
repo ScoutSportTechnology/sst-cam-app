@@ -16,6 +16,9 @@ import '../../../core/wifi/wifi_handoff.dart' show previewProbeProvider;
 import '../../../core/state/db_providers.dart' show wifiCredentialsDaoProvider;
 import '../../../core/wifi/wifi_providers.dart' show wifiServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../users/users_state.dart'
+    show activeUserProvider, usersControllerProvider;
+import 'lan_reachability_gate.dart';
 
 /// Settings → Network. Two distinct affordances:
 ///
@@ -62,10 +65,6 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   // Provisioning (U6): the phone's current SSID + a one-shot password field.
   final _provisionPassword = TextEditingController();
   String? _phoneSsid;
-  // The phone's current WiFi frequency (MHz); 0 = unknown. Used to validate the
-  // band BEFORE provisioning — the camera can only join 5 GHz (2.4 GHz contends
-  // with its Bluetooth radio).
-  int _phoneWifiFreqMhz = 0;
   bool _provisioning = false;
   // The SSID the camera is currently connected to in shared-WiFi (S2), sourced
   // from the firmware arbiter's settled state (R3). Null when not in S2. Drives
@@ -74,6 +73,29 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   String? _connectedSsid;
   // The friendly outcome of the last provisioning attempt (U7), or null.
   FriendlyStatus? _provisionStatus;
+
+  // U9: the identity-verified reachability gate. Turns each plain-Get / Set /
+  // reconnect result into a connectivity state, gating "connected" on an RTSP
+  // identity probe against the COMMITTED LAN IP (R8) rather than inSharedWifi
+  // alone — and coalescing the Ethernet→STA→P2P cascade into a single
+  // "switching…" transient (E1/E4). Drives [_connectedSsid] / [_lanStatus].
+  late final LanReachabilityGate _gate;
+  // The switching / probe-failure banner driven by [_gate] (R22) — kept DISTINCT
+  // from the different-subnet `isolated` copy [_provision] renders.
+  FriendlyStatus? _lanStatus;
+
+  // U10: Ethernet is the committed LAN path AND the identity probe passed (R14) —
+  // drives the Ethernet-connected card (no Wi-Fi password required). Set by the
+  // gate's connected+ethernet transition (passive commit) or [_provisionEthernet]
+  // (the active handshake).
+  bool _ethernetConnected = false;
+  // U10 E3: Ethernet WAS the LAN with no Wi-Fi provisioned and the cable was
+  // pulled — surface an explicit "connect to Wi-Fi to keep app access" state
+  // rather than silently dropping to P2P/offline.
+  bool _ethernetLostNeedsWifi = false;
+  // The LAN path from the previous result, so [_apply] can detect the Ethernet →
+  // (no LAN) transition that fires E3.
+  LanPath _lastLanPath = LanPath.none;
 
   // The toggle DISPLAY (_ethEnabled/_wifiEnabled) is live-derived (configured
   // intent OR real link state). But persisting must not silently flip stored
@@ -102,6 +124,12 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   @override
   void initState() {
     super.initState();
+    // Reuse the SAME identity-verified RtspDescribeProbe the STA migration uses
+    // (2xx-only DESCRIBE + Basic auth) — U9 does NOT build a new identity probe.
+    _gate = LanReachabilityGate(
+      probe: ref.read(previewProbeProvider),
+      onChange: _onGateChanged,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -124,6 +152,23 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
   }
 
   String? get _deviceId => ref.read(activeCameraIdProvider);
+
+  /// U10 E5 — best-available signal that Ethernet is a DIFFERENT-subnet uplink
+  /// (not the LAN path): the interface is up + addressed AND the arbiter
+  /// POSITIVELY committed a non-Ethernet LAN path (WiFi-STA or P2P). LIMITATION:
+  /// the plain Get exposes no dedicated "ethernet-is-an-uplink" boolean, so this
+  /// cannot distinguish an actively-used uplink from a plugged-but-idle cable —
+  /// it reflects "Ethernet is up while another path is the LAN", the closest
+  /// derivable signal without a firmware/proto change. An UNKNOWN path
+  /// ([LanPath.none], e.g. pre-v5 firmware) is deliberately excluded — we don't
+  /// claim "uplink" without a committed alternate LAN path.
+  bool get _showsEthernetUplink {
+    final s = _status;
+    return s != null &&
+        s.ethernetUp &&
+        s.ethernetAddress.isNotEmpty &&
+        (s.lanPath == LanPath.wifiSta || s.lanPath == LanPath.p2p);
+  }
 
   Future<void> _load() async {
     final deviceId = _deviceId;
@@ -172,11 +217,9 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     try {
       final wifi = ref.read(wifiServiceProvider);
       final ssid = await wifi.currentSsid();
-      final freq = await wifi.currentWifiFrequencyMhz();
       if (!mounted || gen != _loadGen) return;
       setState(() {
         _phoneSsid = ssid;
-        _phoneWifiFreqMhz = freq;
       });
     } catch (_) {
       // SSID unavailable → treat as phone offline (provision disabled).
@@ -185,14 +228,21 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     }
   }
 
-  // The phone is on a 2.4 GHz network the camera cannot join (5 GHz required).
-  // Unknown frequency (0) is NOT treated as 2.4 GHz — let the attempt proceed.
-  bool get _phoneOn24Ghz =>
-      _phoneWifiFreqMhz >= 2400 && _phoneWifiFreqMhz < 2500;
-
   void _apply(NetworkConfigResult result, {bool clearSaving = false}) {
     final config = result.config;
+    // U10 E3: detect the Ethernet-as-LAN → (no LAN) transition with NO Wi-Fi
+    // provisioned — the operator is about to lose app access (the reverse of
+    // R14). Computed from the PRIOR committed path before it is overwritten.
+    final wasEthernetLan = _lastLanPath == LanPath.ethernet;
+    final ethernetLost =
+        wasEthernetLan &&
+        result.lanPath != LanPath.ethernet &&
+        result.lanPath != LanPath.wifiSta &&
+        !config.wifi.enabled &&
+        result.currentSsid.isEmpty;
+    _lastLanPath = result.lanPath;
     setState(() {
+      _ethernetLostNeedsWifi = ethernetLost;
       // The toggle reflects whether the interface is actually a live uplink — the
       // configured intent OR the real link state (the camera's NM-managed
       // ethernet can be up even when the firmware config has it disabled).
@@ -216,16 +266,70 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       _wifiGateway.text = config.wifi.ip.gateway;
       _wifiDns.text = config.wifi.ip.dns;
       _status = result;
-      // Seed the connected-state from the arbiter's settled mode (R3), so the
-      // card shows "Connected to <ssid>" on reconnect without replaying the
-      // migration handshake. Sourced from the arbiter, never the echoed config.
-      _connectedSsid = result.inSharedWifi ? result.currentSsid : null;
       _loading = false;
       _error = null;
       _friendly = null;
       // Fold the save-complete flag into this same rebuild to avoid a second
       // setState (button flicker between field update and 'Saving…' clearing).
       if (clearSaving) _saving = false;
+    });
+    // U10: a PENDING Ethernet-LAN handshake (the firmware selected Ethernet and
+    // is awaiting the phone's verdict, R11) runs the probe→confirmLanPath flow
+    // instead of the passive gate — mirrors how _provision() drives an in-flight
+    // STA migration. An already-committed Ethernet LAN (confirm id 0) and every
+    // WiFi-STA/P2P path go through the gate below.
+    if (result.isEthernetHandshake) {
+      unawaited(_provisionEthernet(result));
+      return;
+    }
+    // U9: gate the connected-state on an identity-verified probe against the
+    // COMMITTED LAN IP (R8) — no longer set purely from inSharedWifi. The gate
+    // drives _connectedSsid / _ethernetConnected / _lanStatus via _onGateChanged
+    // (a committed LAN path with a credential runs the RTSP probe before showing
+    // "connected"; a rapid Ethernet→STA→P2P cascade coalesces into one
+    // "switching…" transient).
+    unawaited(_gate.submit(result));
+  }
+
+  /// Reflects the reachability gate's derived state (R8/R22). A WiFi-STA path
+  /// that passed the identity probe drives the existing "Connected to `<ssid>`"
+  /// card; the transient "switching…" and the probe-failure copy (distinct from
+  /// `isolated`) render through [_lanStatus].
+  void _onGateChanged() {
+    if (!mounted) return;
+    setState(() {
+      switch (_gate.status) {
+        case LanConnectivityStatus.connected:
+          // U10: an Ethernet committed path drives the Ethernet-connected card
+          // (no Wi-Fi password); a WiFi-STA path drives the "Connected to
+          // <ssid>" card. Exactly one is set per settled path.
+          if (_gate.path == LanPath.ethernet) {
+            _ethernetConnected = true;
+            _connectedSsid = null;
+          } else {
+            _ethernetConnected = false;
+            _connectedSsid =
+                _gate.path == LanPath.wifiSta && _gate.ssid.isNotEmpty
+                ? _gate.ssid
+                : null;
+          }
+          _lanStatus = null;
+        case LanConnectivityStatus.reconnecting:
+          _connectedSsid = null;
+          _ethernetConnected = false;
+          _lanStatus = FriendlyStatus.forOutcome(ConnectivityOutcome.switching);
+        case LanConnectivityStatus.probeFailed:
+          _connectedSsid = null;
+          _ethernetConnected = false;
+          _lanStatus = FriendlyStatus.forOutcome(
+            ConnectivityOutcome.reachabilityProbeFailed,
+          );
+        case LanConnectivityStatus.mustProvision:
+        case LanConnectivityStatus.offline:
+          _connectedSsid = null;
+          _ethernetConnected = false;
+          _lanStatus = null;
+      }
     });
   }
 
@@ -311,24 +415,19 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     // the state reset so the failure path can render the right copy.
     final wasSwitch = _connectedSsid != null && _connectedSsid != ssid;
     FocusScope.of(context).unfocus();
-    // Validate the band FIRST: the camera can only join a 5 GHz Wi-Fi (its single
-    // radio holds Bluetooth on 2.4 GHz), so a 2.4 GHz network never associates.
-    // Fail fast with the clear "switch to 5 GHz" message rather than attempting a
-    // join that would take ~15s and revert.
-    if (_phoneOn24Ghz) {
-      setState(() {
-        _provisionStatus = FriendlyStatus.forOutcome(
-          ConnectivityOutcome.needs5GHz,
-        );
-      });
-      return;
-    }
+    // NOTE: no band gate. The camera radio joins 2.4 GHz Wi-Fi (the "5 GHz only"
+    // hypothesis was disproven — the failure was a reg-domain "00" boot state,
+    // fixed firmware-side by adopting the AP's 802.11d country before joining), so
+    // a 2.4 GHz network must be accepted, not rejected up front.
     // Supersede any in-flight load so it can't clobber the transition state.
     _loadGen++;
     setState(() {
       _provisioning = true;
       _provisionStatus = null;
       _friendly = null;
+      // An operator-initiated provision owns the banner; drop any stale gate
+      // transient so the migration outcome (isolated etc.) isn't shadowed.
+      _lanStatus = null;
     });
 
     try {
@@ -456,6 +555,83 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
     }
   }
 
+  /// U10 — the Ethernet-LAN confirmation handshake (R11/R14). Sibling to
+  /// [_provision] with the same probe→confirm shape, but the endpoint is the
+  /// camera's Ethernet IP and there is NO Wi-Fi PSK (the credential is the RTSP
+  /// Basic-auth pair, not a passphrase): probe the ethernet_endpoint +
+  /// ethernet_credential with the SAME identity-verified RtspDescribeProbe, then
+  /// send confirmLanPath(ethernet_confirm_id, LanPath.ethernet, reachable). On a
+  /// reachable + committed reply the card shows "on your network via Ethernet".
+  Future<void> _provisionEthernet(NetworkConfigResult result) async {
+    if (_provisioning) return;
+    final deviceId = _deviceId;
+    if (deviceId == null) return;
+    setState(() {
+      _provisioning = true;
+      _provisionStatus = null;
+      _friendly = null;
+      // The handshake owns the banner; drop any stale gate transient.
+      _lanStatus = null;
+      _ethernetLostNeedsWifi = false;
+    });
+    try {
+      // Probe the camera's Ethernet IP (identity-verified, 2xx-only) — same
+      // primitive the STA migration uses; no new identity probe.
+      final reachable = await ref
+          .read(previewProbeProvider)
+          .probe(result.ethernetEndpoint, result.ethernetCredential);
+
+      // Confirm (reachable) or de-select (unreachable) by the Ethernet confirm
+      // id. A confirm fault is treated as a failed selection (not committed).
+      ConfirmLanPathResult confirm;
+      try {
+        confirm = await ref
+            .read(bleServiceProvider)
+            .confirmLanPath(
+              deviceId,
+              confirmId: result.ethernetConfirmId,
+              path: LanPath.ethernet,
+              reachable: reachable,
+            );
+      } catch (_) {
+        confirm = ConfirmLanPathResult(
+          confirmId: result.ethernetConfirmId,
+          committedPath: LanPath.none,
+          committed: false,
+        );
+      }
+      if (!mounted) return;
+
+      final success =
+          reachable &&
+          confirm.committed &&
+          confirm.committedPath == LanPath.ethernet;
+      setState(() {
+        _provisioning = false;
+        _ethernetConnected = success;
+        _connectedSsid = null;
+        _lastLanPath = success ? LanPath.ethernet : result.lanPath;
+        // On failure the firmware de-selects and falls to STA/P2P (R19) — surface
+        // the probe-failure copy; the card falls back to offering Wi-Fi/P2P.
+        _provisionStatus = success
+            ? null
+            : FriendlyStatus.forOutcome(
+                ConnectivityOutcome.reachabilityProbeFailed,
+              );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _provisioning = false;
+        _ethernetConnected = false;
+        _provisionStatus = FriendlyStatus.fromError(
+          e,
+          fallback: ConnectivityOutcome.couldntJoin,
+        );
+      });
+    }
+  }
+
   /// Disconnect the camera from shared Wi-Fi: disable the WiFi uplink so the
   /// firmware arbiter reverts to the direct (P2P) connection (R3). The Ethernet
   /// editor's intent is preserved; only the WiFi uplink is turned off.
@@ -469,6 +645,9 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       _provisioning = true;
       _provisionStatus = null;
       _friendly = null;
+      // An operator-initiated provision owns the banner; drop any stale gate
+      // transient so the migration outcome (isolated etc.) isn't shadowed.
+      _lanStatus = null;
     });
     try {
       final config = _collect().copyWith(
@@ -546,16 +725,57 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _FriendlyBanner(status: _friendly!),
                   ),
+                // U9: the switching / probe-failure transient (R22), distinct
+                // from the different-subnet `isolated` copy in the card.
+                if (_lanStatus != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _FriendlyBanner(status: _lanStatus!),
+                  ),
+                // U10 E3: Ethernet was the LAN with no Wi-Fi and the cable was
+                // pulled — prompt to connect Wi-Fi rather than silently dropping.
+                if (_ethernetLostNeedsWifi)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _FriendlyBanner(
+                      status: FriendlyStatus.forOutcome(
+                        ConnectivityOutcome.ethernetDisconnectedNeedsWifi,
+                      ),
+                    ),
+                  ),
                 if (supportsProvisioning) ...[
                   _ProvisioningCard(
                     phoneSsid: _phoneSsid,
                     passwordController: _provisionPassword,
                     provisioning: _provisioning,
                     connectedSsid: _connectedSsid,
+                    ethernetConnected: _ethernetConnected,
                     status: _provisionStatus,
                     onConnect: _provision,
                     onDisconnect: _disconnect,
                   ),
+                  // U10 E5: Ethernet present as a DIFFERENT-subnet uplink (up +
+                  // addressed, but NOT the committed LAN path) — a small line so
+                  // unplugging it has a foreseeable consequence (it powers stream
+                  // upload). See the report note on the derivation's limit.
+                  if (_showsEthernetUplink)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.lan_outlined, size: 14, color: T.ink2),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Ethernet: powering stream upload.',
+                              style: Theme.of(
+                                context,
+                              ).textTheme.bodySmall?.copyWith(color: T.ink2),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 24),
                 ],
                 const _AdvancedHeader(),
@@ -633,6 +853,7 @@ class _ProvisioningCard extends StatefulWidget {
     required this.passwordController,
     required this.provisioning,
     required this.connectedSsid,
+    required this.ethernetConnected,
     required this.status,
     required this.onConnect,
     required this.onDisconnect,
@@ -645,6 +866,12 @@ class _ProvisioningCard extends StatefulWidget {
   /// The SSID the camera is connected to in shared-WiFi (S2), or null when not
   /// connected. Drives the connected banner + Disconnect / change-networks UI.
   final String? connectedSsid;
+
+  /// U10 (R11/R14): Ethernet already provides the LAN path and the identity probe
+  /// passed. Renders the Ethernet-connected state and SUPPRESSES the dead Wi-Fi
+  /// password field — no passphrase is needed to reach "connected" over the
+  /// cable. Wi-Fi provisioning is still offered when Ethernet is NOT the LAN.
+  final bool ethernetConnected;
   final FriendlyStatus? status;
   final Future<void> Function() onConnect;
   final Future<void> Function() onDisconnect;
@@ -693,6 +920,7 @@ class _ProvisioningCardState extends State<_ProvisioningCard> {
     final passwordController = widget.passwordController;
     final provisioning = widget.provisioning;
     final connectedSsid = widget.connectedSsid;
+    final ethernetConnected = widget.ethernetConnected;
     final status = widget.status;
     final onConnect = widget.onConnect;
     final onDisconnect = widget.onDisconnect;
@@ -712,18 +940,42 @@ class _ProvisioningCardState extends State<_ProvisioningCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Connect the camera to your Wi-Fi',
+              ethernetConnected
+                  ? 'Connected via Ethernet'
+                  : 'Connect the camera to your Wi-Fi',
               style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
             Text(
-              'Puts the camera on the same Wi-Fi as your phone so live preview '
-              'moves onto your network and cloud streaming turns on. The camera '
-              'only ever joins the network your phone is on.',
+              ethernetConnected
+                  ? 'The camera reaches your network over the Ethernet cable, so '
+                        'no Wi-Fi password is needed. Unplug it and connect Wi-Fi '
+                        'to keep app access.'
+                  : 'Puts the camera on the same Wi-Fi as your phone so live '
+                        'preview moves onto your network and cloud streaming '
+                        'turns on. The camera only ever joins the network your '
+                        'phone is on.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            if (isConnected) ...[
+            if (ethernetConnected) ...[
+              // U10 (R11/R14): Ethernet is the committed LAN path — show the
+              // connected state, NO password field. Wi-Fi provisioning is
+              // suppressed here because the LAN is already satisfied.
+              Row(
+                children: [
+                  Icon(Icons.check_circle, size: 16, color: T.ok),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      "You're on your network via Ethernet — live preview and "
+                      'streaming are on.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (isConnected) ...[
               // Connected banner — the SSID is the arbiter's settled value (R3).
               Row(
                 children: [

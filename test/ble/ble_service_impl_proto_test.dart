@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_protocol.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/match.dart';
+import 'package:sst_cam_app/core/models/network_config.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/models/proto/bluetooth.pb.dart' as proto;
@@ -539,6 +540,94 @@ void main() {
       expect(resp.status, BleResponseStatus.error);
       expect(resp.errorMessage, 'boom');
     });
+
+    test('network_config decodes the v5 committed-Ethernet LAN path + real '
+        'ethernet_dhcp (has_ethernet_dhcp() true)', () {
+      const corrId = 'nc-1';
+      final bytes = wrap(
+        proto.CommandResponse(
+          correlationId: corrId,
+          status: proto.ResponseStatus.OK,
+          networkConfig: proto.NetworkConfigResponse(
+            lanPath: proto.LanPath.LAN_PATH_ETHERNET,
+            ethernetDhcp: false, // sets presence → has_ethernet_dhcp() true
+            ethernetEndpoint: '10.10.1.30',
+            ethernetCredential: 'preview:eth-secret',
+            ethernetConfirmId: 42,
+          ),
+        ),
+      );
+      final resp = BleProtocol.decodeResponse<NetworkConfigResult>(
+        bytes,
+        corrId,
+      );
+      final r = resp.payload!;
+      expect(r.lanPath, LanPath.ethernet);
+      expect(r.ethernetDhcp, isFalse); // real static mode, not the DHCP default
+      expect(r.ethernetEndpoint, '10.10.1.30');
+      expect(r.ethernetCredential, 'preview:eth-secret');
+      expect(r.ethernetConfirmId, 42);
+      // The committed-LAN helpers resolve to the Ethernet endpoint/credential.
+      expect(r.lanEndpoint, '10.10.1.30');
+      expect(r.lanCredential, 'preview:eth-secret');
+      expect(r.hasLanCredential, isTrue);
+    });
+
+    test('network_config leaves ethernet_dhcp null when has_ethernet_dhcp() is '
+        'false (down/unknown — not a DHCP placeholder)', () {
+      const corrId = 'nc-2';
+      final bytes = wrap(
+        proto.CommandResponse(
+          correlationId: corrId,
+          status: proto.ResponseStatus.OK,
+          // A committed WiFi-STA path with an endpoint but (unencrypted link) no
+          // credential, and ethernet down → ethernet_dhcp unset.
+          networkConfig: proto.NetworkConfigResponse(
+            lanPath: proto.LanPath.LAN_PATH_WIFI_STA,
+            previewEndpoint: '10.10.1.142',
+            inSharedWifi: true,
+            currentSsid: 'Field-House',
+          ),
+        ),
+      );
+      final resp = BleProtocol.decodeResponse<NetworkConfigResult>(
+        bytes,
+        corrId,
+      );
+      final r = resp.payload!;
+      expect(r.lanPath, LanPath.wifiSta);
+      expect(r.ethernetDhcp, isNull); // gated on has_ethernet_dhcp()
+      // Endpoint rides, but with no credential it's NOT a usable handshake.
+      expect(r.lanEndpoint, '10.10.1.142');
+      expect(r.lanCredential, isEmpty);
+      expect(r.hasCommittedLanPath, isTrue);
+      expect(r.hasLanCredential, isFalse);
+    });
+
+    test(
+      'network_config from pre-v5 firmware (no lan_path) maps to LanPath.none',
+      () {
+        const corrId = 'nc-3';
+        final bytes = wrap(
+          proto.CommandResponse(
+            correlationId: corrId,
+            status: proto.ResponseStatus.OK,
+            networkConfig: proto.NetworkConfigResponse(
+              inSharedWifi: true,
+              currentSsid: 'Legacy',
+            ),
+          ),
+        );
+        final resp = BleProtocol.decodeResponse<NetworkConfigResult>(
+          bytes,
+          corrId,
+        );
+        final r = resp.payload!;
+        expect(r.lanPath, LanPath.none);
+        expect(r.hasCommittedLanPath, isFalse);
+        expect(r.ethernetDhcp, isNull);
+      },
+    );
 
     test('OK control response with no payload decodes to ok(null)', () {
       const corrId = 'ok-1';

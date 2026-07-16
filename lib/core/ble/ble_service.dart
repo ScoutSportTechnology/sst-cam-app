@@ -219,6 +219,20 @@ abstract class BleService {
     required bool reachable,
   }) async => throw UnimplementedError('confirmPreviewReachable not supported');
 
+  /// Report the app's Ethernet-LAN reachability verdict back to the camera
+  /// (proto v5, R11) — the PARALLEL of [confirmPreviewReachable] for the Ethernet
+  /// path. [confirmId] echoes [NetworkConfigResult.ethernetConfirmId]; [path] is
+  /// the path being confirmed ([LanPath.ethernet]); [reachable] true finalizes
+  /// the Ethernet LAN, false de-selects it (firmware falls to STA/P2P per R19).
+  /// Returns the path the arbiter settled into. Concrete default throws so only
+  /// the real/mock services that drive provisioning implement it.
+  Future<ConfirmLanPathResult> confirmLanPath(
+    String deviceId, {
+    required int confirmId,
+    required LanPath path,
+    required bool reachable,
+  }) async => throw UnimplementedError('confirmLanPath not supported');
+
   /// Ensure the BLE link to [deviceId] is BONDED before sending secrets. A bonded
   /// link is encrypted at the link layer, so the WiFi passphrase (sent over the
   /// write-without-response command characteristic) never crosses a cleartext

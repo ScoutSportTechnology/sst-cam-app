@@ -7,8 +7,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/models/command.dart' show DeviceInfoResponse;
+import 'package:sst_cam_app/core/models/device.dart' show CameraConnectionState;
+import 'package:sst_cam_app/core/errors/friendly_status.dart'
+    show ConnectivityOutcome, FriendlyStatus;
 import 'package:sst_cam_app/core/models/network_config.dart'
-    show NetworkConfig, NetworkConfigResult, WifiUplink;
+    show
+        EthernetUplink,
+        LanPath,
+        NetworkConfig,
+        NetworkConfigResult,
+        WifiUplink;
 import 'package:sst_cam_app/core/wifi/wifi_handoff.dart'
     show
         PreviewReachabilityProbe,
@@ -111,6 +119,166 @@ class _ConnectedBle extends MockBleService {
   }
 }
 
+/// A BLE service whose plain Get reports a COMMITTED WiFi-STA LAN path with a
+/// usable credential (proto v5, migration_id == 0) — a reconnect probe target,
+/// NOT a new migration. Lets a widget test exercise the U9 gate: "connected"
+/// only after the identity probe passes.
+class _LanCommittedBle extends MockBleService {
+  _LanCommittedBle()
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        randomSeed: 1,
+      );
+
+  static const ssid = 'Field-House-WiFi';
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return NetworkConfigResult(
+      config: NetworkConfig(wifi: WifiUplink(enabled: true, ssid: ssid)),
+      ethernetUp: false,
+      ethernetAddress: '',
+      wifiUp: true,
+      wifiStatus: 'connected',
+      inSharedWifi: true,
+      currentSsid: ssid,
+      lanPath: LanPath.wifiSta,
+      previewEndpoint: '10.10.1.142',
+      previewCredential: 'preview:secret',
+    );
+  }
+}
+
+/// U10: Ethernet is the COMMITTED LAN path on a plain Get (confirm id 0 — already
+/// settled, NOT a pending handshake): the gate identity-probes the Ethernet IP,
+/// then the card shows the Ethernet-connected state (no Wi-Fi password).
+class _EthernetLanBle extends MockBleService {
+  _EthernetLanBle()
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        randomSeed: 1,
+      );
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return const NetworkConfigResult(
+      config: NetworkConfig(ethernet: EthernetUplink(enabled: true)),
+      ethernetUp: true,
+      ethernetAddress: '10.10.1.30/24',
+      wifiUp: false,
+      wifiStatus: '',
+      lanPath: LanPath.ethernet,
+      ethernetEndpoint: '10.10.1.30',
+      ethernetCredential: 'preview:eth-secret',
+      ethernetDhcp: true,
+    );
+  }
+}
+
+/// U10: a PENDING Ethernet-LAN handshake on a plain Get (confirm id != 0) — the
+/// app must probe the Ethernet IP + send confirmLanPath (AE8).
+class _EthernetHandshakeBle extends MockBleService {
+  _EthernetHandshakeBle()
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        randomSeed: 1,
+      );
+
+  static const confirmId = 7;
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return const NetworkConfigResult(
+      config: NetworkConfig(ethernet: EthernetUplink(enabled: true)),
+      ethernetUp: true,
+      ethernetAddress: '10.10.1.30/24',
+      wifiUp: false,
+      wifiStatus: '',
+      lanPath: LanPath.ethernet,
+      ethernetEndpoint: '10.10.1.30',
+      ethernetCredential: 'preview:eth-secret',
+      ethernetConfirmId: confirmId,
+      ethernetDhcp: true,
+    );
+  }
+}
+
+/// U10 E5: Ethernet is present as a DIFFERENT-subnet uplink (up + addressed) but
+/// NOT the committed LAN path (P2P) — Wi-Fi provisioning must STILL be offered.
+class _EthernetUplinkBle extends MockBleService {
+  _EthernetUplinkBle()
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        randomSeed: 1,
+      );
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return const NetworkConfigResult(
+      config: NetworkConfig(ethernet: EthernetUplink(enabled: true)),
+      ethernetUp: true,
+      ethernetAddress: '192.168.9.20/24',
+      wifiUp: false,
+      wifiStatus: '',
+      lanPath: LanPath.p2p,
+      ethernetDhcp: true,
+    );
+  }
+}
+
+/// U10 E3: Ethernet is the LAN on load, but a subsequent Set reports the cable
+/// pulled with NO Wi-Fi provisioned — the app must surface "connect to Wi-Fi to
+/// keep app access" rather than silently dropping to P2P/offline.
+class _EthernetThenLostBle extends MockBleService {
+  _EthernetThenLostBle()
+    : super(
+        scanDeviceAppearDelays: const [Duration.zero],
+        connectionDelay: Duration.zero,
+        randomSeed: 1,
+      );
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return const NetworkConfigResult(
+      config: NetworkConfig(ethernet: EthernetUplink(enabled: true)),
+      ethernetUp: true,
+      ethernetAddress: '10.10.1.30/24',
+      wifiUp: false,
+      wifiStatus: '',
+      lanPath: LanPath.ethernet,
+      ethernetEndpoint: '10.10.1.30',
+      ethernetCredential: 'preview:eth-secret',
+      ethernetDhcp: true,
+    );
+  }
+
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // Cable pulled between load and Apply: no LAN path, Ethernet down, no Wi-Fi.
+    return const NetworkConfigResult(
+      config: NetworkConfig(),
+      ethernetUp: false,
+      ethernetAddress: '',
+      wifiUp: false,
+      wifiStatus: '',
+      lanPath: LanPath.p2p,
+    );
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   required MockBleService ble,
@@ -187,23 +355,26 @@ void main() {
   );
 
   testWidgets(
-    'phone on 2.4 GHz → validated up front: needs-5GHz message, nothing sent',
+    'U10 regression: provisioning against a 2.4 GHz network is ACCEPTED — the '
+    'stale needs-5GHz gate no longer blocks it (regdomain finding)',
     (tester) async {
-      final ble = _BondFailBle(); // counts setNetworkConfig; must stay 0
+      final ble = _newBle();
       final wifi = MockWifiService(
         mockPhoneSsid: 'Field-House-WiFi',
-        mockPhoneFrequencyMhz: 2437, // 2.4 GHz (ch 6)
+        mockPhoneFrequencyMhz: 2437, // 2.4 GHz (ch 6) — must NOT be rejected
       );
       await _pump(tester, ble: ble, wifi: wifi, reachable: true);
 
       await tester.tap(find.text('Connect'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(); // enter the transition (proves it was NOT gated)
+      expect(find.text('Switching to your network…'), findsOneWidget);
 
-      // Blocked before any BLE traffic — clear "switch to 5 GHz" guidance.
-      expect(find.textContaining('5 GHz'), findsWidgets);
-      expect(ble.setCalls, 0);
-      expect(find.text('Connected'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 120));
+
+      // The join proceeded to a connected state — never a "switch to 5 GHz" block.
+      expect(find.textContaining('Connected to'), findsOneWidget);
+      expect(find.textContaining('5 GHz'), findsNothing);
 
       await ble.dispose();
       await wifi.dispose();
@@ -323,6 +494,67 @@ void main() {
   );
 
   testWidgets(
+    'U9: committed LAN path (v5 plain Get) + probe 2xx → "connected" shown '
+    '(gated on the identity probe, not inSharedWifi alone) (R8)',
+    (tester) async {
+      final ble = _LanCommittedBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      // Probe passes → the identity gate lets "connected" through.
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      expect(find.textContaining('Connected to'), findsOneWidget);
+      expect(find.text('Disconnect'), findsOneWidget);
+      // The transient / probe-failure copy is NOT shown once the probe passes.
+      expect(find.textContaining('Reconnecting your camera'), findsNothing);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'U9: committed LAN answers but identity check FAILS → NOT "connected"; '
+    'probe-failure copy shown, DISTINCT from the isolated copy (AE7)',
+    (tester) async {
+      final ble = _LanCommittedBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      // A same-subnet host answers but fails the auth/identity check → probe false.
+      await _pump(tester, ble: ble, wifi: wifi, reachable: false);
+
+      // Not connected.
+      expect(find.textContaining('Connected to'), findsNothing);
+      // The probe-failure banner renders its own copy…
+      expect(
+        find.textContaining("Couldn't reach your camera on the local network"),
+        findsOneWidget,
+      );
+      // …which is DISTINCT from the different-subnet `isolated` copy.
+      final isolatedCopy = FriendlyStatus.forOutcome(
+        ConnectivityOutcome.isolated,
+      ).message;
+      expect(find.textContaining(isolatedCopy), findsNothing);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  test('U9: probe-failure + switching copy are DISTINCT from isolated', () {
+    final isolated = FriendlyStatus.forOutcome(
+      ConnectivityOutcome.isolated,
+    ).message;
+    final probeFailed = FriendlyStatus.forOutcome(
+      ConnectivityOutcome.reachabilityProbeFailed,
+    ).message;
+    final switching = FriendlyStatus.forOutcome(
+      ConnectivityOutcome.switching,
+    ).message;
+    expect(probeFailed, isNot(isolated));
+    expect(switching, isNot(isolated));
+    expect(probeFailed, isNot(switching));
+  });
+
+  testWidgets(
     'change-networks that FAILS → "reverted to direct" copy, not a generic '
     'error (R3 destructive-switch)',
     (tester) async {
@@ -340,6 +572,132 @@ void main() {
         find.textContaining('went back to a direct connection'),
         findsOneWidget,
       );
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'U10: committed Ethernet LAN (v5 plain Get) + probe 2xx → Ethernet-connected '
+    'card, NO password field, "on your network via Ethernet" banner (AE9)',
+    (tester) async {
+      final ble = _EthernetLanBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      // Ethernet-connected state — the dead Wi-Fi password field is suppressed.
+      expect(
+        find.textContaining('on your network via Ethernet'),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(TextField, 'Wi-Fi password'), findsNothing);
+      // No STA connected card / Connect flow while Ethernet is the LAN.
+      expect(find.text('Connect'), findsNothing);
+      expect(find.textContaining('Connected to "'), findsNothing);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'U10: pending Ethernet handshake → probe Ethernet endpoint+credential → '
+    'confirmLanPath(reachable) → connected via Ethernet (AE8)',
+    (tester) async {
+      final ble = _EthernetHandshakeBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      // The app ran the handshake: confirmLanPath was sent for the Ethernet path
+      // with the firmware's confirm id + a reachable verdict.
+      expect(ble.lastConfirmLanPath, isNotNull);
+      expect(
+        ble.lastConfirmLanPath!.confirmId,
+        _EthernetHandshakeBle.confirmId,
+      );
+      expect(ble.lastConfirmLanPath!.path, LanPath.ethernet);
+      expect(ble.lastConfirmLanPath!.reachable, isTrue);
+      // …and the card shows the Ethernet-connected state.
+      expect(
+        find.textContaining('on your network via Ethernet'),
+        findsOneWidget,
+      );
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'U10: Ethernet present as a different-subnet uplink (not the LAN) → Wi-Fi '
+    'provisioning STILL offered + an "Ethernet: powering stream upload" line',
+    (tester) async {
+      final ble = _EthernetUplinkBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      // The dead password field is NOT suppressed — Ethernet is only an uplink.
+      expect(find.widgetWithText(TextField, 'Wi-Fi password'), findsOneWidget);
+      expect(find.text('Connect'), findsOneWidget);
+      // Not the Ethernet-connected LAN state.
+      expect(find.textContaining('on your network via Ethernet'), findsNothing);
+      // The uplink status line signals the consequence of unplugging (E5).
+      expect(find.textContaining('powering stream upload'), findsOneWidget);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'U10: Ethernet handshake probe FAILS → probe-failure copy, NOT connected, '
+    'falls back to offering Wi-Fi provisioning',
+    (tester) async {
+      final ble = _EthernetHandshakeBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      // Probe returns false → de-select; confirmLanPath(reachable:false).
+      await _pump(tester, ble: ble, wifi: wifi, reachable: false);
+
+      expect(ble.lastConfirmLanPath!.reachable, isFalse);
+      // Not connected via Ethernet…
+      expect(find.textContaining('on your network via Ethernet'), findsNothing);
+      // …probe-failure copy shown, and the Wi-Fi Connect flow is offered again.
+      expect(
+        find.textContaining("Couldn't reach your camera on the local network"),
+        findsOneWidget,
+      );
+      expect(find.text('Connect'), findsOneWidget);
+
+      await ble.dispose();
+      await wifi.dispose();
+    },
+  );
+
+  testWidgets(
+    'U10 E3: Ethernet was the LAN with no Wi-Fi, cable pulled → "connect to '
+    'Wi-Fi to keep app access" state (reverse of R14)',
+    (tester) async {
+      final ble = _EthernetThenLostBle();
+      final wifi = MockWifiService(mockPhoneSsid: 'Field-House-WiFi');
+      await _pump(tester, ble: ble, wifi: wifi, reachable: true);
+
+      // Loaded on Ethernet as the LAN.
+      expect(
+        find.textContaining('on your network via Ethernet'),
+        findsOneWidget,
+      );
+
+      // A re-apply now reports the cable pulled with no Wi-Fi provisioned (E3).
+      await tester.tap(find.text('Apply'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+
+      expect(
+        find.textContaining('Ethernet disconnected — connect to Wi-Fi'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('on your network via Ethernet'), findsNothing);
 
       await ble.dispose();
       await wifi.dispose();

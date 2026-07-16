@@ -482,7 +482,8 @@ class BleServiceImpl implements BleService {
       _log.info('camera $deviceId link up — awaiting handshake');
       unawaited(
         ensureBonded(deviceId).catchError(
-          (Object e) => _log.warning('bond on connect failed for $deviceId: $e'),
+          (Object e) =>
+              _log.warning('bond on connect failed for $deviceId: $e'),
         ),
       );
 
@@ -870,6 +871,35 @@ class BleServiceImpl implements BleService {
       throw const BleConnectionException(
         'confirmPreviewReachable: firmware returned no '
         'ConfirmPreviewReachableResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ConfirmLanPathResult> confirmLanPath(
+    String deviceId, {
+    required int confirmId,
+    required LanPath path,
+    required bool reachable,
+  }) async {
+    final resp = await sendCommand<ConfirmLanPathResult>(
+      deviceId,
+      ConfirmLanPathCommand(
+        confirmId: confirmId,
+        path: path,
+        reachable: reachable,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'confirmLanPath failed: ${resp.errorMessage}',
+      );
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw const BleConnectionException(
+        'confirmLanPath: firmware returned no ConfirmLanPathResponse',
       );
     }
     return result;

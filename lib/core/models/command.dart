@@ -463,6 +463,25 @@ class ConfirmPreviewReachableCommand extends BleCommand {
   final bool reachable;
 }
 
+/// The app's reachability verdict for an Ethernet-LAN confirmation handshake
+/// (proto v5, R11) — the PARALLEL of [ConfirmPreviewReachableCommand] for the
+/// Ethernet path. Sent after the app probes the camera's Ethernet IP: [confirmId]
+/// echoes [NetworkConfigResult.ethernetConfirmId]; [path] is the path being
+/// confirmed ([LanPath.ethernet]); [reachable] true finalizes the Ethernet LAN,
+/// false de-selects it (firmware falls to STA/P2P per R19). The firmware ignores
+/// a verdict for a superseded selection (single global epoch guard, shared with
+/// the STA migration id). Replies with [ConfirmLanPathResult].
+class ConfirmLanPathCommand extends BleCommand {
+  ConfirmLanPathCommand({
+    required this.confirmId,
+    required this.path,
+    required this.reachable,
+  });
+  final int confirmId;
+  final LanPath path;
+  final bool reachable;
+}
+
 // ---------------------------------------------------------------------------
 
 enum BleResponseStatus {

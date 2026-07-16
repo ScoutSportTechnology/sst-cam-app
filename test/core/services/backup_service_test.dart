@@ -154,6 +154,13 @@ class _StubBleService implements BleService {
     required bool reachable,
   }) async => throw UnimplementedError();
   @override
+  Future<ConfirmLanPathResult> confirmLanPath(
+    String deviceId, {
+    required int confirmId,
+    required LanPath path,
+    required bool reachable,
+  }) async => throw UnimplementedError();
+  @override
   Future<void> ensureBonded(String deviceId) async =>
       throw UnimplementedError();
   @override

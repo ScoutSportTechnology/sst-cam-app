@@ -21,14 +21,36 @@ enum ConnectivityOutcome {
   /// The camera couldn't join the network (association failed, not auth).
   couldntJoin,
 
-  /// The phone's Wi-Fi is a 2.4 GHz network. The camera's single radio carries
-  /// the Bluetooth control link on 2.4 GHz, so it can only join a 5 GHz Wi-Fi
-  /// (2.4 GHz association is torn down by radio coexistence). Validated up front.
-  needs5GHz,
-
   /// The network is client-isolated — devices can't reach each other, so the
   /// LAN preview probe failed even though the camera joined.
   isolated,
+
+  /// Ethernet already provides the LAN path to the phone (R11/R14): the camera
+  /// is reachable on your network over the cable, so NO Wi-Fi password is needed
+  /// and live preview + streaming are on. The Ethernet-connected banner.
+  ethernetConnected,
+
+  /// Ethernet WAS the LAN path with NO Wi-Fi provisioned, and the cable was
+  /// pulled — the phone is about to lose app access (the reverse of R14, E3).
+  /// Prompts the operator to connect Wi-Fi rather than silently dropping to
+  /// P2P/offline.
+  ethernetDisconnectedNeedsWifi,
+
+  /// A LAN-path switch is IN PROGRESS: the firmware picked an interface
+  /// (Ethernet → STA → P2P) and the app is running the identity-verified probe
+  /// against the committed LAN IP before showing "connected" (R8/R22). A SINGLE
+  /// coalesced transient rendered across a rapid Ethernet→STA→P2P cascade so the
+  /// operator never sees every intermediate candidate flash (E4) — distinct from
+  /// the terminal [isolated] copy.
+  switching,
+
+  /// The identity-verified reachability probe against the committed LAN IP
+  /// FAILED (the endpoint didn't answer a 2xx, or answered but failed the auth/
+  /// identity check — a same-subnet impostor, AE7). The firmware auto-falls to
+  /// the next provider (R19); the app re-probes when the LAN path advances (E1).
+  /// Kept DISTINCT from [isolated]: this is a transient probe/identity failure on
+  /// a chosen path, not the genuine "this network keeps devices apart" verdict.
+  reachabilityProbeFailed,
 
   /// The shared WiFi dropped mid-session; the camera fell back to a direct
   /// connection.
@@ -133,6 +155,18 @@ class FriendlyStatus {
               "connected over Bluetooth — recording works fine.",
           "To use preview and streaming, connect to a different network.",
         );
+      case ConnectivityOutcome.switching:
+        return (
+          "Reconnecting your camera on the local network…",
+          "Hold on a moment.",
+        );
+      case ConnectivityOutcome.reachabilityProbeFailed:
+        return (
+          "Couldn't reach your camera on the local network yet — it's trying "
+              "another connection. Your camera is still connected over Bluetooth, "
+              "so recording keeps working.",
+          "This usually clears on its own in a moment.",
+        );
       case ConnectivityOutcome.wrongPassword:
         return (
           "That Wi-Fi password didn't work. Your camera is still connected over "
@@ -145,12 +179,19 @@ class FriendlyStatus {
               "Bluetooth — recording works.",
           "Try again or pick another network.",
         );
-      case ConnectivityOutcome.needs5GHz:
+      case ConnectivityOutcome.ethernetConnected:
         return (
-          "This looks like a 2.4 GHz Wi-Fi network. The camera can only join a "
-              "5 GHz Wi-Fi — while it's connected over Bluetooth its radio can't "
-              "hold a 2.4 GHz Wi-Fi at the same time.",
-          "Switch your phone's hotspot (or Wi-Fi) to 5 GHz, then try again.",
+          "You're on your network via Ethernet — live preview and streaming are "
+              "on. No Wi-Fi password needed while the cable is plugged in.",
+          null,
+        );
+      case ConnectivityOutcome.ethernetDisconnectedNeedsWifi:
+        return (
+          "Ethernet disconnected — connect to Wi-Fi to keep app access. The "
+              "camera is still connected over Bluetooth, so recording keeps "
+              "working.",
+          "Connect the camera to your Wi-Fi to restore live preview and "
+              "streaming.",
         );
       case ConnectivityOutcome.droppedMidSession:
         return (

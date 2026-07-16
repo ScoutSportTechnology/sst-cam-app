@@ -805,7 +805,8 @@ class MockBleService implements BleService {
     // generic sendCommand round-trip the emulator's encode path serves.
     if (cmd is SetNetworkConfigCommand ||
         cmd is GetNetworkConfigCommand ||
-        cmd is ConfirmPreviewReachableCommand) {
+        cmd is ConfirmPreviewReachableCommand ||
+        cmd is ConfirmLanPathCommand) {
       throw UnsupportedError(
         'network config uses the direct set/getNetworkConfig path',
       );
@@ -1106,7 +1107,8 @@ class MockBleService implements BleService {
       ),
       SetNetworkConfigCommand() ||
       GetNetworkConfigCommand() ||
-      ConfirmPreviewReachableCommand() => throw UnsupportedError(
+      ConfirmPreviewReachableCommand() ||
+      ConfirmLanPathCommand() => throw UnsupportedError(
         'network config uses the direct set/getNetworkConfig path',
       ),
     };
@@ -1260,7 +1262,8 @@ class MockBleService implements BleService {
       StopWifiDirectCommand() => BleCommandResponse.ok(null as T?),
       SetNetworkConfigCommand() ||
       GetNetworkConfigCommand() ||
-      ConfirmPreviewReachableCommand() => throw UnsupportedError(
+      ConfirmPreviewReachableCommand() ||
+      ConfirmLanPathCommand() => throw UnsupportedError(
         'network config uses the direct set/getNetworkConfig path',
       ),
     };
@@ -2239,6 +2242,34 @@ class MockBleService implements BleService {
     );
   }
 
+  /// The last Ethernet-LAN confirm sent via [confirmLanPath] (proto v5, R11) —
+  /// lets a test assert the app ran the handshake with the right verdict.
+  ({int confirmId, LanPath path, bool reachable})? lastConfirmLanPath;
+
+  @override
+  Future<ConfirmLanPathResult> confirmLanPath(
+    String deviceId, {
+    required int confirmId,
+    required LanPath path,
+    required bool reachable,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 40));
+    lastConfirmLanPath = (
+      confirmId: confirmId,
+      path: path,
+      reachable: reachable,
+    );
+    // The emulated arbiter commits the Ethernet LAN only when the phone reports
+    // it reachable (mirrors firmware U6's confirm→commit); an unreachable verdict
+    // de-selects (the arbiter would fall to STA/P2P).
+    final committed = reachable && path == LanPath.ethernet;
+    return ConfirmLanPathResult(
+      confirmId: confirmId,
+      committedPath: committed ? LanPath.ethernet : LanPath.none,
+      committed: committed,
+    );
+  }
+
   /// True once [ensureBonded] has been called for the emulated camera — lets a
   /// test assert the bond happened before credentials were sent.
   bool bonded = false;
@@ -2258,23 +2289,37 @@ class MockBleService implements BleService {
   // Emulated firmware status: ethernet reports "up" with a stock address when
   // enabled; wifi-STA is gated unavailable (single radio = WiFi-Direct GO),
   // matching the real firmware's NmcliUplinkConfigurator.
-  NetworkConfigResult _uplinkStatus(NetworkConfig config) =>
-      NetworkConfigResult(
-        config: config,
-        ethernetUp: config.ethernet.enabled,
-        ethernetAddress: config.ethernet.enabled
-            ? (config.ethernet.ip.dhcp
-                  ? '10.10.1.30/24'
-                  : config.ethernet.ip.address)
-            : '',
-        wifiUp: false,
-        wifiStatus: config.wifi.enabled
-            ? 'unavailable: single radio is dedicated to the WiFi-Direct GO'
-            : '',
-        // Ambient connected-state (R3), sourced from the emulated arbiter.
-        inSharedWifi: _inSharedWifi,
-        currentSsid: _inSharedWifi ? _connectedSsid : '',
-      );
+  NetworkConfigResult _uplinkStatus(
+    NetworkConfig config,
+  ) => NetworkConfigResult(
+    config: config,
+    ethernetUp: config.ethernet.enabled,
+    ethernetAddress: config.ethernet.enabled
+        ? (config.ethernet.ip.dhcp
+              ? '10.10.1.30/24'
+              : config.ethernet.ip.address)
+        : '',
+    wifiUp: false,
+    wifiStatus: config.wifi.enabled
+        ? 'unavailable: single radio is dedicated to the WiFi-Direct GO'
+        : '',
+    // Ambient connected-state (R3), sourced from the emulated arbiter.
+    inSharedWifi: _inSharedWifi,
+    currentSsid: _inSharedWifi ? _connectedSsid : '',
+    // U9 (proto v5): the committed LAN path + the endpoint/credential the app
+    // identity-probes on a plain Get (R8). The emulated arbiter commits
+    // WiFi-STA when in shared-WiFi, else the direct P2P link. migration_id
+    // stays 0 for a committed STA (a reconnect probe target, NOT a new
+    // migration to confirm). The secret credential is gated on the (mock)
+    // encrypted link — empty until [ensureBonded], mirroring firmware INV6 —
+    // so an unbonded plain Get carries the endpoint but no secret.
+    lanPath: _inSharedWifi ? LanPath.wifiSta : LanPath.p2p,
+    previewEndpoint: _inSharedWifi ? '192.168.1.50' : '',
+    previewCredential: _inSharedWifi && bonded ? 'preview:emulated-secret' : '',
+    // Real Ethernet mode read-back (null = down/unknown), never a DHCP
+    // placeholder — mirrors U3's DHCP-when-static fix.
+    ethernetDhcp: config.ethernet.enabled ? config.ethernet.ip.dhcp : null,
+  );
 
   // Maps a proto ExportJobResponse to the dart ExportJob (used by the
   // sendCommand round-trip path; the public methods above bypass this).
