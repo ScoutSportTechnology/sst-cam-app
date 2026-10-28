@@ -6,13 +6,13 @@ file mirrors its CI/CD contract and adds the rules an agent most often trips on.
 
 ## CI/CD & releasing
 
-PR-gated, Conventional-Commit driven, on the SST branch model
-`feat/* → development → release/X.Y.Z → main` with a test-fidelity **maturity
-ladder**:
+PR-gated, Conventional-Commit driven, Git Flow (same model in proto, firmware,
+app; levels are tags, not branches):
 
-- **alpha** (`vX.Y.Z-alpha.N`) — automated tests vs **mock + emulator**; minted on every `development` merge.
-- **beta** (`vX.Y.Z-beta.N`) — release candidate, manually validated vs **real firmware**; built on `release/*`.
-- **stable** (`vX.Y.Z`) — shipped; the promoted beta artifact (same bytes), cut on merge to `main`.
+- **alpha** (`vX.Y.Z-alpha.N`) — every releasable `development` merge; mock + emulator tests; developer APK.
+- **beta** (`vX.Y.Z-beta.N`) — `release/X.Y.Z`, cut from `development` at feature freeze; fixes only; both APKs.
+- **rc** (`vX.Y.Z-rc.N`) — after the hardware test (phone + real firmware on a Jetson): `promote-rc.yml` re-tags the newest beta as `rc.1`; later `release/X.Y.Z` merges mint `rc.N`.
+- **stable** (`vX.Y.Z`) — merge `release/X.Y.Z → main`; the last rc's production APK promoted unchanged.
 
 **Two non-negotiables — do not break these:**
 
@@ -21,34 +21,36 @@ ladder**:
    **not** built in the PR; it builds only on push (the alpha/beta release jobs),
    so a post-merge build failure lands on `development` / `release/*`, never on
    `main`.
-2. **`main` never builds** — `release.yml` only copies an already-built beta APK.
+2. **`main` never builds** — `release.yml` only promotes an already-built rc APK.
    Never add a `flutter` / Gradle step to `release.yml`.
 
-Three branch-scoped workflows — each owns one branch class and folds its PR gate
-in (gated to `pull_request`); there is no standalone `ci.yml`. Required PR checks:
-`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`. (The
-`Build Android APK` PR-gate job was removed — the APK builds only on push.)
+Required PR checks (names wired into the rulesets — keep byte-identical):
+`CI Scripts (shellcheck + version tests)`, `Analyze & Test (Linux)`.
 
-| Workflow | Owns | PR (`pull_request`) | Push |
-| -------- | ---- | ------------------- | ---- |
-| `release-alpha.yml` | `development` | the 2 gate checks | `resolve-version.sh alpha` → developer APK → `--prerelease` |
-| `release-beta.yml` | `release/**` | the 2 gate checks | base = branch `X.Y.Z` → both APKs → `-beta.N` `--prerelease` |
-| `release.yml` | `main` | — | tag `vX.Y.Z`, copy beta APK assets (no build) |
+| Workflow | Owns | PR (`pull_request`) | Push / dispatch |
+| -------- | ---- | ------------------- | --------------- |
+| `release-alpha.yml` | `development` | the 2 gate checks (incl. proto pin check) | `resolve-version` (alpha) → developer APK → `publish-release` |
+| `release-beta.yml` | `release/**` | the 2 gate checks | `resolve-version` (release: beta.N or rc.N) → both APKs → `publish-release` |
+| `promote-rc.yml` | `release/X.Y.Z` (dispatch) | — | newest beta → `rc.1`, same commit + APKs |
+| `release.yml` | `main` | — | `promote` last rc → `vX.Y.Z`, production APK copied (no build) |
 
-Version math is `scripts/ci/resolve-version.sh` (single source for both release
-workflows; tested by `scripts/ci/resolve-version-test.sh` — run it after editing
-the script). Default `GITHUB_TOKEN` only — no PAT/App; do not reintroduce
+Version math and publishing are the shared actions of
+`ScoutSportTechnology/.github` (`resolve-version`, `publish-release`, `promote`,
+pinned `@v1.1.0`). Default `GITHUB_TOKEN` only — no PAT/App; do not reintroduce
 release-please. Signing falls back to debug when `ANDROID_*` secrets are unset.
 
 ### Branch + commit + tag rules
 
 - `development` is the default branch; target `feat/*` / `fix/*` PRs at it. Do not
-  target `main`.
+  target `main`. `release/X.Y.Z` takes `fix/*` PRs only, after the cut.
+- One `release/X.Y.Z` open at a time; the same branch names in proto, firmware
+  and app (`feat/<slug>` for a cross-repo change: proto first, then re-pin
+  `proto/` to the **merged** proto commit).
 - `main` is promote-only: no direct push; PR from `release/*` only.
-- Tags `v*` are immutable semver (`-alpha.N` < `-beta.N` < stable).
-- Use Conventional Commits; the subjects since the last stable tag drive the
-  alpha base bump (`feat:` → minor, `fix:`/`perf:` → patch, `BREAKING`/`type!:` →
-  major, docs/chore-only → **skip**).
+- Tags `v*` are immutable semver (`-alpha.N` < `-beta.N` < `-rc.N` < stable).
+- Use Conventional Commits; the squash-merge subjects drive the alpha bump
+  (`feat:` → minor, `fix:`/`perf:` → patch, `type(scope)!:`/`BREAKING CHANGE:` →
+  major but minor while the major is 0, docs/chore-only → **skip**).
 
 ### Operational runbooks (maintainer/admin, not agent-run)
 

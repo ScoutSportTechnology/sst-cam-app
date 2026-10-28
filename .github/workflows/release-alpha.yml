@@ -12,9 +12,9 @@ name: release-alpha
 # code has still landed — recover by re-dispatching via workflow_dispatch. This
 # keeps the only build-can-fail-after-merge risk on development, never on main (R3).
 #
-# Alpha base = conventional-commit bump from the latest *stable* tag; the alpha
-# counter increments within that base. Version math lives in
-# scripts/ci/resolve-version.sh (single source shared with release-beta/release).
+# Alpha base = conventional-commit bump from the latest *stable* tag (release floor
+# while a release/X.Y.Z is open); the alpha counter increments within that base.
+# Version math lives in the shared resolve-version action (ScoutSportTechnology/.github).
 #
 # The check jobs are gated to pull_request and the alpha release job to push, so
 # the release job is intentionally NOT `needs:`-dependent on the checks (a check
@@ -92,9 +92,9 @@ jobs:
   # job name: values below are wired ruleset required-status-check contexts —
   # do NOT rename them or branch protection breaks.
 
-  # Gates the shared release version logic. resolve-version.sh drives all three
-  # release workflows (alpha/beta/release); it is committed but only ever runs in
-  # CI here — keep it covered and shellcheck-clean.
+  # Gates the CI scripts (shellcheck), the workflows (actionlint) and the proto/
+  # contract pin. Version math lives in the shared actions of
+  # ScoutSportTechnology/.github (pinned tag), not in this repo.
   version-script:
     name: CI Scripts (shellcheck + version tests)
     if: ${{ github.event_name == 'pull_request' }}
@@ -108,8 +108,12 @@ jobs:
       - name: Lint workflows (actionlint)
         uses: reviewdog/action-actionlint@v1.72.0
 
-      - name: resolve-version unit tests
-        run: ./scripts/ci/resolve-version-test.sh
+      # proto/ must point at a commit merged into the sst-cam-proto branch with
+      # the same name as this PR's base (development or release/X.Y.Z).
+      - name: proto pin check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: ./scripts/ci/check-proto-pin.sh "$BASE_REF"
 
   analyze-and-test:
     name: Analyze & Test (Linux)
@@ -206,17 +210,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history for the conventional-commit scan in resolve-version.sh;
+          # Full history for the conventional-commit scan in the resolver;
           # proto/*.proto comes from the git submodule.
           fetch-depth: 0
           submodules: recursive
 
       - name: Resolve version (alpha)
         id: ver
-        env:
-          IN_VERSION: ${{ inputs.version }}
-          IN_BUMP: ${{ inputs.bump }}
-        run: ./scripts/ci/resolve-version.sh alpha
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: alpha
+          version: ${{ inputs.version }}
+          bump: ${{ inputs.bump }}
 
       - uses: actions/setup-java@v4
         if: steps.ver.outputs.released == 'true'
@@ -309,22 +314,12 @@ jobs:
           cp build/app/outputs/apk/stage/release/app-stage-release.apk \
             "dist/sst-cam-app-${TAG}-developer.apk"
 
-      - name: Create prerelease + upload alpha APK
+      # publish-release (ScoutSportTechnology/.github): draft -> upload -> publish,
+      # recording `sha256: <hex>  <asset>` for each APK in the notes.
+      - name: Publish alpha prerelease (developer APK)
         if: steps.ver.outputs.released == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          set -euo pipefail
-          apk="dist/sst-cam-app-${TAG}-developer.apk"
-          # Idempotent: a re-dispatch after a partial failure must not 422 on an
-          # already-created Release. Create if absent, then upload --clobber so
-          # the run always ends with the current APK on the Release.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --prerelease \
-              --target "$GITHUB_SHA" \
-              --title "$TAG" \
-              --generate-notes
-          fi
-          gh release upload "$TAG" "$apk" --clobber
+        uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
+        with:
+          tag: ${{ steps.ver.outputs.tag }}
+          files: dist/sst-cam-app-${{ steps.ver.outputs.tag }}-developer.apk
+          prerelease: "true"

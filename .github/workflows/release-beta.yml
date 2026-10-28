@@ -89,9 +89,9 @@ jobs:
   # job name: values below are wired ruleset required-status-check contexts —
   # do NOT rename them or branch protection breaks.
 
-  # Gates the shared release version logic. resolve-version.sh drives all three
-  # release workflows (alpha/beta/release); it is committed but only ever runs in
-  # CI here — keep it covered and shellcheck-clean.
+  # Gates the CI scripts (shellcheck), the workflows (actionlint) and the proto/
+  # contract pin. Version math lives in the shared actions of
+  # ScoutSportTechnology/.github (pinned tag), not in this repo.
   version-script:
     name: CI Scripts (shellcheck + version tests)
     if: ${{ github.event_name == 'pull_request' }}
@@ -105,8 +105,12 @@ jobs:
       - name: Lint workflows (actionlint)
         uses: reviewdog/action-actionlint@v1.72.0
 
-      - name: resolve-version unit tests
-        run: ./scripts/ci/resolve-version-test.sh
+      # proto/ must point at a commit merged into the sst-cam-proto branch with
+      # the same name as this PR's base (development or release/X.Y.Z).
+      - name: proto pin check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: ./scripts/ci/check-proto-pin.sh "$BASE_REF"
 
   analyze-and-test:
     name: Analyze & Test (Linux)
@@ -186,7 +190,7 @@ jobs:
   # Trade-off: two runners re-do checkout/setup and the APKs cross job boundaries
   # as artifacts — more runner-minutes, but lower wall-clock, which is the goal.
   version:
-    name: Resolve beta version
+    name: Resolve beta/rc version
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     outputs:
@@ -194,19 +198,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so resolve-version.sh sees existing beta tags. No
+          # Full history so the resolver sees existing beta/rc tags. No
           # submodules needed — version math is pure git tags.
           fetch-depth: 0
 
-      - name: Resolve version (beta)
+      # mode: release takes X.Y.Z from the release/X.Y.Z branch name (fails fast
+      # on any other shape) and mints beta.N, or rc.N once promote-rc.yml
+      # re-tagged the hardware-validated beta as rc.1.
+      - name: Resolve version (beta or rc)
         id: ver
-        run: |
-          set -euo pipefail
-          # Base X.Y.Z is the release branch name. Fail fast on a malformed branch.
-          base="${GITHUB_REF_NAME#release/}"
-          echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::branch '${GITHUB_REF_NAME}' is not release/X.Y.Z"; exit 1; }
-          ./scripts/ci/resolve-version.sh beta "$base"
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: release
 
   build:
     name: Build ${{ matrix.kind }} APK
@@ -339,53 +342,28 @@ jobs:
         with:
           path: artifacts
 
-      - name: Assemble + publish prerelease
+      - name: Assemble APKs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # This job does no checkout (it only needs the downloaded artifacts), so
-          # gh has no local .git to infer the repo from — point it explicitly.
-          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           set -euo pipefail
           mkdir -p dist
           # download-artifact lays each artifact in its own subdir — flatten them.
           find artifacts -name '*.apk' -exec cp {} dist/ \;
-          prod="dist/sst-cam-app-${TAG}-production.apk"
-          dev="dist/sst-cam-app-${TAG}-developer.apk"
-          for f in "$prod" "$dev"; do
+          for kind in production developer; do
+            f="dist/sst-cam-app-${TAG}-${kind}.apk"
             [ -f "$f" ] || { echo "::error::expected artifact '${f}' missing from the build matrix"; exit 1; }
           done
 
-          # Record the SHA-256 of each APK in the Release notes. release.yml
-          # copies these exact bytes to the stable Release with NO rebuild, so
-          # this digest is the integrity hand-off it verifies against (fail
-          # closed on mismatch). Line format is contractual:
-          #   sha256: <64hex>  sst-cam-app-<tag>-<kind>.apk
-          prod_sha="$(sha256sum "$prod" | cut -d' ' -f1)"
-          dev_sha="$(sha256sum "$dev" | cut -d' ' -f1)"
-          notes="$(mktemp)"
-          {
-            echo "### APK integrity (SHA-256)"
-            echo ""
-            echo "Promotion to stable copies these bytes unchanged; release.yml"
-            echo "verifies each APK against the digest below before publishing."
-            echo ""
-            echo "    sha256: ${prod_sha}  sst-cam-app-${TAG}-production.apk"
-            echo "    sha256: ${dev_sha}  sst-cam-app-${TAG}-developer.apk"
-          } > "$notes"
-
-          # Idempotent: a re-dispatch after a partial failure must not 422 on an
-          # already-created Release. Create if absent, else refresh notes; then
-          # upload assets with --clobber so the run always ends with the current
-          # APKs on the Release regardless of prior partial state.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --prerelease --target "$GITHUB_SHA" --notes-file "$notes"
-          else
-            gh release create "$TAG" \
-              --prerelease \
-              --target "$GITHUB_SHA" \
-              --title "$TAG" \
-              --notes-file "$notes"
-          fi
-          gh release upload "$TAG" "$prod" "$dev" --clobber
+      # publish-release (ScoutSportTechnology/.github): draft -> upload -> publish,
+      # recording `sha256: <hex>  <asset>` per APK — the digest promote verifies
+      # before copying the production APK to the stable Release.
+      - name: Publish beta/rc prerelease (both APKs)
+        uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
+        with:
+          tag: ${{ needs.version.outputs.tag }}
+          files: |
+            dist/sst-cam-app-${{ needs.version.outputs.tag }}-production.apk
+            dist/sst-cam-app-${{ needs.version.outputs.tag }}-developer.apk
+          prerelease: "true"
+          notes: "Prerelease for hardware sign-off: production + developer APK."
