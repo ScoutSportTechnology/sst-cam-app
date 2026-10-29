@@ -96,7 +96,10 @@ void finalizeMatchToLibrary(WidgetRef ref) {
 /// Shared by the mid-match toggle AND the kickoff prompt so BOTH dispatch a
 /// START that carries the destination: a START with no rtmpUrl is rejected by
 /// the firmware ("no destination provided or configured") and streams nothing.
-Future<String?> resolveStreamWireUrl(BuildContext context, WidgetRef ref) async {
+Future<String?> resolveStreamWireUrl(
+  BuildContext context,
+  WidgetRef ref,
+) async {
   final matchId = ref.read(liveMatchProvider.notifier).matchId;
   try {
     if (matchId != null) {
