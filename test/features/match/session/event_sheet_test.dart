@@ -51,6 +51,9 @@ Widget _buildHarness(DbRef db, MockBleService service) {
           CameraConnectionState.connected,
         ),
       ),
+      // Faked connection ⇒ no handshake/telemetry health readings — pin the
+      // U3 gate open (health gating has its own dedicated tests).
+      healthyDeviceOverride(),
       activeUserProvider.overrideWith((_) => 'user-1'),
     ],
     child: const MaterialApp(home: MatchPage()),

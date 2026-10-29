@@ -7,18 +7,26 @@ import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/streaming.dart';
+import '../../core/models/team.dart' show opponentDisplayName;
 import '../../core/models/video_mode.dart';
+import '../../core/state/auto_stop.dart'
+    show autoStopMinutesProvider, lastPushedSessionConfigProvider;
 import '../../core/state/db_providers.dart' show teamsDaoProvider;
+import '../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/device_health_banner.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/widgets/wf_chip.dart';
 import '../../core/models/overlay_layout.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
+import '../settings/streaming/streaming_state.dart'
+    show streamingDestinationsControllerProvider;
 import '../settings/sport_presets/sport_presets_state.dart'
     show sportPresetsForSportProvider, SportPreset;
 import '../settings/users/users_state.dart' show activeUserProvider;
 import 'match_state.dart' show UpcomingMatch;
+import 'setup_widgets.dart';
 import 'session/session_state.dart' show liveMatchProvider;
 
 /// The preferred default record/stream mode when the firmware advertises it:
@@ -100,6 +108,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   _Dest _dest = _Dest.none;
   final TextEditingController _streamUrlCtl = TextEditingController();
   final TextEditingController _streamKeyCtl = TextEditingController();
+  // Saved destination (Settings → Streaming) currently filling the fields
+  // above; null = manual entry. Selecting one is a FILL, not a bind — the
+  // operator can still tweak the URL/key inline for this match.
+  String? _savedDestId;
 
   // Session push state (U9).
   bool _pushing = false;
@@ -125,6 +137,15 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
+    // U3 health gate: starting a match leads straight into capture — blocked
+    // while the device is inoperable (or health unknown while connected).
+    final captureBlocked = ref.watch(captureBlockedProvider);
+
+    // Saved destinations (Settings → Streaming) offered as one-tap fills in
+    // the Streaming card below.
+    final savedDests =
+        ref.watch(streamingDestinationsControllerProvider).valueOrNull ??
+        const <StreamingDestination>[];
 
     // Firmware-advertised capture modes (R16). Empty when disconnected or on
     // firmware that predates supported_modes → the quality pickers render
@@ -173,13 +194,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           const WfSection('Match'),
-          _RowItem(
-            leading: _AvatarCircle(label: team.shortName),
+          SetupRowItem(
+            leading: SetupAvatarCircle(label: team.shortName),
             title: team.name,
             subtitle: 'Home',
           ),
           const Divider(height: 1, color: T.rule),
-          _RowItem(
+          SetupRowItem(
             leading: const Icon(Icons.shield_outlined),
             title: m.opponent,
             subtitle: 'Away · ${m.date}',
@@ -191,9 +212,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               padding: EdgeInsets.zero,
               child: Column(
                 children: [
-                  _ValueRow(label: 'Sport', value: team.sport),
+                  SetupValueRow(label: 'Sport', value: team.sport),
                   const Divider(height: 1, color: T.rule),
-                  _ValueRow(
+                  SetupValueRow(
                     label: 'Format',
                     value: '$formatLabel · $periods × $periodMinutes min',
                   ),
@@ -232,7 +253,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   // Record and stream quality are independent (R15) and offered
                   // only from firmware-advertised modes (R16). No modes (older /
                   // disconnected firmware) → shown but disabled with a hint.
-                  _DropdownRow<VideoMode>(
+                  SetupDropdownRow<VideoMode>(
                     label: 'Record quality',
                     value: modes.isEmpty ? null : _effectiveRecord(modes),
                     items: modes,
@@ -243,7 +264,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                         : (v) => setState(() => _recordMode = v),
                   ),
                   const Divider(height: 1, color: T.rule),
-                  _DropdownRow<VideoMode>(
+                  SetupDropdownRow<VideoMode>(
                     label: 'Stream quality',
                     value: modes.isEmpty ? null : _effectiveStream(modes),
                     items: modes,
@@ -275,7 +296,26 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _DropdownRow<_Dest>(
+                  // Saved destinations (Settings → Streaming) as a one-tap
+                  // fill. Hidden while the user has none saved.
+                  if (savedDests.isNotEmpty) ...[
+                    SetupDropdownRow<String>(
+                      label: 'Saved destination',
+                      value: _savedDestId ?? '',
+                      items: ['', ...savedDests.map((d) => d.id)],
+                      labelOf: (id) => id.isEmpty
+                          ? 'Manual entry'
+                          : savedDests.firstWhere((d) => d.id == id).name,
+                      onChanged: (id) => setState(
+                        () => _applySavedDestination(
+                          id.isEmpty ? null : id,
+                          savedDests,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, color: T.rule),
+                  ],
+                  SetupDropdownRow<_Dest>(
                     label: 'Destination',
                     value: _dest,
                     items: _Dest.values,
@@ -330,6 +370,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               ),
             ),
           ),
+          // U3 health surface — inoperable banner / recovering note, shared
+          // with the main page + session screen (one widget, no divergence).
+          const DeviceHealthNotice(margin: EdgeInsets.fromLTRB(14, 8, 14, 0)),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
             child: WfButton(
@@ -337,7 +380,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               variant: WfButtonVariant.primary,
               size: WfButtonSize.lg,
               full: true,
-              onPressed: (_pushing || !connected || !_streamReady())
+              onPressed:
+                  (_pushing || !connected || !_streamReady() || captureBlocked)
                   ? null
                   : () => _startMatch(
                       periods,
@@ -374,7 +418,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     label: 'Retry',
                     variant: WfButtonVariant.outline,
                     full: true,
-                    onPressed: (connected && _streamReady())
+                    onPressed: (connected && _streamReady() && !captureBlocked)
                         ? () => _startMatch(
                             periods,
                             _preset?.periodLengthSeconds ??
@@ -440,9 +484,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final stream = _resolvedStream();
     final rtmpUrl = stream?.wireUrl;
 
-    final opponentName = widget.match.match.opponent.startsWith('vs ')
-        ? widget.match.match.opponent.substring(3)
-        : widget.match.match.opponent;
+    final opponentName = opponentDisplayName(widget.match.match.opponent);
+
+    // Unsupervised-session timeout (R5): the persisted setting rides every
+    // session config (default 30 when the operator never touched it).
+    final autoStopMinutes = await ref.read(autoStopMinutesProvider.future);
+    if (!mounted) return;
 
     final config = PushSessionConfig(
       matchUuid: matchUuid,
@@ -468,6 +515,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       teamAName: widget.match.team.shortName,
       teamBName: _shortCode(opponentName),
       teamAColorHex: widget.match.team.colorHex,
+      autoStopMinutes: autoStopMinutes,
     );
 
     setState(() {
@@ -485,6 +533,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
       // Step 1: push session config.
       await ble.pushSessionConfig(deviceId, config);
+      // Remember the pushed config so a mid-session auto-stop change can
+      // re-push it with the new timeout (core/state/auto_stop.dart).
+      ref.read(lastPushedSessionConfigProvider.notifier).state = config;
       if (!mounted) return;
 
       // Persist the per-match streaming credential (scoped to this match only;
@@ -498,10 +549,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           );
 
       // Step 2: build and push overlay layout.
-      final opponent = widget.match.match.opponent;
-      final awayName = opponent.startsWith('vs ')
-          ? opponent.substring(3)
-          : opponent;
+      final awayName = opponentDisplayName(widget.match.match.opponent);
       final layout = defaultScoreboardLayout(
         // Short name reads best in the compact scoreboard bug.
         homeName: widget.match.team.shortName,
@@ -568,10 +616,35 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   /// either record-only (none) or a destination with a scheme-valid URL.
   bool _streamReady() => _dest == _Dest.none || _resolvedStream() != null;
 
+  /// Fill the per-match protocol + URL/key fields from a saved destination
+  /// (Settings → Streaming). Null switches back to manual entry, leaving the
+  /// current field contents in place for further editing.
+  void _applySavedDestination(
+    String? id,
+    List<StreamingDestination> savedDests,
+  ) {
+    _savedDestId = id;
+    if (id == null) return;
+    final dest = savedDests.firstWhere((d) => d.id == id);
+    _dest = switch (dest.protocol) {
+      StreamingProtocol.rtmp => _Dest.rtmp,
+      StreamingProtocol.rtmps => _Dest.rtmps,
+      StreamingProtocol.rtsp => _Dest.rtsp,
+    };
+    switch (dest.config) {
+      case RtmpConfig(:final url, :final streamKey):
+        _streamUrlCtl.text = url;
+        _streamKeyCtl.text = streamKey;
+      case RtspConfig(:final url):
+        _streamUrlCtl.text = url;
+        _streamKeyCtl.text = '';
+    }
+  }
+
   Future<void> _editCustom(BuildContext context) async {
     final result = await showDialog<(int, int)>(
       context: context,
-      builder: (ctx) => _CustomFormatDialog(
+      builder: (ctx) => CustomFormatDialog(
         initialPeriods: _customPeriods,
         initialMinutes: _customPeriodSeconds ~/ 60,
       ),
@@ -601,283 +674,4 @@ String _shortCode(String name) {
   return letters
       .substring(0, letters.length < 3 ? letters.length : 3)
       .toUpperCase();
-}
-
-// ---------------------------------------------------------------------------
-// VALUE ROW
-// ---------------------------------------------------------------------------
-
-class _ValueRow extends StatelessWidget {
-  const _ValueRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: T.ink,
-              ),
-            ),
-          ),
-          Text(value, style: const TextStyle(fontSize: 12, color: T.ink2)),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// DROPDOWN ROW
-// ---------------------------------------------------------------------------
-
-class _DropdownRow<V> extends StatelessWidget {
-  const _DropdownRow({
-    required this.label,
-    required this.value,
-    required this.items,
-    required this.labelOf,
-    required this.onChanged,
-    this.hint,
-  });
-  final String label;
-
-  /// Null renders the [hint] placeholder — used for the disabled state.
-  final V? value;
-  final List<V> items;
-  final String Function(V) labelOf;
-
-  /// Null disables the dropdown (greyed, non-interactive).
-  final ValueChanged<V>? onChanged;
-  final String? hint;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onChanged != null;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color: enabled ? T.ink : T.ink2,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          DropdownButtonHideUnderline(
-            child: DropdownButton<V>(
-              value: value,
-              isDense: true,
-              dropdownColor: T.surface,
-              style: const TextStyle(fontSize: 13, color: T.ink),
-              icon: Icon(
-                Icons.expand_more,
-                size: 16,
-                color: enabled ? T.ink2 : T.ink3,
-              ),
-              hint: hint == null
-                  ? null
-                  : Text(
-                      hint!,
-                      style: const TextStyle(fontSize: 13, color: T.ink3),
-                    ),
-              items: [
-                for (final item in items)
-                  DropdownMenuItem(value: item, child: Text(labelOf(item))),
-              ],
-              onChanged: enabled
-                  ? (v) {
-                      if (v != null) onChanged!(v);
-                    }
-                  : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// CUSTOM FORMAT DIALOG
-// ---------------------------------------------------------------------------
-
-class _CustomFormatDialog extends StatefulWidget {
-  const _CustomFormatDialog({
-    required this.initialPeriods,
-    required this.initialMinutes,
-  });
-  final int initialPeriods;
-  final int initialMinutes;
-
-  @override
-  State<_CustomFormatDialog> createState() => _CustomFormatDialogState();
-}
-
-class _CustomFormatDialogState extends State<_CustomFormatDialog> {
-  late final TextEditingController _periods = TextEditingController(
-    text: '${widget.initialPeriods}',
-  );
-  late final TextEditingController _minutes = TextEditingController(
-    text: '${widget.initialMinutes}',
-  );
-  String? _error;
-
-  @override
-  void dispose() {
-    _periods.dispose();
-    _minutes.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: T.surface,
-      title: const Text('Custom format'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _periods,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Periods'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: _minutes,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Period length (min)',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: const TextStyle(color: T.danger, fontSize: 12),
-            ),
-          ],
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () {
-            final p = int.tryParse(_periods.text.trim());
-            final m = int.tryParse(_minutes.text.trim());
-            if (p == null || p < 1 || p > 9) {
-              setState(() => _error = 'Periods must be 1–9');
-              return;
-            }
-            if (m == null || m < 1 || m > 120) {
-              setState(() => _error = 'Period length must be 1–120 min');
-              return;
-            }
-            Navigator.of(context).pop((p, m));
-          },
-          child: const Text('Save'),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// ROW ITEM
-// ---------------------------------------------------------------------------
-
-class _RowItem extends StatelessWidget {
-  const _RowItem({required this.title, this.subtitle, this.leading});
-  final String title;
-  final String? subtitle;
-  final Widget? leading;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          if (leading != null) ...[
-            SizedBox(width: 36, child: Center(child: leading)),
-            const SizedBox(width: 12),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: T.ink,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  WfNote(subtitle!),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// AVATAR CIRCLE (needed for setup's _RowItem leading widget)
-// ---------------------------------------------------------------------------
-
-class _AvatarCircle extends StatelessWidget {
-  const _AvatarCircle({required this.label});
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: T.fillSoft,
-        shape: BoxShape.circle,
-        border: Border.all(color: T.hair),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-          color: T.ink2,
-        ),
-      ),
-    );
-  }
 }

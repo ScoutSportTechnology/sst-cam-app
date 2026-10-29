@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:dio/dio.dart';
+import 'package:logging/logging.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../async/seeded_broadcast.dart';
@@ -12,9 +12,12 @@ import '../models/command.dart';
 import '../models/overlay.dart';
 import '../models/recording.dart';
 import '../models/wifi.dart';
+import '../services/log_service.dart';
 import '../services/video_path_service.dart';
 import 'wifi_p2p_channel.dart';
 import 'wifi_service.dart';
+
+final _log = Logger('WifiService');
 
 /// Requests the runtime permission required to join a WiFi Direct group and
 /// returns true when usable (granted or limited). Injectable so the deny
@@ -251,7 +254,7 @@ class WifiServiceImpl implements WifiService {
     );
 
     // BLE round-trip — ask the camera for group credentials.
-    debugPrint('WIFI: requesting group credentials over BLE (StartWifiDirect)');
+    _log.info('requesting group credentials over BLE (StartWifiDirect)');
     final BleCommandResponse<WifiDirectGroup> response;
     try {
       response = await _ble.sendCommand<WifiDirectGroup>(
@@ -259,7 +262,7 @@ class WifiServiceImpl implements WifiService {
         StartWifiDirectCommand(),
       );
     } catch (e) {
-      debugPrint('WIFI: BLE credential fetch threw: $e');
+      _log.warn('BLE credential fetch threw: $e');
       await _stateSubscriptions.remove(deviceId)?.cancel();
       await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
@@ -270,8 +273,8 @@ class WifiServiceImpl implements WifiService {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
-      debugPrint(
-        'WIFI: BLE credential fetch not OK: ${response.errorMessage} → FAILED',
+      _log.warn(
+        'BLE credential fetch not OK: ${response.errorMessage} → FAILED',
       );
       throw WifiDirectException(
         'BLE credential fetch failed: ${response.errorMessage}',
@@ -279,8 +282,8 @@ class WifiServiceImpl implements WifiService {
     }
 
     final group = response.payload!;
-    debugPrint(
-      'WIFI: credentials received ssid=${group.ssid} role="${group.role}" '
+    _log.info(
+      'credentials received ssid=${group.ssid} role="${group.role}" '
       'goIp=${group.groupOwnerIp}',
     );
 
@@ -326,9 +329,7 @@ class WifiServiceImpl implements WifiService {
     // happened) → the 3× retry loop that freezes the UI ~8s and leaves the
     // preview's RTSP client unopened. Reuse the live association instead.
     if (_lastP2pStateCode == _kStateConnected) {
-      debugPrint(
-        'WIFI: phone already in a P2P group — reusing (skipping re-join)',
-      );
+      _log.info('phone already in a P2P group — reusing (skipping re-join)');
       await _stateSubscriptions.remove(deviceId)?.cancel();
       _currentGroups[deviceId] = group;
       _emitState(deviceId, WifiDirectState.connected);
@@ -362,28 +363,27 @@ class WifiServiceImpl implements WifiService {
           );
         }
         try {
-          debugPrint(
-            'WIFI: P2P join attempt $attempt/$_maxP2pConnectAttempts '
+          _log.info(
+            'P2P join attempt $attempt/$_maxP2pConnectAttempts '
             'ssid=${group.ssid}',
           );
           await _channel.connect(ssid: group.ssid, psk: group.psk);
-          debugPrint(
-            'WIFI: attempt $attempt negotiation accepted — '
-            'awaiting group formation',
+          _log.info(
+            'attempt $attempt negotiation accepted — awaiting group formation',
           );
           final formed = await _awaitGroupFormation(deviceId, gen);
           if (formed) {
             lastError = null;
-            debugPrint('WIFI: attempt $attempt formed group');
+            _log.info('attempt $attempt formed group');
             break;
           }
           lastError = const WifiDirectException(
             'group did not form (timeout or phone became group owner)',
           );
-          debugPrint('WIFI: attempt $attempt did not form a usable group');
+          _log.warn('attempt $attempt did not form a usable group');
         } on Exception catch (e) {
           lastError = e;
-          debugPrint('WIFI: P2P join attempt $attempt failed: $e');
+          _log.warn('P2P join attempt $attempt failed: $e');
         }
         if (attempt < _maxP2pConnectAttempts) {
           await Future<void>.delayed(_p2pConnectRetryDelay);
@@ -396,15 +396,15 @@ class WifiServiceImpl implements WifiService {
       await _stateSubscriptions.remove(deviceId)?.cancel();
       await _releaseFirmwareGroup(deviceId);
       _emitState(deviceId, WifiDirectState.failed);
-      debugPrint(
-        'WIFI: all $_maxP2pConnectAttempts P2P join attempts failed → FAILED',
+      _log.error(
+        'all $_maxP2pConnectAttempts P2P join attempts failed → FAILED',
       );
       throw WifiDirectException(
         'P2P connect failed after $_maxP2pConnectAttempts attempts: $lastError',
       );
     }
 
-    debugPrint('WIFI: P2P group joined ssid=${group.ssid}');
+    _log.info('P2P group joined ssid=${group.ssid}');
     _currentGroups[deviceId] = group;
     return group;
   }
@@ -580,10 +580,10 @@ class WifiServiceImpl implements WifiService {
       }
       final savePath = await _videoPathService.thumbnailPath(uuid);
       await File(savePath).writeAsBytes(bytes, flush: true);
-      debugPrint('WIFI: cached thumbnail for $uuid (${bytes.length} bytes)');
+      _log.debug('cached thumbnail for $uuid (${bytes.length} bytes)');
       return savePath;
     } catch (e) {
-      debugPrint('WIFI: thumbnail fetch failed for $uuid: $e');
+      _log.warn('thumbnail fetch failed for $uuid: $e');
       return null;
     }
   }

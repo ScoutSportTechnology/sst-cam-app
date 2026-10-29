@@ -3023,58 +3023,39 @@ class ThumbnailsTableCompanion extends UpdateCompanion<ThumbnailsTableData> {
   }
 }
 
-class $RawRecordingsTableTable extends RawRecordingsTable
-    with TableInfo<$RawRecordingsTableTable, RawRecordingsTableData> {
+class $LiveMatchesTableTable extends LiveMatchesTable
+    with TableInfo<$LiveMatchesTableTable, LiveMatchesTableData> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $RawRecordingsTableTable(this.attachedDatabase, [this._alias]);
+  $LiveMatchesTableTable(this.attachedDatabase, [this._alias]);
   @override
-  late final GeneratedColumn<String> id = GeneratedColumn<String>(
-    'id',
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
     aliasedName,
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
   @override
-  late final GeneratedColumn<String> captureGroupId = GeneratedColumn<String>(
-    'capture_group_id',
+  late final GeneratedColumn<String> matchUuid = GeneratedColumn<String>(
+    'match_uuid',
     aliasedName,
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
   @override
-  late final GeneratedColumn<int> cameraIndex = GeneratedColumn<int>(
-    'camera_index',
-    aliasedName,
-    false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: true,
-  );
-  @override
-  late final GeneratedColumn<String> matchId = GeneratedColumn<String>(
-    'match_id',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES team_matches (id) ON DELETE CASCADE',
-    ),
-  );
-  @override
-  late final GeneratedColumn<String> localPath = GeneratedColumn<String>(
-    'local_path',
+  late final GeneratedColumn<String> libraryMatchId = GeneratedColumn<String>(
+    'library_match_id',
     aliasedName,
     true,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
   @override
-  late final GeneratedColumn<int> sizeBytes = GeneratedColumn<int>(
-    'size_bytes',
+  late final GeneratedColumn<int> scoreHome = GeneratedColumn<int>(
+    'score_home',
     aliasedName,
     false,
     type: DriftSqlType.int,
@@ -3082,383 +3063,767 @@ class $RawRecordingsTableTable extends RawRecordingsTable
     defaultValue: const Constant(0),
   );
   @override
-  late final GeneratedColumn<bool> isRaw = GeneratedColumn<bool>(
-    'is_raw',
+  late final GeneratedColumn<int> scoreAway = GeneratedColumn<int>(
+    'score_away',
     aliasedName,
     false,
-    type: DriftSqlType.bool,
+    type: DriftSqlType.int,
     requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("is_raw" IN (0, 1))',
-    ),
-    defaultValue: const Constant(true),
+    defaultValue: const Constant(0),
   );
   @override
-  late final GeneratedColumn<bool> isComplete = GeneratedColumn<bool>(
-    'is_complete',
+  late final GeneratedColumn<String> homeName = GeneratedColumn<String>(
+    'home_name',
     aliasedName,
     false,
-    type: DriftSqlType.bool,
+    type: DriftSqlType.string,
     requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("is_complete" IN (0, 1))',
-    ),
-    defaultValue: const Constant(false),
+    defaultValue: const Constant(''),
   );
   @override
-  late final GeneratedColumn<String> startedAt = GeneratedColumn<String>(
-    'started_at',
+  late final GeneratedColumn<String> awayName = GeneratedColumn<String>(
+    'away_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  @override
+  late final GeneratedColumn<String> phase = GeneratedColumn<String>(
+    'phase',
     aliasedName,
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
   @override
+  late final GeneratedColumn<bool> timerRunning = GeneratedColumn<bool>(
+    'timer_running',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("timer_running" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  late final GeneratedColumn<bool> recPaused = GeneratedColumn<bool>(
+    'rec_paused',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("rec_paused" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  late final GeneratedColumn<int> currentPeriod = GeneratedColumn<int>(
+    'current_period',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  late final GeneratedColumn<int> numPeriods = GeneratedColumn<int>(
+    'num_periods',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(2),
+  );
+  @override
+  late final GeneratedColumn<int> periodLengthSeconds = GeneratedColumn<int>(
+    'period_length_seconds',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  late final GeneratedColumn<int> elapsedSeconds = GeneratedColumn<int>(
+    'elapsed_seconds',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  late final GeneratedColumn<int> anchorEpochMs = GeneratedColumn<int>(
+    'anchor_epoch_ms',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumn<String> eventsJson = GeneratedColumn<String>(
+    'events_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  @override
+  late final GeneratedColumn<String> homeColorHex = GeneratedColumn<String>(
+    'home_color_hex',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumn<String> awayColorHex = GeneratedColumn<String>(
+    'away_color_hex',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtEpochMs = GeneratedColumn<int>(
+    'updated_at_epoch_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
   List<GeneratedColumn> get $columns => [
-    id,
-    captureGroupId,
-    cameraIndex,
-    matchId,
-    localPath,
-    sizeBytes,
-    isRaw,
-    isComplete,
-    startedAt,
+    deviceId,
+    matchUuid,
+    libraryMatchId,
+    scoreHome,
+    scoreAway,
+    homeName,
+    awayName,
+    phase,
+    timerRunning,
+    recPaused,
+    currentPeriod,
+    numPeriods,
+    periodLengthSeconds,
+    elapsedSeconds,
+    anchorEpochMs,
+    eventsJson,
+    homeColorHex,
+    awayColorHex,
+    updatedAtEpochMs,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'raw_recordings';
+  static const String $name = 'live_matches';
   @override
-  Set<GeneratedColumn> get $primaryKey => {id};
+  Set<GeneratedColumn> get $primaryKey => {deviceId};
   @override
-  RawRecordingsTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+  LiveMatchesTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return RawRecordingsTableData(
-      id: attachedDatabase.typeMapping.read(
+    return LiveMatchesTableData(
+      deviceId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}id'],
+        data['${effectivePrefix}device_id'],
       )!,
-      captureGroupId: attachedDatabase.typeMapping.read(
+      matchUuid: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}capture_group_id'],
+        data['${effectivePrefix}match_uuid'],
       )!,
-      cameraIndex: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}camera_index'],
-      )!,
-      matchId: attachedDatabase.typeMapping.read(
+      libraryMatchId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}match_id'],
+        data['${effectivePrefix}library_match_id'],
       ),
-      localPath: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}local_path'],
-      ),
-      sizeBytes: attachedDatabase.typeMapping.read(
+      scoreHome: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
-        data['${effectivePrefix}size_bytes'],
+        data['${effectivePrefix}score_home'],
       )!,
-      isRaw: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}is_raw'],
+      scoreAway: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}score_away'],
       )!,
-      isComplete: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}is_complete'],
-      )!,
-      startedAt: attachedDatabase.typeMapping.read(
+      homeName: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}started_at'],
+        data['${effectivePrefix}home_name'],
+      )!,
+      awayName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}away_name'],
+      )!,
+      phase: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}phase'],
+      )!,
+      timerRunning: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}timer_running'],
+      )!,
+      recPaused: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}rec_paused'],
+      )!,
+      currentPeriod: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}current_period'],
+      )!,
+      numPeriods: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}num_periods'],
+      )!,
+      periodLengthSeconds: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}period_length_seconds'],
+      )!,
+      elapsedSeconds: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}elapsed_seconds'],
+      )!,
+      anchorEpochMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}anchor_epoch_ms'],
+      ),
+      eventsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}events_json'],
+      )!,
+      homeColorHex: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}home_color_hex'],
+      ),
+      awayColorHex: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}away_color_hex'],
+      ),
+      updatedAtEpochMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_epoch_ms'],
       )!,
     );
   }
 
   @override
-  $RawRecordingsTableTable createAlias(String alias) {
-    return $RawRecordingsTableTable(attachedDatabase, alias);
+  $LiveMatchesTableTable createAlias(String alias) {
+    return $LiveMatchesTableTable(attachedDatabase, alias);
   }
 }
 
-class RawRecordingsTableData extends DataClass
-    implements Insertable<RawRecordingsTableData> {
-  /// Stable local id (e.g. the firmware recording_id / file stem).
-  final String id;
+class LiveMatchesTableData extends DataClass
+    implements Insertable<LiveMatchesTableData> {
+  /// BLE device id of the camera the session runs on.
+  final String deviceId;
 
-  /// App-minted id shared by both per-camera files of one raw session.
-  final String captureGroupId;
+  /// The PushSessionConfig `match_uuid` this scoreboard belongs to.
+  final String matchUuid;
 
-  /// Physical sensor index (0 = primary, 1 = secondary).
-  final int cameraIndex;
+  /// The team_matches row this live match finalizes into. Null only for
+  /// sessions with no library row.
+  final String? libraryMatchId;
+  final int scoreHome;
+  final int scoreAway;
+  final String homeName;
+  final String awayName;
 
-  /// Optional association to a match; cascades on match delete.
-  final String? matchId;
+  /// MatchPhase name: 'idle' | 'period' | 'periodBreak' | 'ended'.
+  final String phase;
 
-  /// On-disk path of the downloaded file (mirrors clips/thumbnails).
-  final String? localPath;
-  final int sizeBytes;
+  /// Whether the period clock was running at save time.
+  final bool timerRunning;
 
-  /// Always true for rows in this table; kept explicit so the column mirrors the
-  /// contract field and a future non-raw use can't silently reinterpret rows.
-  final bool isRaw;
+  /// Whether recording was PAUSED at save time (recording/idle themselves are
+  /// runtime facts re-adopted from the firmware snapshot on restore; paused is
+  /// app intent the snapshot's isRecording=false cannot distinguish).
+  final bool recPaused;
+  final int currentPeriod;
+  final int numPeriods;
+  final int periodLengthSeconds;
 
-  /// Whether both files of the pair downloaded successfully. A recovered single
-  /// file is marked incomplete rather than saved as if whole.
-  final bool isComplete;
-  final String startedAt;
-  const RawRecordingsTableData({
-    required this.id,
-    required this.captureGroupId,
-    required this.cameraIndex,
-    this.matchId,
-    this.localPath,
-    required this.sizeBytes,
-    required this.isRaw,
-    required this.isComplete,
-    required this.startedAt,
+  /// Elapsed seconds in the current period, measured at [anchorEpochMs] (when
+  /// running) or frozen (when paused).
+  final int elapsedSeconds;
+
+  /// Wall-clock anchor (epoch ms) at which [elapsedSeconds] was measured;
+  /// null when the clock was not running. Effective elapsed after an app kill
+  /// = elapsedSeconds + (now - anchor) — immune to UI-timer drift.
+  final int? anchorEpochMs;
+
+  /// JSON-encoded [LiveEvent] list: [{clock, label, kind, params}].
+  final String eventsJson;
+  final String? homeColorHex;
+  final String? awayColorHex;
+
+  /// Last save time (epoch ms) — diagnostics only.
+  final int updatedAtEpochMs;
+  const LiveMatchesTableData({
+    required this.deviceId,
+    required this.matchUuid,
+    this.libraryMatchId,
+    required this.scoreHome,
+    required this.scoreAway,
+    required this.homeName,
+    required this.awayName,
+    required this.phase,
+    required this.timerRunning,
+    required this.recPaused,
+    required this.currentPeriod,
+    required this.numPeriods,
+    required this.periodLengthSeconds,
+    required this.elapsedSeconds,
+    this.anchorEpochMs,
+    required this.eventsJson,
+    this.homeColorHex,
+    this.awayColorHex,
+    required this.updatedAtEpochMs,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    map['id'] = Variable<String>(id);
-    map['capture_group_id'] = Variable<String>(captureGroupId);
-    map['camera_index'] = Variable<int>(cameraIndex);
-    if (!nullToAbsent || matchId != null) {
-      map['match_id'] = Variable<String>(matchId);
+    map['device_id'] = Variable<String>(deviceId);
+    map['match_uuid'] = Variable<String>(matchUuid);
+    if (!nullToAbsent || libraryMatchId != null) {
+      map['library_match_id'] = Variable<String>(libraryMatchId);
     }
-    if (!nullToAbsent || localPath != null) {
-      map['local_path'] = Variable<String>(localPath);
+    map['score_home'] = Variable<int>(scoreHome);
+    map['score_away'] = Variable<int>(scoreAway);
+    map['home_name'] = Variable<String>(homeName);
+    map['away_name'] = Variable<String>(awayName);
+    map['phase'] = Variable<String>(phase);
+    map['timer_running'] = Variable<bool>(timerRunning);
+    map['rec_paused'] = Variable<bool>(recPaused);
+    map['current_period'] = Variable<int>(currentPeriod);
+    map['num_periods'] = Variable<int>(numPeriods);
+    map['period_length_seconds'] = Variable<int>(periodLengthSeconds);
+    map['elapsed_seconds'] = Variable<int>(elapsedSeconds);
+    if (!nullToAbsent || anchorEpochMs != null) {
+      map['anchor_epoch_ms'] = Variable<int>(anchorEpochMs);
     }
-    map['size_bytes'] = Variable<int>(sizeBytes);
-    map['is_raw'] = Variable<bool>(isRaw);
-    map['is_complete'] = Variable<bool>(isComplete);
-    map['started_at'] = Variable<String>(startedAt);
+    map['events_json'] = Variable<String>(eventsJson);
+    if (!nullToAbsent || homeColorHex != null) {
+      map['home_color_hex'] = Variable<String>(homeColorHex);
+    }
+    if (!nullToAbsent || awayColorHex != null) {
+      map['away_color_hex'] = Variable<String>(awayColorHex);
+    }
+    map['updated_at_epoch_ms'] = Variable<int>(updatedAtEpochMs);
     return map;
   }
 
-  RawRecordingsTableCompanion toCompanion(bool nullToAbsent) {
-    return RawRecordingsTableCompanion(
-      id: Value(id),
-      captureGroupId: Value(captureGroupId),
-      cameraIndex: Value(cameraIndex),
-      matchId: matchId == null && nullToAbsent
+  LiveMatchesTableCompanion toCompanion(bool nullToAbsent) {
+    return LiveMatchesTableCompanion(
+      deviceId: Value(deviceId),
+      matchUuid: Value(matchUuid),
+      libraryMatchId: libraryMatchId == null && nullToAbsent
           ? const Value.absent()
-          : Value(matchId),
-      localPath: localPath == null && nullToAbsent
+          : Value(libraryMatchId),
+      scoreHome: Value(scoreHome),
+      scoreAway: Value(scoreAway),
+      homeName: Value(homeName),
+      awayName: Value(awayName),
+      phase: Value(phase),
+      timerRunning: Value(timerRunning),
+      recPaused: Value(recPaused),
+      currentPeriod: Value(currentPeriod),
+      numPeriods: Value(numPeriods),
+      periodLengthSeconds: Value(periodLengthSeconds),
+      elapsedSeconds: Value(elapsedSeconds),
+      anchorEpochMs: anchorEpochMs == null && nullToAbsent
           ? const Value.absent()
-          : Value(localPath),
-      sizeBytes: Value(sizeBytes),
-      isRaw: Value(isRaw),
-      isComplete: Value(isComplete),
-      startedAt: Value(startedAt),
+          : Value(anchorEpochMs),
+      eventsJson: Value(eventsJson),
+      homeColorHex: homeColorHex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(homeColorHex),
+      awayColorHex: awayColorHex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(awayColorHex),
+      updatedAtEpochMs: Value(updatedAtEpochMs),
     );
   }
 
-  factory RawRecordingsTableData.fromJson(
+  factory LiveMatchesTableData.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return RawRecordingsTableData(
-      id: serializer.fromJson<String>(json['id']),
-      captureGroupId: serializer.fromJson<String>(json['captureGroupId']),
-      cameraIndex: serializer.fromJson<int>(json['cameraIndex']),
-      matchId: serializer.fromJson<String?>(json['matchId']),
-      localPath: serializer.fromJson<String?>(json['localPath']),
-      sizeBytes: serializer.fromJson<int>(json['sizeBytes']),
-      isRaw: serializer.fromJson<bool>(json['isRaw']),
-      isComplete: serializer.fromJson<bool>(json['isComplete']),
-      startedAt: serializer.fromJson<String>(json['startedAt']),
+    return LiveMatchesTableData(
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      matchUuid: serializer.fromJson<String>(json['matchUuid']),
+      libraryMatchId: serializer.fromJson<String?>(json['libraryMatchId']),
+      scoreHome: serializer.fromJson<int>(json['scoreHome']),
+      scoreAway: serializer.fromJson<int>(json['scoreAway']),
+      homeName: serializer.fromJson<String>(json['homeName']),
+      awayName: serializer.fromJson<String>(json['awayName']),
+      phase: serializer.fromJson<String>(json['phase']),
+      timerRunning: serializer.fromJson<bool>(json['timerRunning']),
+      recPaused: serializer.fromJson<bool>(json['recPaused']),
+      currentPeriod: serializer.fromJson<int>(json['currentPeriod']),
+      numPeriods: serializer.fromJson<int>(json['numPeriods']),
+      periodLengthSeconds: serializer.fromJson<int>(
+        json['periodLengthSeconds'],
+      ),
+      elapsedSeconds: serializer.fromJson<int>(json['elapsedSeconds']),
+      anchorEpochMs: serializer.fromJson<int?>(json['anchorEpochMs']),
+      eventsJson: serializer.fromJson<String>(json['eventsJson']),
+      homeColorHex: serializer.fromJson<String?>(json['homeColorHex']),
+      awayColorHex: serializer.fromJson<String?>(json['awayColorHex']),
+      updatedAtEpochMs: serializer.fromJson<int>(json['updatedAtEpochMs']),
     );
   }
   @override
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
-      'id': serializer.toJson<String>(id),
-      'captureGroupId': serializer.toJson<String>(captureGroupId),
-      'cameraIndex': serializer.toJson<int>(cameraIndex),
-      'matchId': serializer.toJson<String?>(matchId),
-      'localPath': serializer.toJson<String?>(localPath),
-      'sizeBytes': serializer.toJson<int>(sizeBytes),
-      'isRaw': serializer.toJson<bool>(isRaw),
-      'isComplete': serializer.toJson<bool>(isComplete),
-      'startedAt': serializer.toJson<String>(startedAt),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'matchUuid': serializer.toJson<String>(matchUuid),
+      'libraryMatchId': serializer.toJson<String?>(libraryMatchId),
+      'scoreHome': serializer.toJson<int>(scoreHome),
+      'scoreAway': serializer.toJson<int>(scoreAway),
+      'homeName': serializer.toJson<String>(homeName),
+      'awayName': serializer.toJson<String>(awayName),
+      'phase': serializer.toJson<String>(phase),
+      'timerRunning': serializer.toJson<bool>(timerRunning),
+      'recPaused': serializer.toJson<bool>(recPaused),
+      'currentPeriod': serializer.toJson<int>(currentPeriod),
+      'numPeriods': serializer.toJson<int>(numPeriods),
+      'periodLengthSeconds': serializer.toJson<int>(periodLengthSeconds),
+      'elapsedSeconds': serializer.toJson<int>(elapsedSeconds),
+      'anchorEpochMs': serializer.toJson<int?>(anchorEpochMs),
+      'eventsJson': serializer.toJson<String>(eventsJson),
+      'homeColorHex': serializer.toJson<String?>(homeColorHex),
+      'awayColorHex': serializer.toJson<String?>(awayColorHex),
+      'updatedAtEpochMs': serializer.toJson<int>(updatedAtEpochMs),
     };
   }
 
-  RawRecordingsTableData copyWith({
-    String? id,
-    String? captureGroupId,
-    int? cameraIndex,
-    Value<String?> matchId = const Value.absent(),
-    Value<String?> localPath = const Value.absent(),
-    int? sizeBytes,
-    bool? isRaw,
-    bool? isComplete,
-    String? startedAt,
-  }) => RawRecordingsTableData(
-    id: id ?? this.id,
-    captureGroupId: captureGroupId ?? this.captureGroupId,
-    cameraIndex: cameraIndex ?? this.cameraIndex,
-    matchId: matchId.present ? matchId.value : this.matchId,
-    localPath: localPath.present ? localPath.value : this.localPath,
-    sizeBytes: sizeBytes ?? this.sizeBytes,
-    isRaw: isRaw ?? this.isRaw,
-    isComplete: isComplete ?? this.isComplete,
-    startedAt: startedAt ?? this.startedAt,
+  LiveMatchesTableData copyWith({
+    String? deviceId,
+    String? matchUuid,
+    Value<String?> libraryMatchId = const Value.absent(),
+    int? scoreHome,
+    int? scoreAway,
+    String? homeName,
+    String? awayName,
+    String? phase,
+    bool? timerRunning,
+    bool? recPaused,
+    int? currentPeriod,
+    int? numPeriods,
+    int? periodLengthSeconds,
+    int? elapsedSeconds,
+    Value<int?> anchorEpochMs = const Value.absent(),
+    String? eventsJson,
+    Value<String?> homeColorHex = const Value.absent(),
+    Value<String?> awayColorHex = const Value.absent(),
+    int? updatedAtEpochMs,
+  }) => LiveMatchesTableData(
+    deviceId: deviceId ?? this.deviceId,
+    matchUuid: matchUuid ?? this.matchUuid,
+    libraryMatchId: libraryMatchId.present
+        ? libraryMatchId.value
+        : this.libraryMatchId,
+    scoreHome: scoreHome ?? this.scoreHome,
+    scoreAway: scoreAway ?? this.scoreAway,
+    homeName: homeName ?? this.homeName,
+    awayName: awayName ?? this.awayName,
+    phase: phase ?? this.phase,
+    timerRunning: timerRunning ?? this.timerRunning,
+    recPaused: recPaused ?? this.recPaused,
+    currentPeriod: currentPeriod ?? this.currentPeriod,
+    numPeriods: numPeriods ?? this.numPeriods,
+    periodLengthSeconds: periodLengthSeconds ?? this.periodLengthSeconds,
+    elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+    anchorEpochMs: anchorEpochMs.present
+        ? anchorEpochMs.value
+        : this.anchorEpochMs,
+    eventsJson: eventsJson ?? this.eventsJson,
+    homeColorHex: homeColorHex.present ? homeColorHex.value : this.homeColorHex,
+    awayColorHex: awayColorHex.present ? awayColorHex.value : this.awayColorHex,
+    updatedAtEpochMs: updatedAtEpochMs ?? this.updatedAtEpochMs,
   );
-  RawRecordingsTableData copyWithCompanion(RawRecordingsTableCompanion data) {
-    return RawRecordingsTableData(
-      id: data.id.present ? data.id.value : this.id,
-      captureGroupId: data.captureGroupId.present
-          ? data.captureGroupId.value
-          : this.captureGroupId,
-      cameraIndex: data.cameraIndex.present
-          ? data.cameraIndex.value
-          : this.cameraIndex,
-      matchId: data.matchId.present ? data.matchId.value : this.matchId,
-      localPath: data.localPath.present ? data.localPath.value : this.localPath,
-      sizeBytes: data.sizeBytes.present ? data.sizeBytes.value : this.sizeBytes,
-      isRaw: data.isRaw.present ? data.isRaw.value : this.isRaw,
-      isComplete: data.isComplete.present
-          ? data.isComplete.value
-          : this.isComplete,
-      startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+  LiveMatchesTableData copyWithCompanion(LiveMatchesTableCompanion data) {
+    return LiveMatchesTableData(
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      matchUuid: data.matchUuid.present ? data.matchUuid.value : this.matchUuid,
+      libraryMatchId: data.libraryMatchId.present
+          ? data.libraryMatchId.value
+          : this.libraryMatchId,
+      scoreHome: data.scoreHome.present ? data.scoreHome.value : this.scoreHome,
+      scoreAway: data.scoreAway.present ? data.scoreAway.value : this.scoreAway,
+      homeName: data.homeName.present ? data.homeName.value : this.homeName,
+      awayName: data.awayName.present ? data.awayName.value : this.awayName,
+      phase: data.phase.present ? data.phase.value : this.phase,
+      timerRunning: data.timerRunning.present
+          ? data.timerRunning.value
+          : this.timerRunning,
+      recPaused: data.recPaused.present ? data.recPaused.value : this.recPaused,
+      currentPeriod: data.currentPeriod.present
+          ? data.currentPeriod.value
+          : this.currentPeriod,
+      numPeriods: data.numPeriods.present
+          ? data.numPeriods.value
+          : this.numPeriods,
+      periodLengthSeconds: data.periodLengthSeconds.present
+          ? data.periodLengthSeconds.value
+          : this.periodLengthSeconds,
+      elapsedSeconds: data.elapsedSeconds.present
+          ? data.elapsedSeconds.value
+          : this.elapsedSeconds,
+      anchorEpochMs: data.anchorEpochMs.present
+          ? data.anchorEpochMs.value
+          : this.anchorEpochMs,
+      eventsJson: data.eventsJson.present
+          ? data.eventsJson.value
+          : this.eventsJson,
+      homeColorHex: data.homeColorHex.present
+          ? data.homeColorHex.value
+          : this.homeColorHex,
+      awayColorHex: data.awayColorHex.present
+          ? data.awayColorHex.value
+          : this.awayColorHex,
+      updatedAtEpochMs: data.updatedAtEpochMs.present
+          ? data.updatedAtEpochMs.value
+          : this.updatedAtEpochMs,
     );
   }
 
   @override
   String toString() {
-    return (StringBuffer('RawRecordingsTableData(')
-          ..write('id: $id, ')
-          ..write('captureGroupId: $captureGroupId, ')
-          ..write('cameraIndex: $cameraIndex, ')
-          ..write('matchId: $matchId, ')
-          ..write('localPath: $localPath, ')
-          ..write('sizeBytes: $sizeBytes, ')
-          ..write('isRaw: $isRaw, ')
-          ..write('isComplete: $isComplete, ')
-          ..write('startedAt: $startedAt')
+    return (StringBuffer('LiveMatchesTableData(')
+          ..write('deviceId: $deviceId, ')
+          ..write('matchUuid: $matchUuid, ')
+          ..write('libraryMatchId: $libraryMatchId, ')
+          ..write('scoreHome: $scoreHome, ')
+          ..write('scoreAway: $scoreAway, ')
+          ..write('homeName: $homeName, ')
+          ..write('awayName: $awayName, ')
+          ..write('phase: $phase, ')
+          ..write('timerRunning: $timerRunning, ')
+          ..write('recPaused: $recPaused, ')
+          ..write('currentPeriod: $currentPeriod, ')
+          ..write('numPeriods: $numPeriods, ')
+          ..write('periodLengthSeconds: $periodLengthSeconds, ')
+          ..write('elapsedSeconds: $elapsedSeconds, ')
+          ..write('anchorEpochMs: $anchorEpochMs, ')
+          ..write('eventsJson: $eventsJson, ')
+          ..write('homeColorHex: $homeColorHex, ')
+          ..write('awayColorHex: $awayColorHex, ')
+          ..write('updatedAtEpochMs: $updatedAtEpochMs')
           ..write(')'))
         .toString();
   }
 
   @override
   int get hashCode => Object.hash(
-    id,
-    captureGroupId,
-    cameraIndex,
-    matchId,
-    localPath,
-    sizeBytes,
-    isRaw,
-    isComplete,
-    startedAt,
+    deviceId,
+    matchUuid,
+    libraryMatchId,
+    scoreHome,
+    scoreAway,
+    homeName,
+    awayName,
+    phase,
+    timerRunning,
+    recPaused,
+    currentPeriod,
+    numPeriods,
+    periodLengthSeconds,
+    elapsedSeconds,
+    anchorEpochMs,
+    eventsJson,
+    homeColorHex,
+    awayColorHex,
+    updatedAtEpochMs,
   );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is RawRecordingsTableData &&
-          other.id == this.id &&
-          other.captureGroupId == this.captureGroupId &&
-          other.cameraIndex == this.cameraIndex &&
-          other.matchId == this.matchId &&
-          other.localPath == this.localPath &&
-          other.sizeBytes == this.sizeBytes &&
-          other.isRaw == this.isRaw &&
-          other.isComplete == this.isComplete &&
-          other.startedAt == this.startedAt);
+      (other is LiveMatchesTableData &&
+          other.deviceId == this.deviceId &&
+          other.matchUuid == this.matchUuid &&
+          other.libraryMatchId == this.libraryMatchId &&
+          other.scoreHome == this.scoreHome &&
+          other.scoreAway == this.scoreAway &&
+          other.homeName == this.homeName &&
+          other.awayName == this.awayName &&
+          other.phase == this.phase &&
+          other.timerRunning == this.timerRunning &&
+          other.recPaused == this.recPaused &&
+          other.currentPeriod == this.currentPeriod &&
+          other.numPeriods == this.numPeriods &&
+          other.periodLengthSeconds == this.periodLengthSeconds &&
+          other.elapsedSeconds == this.elapsedSeconds &&
+          other.anchorEpochMs == this.anchorEpochMs &&
+          other.eventsJson == this.eventsJson &&
+          other.homeColorHex == this.homeColorHex &&
+          other.awayColorHex == this.awayColorHex &&
+          other.updatedAtEpochMs == this.updatedAtEpochMs);
 }
 
-class RawRecordingsTableCompanion
-    extends UpdateCompanion<RawRecordingsTableData> {
-  final Value<String> id;
-  final Value<String> captureGroupId;
-  final Value<int> cameraIndex;
-  final Value<String?> matchId;
-  final Value<String?> localPath;
-  final Value<int> sizeBytes;
-  final Value<bool> isRaw;
-  final Value<bool> isComplete;
-  final Value<String> startedAt;
+class LiveMatchesTableCompanion extends UpdateCompanion<LiveMatchesTableData> {
+  final Value<String> deviceId;
+  final Value<String> matchUuid;
+  final Value<String?> libraryMatchId;
+  final Value<int> scoreHome;
+  final Value<int> scoreAway;
+  final Value<String> homeName;
+  final Value<String> awayName;
+  final Value<String> phase;
+  final Value<bool> timerRunning;
+  final Value<bool> recPaused;
+  final Value<int> currentPeriod;
+  final Value<int> numPeriods;
+  final Value<int> periodLengthSeconds;
+  final Value<int> elapsedSeconds;
+  final Value<int?> anchorEpochMs;
+  final Value<String> eventsJson;
+  final Value<String?> homeColorHex;
+  final Value<String?> awayColorHex;
+  final Value<int> updatedAtEpochMs;
   final Value<int> rowid;
-  const RawRecordingsTableCompanion({
-    this.id = const Value.absent(),
-    this.captureGroupId = const Value.absent(),
-    this.cameraIndex = const Value.absent(),
-    this.matchId = const Value.absent(),
-    this.localPath = const Value.absent(),
-    this.sizeBytes = const Value.absent(),
-    this.isRaw = const Value.absent(),
-    this.isComplete = const Value.absent(),
-    this.startedAt = const Value.absent(),
+  const LiveMatchesTableCompanion({
+    this.deviceId = const Value.absent(),
+    this.matchUuid = const Value.absent(),
+    this.libraryMatchId = const Value.absent(),
+    this.scoreHome = const Value.absent(),
+    this.scoreAway = const Value.absent(),
+    this.homeName = const Value.absent(),
+    this.awayName = const Value.absent(),
+    this.phase = const Value.absent(),
+    this.timerRunning = const Value.absent(),
+    this.recPaused = const Value.absent(),
+    this.currentPeriod = const Value.absent(),
+    this.numPeriods = const Value.absent(),
+    this.periodLengthSeconds = const Value.absent(),
+    this.elapsedSeconds = const Value.absent(),
+    this.anchorEpochMs = const Value.absent(),
+    this.eventsJson = const Value.absent(),
+    this.homeColorHex = const Value.absent(),
+    this.awayColorHex = const Value.absent(),
+    this.updatedAtEpochMs = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  RawRecordingsTableCompanion.insert({
-    required String id,
-    required String captureGroupId,
-    required int cameraIndex,
-    this.matchId = const Value.absent(),
-    this.localPath = const Value.absent(),
-    this.sizeBytes = const Value.absent(),
-    this.isRaw = const Value.absent(),
-    this.isComplete = const Value.absent(),
-    required String startedAt,
+  LiveMatchesTableCompanion.insert({
+    required String deviceId,
+    required String matchUuid,
+    this.libraryMatchId = const Value.absent(),
+    this.scoreHome = const Value.absent(),
+    this.scoreAway = const Value.absent(),
+    this.homeName = const Value.absent(),
+    this.awayName = const Value.absent(),
+    required String phase,
+    this.timerRunning = const Value.absent(),
+    this.recPaused = const Value.absent(),
+    this.currentPeriod = const Value.absent(),
+    this.numPeriods = const Value.absent(),
+    this.periodLengthSeconds = const Value.absent(),
+    this.elapsedSeconds = const Value.absent(),
+    this.anchorEpochMs = const Value.absent(),
+    this.eventsJson = const Value.absent(),
+    this.homeColorHex = const Value.absent(),
+    this.awayColorHex = const Value.absent(),
+    this.updatedAtEpochMs = const Value.absent(),
     this.rowid = const Value.absent(),
-  }) : id = Value(id),
-       captureGroupId = Value(captureGroupId),
-       cameraIndex = Value(cameraIndex),
-       startedAt = Value(startedAt);
-  static Insertable<RawRecordingsTableData> custom({
-    Expression<String>? id,
-    Expression<String>? captureGroupId,
-    Expression<int>? cameraIndex,
-    Expression<String>? matchId,
-    Expression<String>? localPath,
-    Expression<int>? sizeBytes,
-    Expression<bool>? isRaw,
-    Expression<bool>? isComplete,
-    Expression<String>? startedAt,
+  }) : deviceId = Value(deviceId),
+       matchUuid = Value(matchUuid),
+       phase = Value(phase);
+  static Insertable<LiveMatchesTableData> custom({
+    Expression<String>? deviceId,
+    Expression<String>? matchUuid,
+    Expression<String>? libraryMatchId,
+    Expression<int>? scoreHome,
+    Expression<int>? scoreAway,
+    Expression<String>? homeName,
+    Expression<String>? awayName,
+    Expression<String>? phase,
+    Expression<bool>? timerRunning,
+    Expression<bool>? recPaused,
+    Expression<int>? currentPeriod,
+    Expression<int>? numPeriods,
+    Expression<int>? periodLengthSeconds,
+    Expression<int>? elapsedSeconds,
+    Expression<int>? anchorEpochMs,
+    Expression<String>? eventsJson,
+    Expression<String>? homeColorHex,
+    Expression<String>? awayColorHex,
+    Expression<int>? updatedAtEpochMs,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
-      if (id != null) 'id': id,
-      if (captureGroupId != null) 'capture_group_id': captureGroupId,
-      if (cameraIndex != null) 'camera_index': cameraIndex,
-      if (matchId != null) 'match_id': matchId,
-      if (localPath != null) 'local_path': localPath,
-      if (sizeBytes != null) 'size_bytes': sizeBytes,
-      if (isRaw != null) 'is_raw': isRaw,
-      if (isComplete != null) 'is_complete': isComplete,
-      if (startedAt != null) 'started_at': startedAt,
+      if (deviceId != null) 'device_id': deviceId,
+      if (matchUuid != null) 'match_uuid': matchUuid,
+      if (libraryMatchId != null) 'library_match_id': libraryMatchId,
+      if (scoreHome != null) 'score_home': scoreHome,
+      if (scoreAway != null) 'score_away': scoreAway,
+      if (homeName != null) 'home_name': homeName,
+      if (awayName != null) 'away_name': awayName,
+      if (phase != null) 'phase': phase,
+      if (timerRunning != null) 'timer_running': timerRunning,
+      if (recPaused != null) 'rec_paused': recPaused,
+      if (currentPeriod != null) 'current_period': currentPeriod,
+      if (numPeriods != null) 'num_periods': numPeriods,
+      if (periodLengthSeconds != null)
+        'period_length_seconds': periodLengthSeconds,
+      if (elapsedSeconds != null) 'elapsed_seconds': elapsedSeconds,
+      if (anchorEpochMs != null) 'anchor_epoch_ms': anchorEpochMs,
+      if (eventsJson != null) 'events_json': eventsJson,
+      if (homeColorHex != null) 'home_color_hex': homeColorHex,
+      if (awayColorHex != null) 'away_color_hex': awayColorHex,
+      if (updatedAtEpochMs != null) 'updated_at_epoch_ms': updatedAtEpochMs,
       if (rowid != null) 'rowid': rowid,
     });
   }
 
-  RawRecordingsTableCompanion copyWith({
-    Value<String>? id,
-    Value<String>? captureGroupId,
-    Value<int>? cameraIndex,
-    Value<String?>? matchId,
-    Value<String?>? localPath,
-    Value<int>? sizeBytes,
-    Value<bool>? isRaw,
-    Value<bool>? isComplete,
-    Value<String>? startedAt,
+  LiveMatchesTableCompanion copyWith({
+    Value<String>? deviceId,
+    Value<String>? matchUuid,
+    Value<String?>? libraryMatchId,
+    Value<int>? scoreHome,
+    Value<int>? scoreAway,
+    Value<String>? homeName,
+    Value<String>? awayName,
+    Value<String>? phase,
+    Value<bool>? timerRunning,
+    Value<bool>? recPaused,
+    Value<int>? currentPeriod,
+    Value<int>? numPeriods,
+    Value<int>? periodLengthSeconds,
+    Value<int>? elapsedSeconds,
+    Value<int?>? anchorEpochMs,
+    Value<String>? eventsJson,
+    Value<String?>? homeColorHex,
+    Value<String?>? awayColorHex,
+    Value<int>? updatedAtEpochMs,
     Value<int>? rowid,
   }) {
-    return RawRecordingsTableCompanion(
-      id: id ?? this.id,
-      captureGroupId: captureGroupId ?? this.captureGroupId,
-      cameraIndex: cameraIndex ?? this.cameraIndex,
-      matchId: matchId ?? this.matchId,
-      localPath: localPath ?? this.localPath,
-      sizeBytes: sizeBytes ?? this.sizeBytes,
-      isRaw: isRaw ?? this.isRaw,
-      isComplete: isComplete ?? this.isComplete,
-      startedAt: startedAt ?? this.startedAt,
+    return LiveMatchesTableCompanion(
+      deviceId: deviceId ?? this.deviceId,
+      matchUuid: matchUuid ?? this.matchUuid,
+      libraryMatchId: libraryMatchId ?? this.libraryMatchId,
+      scoreHome: scoreHome ?? this.scoreHome,
+      scoreAway: scoreAway ?? this.scoreAway,
+      homeName: homeName ?? this.homeName,
+      awayName: awayName ?? this.awayName,
+      phase: phase ?? this.phase,
+      timerRunning: timerRunning ?? this.timerRunning,
+      recPaused: recPaused ?? this.recPaused,
+      currentPeriod: currentPeriod ?? this.currentPeriod,
+      numPeriods: numPeriods ?? this.numPeriods,
+      periodLengthSeconds: periodLengthSeconds ?? this.periodLengthSeconds,
+      elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+      anchorEpochMs: anchorEpochMs ?? this.anchorEpochMs,
+      eventsJson: eventsJson ?? this.eventsJson,
+      homeColorHex: homeColorHex ?? this.homeColorHex,
+      awayColorHex: awayColorHex ?? this.awayColorHex,
+      updatedAtEpochMs: updatedAtEpochMs ?? this.updatedAtEpochMs,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3466,32 +3831,62 @@ class RawRecordingsTableCompanion
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    if (id.present) {
-      map['id'] = Variable<String>(id.value);
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
     }
-    if (captureGroupId.present) {
-      map['capture_group_id'] = Variable<String>(captureGroupId.value);
+    if (matchUuid.present) {
+      map['match_uuid'] = Variable<String>(matchUuid.value);
     }
-    if (cameraIndex.present) {
-      map['camera_index'] = Variable<int>(cameraIndex.value);
+    if (libraryMatchId.present) {
+      map['library_match_id'] = Variable<String>(libraryMatchId.value);
     }
-    if (matchId.present) {
-      map['match_id'] = Variable<String>(matchId.value);
+    if (scoreHome.present) {
+      map['score_home'] = Variable<int>(scoreHome.value);
     }
-    if (localPath.present) {
-      map['local_path'] = Variable<String>(localPath.value);
+    if (scoreAway.present) {
+      map['score_away'] = Variable<int>(scoreAway.value);
     }
-    if (sizeBytes.present) {
-      map['size_bytes'] = Variable<int>(sizeBytes.value);
+    if (homeName.present) {
+      map['home_name'] = Variable<String>(homeName.value);
     }
-    if (isRaw.present) {
-      map['is_raw'] = Variable<bool>(isRaw.value);
+    if (awayName.present) {
+      map['away_name'] = Variable<String>(awayName.value);
     }
-    if (isComplete.present) {
-      map['is_complete'] = Variable<bool>(isComplete.value);
+    if (phase.present) {
+      map['phase'] = Variable<String>(phase.value);
     }
-    if (startedAt.present) {
-      map['started_at'] = Variable<String>(startedAt.value);
+    if (timerRunning.present) {
+      map['timer_running'] = Variable<bool>(timerRunning.value);
+    }
+    if (recPaused.present) {
+      map['rec_paused'] = Variable<bool>(recPaused.value);
+    }
+    if (currentPeriod.present) {
+      map['current_period'] = Variable<int>(currentPeriod.value);
+    }
+    if (numPeriods.present) {
+      map['num_periods'] = Variable<int>(numPeriods.value);
+    }
+    if (periodLengthSeconds.present) {
+      map['period_length_seconds'] = Variable<int>(periodLengthSeconds.value);
+    }
+    if (elapsedSeconds.present) {
+      map['elapsed_seconds'] = Variable<int>(elapsedSeconds.value);
+    }
+    if (anchorEpochMs.present) {
+      map['anchor_epoch_ms'] = Variable<int>(anchorEpochMs.value);
+    }
+    if (eventsJson.present) {
+      map['events_json'] = Variable<String>(eventsJson.value);
+    }
+    if (homeColorHex.present) {
+      map['home_color_hex'] = Variable<String>(homeColorHex.value);
+    }
+    if (awayColorHex.present) {
+      map['away_color_hex'] = Variable<String>(awayColorHex.value);
+    }
+    if (updatedAtEpochMs.present) {
+      map['updated_at_epoch_ms'] = Variable<int>(updatedAtEpochMs.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -3501,16 +3896,26 @@ class RawRecordingsTableCompanion
 
   @override
   String toString() {
-    return (StringBuffer('RawRecordingsTableCompanion(')
-          ..write('id: $id, ')
-          ..write('captureGroupId: $captureGroupId, ')
-          ..write('cameraIndex: $cameraIndex, ')
-          ..write('matchId: $matchId, ')
-          ..write('localPath: $localPath, ')
-          ..write('sizeBytes: $sizeBytes, ')
-          ..write('isRaw: $isRaw, ')
-          ..write('isComplete: $isComplete, ')
-          ..write('startedAt: $startedAt, ')
+    return (StringBuffer('LiveMatchesTableCompanion(')
+          ..write('deviceId: $deviceId, ')
+          ..write('matchUuid: $matchUuid, ')
+          ..write('libraryMatchId: $libraryMatchId, ')
+          ..write('scoreHome: $scoreHome, ')
+          ..write('scoreAway: $scoreAway, ')
+          ..write('homeName: $homeName, ')
+          ..write('awayName: $awayName, ')
+          ..write('phase: $phase, ')
+          ..write('timerRunning: $timerRunning, ')
+          ..write('recPaused: $recPaused, ')
+          ..write('currentPeriod: $currentPeriod, ')
+          ..write('numPeriods: $numPeriods, ')
+          ..write('periodLengthSeconds: $periodLengthSeconds, ')
+          ..write('elapsedSeconds: $elapsedSeconds, ')
+          ..write('anchorEpochMs: $anchorEpochMs, ')
+          ..write('eventsJson: $eventsJson, ')
+          ..write('homeColorHex: $homeColorHex, ')
+          ..write('awayColorHex: $awayColorHex, ')
+          ..write('updatedAtEpochMs: $updatedAtEpochMs, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3534,8 +3939,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ThumbnailsTableTable thumbnailsTable = $ThumbnailsTableTable(
     this,
   );
-  late final $RawRecordingsTableTable rawRecordingsTable =
-      $RawRecordingsTableTable(this);
+  late final $LiveMatchesTableTable liveMatchesTable = $LiveMatchesTableTable(
+    this,
+  );
   late final UsersDao usersDao = UsersDao(this as AppDatabase);
   late final TeamsDao teamsDao = TeamsDao(this as AppDatabase);
   late final SportPresetsDao sportPresetsDao = SportPresetsDao(
@@ -3544,7 +3950,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final StreamingDestinationsDao streamingDestinationsDao =
       StreamingDestinationsDao(this as AppDatabase);
   late final ClipsDao clipsDao = ClipsDao(this as AppDatabase);
-  late final RawRecordingsDao rawRecordingsDao = RawRecordingsDao(
+  late final LiveMatchesDao liveMatchesDao = LiveMatchesDao(
     this as AppDatabase,
   );
   @override
@@ -3560,7 +3966,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     streamingDestinationsTable,
     clipsTable,
     thumbnailsTable,
-    rawRecordingsTable,
+    liveMatchesTable,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -3612,13 +4018,6 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('thumbnails', kind: UpdateKind.delete)],
-    ),
-    WritePropagation(
-      on: TableUpdateQuery.onTableName(
-        'team_matches',
-        limitUpdateKind: UpdateKind.delete,
-      ),
-      result: [TableUpdate('raw_recordings', kind: UpdateKind.delete)],
     ),
   ]);
   @override
@@ -5052,33 +5451,6 @@ final class $$TeamMatchesTableTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
-
-  static MultiTypedResultKey<
-    $RawRecordingsTableTable,
-    List<RawRecordingsTableData>
-  >
-  _rawRecordingsTableRefsTable(_$AppDatabase db) =>
-      MultiTypedResultKey.fromTable(
-        db.rawRecordingsTable,
-        aliasName: $_aliasNameGenerator(
-          db.teamMatchesTable.id,
-          db.rawRecordingsTable.matchId,
-        ),
-      );
-
-  $$RawRecordingsTableTableProcessedTableManager get rawRecordingsTableRefs {
-    final manager = $$RawRecordingsTableTableTableManager(
-      $_db,
-      $_db.rawRecordingsTable,
-    ).filter((f) => f.matchId.id.sqlEquals($_itemColumn<String>('id')!));
-
-    final cache = $_typedResult.readTableOrNull(
-      _rawRecordingsTableRefsTable($_db),
-    );
-    return ProcessedTableManager(
-      manager.$state.copyWith(prefetchedData: cache),
-    );
-  }
 }
 
 class $$TeamMatchesTableTableFilterComposer
@@ -5189,31 +5561,6 @@ class $$TeamMatchesTableTableFilterComposer
           }) => $$ClipsTableTableFilterComposer(
             $db: $db,
             $table: $db.clipsTable,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return f(composer);
-  }
-
-  Expression<bool> rawRecordingsTableRefs(
-    Expression<bool> Function($$RawRecordingsTableTableFilterComposer f) f,
-  ) {
-    final $$RawRecordingsTableTableFilterComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.id,
-      referencedTable: $db.rawRecordingsTable,
-      getReferencedColumn: (t) => t.matchId,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$RawRecordingsTableTableFilterComposer(
-            $db: $db,
-            $table: $db.rawRecordingsTable,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -5415,32 +5762,6 @@ class $$TeamMatchesTableTableAnnotationComposer
     );
     return f(composer);
   }
-
-  Expression<T> rawRecordingsTableRefs<T extends Object>(
-    Expression<T> Function($$RawRecordingsTableTableAnnotationComposer a) f,
-  ) {
-    final $$RawRecordingsTableTableAnnotationComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.id,
-          referencedTable: $db.rawRecordingsTable,
-          getReferencedColumn: (t) => t.matchId,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$RawRecordingsTableTableAnnotationComposer(
-                $db: $db,
-                $table: $db.rawRecordingsTable,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return f(composer);
-  }
 }
 
 class $$TeamMatchesTableTableTableManager
@@ -5456,11 +5777,7 @@ class $$TeamMatchesTableTableTableManager
           $$TeamMatchesTableTableUpdateCompanionBuilder,
           (TeamMatchesTableData, $$TeamMatchesTableTableReferences),
           TeamMatchesTableData,
-          PrefetchHooks Function({
-            bool teamId,
-            bool clipsTableRefs,
-            bool rawRecordingsTableRefs,
-          })
+          PrefetchHooks Function({bool teamId, bool clipsTableRefs})
         > {
   $$TeamMatchesTableTableTableManager(
     _$AppDatabase db,
@@ -5547,100 +5864,69 @@ class $$TeamMatchesTableTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback:
-              ({
-                teamId = false,
-                clipsTableRefs = false,
-                rawRecordingsTableRefs = false,
-              }) {
-                return PrefetchHooks(
-                  db: db,
-                  explicitlyWatchedTables: [
-                    if (clipsTableRefs) db.clipsTable,
-                    if (rawRecordingsTableRefs) db.rawRecordingsTable,
-                  ],
-                  addJoins:
-                      <
-                        T extends TableManagerState<
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic
-                        >
-                      >(state) {
-                        if (teamId) {
-                          state =
-                              state.withJoin(
-                                    currentTable: table,
-                                    currentColumn: table.teamId,
-                                    referencedTable:
-                                        $$TeamMatchesTableTableReferences
-                                            ._teamIdTable(db),
-                                    referencedColumn:
-                                        $$TeamMatchesTableTableReferences
-                                            ._teamIdTable(db)
-                                            .id,
-                                  )
-                                  as T;
-                        }
+          prefetchHooksCallback: ({teamId = false, clipsTableRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (clipsTableRefs) db.clipsTable],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (teamId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.teamId,
+                                referencedTable:
+                                    $$TeamMatchesTableTableReferences
+                                        ._teamIdTable(db),
+                                referencedColumn:
+                                    $$TeamMatchesTableTableReferences
+                                        ._teamIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
 
-                        return state;
-                      },
-                  getPrefetchedDataCallback: (items) async {
-                    return [
-                      if (clipsTableRefs)
-                        await $_getPrefetchedData<
-                          TeamMatchesTableData,
-                          $TeamMatchesTableTable,
-                          ClipsTableData
-                        >(
-                          currentTable: table,
-                          referencedTable: $$TeamMatchesTableTableReferences
-                              ._clipsTableRefsTable(db),
-                          managerFromTypedResult: (p0) =>
-                              $$TeamMatchesTableTableReferences(
-                                db,
-                                table,
-                                p0,
-                              ).clipsTableRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.matchId == item.id,
-                              ),
-                          typedResults: items,
-                        ),
-                      if (rawRecordingsTableRefs)
-                        await $_getPrefetchedData<
-                          TeamMatchesTableData,
-                          $TeamMatchesTableTable,
-                          RawRecordingsTableData
-                        >(
-                          currentTable: table,
-                          referencedTable: $$TeamMatchesTableTableReferences
-                              ._rawRecordingsTableRefsTable(db),
-                          managerFromTypedResult: (p0) =>
-                              $$TeamMatchesTableTableReferences(
-                                db,
-                                table,
-                                p0,
-                              ).rawRecordingsTableRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.matchId == item.id,
-                              ),
-                          typedResults: items,
-                        ),
-                    ];
+                    return state;
                   },
-                );
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (clipsTableRefs)
+                    await $_getPrefetchedData<
+                      TeamMatchesTableData,
+                      $TeamMatchesTableTable,
+                      ClipsTableData
+                    >(
+                      currentTable: table,
+                      referencedTable: $$TeamMatchesTableTableReferences
+                          ._clipsTableRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$TeamMatchesTableTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).clipsTableRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.matchId == item.id),
+                      typedResults: items,
+                    ),
+                ];
               },
+            );
+          },
         ),
       );
 }
@@ -5657,11 +5943,7 @@ typedef $$TeamMatchesTableTableProcessedTableManager =
       $$TeamMatchesTableTableUpdateCompanionBuilder,
       (TeamMatchesTableData, $$TeamMatchesTableTableReferences),
       TeamMatchesTableData,
-      PrefetchHooks Function({
-        bool teamId,
-        bool clipsTableRefs,
-        bool rawRecordingsTableRefs,
-      })
+      PrefetchHooks Function({bool teamId, bool clipsTableRefs})
     >;
 typedef $$SportPresetsTableTableCreateCompanionBuilder =
     SportPresetsTableCompanion Function({
@@ -7228,425 +7510,503 @@ typedef $$ThumbnailsTableTableProcessedTableManager =
       ThumbnailsTableData,
       PrefetchHooks Function({bool clipId})
     >;
-typedef $$RawRecordingsTableTableCreateCompanionBuilder =
-    RawRecordingsTableCompanion Function({
-      required String id,
-      required String captureGroupId,
-      required int cameraIndex,
-      Value<String?> matchId,
-      Value<String?> localPath,
-      Value<int> sizeBytes,
-      Value<bool> isRaw,
-      Value<bool> isComplete,
-      required String startedAt,
+typedef $$LiveMatchesTableTableCreateCompanionBuilder =
+    LiveMatchesTableCompanion Function({
+      required String deviceId,
+      required String matchUuid,
+      Value<String?> libraryMatchId,
+      Value<int> scoreHome,
+      Value<int> scoreAway,
+      Value<String> homeName,
+      Value<String> awayName,
+      required String phase,
+      Value<bool> timerRunning,
+      Value<bool> recPaused,
+      Value<int> currentPeriod,
+      Value<int> numPeriods,
+      Value<int> periodLengthSeconds,
+      Value<int> elapsedSeconds,
+      Value<int?> anchorEpochMs,
+      Value<String> eventsJson,
+      Value<String?> homeColorHex,
+      Value<String?> awayColorHex,
+      Value<int> updatedAtEpochMs,
       Value<int> rowid,
     });
-typedef $$RawRecordingsTableTableUpdateCompanionBuilder =
-    RawRecordingsTableCompanion Function({
-      Value<String> id,
-      Value<String> captureGroupId,
-      Value<int> cameraIndex,
-      Value<String?> matchId,
-      Value<String?> localPath,
-      Value<int> sizeBytes,
-      Value<bool> isRaw,
-      Value<bool> isComplete,
-      Value<String> startedAt,
+typedef $$LiveMatchesTableTableUpdateCompanionBuilder =
+    LiveMatchesTableCompanion Function({
+      Value<String> deviceId,
+      Value<String> matchUuid,
+      Value<String?> libraryMatchId,
+      Value<int> scoreHome,
+      Value<int> scoreAway,
+      Value<String> homeName,
+      Value<String> awayName,
+      Value<String> phase,
+      Value<bool> timerRunning,
+      Value<bool> recPaused,
+      Value<int> currentPeriod,
+      Value<int> numPeriods,
+      Value<int> periodLengthSeconds,
+      Value<int> elapsedSeconds,
+      Value<int?> anchorEpochMs,
+      Value<String> eventsJson,
+      Value<String?> homeColorHex,
+      Value<String?> awayColorHex,
+      Value<int> updatedAtEpochMs,
       Value<int> rowid,
     });
 
-final class $$RawRecordingsTableTableReferences
-    extends
-        BaseReferences<
-          _$AppDatabase,
-          $RawRecordingsTableTable,
-          RawRecordingsTableData
-        > {
-  $$RawRecordingsTableTableReferences(
-    super.$_db,
-    super.$_table,
-    super.$_typedResult,
-  );
-
-  static $TeamMatchesTableTable _matchIdTable(_$AppDatabase db) =>
-      db.teamMatchesTable.createAlias(
-        $_aliasNameGenerator(
-          db.rawRecordingsTable.matchId,
-          db.teamMatchesTable.id,
-        ),
-      );
-
-  $$TeamMatchesTableTableProcessedTableManager? get matchId {
-    final $_column = $_itemColumn<String>('match_id');
-    if ($_column == null) return null;
-    final manager = $$TeamMatchesTableTableTableManager(
-      $_db,
-      $_db.teamMatchesTable,
-    ).filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_matchIdTable($_db));
-    if (item == null) return manager;
-    return ProcessedTableManager(
-      manager.$state.copyWith(prefetchedData: [item]),
-    );
-  }
-}
-
-class $$RawRecordingsTableTableFilterComposer
-    extends Composer<_$AppDatabase, $RawRecordingsTableTable> {
-  $$RawRecordingsTableTableFilterComposer({
+class $$LiveMatchesTableTableFilterComposer
+    extends Composer<_$AppDatabase, $LiveMatchesTableTable> {
+  $$LiveMatchesTableTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnFilters<String> get id => $composableBuilder(
-    column: $table.id,
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get captureGroupId => $composableBuilder(
-    column: $table.captureGroupId,
+  ColumnFilters<String> get matchUuid => $composableBuilder(
+    column: $table.matchUuid,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get cameraIndex => $composableBuilder(
-    column: $table.cameraIndex,
+  ColumnFilters<String> get libraryMatchId => $composableBuilder(
+    column: $table.libraryMatchId,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get localPath => $composableBuilder(
-    column: $table.localPath,
+  ColumnFilters<int> get scoreHome => $composableBuilder(
+    column: $table.scoreHome,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get sizeBytes => $composableBuilder(
-    column: $table.sizeBytes,
+  ColumnFilters<int> get scoreAway => $composableBuilder(
+    column: $table.scoreAway,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<bool> get isRaw => $composableBuilder(
-    column: $table.isRaw,
+  ColumnFilters<String> get homeName => $composableBuilder(
+    column: $table.homeName,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<bool> get isComplete => $composableBuilder(
-    column: $table.isComplete,
+  ColumnFilters<String> get awayName => $composableBuilder(
+    column: $table.awayName,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get startedAt => $composableBuilder(
-    column: $table.startedAt,
+  ColumnFilters<String> get phase => $composableBuilder(
+    column: $table.phase,
     builder: (column) => ColumnFilters(column),
   );
 
-  $$TeamMatchesTableTableFilterComposer get matchId {
-    final $$TeamMatchesTableTableFilterComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.matchId,
-      referencedTable: $db.teamMatchesTable,
-      getReferencedColumn: (t) => t.id,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$TeamMatchesTableTableFilterComposer(
-            $db: $db,
-            $table: $db.teamMatchesTable,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return composer;
-  }
+  ColumnFilters<bool> get timerRunning => $composableBuilder(
+    column: $table.timerRunning,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get recPaused => $composableBuilder(
+    column: $table.recPaused,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get currentPeriod => $composableBuilder(
+    column: $table.currentPeriod,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get numPeriods => $composableBuilder(
+    column: $table.numPeriods,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get periodLengthSeconds => $composableBuilder(
+    column: $table.periodLengthSeconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get elapsedSeconds => $composableBuilder(
+    column: $table.elapsedSeconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get anchorEpochMs => $composableBuilder(
+    column: $table.anchorEpochMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get eventsJson => $composableBuilder(
+    column: $table.eventsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get homeColorHex => $composableBuilder(
+    column: $table.homeColorHex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get awayColorHex => $composableBuilder(
+    column: $table.awayColorHex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtEpochMs => $composableBuilder(
+    column: $table.updatedAtEpochMs,
+    builder: (column) => ColumnFilters(column),
+  );
 }
 
-class $$RawRecordingsTableTableOrderingComposer
-    extends Composer<_$AppDatabase, $RawRecordingsTableTable> {
-  $$RawRecordingsTableTableOrderingComposer({
+class $$LiveMatchesTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $LiveMatchesTableTable> {
+  $$LiveMatchesTableTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnOrderings<String> get id => $composableBuilder(
-    column: $table.id,
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get captureGroupId => $composableBuilder(
-    column: $table.captureGroupId,
+  ColumnOrderings<String> get matchUuid => $composableBuilder(
+    column: $table.matchUuid,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get cameraIndex => $composableBuilder(
-    column: $table.cameraIndex,
+  ColumnOrderings<String> get libraryMatchId => $composableBuilder(
+    column: $table.libraryMatchId,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get localPath => $composableBuilder(
-    column: $table.localPath,
+  ColumnOrderings<int> get scoreHome => $composableBuilder(
+    column: $table.scoreHome,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get sizeBytes => $composableBuilder(
-    column: $table.sizeBytes,
+  ColumnOrderings<int> get scoreAway => $composableBuilder(
+    column: $table.scoreAway,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get isRaw => $composableBuilder(
-    column: $table.isRaw,
+  ColumnOrderings<String> get homeName => $composableBuilder(
+    column: $table.homeName,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get isComplete => $composableBuilder(
-    column: $table.isComplete,
+  ColumnOrderings<String> get awayName => $composableBuilder(
+    column: $table.awayName,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get startedAt => $composableBuilder(
-    column: $table.startedAt,
+  ColumnOrderings<String> get phase => $composableBuilder(
+    column: $table.phase,
     builder: (column) => ColumnOrderings(column),
   );
 
-  $$TeamMatchesTableTableOrderingComposer get matchId {
-    final $$TeamMatchesTableTableOrderingComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.matchId,
-      referencedTable: $db.teamMatchesTable,
-      getReferencedColumn: (t) => t.id,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$TeamMatchesTableTableOrderingComposer(
-            $db: $db,
-            $table: $db.teamMatchesTable,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return composer;
-  }
+  ColumnOrderings<bool> get timerRunning => $composableBuilder(
+    column: $table.timerRunning,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get recPaused => $composableBuilder(
+    column: $table.recPaused,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get currentPeriod => $composableBuilder(
+    column: $table.currentPeriod,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get numPeriods => $composableBuilder(
+    column: $table.numPeriods,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get periodLengthSeconds => $composableBuilder(
+    column: $table.periodLengthSeconds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get elapsedSeconds => $composableBuilder(
+    column: $table.elapsedSeconds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get anchorEpochMs => $composableBuilder(
+    column: $table.anchorEpochMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get eventsJson => $composableBuilder(
+    column: $table.eventsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get homeColorHex => $composableBuilder(
+    column: $table.homeColorHex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get awayColorHex => $composableBuilder(
+    column: $table.awayColorHex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtEpochMs => $composableBuilder(
+    column: $table.updatedAtEpochMs,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
-class $$RawRecordingsTableTableAnnotationComposer
-    extends Composer<_$AppDatabase, $RawRecordingsTableTable> {
-  $$RawRecordingsTableTableAnnotationComposer({
+class $$LiveMatchesTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $LiveMatchesTableTable> {
+  $$LiveMatchesTableTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  GeneratedColumn<String> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
 
-  GeneratedColumn<String> get captureGroupId => $composableBuilder(
-    column: $table.captureGroupId,
+  GeneratedColumn<String> get matchUuid =>
+      $composableBuilder(column: $table.matchUuid, builder: (column) => column);
+
+  GeneratedColumn<String> get libraryMatchId => $composableBuilder(
+    column: $table.libraryMatchId,
     builder: (column) => column,
   );
 
-  GeneratedColumn<int> get cameraIndex => $composableBuilder(
-    column: $table.cameraIndex,
+  GeneratedColumn<int> get scoreHome =>
+      $composableBuilder(column: $table.scoreHome, builder: (column) => column);
+
+  GeneratedColumn<int> get scoreAway =>
+      $composableBuilder(column: $table.scoreAway, builder: (column) => column);
+
+  GeneratedColumn<String> get homeName =>
+      $composableBuilder(column: $table.homeName, builder: (column) => column);
+
+  GeneratedColumn<String> get awayName =>
+      $composableBuilder(column: $table.awayName, builder: (column) => column);
+
+  GeneratedColumn<String> get phase =>
+      $composableBuilder(column: $table.phase, builder: (column) => column);
+
+  GeneratedColumn<bool> get timerRunning => $composableBuilder(
+    column: $table.timerRunning,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get localPath =>
-      $composableBuilder(column: $table.localPath, builder: (column) => column);
+  GeneratedColumn<bool> get recPaused =>
+      $composableBuilder(column: $table.recPaused, builder: (column) => column);
 
-  GeneratedColumn<int> get sizeBytes =>
-      $composableBuilder(column: $table.sizeBytes, builder: (column) => column);
-
-  GeneratedColumn<bool> get isRaw =>
-      $composableBuilder(column: $table.isRaw, builder: (column) => column);
-
-  GeneratedColumn<bool> get isComplete => $composableBuilder(
-    column: $table.isComplete,
+  GeneratedColumn<int> get currentPeriod => $composableBuilder(
+    column: $table.currentPeriod,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get startedAt =>
-      $composableBuilder(column: $table.startedAt, builder: (column) => column);
+  GeneratedColumn<int> get numPeriods => $composableBuilder(
+    column: $table.numPeriods,
+    builder: (column) => column,
+  );
 
-  $$TeamMatchesTableTableAnnotationComposer get matchId {
-    final $$TeamMatchesTableTableAnnotationComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.matchId,
-      referencedTable: $db.teamMatchesTable,
-      getReferencedColumn: (t) => t.id,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$TeamMatchesTableTableAnnotationComposer(
-            $db: $db,
-            $table: $db.teamMatchesTable,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return composer;
-  }
+  GeneratedColumn<int> get periodLengthSeconds => $composableBuilder(
+    column: $table.periodLengthSeconds,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get elapsedSeconds => $composableBuilder(
+    column: $table.elapsedSeconds,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get anchorEpochMs => $composableBuilder(
+    column: $table.anchorEpochMs,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get eventsJson => $composableBuilder(
+    column: $table.eventsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get homeColorHex => $composableBuilder(
+    column: $table.homeColorHex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get awayColorHex => $composableBuilder(
+    column: $table.awayColorHex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtEpochMs => $composableBuilder(
+    column: $table.updatedAtEpochMs,
+    builder: (column) => column,
+  );
 }
 
-class $$RawRecordingsTableTableTableManager
+class $$LiveMatchesTableTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $RawRecordingsTableTable,
-          RawRecordingsTableData,
-          $$RawRecordingsTableTableFilterComposer,
-          $$RawRecordingsTableTableOrderingComposer,
-          $$RawRecordingsTableTableAnnotationComposer,
-          $$RawRecordingsTableTableCreateCompanionBuilder,
-          $$RawRecordingsTableTableUpdateCompanionBuilder,
-          (RawRecordingsTableData, $$RawRecordingsTableTableReferences),
-          RawRecordingsTableData,
-          PrefetchHooks Function({bool matchId})
+          $LiveMatchesTableTable,
+          LiveMatchesTableData,
+          $$LiveMatchesTableTableFilterComposer,
+          $$LiveMatchesTableTableOrderingComposer,
+          $$LiveMatchesTableTableAnnotationComposer,
+          $$LiveMatchesTableTableCreateCompanionBuilder,
+          $$LiveMatchesTableTableUpdateCompanionBuilder,
+          (
+            LiveMatchesTableData,
+            BaseReferences<
+              _$AppDatabase,
+              $LiveMatchesTableTable,
+              LiveMatchesTableData
+            >,
+          ),
+          LiveMatchesTableData,
+          PrefetchHooks Function()
         > {
-  $$RawRecordingsTableTableTableManager(
+  $$LiveMatchesTableTableTableManager(
     _$AppDatabase db,
-    $RawRecordingsTableTable table,
+    $LiveMatchesTableTable table,
   ) : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$RawRecordingsTableTableFilterComposer($db: db, $table: table),
+              $$LiveMatchesTableTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$RawRecordingsTableTableOrderingComposer($db: db, $table: table),
+              $$LiveMatchesTableTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$RawRecordingsTableTableAnnotationComposer(
-                $db: db,
-                $table: table,
-              ),
+              $$LiveMatchesTableTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback:
               ({
-                Value<String> id = const Value.absent(),
-                Value<String> captureGroupId = const Value.absent(),
-                Value<int> cameraIndex = const Value.absent(),
-                Value<String?> matchId = const Value.absent(),
-                Value<String?> localPath = const Value.absent(),
-                Value<int> sizeBytes = const Value.absent(),
-                Value<bool> isRaw = const Value.absent(),
-                Value<bool> isComplete = const Value.absent(),
-                Value<String> startedAt = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<String> matchUuid = const Value.absent(),
+                Value<String?> libraryMatchId = const Value.absent(),
+                Value<int> scoreHome = const Value.absent(),
+                Value<int> scoreAway = const Value.absent(),
+                Value<String> homeName = const Value.absent(),
+                Value<String> awayName = const Value.absent(),
+                Value<String> phase = const Value.absent(),
+                Value<bool> timerRunning = const Value.absent(),
+                Value<bool> recPaused = const Value.absent(),
+                Value<int> currentPeriod = const Value.absent(),
+                Value<int> numPeriods = const Value.absent(),
+                Value<int> periodLengthSeconds = const Value.absent(),
+                Value<int> elapsedSeconds = const Value.absent(),
+                Value<int?> anchorEpochMs = const Value.absent(),
+                Value<String> eventsJson = const Value.absent(),
+                Value<String?> homeColorHex = const Value.absent(),
+                Value<String?> awayColorHex = const Value.absent(),
+                Value<int> updatedAtEpochMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => RawRecordingsTableCompanion(
-                id: id,
-                captureGroupId: captureGroupId,
-                cameraIndex: cameraIndex,
-                matchId: matchId,
-                localPath: localPath,
-                sizeBytes: sizeBytes,
-                isRaw: isRaw,
-                isComplete: isComplete,
-                startedAt: startedAt,
+              }) => LiveMatchesTableCompanion(
+                deviceId: deviceId,
+                matchUuid: matchUuid,
+                libraryMatchId: libraryMatchId,
+                scoreHome: scoreHome,
+                scoreAway: scoreAway,
+                homeName: homeName,
+                awayName: awayName,
+                phase: phase,
+                timerRunning: timerRunning,
+                recPaused: recPaused,
+                currentPeriod: currentPeriod,
+                numPeriods: numPeriods,
+                periodLengthSeconds: periodLengthSeconds,
+                elapsedSeconds: elapsedSeconds,
+                anchorEpochMs: anchorEpochMs,
+                eventsJson: eventsJson,
+                homeColorHex: homeColorHex,
+                awayColorHex: awayColorHex,
+                updatedAtEpochMs: updatedAtEpochMs,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
-                required String id,
-                required String captureGroupId,
-                required int cameraIndex,
-                Value<String?> matchId = const Value.absent(),
-                Value<String?> localPath = const Value.absent(),
-                Value<int> sizeBytes = const Value.absent(),
-                Value<bool> isRaw = const Value.absent(),
-                Value<bool> isComplete = const Value.absent(),
-                required String startedAt,
+                required String deviceId,
+                required String matchUuid,
+                Value<String?> libraryMatchId = const Value.absent(),
+                Value<int> scoreHome = const Value.absent(),
+                Value<int> scoreAway = const Value.absent(),
+                Value<String> homeName = const Value.absent(),
+                Value<String> awayName = const Value.absent(),
+                required String phase,
+                Value<bool> timerRunning = const Value.absent(),
+                Value<bool> recPaused = const Value.absent(),
+                Value<int> currentPeriod = const Value.absent(),
+                Value<int> numPeriods = const Value.absent(),
+                Value<int> periodLengthSeconds = const Value.absent(),
+                Value<int> elapsedSeconds = const Value.absent(),
+                Value<int?> anchorEpochMs = const Value.absent(),
+                Value<String> eventsJson = const Value.absent(),
+                Value<String?> homeColorHex = const Value.absent(),
+                Value<String?> awayColorHex = const Value.absent(),
+                Value<int> updatedAtEpochMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => RawRecordingsTableCompanion.insert(
-                id: id,
-                captureGroupId: captureGroupId,
-                cameraIndex: cameraIndex,
-                matchId: matchId,
-                localPath: localPath,
-                sizeBytes: sizeBytes,
-                isRaw: isRaw,
-                isComplete: isComplete,
-                startedAt: startedAt,
+              }) => LiveMatchesTableCompanion.insert(
+                deviceId: deviceId,
+                matchUuid: matchUuid,
+                libraryMatchId: libraryMatchId,
+                scoreHome: scoreHome,
+                scoreAway: scoreAway,
+                homeName: homeName,
+                awayName: awayName,
+                phase: phase,
+                timerRunning: timerRunning,
+                recPaused: recPaused,
+                currentPeriod: currentPeriod,
+                numPeriods: numPeriods,
+                periodLengthSeconds: periodLengthSeconds,
+                elapsedSeconds: elapsedSeconds,
+                anchorEpochMs: anchorEpochMs,
+                eventsJson: eventsJson,
+                homeColorHex: homeColorHex,
+                awayColorHex: awayColorHex,
+                updatedAtEpochMs: updatedAtEpochMs,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map(
-                (e) => (
-                  e.readTable(table),
-                  $$RawRecordingsTableTableReferences(db, table, e),
-                ),
-              )
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({matchId = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [],
-              addJoins:
-                  <
-                    T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic
-                    >
-                  >(state) {
-                    if (matchId) {
-                      state =
-                          state.withJoin(
-                                currentTable: table,
-                                currentColumn: table.matchId,
-                                referencedTable:
-                                    $$RawRecordingsTableTableReferences
-                                        ._matchIdTable(db),
-                                referencedColumn:
-                                    $$RawRecordingsTableTableReferences
-                                        ._matchIdTable(db)
-                                        .id,
-                              )
-                              as T;
-                    }
-
-                    return state;
-                  },
-              getPrefetchedDataCallback: (items) async {
-                return [];
-              },
-            );
-          },
+          prefetchHooksCallback: null,
         ),
       );
 }
 
-typedef $$RawRecordingsTableTableProcessedTableManager =
+typedef $$LiveMatchesTableTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $RawRecordingsTableTable,
-      RawRecordingsTableData,
-      $$RawRecordingsTableTableFilterComposer,
-      $$RawRecordingsTableTableOrderingComposer,
-      $$RawRecordingsTableTableAnnotationComposer,
-      $$RawRecordingsTableTableCreateCompanionBuilder,
-      $$RawRecordingsTableTableUpdateCompanionBuilder,
-      (RawRecordingsTableData, $$RawRecordingsTableTableReferences),
-      RawRecordingsTableData,
-      PrefetchHooks Function({bool matchId})
+      $LiveMatchesTableTable,
+      LiveMatchesTableData,
+      $$LiveMatchesTableTableFilterComposer,
+      $$LiveMatchesTableTableOrderingComposer,
+      $$LiveMatchesTableTableAnnotationComposer,
+      $$LiveMatchesTableTableCreateCompanionBuilder,
+      $$LiveMatchesTableTableUpdateCompanionBuilder,
+      (
+        LiveMatchesTableData,
+        BaseReferences<
+          _$AppDatabase,
+          $LiveMatchesTableTable,
+          LiveMatchesTableData
+        >,
+      ),
+      LiveMatchesTableData,
+      PrefetchHooks Function()
     >;
 
 class $AppDatabaseManager {
@@ -7672,6 +8032,6 @@ class $AppDatabaseManager {
       $$ClipsTableTableTableManager(_db, _db.clipsTable);
   $$ThumbnailsTableTableTableManager get thumbnailsTable =>
       $$ThumbnailsTableTableTableManager(_db, _db.thumbnailsTable);
-  $$RawRecordingsTableTableTableManager get rawRecordingsTable =>
-      $$RawRecordingsTableTableTableManager(_db, _db.rawRecordingsTable);
+  $$LiveMatchesTableTableTableManager get liveMatchesTable =>
+      $$LiveMatchesTableTableTableManager(_db, _db.liveMatchesTable);
 }

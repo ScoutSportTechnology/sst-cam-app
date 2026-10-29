@@ -33,6 +33,12 @@ class SstDevice {
 enum CameraConnectionState {
   disconnected,
   connecting,
+
+  /// BLE link is up and the protocol gate passed, but the connect handshake
+  /// (time push → session snapshot → rehydrate → reconcile) has not finished.
+  /// Session-affecting UI must gate on [connected] only — never treat
+  /// [reconciling] as usable (a Record tap here would race the snapshot).
+  reconciling,
   connected,
   disconnecting,
 }

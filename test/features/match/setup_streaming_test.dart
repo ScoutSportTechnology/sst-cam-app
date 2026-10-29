@@ -2,6 +2,7 @@
 // inline URL (+ key for RTMP/RTMPS). Mirrors match_page_test's harness
 // (Timer.periodic → no pumpAndSettle).
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -109,5 +110,48 @@ void main() {
     );
     // RTSP has no separate stream-key field.
     expect(find.text('Stream key (optional)'), findsNothing);
+  });
+
+  testWidgets('a saved destination (Settings → Streaming) is offered and '
+      'fills protocol + URL + key', (tester) async {
+    await db.value.streamingDestinationsDao.insertDestination(
+      const StreamingDestinationsTableCompanion(
+        id: Value('dest-1'),
+        userId: Value('user-1'),
+        name: Value('Club YouTube'),
+        provider: Value('youtube'),
+        protocol: Value('rtmps'),
+        configType: Value('rtmp'),
+        configUrl: Value('rtmps://a.rtmp.youtube.com/live2'),
+        configStreamKey: Value('shh-key'),
+      ),
+    );
+
+    await tester.pumpWidget(_harness(_newMock(), db));
+    await _navigateToSetup(tester);
+    await tester.scrollUntilVisible(find.text('Saved destination'), 200);
+
+    // Pick the saved destination from the new picker row.
+    await tester.tap(find.text('Manual entry').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Club YouTube').last);
+    await tester.pumpAndSettle();
+
+    // Protocol flipped to the destination's and the URL field was filled —
+    // the selection is startable without retyping anything.
+    expect(find.text('RTMPS'), findsWidgets);
+    expect(find.text('rtmps://a.rtmp.youtube.com/live2'), findsOneWidget);
+    expect(find.text('Stream key (optional)'), findsOneWidget);
+    expect(find.textContaining('Must start with'), findsNothing);
+  });
+
+  testWidgets('no saved destinations → no Saved destination row', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_harness(_newMock(), db));
+    await _navigateToSetup(tester);
+    await tester.scrollUntilVisible(find.text('Destination'), 200);
+
+    expect(find.text('Saved destination'), findsNothing);
   });
 }

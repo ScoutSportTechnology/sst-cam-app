@@ -1,6 +1,7 @@
 // Dart-side command types — map 1:1 to proto Command.payload variants.
 // RealBleService translates these to/from protobuf bytes on the wire.
 
+import 'match.dart' show MatchStatus;
 import 'network_config.dart';
 import 'overlay_layout.dart';
 import 'preview_layout.dart';
@@ -48,10 +49,12 @@ class DeviceInfoResponse {
 /// DeviceInfoResponse.protocol_version comment).
 ///
 /// v3: proto U6 (RebootCommand + record/stream quality + supported_modes).
+/// v4: state-health cycle (GetSessionSnapshot / SetMatchState / SetDeviceTime,
+/// MatchState 9-11, per-camera health, auto_stop_minutes, DEVICE_INOPERABLE).
 /// Bumped with the firmware (device.handler kProtocolVersion) as a coordinated
 /// release — a connected camera is therefore always exactly this version, so
 /// the Reboot action gates on connection alone.
-const int kAppProtocolVersion = 3;
+const int kAppProtocolVersion = 4;
 
 // Device
 class GetDeviceInfoCommand extends BleCommand {}
@@ -64,6 +67,52 @@ class GetTelemetryCommand extends BleCommand {}
 
 // Match state — app polls ~0.5 Hz
 class GetMatchStateCommand extends BleCommand {}
+
+// ---------------------------------------------------------------------------
+// Connect handshake (state-health cycle, §9b) — sent by the connect
+// controller between the protocol gate and the `connected` transition.
+// ---------------------------------------------------------------------------
+
+/// Read the firmware's ACTUAL session state (pure read, no side effects).
+/// Replies with a [SessionSnapshot] the app rehydrates its providers from —
+/// adoption replaces the old reset-to-defaults-on-connect behavior.
+class GetSessionSnapshotCommand extends BleCommand {}
+
+/// Absolute match-state overwrite — the reconciliation verb. Every field is
+/// optional: null fields are left UNTOUCHED on the firmware (partial set is
+/// legal). NOT a replacement for [ScoreUpdateCommand] (live incremental path)
+/// — it exists because replaying deltas after a connection gap double-applies.
+class SetMatchStateCommand extends BleCommand {
+  SetMatchStateCommand({
+    this.scoreA,
+    this.scoreB,
+    this.currentPeriod,
+    this.elapsedSeconds,
+    this.clockRunning,
+    this.status,
+  });
+  final int? scoreA;
+  final int? scoreB;
+  final int? currentPeriod;
+
+  /// Monotonic seconds since period start (MatchState.elapsed_seconds
+  /// semantics). Normally left null on reconcile — the firmware clock is the
+  /// only clock that ran through a disconnect, so it wins.
+  final int? elapsedSeconds;
+  final bool? clockRunning;
+  final MatchStatus? status;
+}
+
+/// Phone wall-clock push, sent right after the protocol gate on every connect.
+/// Fixes device-LOCAL timestamps only (file mtimes, summary fields, logs);
+/// session/match clocks on the wire stay monotonic. Status-only reply; the
+/// firmware rejects implausible values (pre-2020 epoch) with ERROR.
+class SetDeviceTimeCommand extends BleCommand {
+  SetDeviceTimeCommand({required this.epochMs});
+
+  /// Unix epoch milliseconds (phone wall clock).
+  final int epochMs;
+}
 
 // Thumbnail
 class RequestThumbnailCommand extends BleCommand {
@@ -118,6 +167,7 @@ class PushSessionConfig {
     this.teamBName,
     this.teamAColorHex,
     this.teamBColorHex,
+    this.autoStopMinutes = kDefaultAutoStopMinutes,
   });
 
   final String matchUuid;
@@ -165,7 +215,40 @@ class PushSessionConfig {
 
   /// Hex colour for team B overlay elements, e.g. '#33A1FF'.
   final String? teamBColorHex;
+
+  /// Unsupervised-session timeout (R5): the firmware auto-stops the session
+  /// after this many minutes with no app connection (wire field
+  /// `auto_stop_minutes = 16`). App-configurable (Settings → Auto-stop);
+  /// [kDefaultAutoStopMinutes] when the operator never touched the setting.
+  final int autoStopMinutes;
+
+  /// The same config with a different [autoStopMinutes] — the mid-session
+  /// re-push path (the firmware maps auto_stop_minutes on every
+  /// PushSessionConfig, so a changed setting takes effect immediately).
+  PushSessionConfig withAutoStopMinutes(int minutes) => PushSessionConfig(
+    matchUuid: matchUuid,
+    userUuid: userUuid,
+    sport: sport,
+    numPeriods: numPeriods,
+    periodLengthSeconds: periodLengthSeconds,
+    rtmpUrl: rtmpUrl,
+    streamKey: streamKey,
+    videoOutputPath: videoOutputPath,
+    thumbnailOutputPath: thumbnailOutputPath,
+    teamAId: teamAId,
+    teamBId: teamBId,
+    teamAName: teamAName,
+    teamBName: teamBName,
+    teamAColorHex: teamAColorHex,
+    teamBColorHex: teamBColorHex,
+    autoStopMinutes: minutes,
+  );
 }
+
+/// Firmware default for [PushSessionConfig.autoStopMinutes] (proto: absent ⇒
+/// firmware default 30). The app always sends its configured value; this is
+/// the starting point before the operator touches the setting.
+const int kDefaultAutoStopMinutes = 30;
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -189,32 +272,12 @@ enum BleMatchControlAction {
 // ---------------------------------------------------------------------------
 
 class RecordingControlCommand extends BleCommand {
-  RecordingControlCommand({
-    required this.action,
-    this.quality,
-    this.captureGroupId,
-  });
+  RecordingControlCommand({required this.action, this.quality});
   final RecordingControlAction action;
 
   /// Record resolution/fps, applied by firmware at session start (independent of
   /// the stream quality). Null => firmware default. Only meaningful on a start.
   final VideoMode? quality;
-
-  /// App-minted pairing key sent on START. Couples the always-on dual-camera
-  /// training proxy to this match record (firmware starts the per-camera proxy
-  /// and stamps the proxy files with this id). Null => record with no proxy.
-  /// Must be null on STOP.
-  final String? captureGroupId;
-}
-
-/// Independent raw dual-camera capture, distinct from [RecordingControlCommand].
-/// Only start/stop are honored by firmware. The app MINTS [captureGroupId] and
-/// sends it on start (the stop response is status-only, so this is the only way
-/// the app can reliably pair the two per-camera files).
-class RawCaptureControlCommand extends BleCommand {
-  RawCaptureControlCommand({required this.action, this.captureGroupId});
-  final RecordingControlAction action;
-  final String? captureGroupId;
 }
 
 class StreamingControlCommand extends BleCommand {
@@ -339,6 +402,22 @@ class CameraCalibrationResult {
   final double brightness;
 }
 
+/// Firmware echo for [CameraFocusCommand] — the EFFECTIVE focus state the
+/// camera is now applying (observed), as opposed to what the app last
+/// requested (intent). The AF toggle displays this echo, never the request.
+/// [autofocusAvailable] false = fixed lens (no VCM motor) — focus controls
+/// should disable themselves.
+class CameraFocusResult {
+  const CameraFocusResult({
+    required this.mode,
+    this.position,
+    required this.autofocusAvailable,
+  });
+  final CameraFocusMode mode;
+  final int? position;
+  final bool autofocusAvailable;
+}
+
 /// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies
 /// with an [ExportJob] in the PENDING state; poll it with [PollExportCommand].
 class ExportOverlayedCommand extends BleCommand {
@@ -367,7 +446,14 @@ class GetNetworkConfigCommand extends BleCommand {}
 
 // ---------------------------------------------------------------------------
 
-enum BleResponseStatus { ok, error, timeout, unsupported, liveSessionActive }
+enum BleResponseStatus {
+  ok,
+  error,
+  timeout,
+  unsupported,
+  liveSessionActive,
+  deviceInoperable,
+}
 
 class BleCommandResponse<T> {
   const BleCommandResponse({
@@ -394,6 +480,11 @@ class BleCommandResponse<T> {
   /// actionable "update the camera firmware" guidance.
   bool get isUnsupported => status == BleResponseStatus.unsupported;
 
+  /// The firmware refused a start-class command because a camera is not
+  /// healthy (`ResponseStatus.DEVICE_INOPERABLE`). Typed so the health-gating
+  /// UX (U3) keys off the status, never the firmware's free-form message.
+  bool get isDeviceInoperable => status == BleResponseStatus.deviceInoperable;
+
   factory BleCommandResponse.ok([T? payload]) =>
       BleCommandResponse(status: BleResponseStatus.ok, payload: payload);
 
@@ -405,6 +496,12 @@ class BleCommandResponse<T> {
   factory BleCommandResponse.liveSessionActive(String message) =>
       BleCommandResponse(
         status: BleResponseStatus.liveSessionActive,
+        errorMessage: message,
+      );
+
+  factory BleCommandResponse.deviceInoperable(String message) =>
+      BleCommandResponse(
+        status: BleResponseStatus.deviceInoperable,
         errorMessage: message,
       );
 

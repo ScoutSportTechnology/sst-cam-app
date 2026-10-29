@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:video_player/video_player.dart';
 
 import 'dart:io';
 
+import '../../../core/models/team.dart' show opponentDisplayName;
+import '../../../core/services/log_service.dart';
+import '../../../core/widgets/borders.dart';
 import '../../../core/state/db_providers.dart' show videoPathServiceProvider;
 import '../video_state.dart'
     show
@@ -16,6 +20,8 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import 'download_sheet.dart';
+
+final _log = Logger('VideoDetail');
 
 class VideoMatchDetailPage extends ConsumerStatefulWidget {
   const VideoMatchDetailPage({super.key, required this.matchId});
@@ -90,7 +96,7 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         })
         .catchError((Object e, StackTrace st) {
           // Platform channels are unavailable in test environments.
-          debugPrint('VideoMatchDetailPage: player init failed: $e\n$st');
+          _log.warn('player init failed: $e\n$st');
           if (mounted && _playerController == controller) {
             controller.dispose();
             _playerController = null;
@@ -174,7 +180,9 @@ class _VideoMatchDetailPageState extends ConsumerState<VideoMatchDetailPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${match.teamName} vs ${match.opponent}'),
+            // Same legacy 'vs '-prefix normalization as the library card title,
+            // so this page never renders "X vs vs Y".
+            Text('${match.teamName} vs ${opponentDisplayName(match.opponent)}'),
             Text(
               '${match.date}${match.result.isNotEmpty ? ' · ${match.result}' : ''}',
               style: const TextStyle(fontSize: 11, color: T.ink2),
@@ -634,8 +642,4 @@ class _Footer extends StatelessWidget {
       ),
     );
   }
-}
-
-extension on Border {
-  BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
 }

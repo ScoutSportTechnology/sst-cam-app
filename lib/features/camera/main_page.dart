@@ -14,11 +14,14 @@ import 'camera_state.dart'
         modalPreviewActiveProvider,
         AppTab;
 import '../../core/ble/ble_providers.dart';
+import '../../core/state/reconnect_controller.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/device_health_banner.dart';
 import '../../core/widgets/indicators.dart';
+import '../../core/widgets/reconnect_notice.dart';
 import '../../core/widgets/live_preview_view.dart';
 import '../../core/widgets/output_camera_toggle.dart';
-import '../../core/widgets/preview_layout_toggle.dart';
+import '../../core/widgets/preview_controls_row.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
@@ -71,6 +74,12 @@ class MainPage extends ConsumerWidget {
               device: device,
               isLive: connState == CameraConnectionState.connected,
             ),
+            // U3 health surface — inoperable banner / recovering note. Shown
+            // here because this page hosts the preview action.
+            const DeviceHealthNotice(margin: EdgeInsets.only(top: 8)),
+            // U6 give-up surface — the auto-reconnect loop hit a protocol
+            // mismatch and stopped; distinct from a plain disconnect.
+            const ReconnectFailureNotice(margin: EdgeInsets.only(top: 8)),
             const SizedBox(height: 12),
             const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
             _TelemetryGrid(telemetry: telemetry),
@@ -117,14 +126,19 @@ class _HeroCameraCard extends ConsumerWidget {
 
     // Real camera state from telemetry flags, not connection alone. The dot was
     // green "LIVE" whenever connected even while idle — misleading. Precedence
-    // Streaming > Recording > Preview > Standby > Disconnected.
+    // Streaming > Recording > Preview > Standby > Reconnecting > Disconnected.
     final telemetry = deviceId == null
         ? null
         : ref.watch(telemetryProvider(deviceId!)).valueOrNull;
+    // U6: honest disconnected state with a subtle reconnecting indicator —
+    // the auto-reconnect loop is chasing this exact device.
+    final reconnectState = ref.watch(reconnectControllerProvider);
     final (camLabel, camColor) = cameraHeroState(
       connected: connected,
       previewOn: previewOn,
       telemetry: telemetry,
+      reconnecting:
+          deviceId != null && reconnectState.isReconnecting(deviceId!),
     );
 
     return Container(
@@ -203,48 +217,9 @@ class _HeroCameraCard extends ConsumerWidget {
                 const SizedBox(height: 10),
                 if (connected) ...[
                   // Preview controls inline — Preview button + Single|Both mode
-                  // toggle in two equal columns, mirroring the match session
-                  // screen so widths and right edges line up.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: WfButton(
-                          label: previewOn ? 'Stop preview' : 'Preview',
-                          variant: previewOn
-                              ? WfButtonVariant.danger
-                              : WfButtonVariant.outline,
-                          size: WfButtonSize.sm,
-                          full: true,
-                          leading: previewOn
-                              ? null
-                              : const Icon(
-                                  Icons.play_arrow_rounded,
-                                  size: 13,
-                                  color: T.ink,
-                                ),
-                          onPressed: () {
-                            ref
-                                    .read(
-                                      livePreviewEnabledProvider(
-                                        deviceId,
-                                      ).notifier,
-                                    )
-                                    .state =
-                                !previewOn;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: previewOn
-                            ? PreviewLayoutToggle(
-                                deviceId: deviceId,
-                                full: true,
-                              )
-                            : const SizedBox.shrink(),
-                      ),
-                    ],
-                  ),
+                  // toggle (shared PreviewControlsRow, same widget as the match
+                  // session screen so widths and right edges line up).
+                  PreviewControlsRow(deviceId: deviceId!),
                   if (previewOn) ...[
                     const SizedBox(height: 8),
                     OutputCameraToggle(deviceId: deviceId, full: true),
@@ -272,11 +247,12 @@ class _HeroCameraCard extends ConsumerWidget {
                           label: 'Disconnect',
                           variant: WfButtonVariant.danger,
                           full: true,
-                          onPressed: () {
-                            ref.read(bleServiceProvider).disconnect(deviceId!);
-                            ref.read(activeCameraIdProvider.notifier).state =
-                                null;
-                          },
+                          // Manual disconnect goes through the reconnect
+                          // controller so the auto-reconnect loop never
+                          // treats it as an unexpected drop (U6).
+                          onPressed: () => ref
+                              .read(reconnectControllerProvider.notifier)
+                              .manualDisconnect(deviceId!),
                         ),
                       ),
                     ],
@@ -304,15 +280,20 @@ class _HeroCameraCard extends ConsumerWidget {
 }
 
 /// Maps connection + preview + telemetry flags to the hero-card status label and
-/// color. Precedence: Streaming > Recording > Preview > Standby > Disconnected.
-/// Connection gates all live states, so an inconsistent flag combination (e.g.
-/// recording reported while disconnected) resolves to Disconnected.
+/// color. Precedence: Streaming > Recording > Preview > Standby > Reconnecting
+/// > Disconnected. Connection gates all live states, so an inconsistent flag
+/// combination (e.g. recording reported while disconnected) resolves to
+/// Disconnected. [reconnecting] is the U6 auto-reconnect loop chasing the
+/// device — still honestly not connected, just labelled as being retried.
 (String, Color) cameraHeroState({
   required bool connected,
   required bool previewOn,
   required DeviceTelemetry? telemetry,
+  bool reconnecting = false,
 }) {
-  if (!connected) return ('Disconnected', T.ink3);
+  if (!connected) {
+    return reconnecting ? ('Reconnecting…', T.warn) : ('Disconnected', T.ink3);
+  }
   if (telemetry?.isStreaming ?? false) return ('Streaming', T.ok);
   if (telemetry?.isRecording ?? false) return ('Recording', T.danger);
   if (previewOn) return ('Preview', T.accent);
@@ -457,8 +438,7 @@ class _TelemetryTile extends StatelessWidget {
 }
 
 // The manual "Record raw footage (training)" button was removed: the dual-camera
-// training proxy is internal/training-only and runs automatically, coupled to the
-// match RECORD lifecycle — the app mints a capture_group_id and sends it on the
-// RecordingControlCommand START (session_screen), and the firmware starts/stops
-// the per-camera proxy alongside the recording (U5/U6). It is NOT tied to
-// streaming (a stream-only match has nothing to train on).
+// training proxy is fully firmware-internal — it rides the record/stream
+// lifecycle automatically and has no wire surface. The app neither starts,
+// stops, nor observes it; proxy files pair with their match on-device and are
+// retrieved via ssh, never over the app contract.

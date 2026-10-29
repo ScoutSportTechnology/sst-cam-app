@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'video_state.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/borders.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_chip.dart';
 import '../../core/widgets/wf_filter_bar.dart';
@@ -264,7 +265,7 @@ class _MatchCard extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${match.teamName} vs ${_stripVsPrefix(match.opponent)}',
+                    '${match.teamName} vs ${opponentDisplayName(match.opponent)}',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -431,17 +432,4 @@ class _NoVideosEmptyState extends ConsumerWidget {
       ),
     );
   }
-}
-
-extension on Border {
-  BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
-}
-
-/// Strip a leading "vs " prefix from an opponent string so the card title
-/// "${teamName} vs ${opponent}" never produces a double "vs vs".
-/// Legacy DB rows may have the opponent stored as "vs Eastfield FC".
-String _stripVsPrefix(String opponent) {
-  if (opponent.startsWith('vs ')) return opponent.substring(3);
-  if (opponent.startsWith('VS ')) return opponent.substring(3);
-  return opponent;
 }

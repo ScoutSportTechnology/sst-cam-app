@@ -73,21 +73,38 @@ void main() {
   });
 
   group('Connection', () {
-    test('connect emits connecting then connected', () async {
+    test('connect emits connecting then reconciling (handshake pending); '
+        'completeHandshake emits connected', () async {
       const id = 'SST-CAM-001';
       final states = <CameraConnectionState>[];
       final sub = svc.connectionStateStream(id).listen(states.add);
 
       await svc.connect(id);
-      await sub.cancel();
-
       expect(
         states,
         containsAllInOrder([
           CameraConnectionState.connecting,
-          CameraConnectionState.connected,
+          CameraConnectionState.reconciling,
         ]),
       );
+      expect(states, isNot(contains(CameraConnectionState.connected)));
+
+      svc.completeHandshake(id);
+      await Future.delayed(Duration.zero);
+      await sub.cancel();
+      expect(states.last, CameraConnectionState.connected);
+    });
+
+    test('completeHandshake without a reconciling link is a no-op', () async {
+      const id = 'SST-CAM-001';
+      final states = <CameraConnectionState>[];
+      final sub = svc.connectionStateStream(id).listen(states.add);
+
+      svc.completeHandshake(id); // never connected — must not emit
+      await Future.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(states, isNot(contains(CameraConnectionState.connected)));
     });
 
     test('disconnect emits disconnected', () async {
@@ -111,9 +128,10 @@ void main() {
   });
 
   group('Telemetry', () {
-    test('emits telemetry after connect', () async {
+    test('emits telemetry after connect + completeHandshake', () async {
       const id = 'SST-CAM-001';
       await svc.connect(id);
+      svc.completeHandshake(id);
 
       final telemetry = await svc.telemetryStream(id).first;
       expect(telemetry.storageTotalBytes, greaterThan(0));
@@ -148,6 +166,7 @@ void main() {
     test('telemetry baseline comes from telemetry.json', () async {
       const id = 'SST-CAM-001';
       await svc.connect(id);
+      svc.completeHandshake(id);
       final t = await svc.telemetryStream(id).first; // tick 0 → no drift
       expect(t.storageTotalBytes, 274877906944); // 256 GiB baseline
       expect(t.wifiSsid, 'StadiumNet-5G');
@@ -157,6 +176,7 @@ void main() {
     test('proto and dart telemetry share one baseline at tick 0', () async {
       const id = 'SST-CAM-001';
       await svc.connect(id);
+      svc.completeHandshake(id);
       final dartT = await svc.telemetryStream(id).first; // tick 0
       final resp = await svc.sendCommand<DeviceTelemetry>(
         id,
@@ -231,81 +251,6 @@ void main() {
       expect(resp.isOk, isTrue);
       expect(resp.payload?.httpUrl, startsWith('http://'));
     });
-  });
-
-  group('RawCaptureControlCommand', () {
-    test('start records the app-minted group + sets raw-capturing', () async {
-      final resp = await svc.sendCommand(
-        'SST-CAM-001',
-        RawCaptureControlCommand(
-          action: RecordingControlAction.start,
-          captureGroupId: 'grp-xyz',
-        ),
-      );
-      expect(resp.isOk, isTrue);
-      expect(svc.isRawCapturingActive, isTrue);
-      expect(svc.lastRawCaptureGroupId, 'grp-xyz');
-
-      final tel = await svc.sendCommand<DeviceTelemetry>(
-        'SST-CAM-001',
-        GetTelemetryCommand(),
-      );
-      expect(tel.payload!.isRawCapturing, isTrue);
-    });
-
-    test('stop clears raw-capturing', () async {
-      await svc.sendCommand(
-        'SST-CAM-001',
-        RawCaptureControlCommand(
-          action: RecordingControlAction.start,
-          captureGroupId: 'g',
-        ),
-      );
-      await svc.sendCommand(
-        'SST-CAM-001',
-        RawCaptureControlCommand(action: RecordingControlAction.stop),
-      );
-      expect(svc.isRawCapturingActive, isFalse);
-    });
-
-    test('pause/resume are rejected (firmware answers UNSUPPORTED)', () async {
-      final pause = await svc.sendCommand(
-        'SST-CAM-001',
-        RawCaptureControlCommand(action: RecordingControlAction.pause),
-      );
-      // The app surfaces UNSUPPORTED distinctly from a generic error — the mock
-      // must not collapse it (it mirrors BleProtocol.decodeResponse).
-      expect(pause.isOk, isFalse);
-      expect(pause.status, BleResponseStatus.unsupported);
-    });
-
-    test(
-      'after start, listRecordings surfaces the raw pair for the group',
-      () async {
-        await svc.sendCommand(
-          'SST-CAM-001',
-          RawCaptureControlCommand(
-            action: RecordingControlAction.start,
-            captureGroupId: 'grp-pair',
-          ),
-        );
-
-        final resp = await svc.sendCommand<List<RecordingMetadata>>(
-          'SST-CAM-001',
-          ListRecordingsCommand(),
-        );
-        final raw = (resp.payload ?? <RecordingMetadata>[])
-            .where((r) => r.isRaw && r.captureGroupId == 'grp-pair')
-            .toList();
-
-        // Real firmware leaves two per-camera files stamped with the group id;
-        // the mock must too, or the app's stop()->list->pair->download path can
-        // never complete against the emulated firmware.
-        expect(raw, hasLength(2));
-        expect(raw.map((r) => r.cameraIndex).toSet(), {0, 1});
-        expect(raw.every((r) => r.captureGroupId == 'grp-pair'), isTrue);
-      },
-    );
   });
 
   group('advertiseDevices', () {

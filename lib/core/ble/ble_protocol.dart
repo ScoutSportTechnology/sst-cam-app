@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/session_snapshot.dart';
 import '../models/export_job.dart';
 import '../models/network_config.dart';
 import '../models/overlay_layout.dart';
@@ -76,7 +78,7 @@ class BleProtocol {
     String correlationId, {
     int maxDataBytes = maxChunkDataBytes,
   }) {
-    final protoCmd = _toProtoCommand(cmd, correlationId);
+    final protoCmd = toProtoCommand(cmd, correlationId);
     return _splitIntoFrames(
       protoCmd.writeToBuffer(),
       correlationId,
@@ -127,7 +129,7 @@ class BleProtocol {
   /// [proto.Command] (with the `push_session_config` oneof set) and returns the
   /// serialized bytes.
   ///
-  /// Deliberately bypasses [_toProtoCommand]: per "Fix 14", [PushSessionConfig]
+  /// Deliberately bypasses [toProtoCommand]: per "Fix 14", [PushSessionConfig]
   /// is NOT part of the [BleCommand] sealed hierarchy — it is sent via the
   /// dedicated [BleService.pushSessionConfig] API. This helper is the single
   /// place that translates the session config to the wire.
@@ -165,6 +167,9 @@ class BleProtocol {
       teamBName: config.teamBName ?? '',
       teamAColorHex: config.teamAColorHex ?? '',
       teamBColorHex: config.teamBColorHex ?? '',
+      // Unsupervised-session timeout (R5, field 16). Always sent — the app
+      // owns the setting, so the firmware never falls back to its default.
+      autoStopMinutes: config.autoStopMinutes,
     );
     // proto3 `optional` fields: leave unset when null so the receiver can
     // distinguish "no streaming" from an empty-string destination.
@@ -191,7 +196,7 @@ class BleProtocol {
           'got ${resp.correlationId}',
         );
       }
-      return _statusToResponse<void>(resp, () => BleCommandResponse.ok(null));
+      return statusToResponse<void>(resp, () => BleCommandResponse.ok(null));
     } catch (e) {
       return BleCommandResponse.error('Proto decode error: $e');
     }
@@ -223,7 +228,7 @@ class BleProtocol {
 
       // Parse by the actual response payload variant — not by the outbound
       // command type — so the decode reflects what the firmware truly sent.
-      return _statusToResponse<T>(resp, () => _mapOkResponse<T>(resp));
+      return statusToResponse<T>(resp, () => _mapOkResponse<T>(resp));
     } catch (e) {
       return BleCommandResponse.error('Proto decode error: $e');
     }
@@ -232,7 +237,7 @@ class BleProtocol {
   /// Maps a [proto.CommandResponse]'s status to a [BleCommandResponse], invoking
   /// [onOk] to build the OK payload. UNSUPPORTED is surfaced distinctly from a
   /// generic ERROR (preserving any `error_message`); TIMEOUT maps to timeout.
-  static BleCommandResponse<T> _statusToResponse<T>(
+  static BleCommandResponse<T> statusToResponse<T>(
     proto.CommandResponse resp,
     BleCommandResponse<T> Function() onOk,
   ) {
@@ -254,6 +259,14 @@ class BleProtocol {
               ? resp.errorMessage
               : 'Cannot do this while a match is live',
         );
+      case proto.ResponseStatus.DEVICE_INOPERABLE:
+        // Typed health-gate rejection (a camera is not healthy) — callers key
+        // off the status, never the firmware's free-form message.
+        return BleCommandResponse<T>.deviceInoperable(
+          resp.errorMessage.isNotEmpty
+              ? resp.errorMessage
+              : 'Camera is not operational',
+        );
       default:
         return BleCommandResponse.error(
           resp.errorMessage.isNotEmpty
@@ -263,7 +276,11 @@ class BleProtocol {
     }
   }
 
-  static proto.Command _toProtoCommand(
+  /// Maps a Dart [BleCommand] onto the wire `proto.Command`. Public so the
+  /// emulated firmware (MockBleService) encodes with the production table
+  /// instead of a drift-prone copy; the mock's firmware-side DECODE stays
+  /// independent, so parity tests still exercise a real round trip.
+  static proto.Command toProtoCommand(
     BleCommand cmd,
     String correlationId,
   ) => switch (cmd) {
@@ -283,6 +300,35 @@ class BleProtocol {
       correlationId: correlationId,
       getMatchState: proto.GetMatchStateCommand(),
     ),
+    GetSessionSnapshotCommand() => proto.Command(
+      correlationId: correlationId,
+      getSessionSnapshot: proto.GetSessionSnapshotCommand(),
+    ),
+    SetMatchStateCommand(
+      :final scoreA,
+      :final scoreB,
+      :final currentPeriod,
+      :final elapsedSeconds,
+      :final clockRunning,
+      :final status,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        // proto3 optional throughout — null fields stay unset on the wire, so
+        // the firmware leaves them untouched (partial absolute set is legal).
+        setMatchState: proto.SetMatchStateCommand(
+          scoreA: scoreA,
+          scoreB: scoreB,
+          currentPeriod: currentPeriod,
+          elapsedSeconds: elapsedSeconds,
+          clockRunning: clockRunning,
+          status: status == null ? null : _dartMatchStatusToProto(status),
+        ),
+      ),
+    SetDeviceTimeCommand(:final epochMs) => proto.Command(
+      correlationId: correlationId,
+      setDeviceTime: proto.SetDeviceTimeCommand(epochMs: Int64(epochMs)),
+    ),
     ListRecordingsCommand() => proto.Command(
       correlationId: correlationId,
       listRecordings: proto.ListRecordingsCommand(),
@@ -300,46 +346,20 @@ class BleProtocol {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(
-      :final action,
-      :final quality,
-      :final captureGroupId,
-    ) =>
-      proto.Command(
-        correlationId: correlationId,
-        recordingControl: proto.RecordingControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          // proto3 optional — omitted unless the app pinned a record quality.
-          quality: _toProtoQuality(quality),
-          // proto3 optional — couples the training proxy when present (START).
-          captureGroupId: captureGroupId,
-        ),
+    RecordingControlCommand(:final action, :final quality) => proto.Command(
+      correlationId: correlationId,
+      recordingControl: proto.RecordingControlCommand(
+        action: switch (action) {
+          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
+          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
+          RecordingControlAction.resume =>
+            proto.RecordingAction.RECORDING_RESUME,
+        },
+        // proto3 optional — omitted unless the app pinned a record quality.
+        quality: _toProtoQuality(quality),
       ),
-    RawCaptureControlCommand(:final action, :final captureGroupId) =>
-      proto.Command(
-        correlationId: correlationId,
-        rawCapture: proto.RawCaptureControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          // proto3 optional — only set when the app minted one (start).
-          captureGroupId: captureGroupId,
-        ),
-      ),
+    ),
     StreamingControlCommand(:final action, :final rtmpUrl, :final quality) =>
       proto.Command(
         correlationId: correlationId,
@@ -503,14 +523,14 @@ class BleProtocol {
   /// firmware's chosen oneof determines the decode.
   ///
   /// For DeviceInfo, the firmware's `protocol_version` is carried through in the
-  /// payload; the version gate that refuses a skewed session lives at connect
-  /// time (see BleServiceImpl.connect), not here.
+  /// payload; the version gate that refuses a skewed session lives in the
+  /// connect handshake (see ConnectController in core/state), not here.
   static BleCommandResponse<T> _mapOkResponse<T>(proto.CommandResponse resp) {
     switch (resp.whichPayload()) {
       case proto.CommandResponse_Payload.deviceInfo:
         // Decode stays pure and reports the firmware's protocol_version in the
-        // payload. The version gate lives at connect time
-        // (BleServiceImpl.connect), which throws BleProtocolVersionException and
+        // payload. The version gate lives in the connect handshake
+        // (ConnectController), which throws BleProtocolVersionException and
         // refuses the session on skew — see kAppProtocolVersion.
         final info = resp.deviceInfo;
         return BleCommandResponse.ok(
@@ -536,6 +556,12 @@ class BleProtocol {
         return BleCommandResponse.ok(_dartTelemetry(resp.telemetry) as T?);
       case proto.CommandResponse_Payload.matchState:
         return BleCommandResponse.ok(_dartMatchState(resp.matchState) as T?);
+      case proto.CommandResponse_Payload.sessionSnapshot:
+        // Connect-handshake snapshot (§9b) — the firmware's ACTUAL state the
+        // connect controller rehydrates providers from.
+        return BleCommandResponse.ok(
+          _dartSessionSnapshot(resp.sessionSnapshot) as T?,
+        );
       case proto.CommandResponse_Payload.recordingList:
         return BleCommandResponse.ok(
           resp.recordingList.recordings
@@ -549,13 +575,6 @@ class BleProtocol {
                       ),
                       sport: r.sport,
                       teams: r.teams,
-                      // Raw identity (proto3 optional, joint invariant): present
-                      // together on a raw file, absent on a final recording.
-                      isRaw: r.isRaw,
-                      cameraIndex: r.hasCameraIndex() ? r.cameraIndex : null,
-                      captureGroupId: r.hasCaptureGroupId()
-                          ? r.captureGroupId
-                          : null,
                     ),
                   )
                   .toList()
@@ -608,7 +627,7 @@ class BleProtocol {
               as T?,
         );
       case proto.CommandResponse_Payload.exportJob:
-        // #6 A6c overlayed-export job: state + (when READY) the one-shot L2
+        // #6 A6c overlayed-export job: state + (when READY) the L2
         // download token nested in the response.
         final job = resp.exportJob;
         return BleCommandResponse.ok(
@@ -646,9 +665,21 @@ class BleProtocol {
               as T?,
         );
       case proto.CommandResponse_Payload.cameraFocus:
-        // Motorized-focus response (U8): mode + position + autofocus_available.
-        // Fire-and-forget from the UI (optimistic); OK with null.
-        return BleCommandResponse.ok(null as T?);
+        // Motorized-focus echo (U8/U9): the EFFECTIVE mode + position the
+        // firmware is now applying, plus whether autofocus exists at all
+        // (fixed lens → false). The AF toggle renders this echo (observed
+        // state), never the request (intent).
+        final cf = resp.cameraFocus;
+        return BleCommandResponse.ok(
+          CameraFocusResult(
+                mode: cf.mode == proto.CameraFocusMode.FOCUS_MODE_AUTO
+                    ? CameraFocusMode.auto
+                    : CameraFocusMode.manual,
+                position: cf.hasFocusPosition() ? cf.focusPosition : null,
+                autofocusAvailable: cf.autofocusAvailable,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.activeCamera:
         // Manual tracking ack — the toggle is optimistic; OK with null.
         return BleCommandResponse.ok(null as T?);
@@ -716,7 +747,14 @@ class BleProtocol {
         isRecording: p.isRecording,
         isStreaming: p.isStreaming,
         batteryLevelPct: p.hasBatteryLevelPct() ? p.batteryLevelPct : null,
-        isRawCapturing: p.isRawCapturing,
+        // Absent ⇒ null (unreported) — never fabricate OK for a firmware that
+        // doesn't report health (proto DeviceTelemetry 15–16 are optional).
+        camera0Health: p.hasCamera0Health()
+            ? dartCameraHealth(p.camera0Health)
+            : null,
+        camera1Health: p.hasCamera1Health()
+            ? dartCameraHealth(p.camera1Health)
+            : null,
       );
 
   static WifiState _dartWifiState(proto.WifiState s) => switch (s) {
@@ -850,6 +888,87 @@ class BleProtocol {
     updatedAt: s.hasUpdatedAt()
         ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt())
         : DateTime.now(),
+    // State-health cycle additions — proto3 optional; null when the firmware
+    // predates them so consumers never mistake an absent clock for 0.
+    elapsedSeconds: s.hasElapsedSeconds() ? s.elapsedSeconds : null,
+    clockRunning: s.hasClockRunning() ? s.clockRunning : null,
+    matchUuid: s.hasMatchUuid() ? s.matchUuid : null,
+  );
+
+  static proto.MatchStatus _dartMatchStatusToProto(MatchStatus s) =>
+      switch (s) {
+        MatchStatus.notStarted => proto.MatchStatus.MATCH_NOT_STARTED,
+        MatchStatus.active => proto.MatchStatus.MATCH_ACTIVE,
+        MatchStatus.paused => proto.MatchStatus.MATCH_PAUSED,
+        MatchStatus.halfTime => proto.MatchStatus.MATCH_HALF_TIME,
+        MatchStatus.finished => proto.MatchStatus.MATCH_FINISHED,
+        MatchStatus.unknown => proto.MatchStatus.MATCH_STATUS_UNKNOWN,
+      };
+
+  // ---------------------------------------------------------------------------
+  // Session snapshot ↔ proto helpers (state-health cycle, §9b)
+  // ---------------------------------------------------------------------------
+
+  static CameraHealth dartCameraHealth(proto.CameraHealth h) => switch (h) {
+    proto.CameraHealth.CAMERA_HEALTH_OK => CameraHealth.ok,
+    proto.CameraHealth.CAMERA_HEALTH_RECOVERING => CameraHealth.recovering,
+    proto.CameraHealth.CAMERA_HEALTH_DOWN => CameraHealth.down,
+    _ => CameraHealth.unknown,
+  };
+
+  static SessionPhase _dartSessionPhase(proto.SessionPhase p) => switch (p) {
+    proto.SessionPhase.SESSION_IDLE => SessionPhase.idle,
+    proto.SessionPhase.SESSION_CONFIGURED => SessionPhase.configured,
+    proto.SessionPhase.SESSION_READY => SessionPhase.ready,
+    proto.SessionPhase.SESSION_RECORDING => SessionPhase.recording,
+    proto.SessionPhase.SESSION_FINALIZING => SessionPhase.finalizing,
+    _ => SessionPhase.unknown,
+  };
+
+  static SessionEndReason _dartEndReason(proto.SessionEndReason r) =>
+      switch (r) {
+        proto.SessionEndReason.SESSION_END_APP_STOP => SessionEndReason.appStop,
+        proto.SessionEndReason.SESSION_END_AUTO_STOP =>
+          SessionEndReason.autoStop,
+        proto.SessionEndReason.SESSION_END_CAMERA_FAILURE =>
+          SessionEndReason.cameraFailure,
+        proto.SessionEndReason.SESSION_END_REBOOT => SessionEndReason.reboot,
+        _ => SessionEndReason.unknown,
+      };
+
+  static SessionSnapshot _dartSessionSnapshot(
+    proto.SessionSnapshotResponse s,
+  ) => SessionSnapshot(
+    sessionPhase: _dartSessionPhase(s.sessionPhase),
+    activeCameraIndex: s.hasActiveCameraIndex() ? s.activeCameraIndex : null,
+    previewLayout: s.hasPreviewLayout()
+        ? _protoPreviewLayout(s.previewLayout)
+        : null,
+    isRecording: s.hasIsRecording() ? s.isRecording : null,
+    isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
+    recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
+        ? s.recordingElapsedSeconds
+        : null,
+    matchState: s.hasMatchState() ? _dartMatchState(s.matchState) : null,
+    camera0Health: s.hasCamera0Health()
+        ? dartCameraHealth(s.camera0Health)
+        : null,
+    camera1Health: s.hasCamera1Health()
+        ? dartCameraHealth(s.camera1Health)
+        : null,
+    lastSession: s.hasLastSession()
+        ? LastSessionSummary(
+            matchUuid: s.lastSession.matchUuid,
+            endReason: _dartEndReason(s.lastSession.endReason),
+            endClockSeconds: s.lastSession.hasEndClockSeconds()
+                ? s.lastSession.endClockSeconds
+                : null,
+            fileValid: s.lastSession.hasFileValid()
+                ? s.lastSession.fileValid
+                : null,
+          )
+        : null,
+    wifiGroupUp: s.hasWifiGroupUp() ? s.wifiGroupUp : null,
   );
 }
 

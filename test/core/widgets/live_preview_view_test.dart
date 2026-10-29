@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
+import 'package:sst_cam_app/core/state/device_health.dart';
 import 'package:sst_cam_app/core/wifi/wifi_providers.dart';
 import 'package:sst_cam_app/core/widgets/live_preview_view.dart';
 import 'package:sst_cam_app/core/widgets/wf_card.dart';
@@ -31,6 +32,11 @@ const _kFakeDescriptor = PreviewStreamDescriptor(
   bitrateKbps: 1500,
 );
 
+/// Test-controlled stand-in for the U3 health gate: [captureBlockedProvider]
+/// is overridden to read this switch, so tests flip health DOWN/OK edges by
+/// writing it through the container.
+final _captureBlockedSwitch = StateProvider<bool>((_) => false);
+
 Widget _buildHarness({
   String? deviceId = _kDeviceId,
   PreviewStreamDescriptor? descriptor = _kFakeDescriptor,
@@ -41,6 +47,9 @@ Widget _buildHarness({
   return ProviderScope(
     overrides: [
       wifiServiceProvider.overrideWithValue(wifi),
+      captureBlockedProvider.overrideWith(
+        (ref) => ref.watch(_captureBlockedSwitch),
+      ),
       if (deviceId != null) ...[
         previewDescriptorProvider(deviceId).overrideWith((_) => descriptor),
         wifiConnectionStateProvider(
@@ -56,6 +65,12 @@ Widget _buildHarness({
     ),
   );
 }
+
+VlcPlayerController _controllerOf(WidgetTester tester) =>
+    tester.widget<VlcPlayer>(find.byType(VlcPlayer)).controller;
+
+ProviderContainer _containerOf(WidgetTester tester) =>
+    ProviderScope.containerOf(tester.element(find.byType(LivePreviewView)));
 
 void main() {
   group('LivePreviewView — RTSP preview', () {
@@ -119,5 +134,159 @@ void main() {
         expect(find.byType(VlcPlayer), findsNothing);
       },
     );
+  });
+
+  group('LivePreviewView — auto-resume after camera recovery', () {
+    testWidgets(
+      'health inoperable → OK restarts the player with a fresh controller',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness());
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        final before = _controllerOf(tester);
+        final container = _containerOf(tester);
+
+        // Camera dies mid-preview → health gate blocks capture: the VLC
+        // client is released and the explicit unavailable state is shown.
+        container.read(_captureBlockedSwitch.notifier).state = true;
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsNothing);
+        expect(find.text('CAMERA UNAVAILABLE'), findsOneWidget);
+
+        // Camera restored → gate lifts: playback restarts automatically with
+        // a brand-new controller — no manual Stop → Preview cycle.
+        container.read(_captureBlockedSwitch.notifier).state = false;
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        expect(_controllerOf(tester), isNot(same(before)));
+      },
+    );
+
+    testWidgets(
+      'player error while streaming → automatic stop/play cycle after the '
+      'restart delay',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness());
+        await tester.pump();
+        final before = _controllerOf(tester);
+
+        // The RTSP connect errors (e.g. it raced the camera's pipeline
+        // restart right after recovery) → surface drops to the placeholder…
+        before.value = VlcPlayerValue.erroneous('stream died');
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsNothing);
+
+        // …and after the restart delay a fresh controller retries on its own.
+        await tester.pump(LivePreviewView.vlcRestartDelay);
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        expect(_controllerOf(tester), isNot(same(before)));
+      },
+    );
+
+    testWidgets(
+      'playing stream that stops (camera died, no health flip) → automatic '
+      'stop/play cycle',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness());
+        await tester.pump();
+        final before = _controllerOf(tester);
+
+        // Frames flow… then the stream ends without an error.
+        before.value = before.value.copyWith(
+          isPlaying: true,
+          playingState: PlayingState.playing,
+        );
+        await tester.pump();
+        before.value = before.value.copyWith(
+          isPlaying: false,
+          playingState: PlayingState.stopped,
+        );
+        await tester.pump();
+
+        await tester.pump(LivePreviewView.vlcRestartDelay);
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        expect(_controllerOf(tester), isNot(same(before)));
+      },
+    );
+
+    testWidgets(
+      'silent stall — frozen frame while "playing" (no error, no stop edge) '
+      '→ automatic cycle after the stall window',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness());
+        await tester.pump();
+        final before = _controllerOf(tester);
+
+        // Frames flow: position advances across watchdog ticks (this arms the
+        // frozen-frame detection by proving the position signal is live).
+        before.value = before.value.copyWith(
+          isPlaying: true,
+          playingState: PlayingState.playing,
+          position: const Duration(seconds: 1),
+        );
+        await tester.pump(LivePreviewView.stallCheckInterval);
+        before.value = before.value.copyWith(
+          position: const Duration(seconds: 3),
+        );
+        await tester.pump(LivePreviewView.stallCheckInterval);
+
+        // Camera pipeline restarts underneath: VLC keeps claiming "playing"
+        // but the position pins — the exact metal failure that needed a
+        // manual Stop → Preview.
+        await tester.pump(
+          LivePreviewView.stallWindow + LivePreviewView.stallCheckInterval * 2,
+        );
+        await tester.pump(LivePreviewView.vlcRestartDelay);
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        expect(_controllerOf(tester), isNot(same(before)));
+      },
+    );
+
+    testWidgets(
+      'silent stall — pinned in buffering forever (never reaches playing) '
+      '→ automatic cycle after the stall window',
+      (tester) async {
+        await tester.pumpWidget(_buildHarness());
+        await tester.pump();
+        final before = _controllerOf(tester);
+
+        before.value = before.value.copyWith(
+          isPlaying: false,
+          playingState: PlayingState.buffering,
+        );
+        await tester.pump(
+          LivePreviewView.stallWindow + LivePreviewView.stallCheckInterval * 2,
+        );
+        await tester.pump(LivePreviewView.vlcRestartDelay);
+        await tester.pump();
+        expect(find.byType(VlcPlayer), findsOneWidget);
+        expect(_controllerOf(tester), isNot(same(before)));
+      },
+    );
+
+    testWidgets('a healthy advancing stream is never cycled by the watchdog', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildHarness());
+      await tester.pump();
+      final before = _controllerOf(tester);
+
+      before.value = before.value.copyWith(
+        isPlaying: true,
+        playingState: PlayingState.playing,
+        position: const Duration(seconds: 1),
+      );
+      // Position keeps moving every tick — well past the stall window.
+      for (var i = 2; i < 10; i++) {
+        await tester.pump(LivePreviewView.stallCheckInterval);
+        before.value = before.value.copyWith(position: Duration(seconds: i));
+      }
+      await tester.pump(LivePreviewView.vlcRestartDelay);
+      await tester.pump();
+      expect(_controllerOf(tester), same(before));
+    });
   });
 }

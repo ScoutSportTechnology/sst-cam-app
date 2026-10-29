@@ -46,9 +46,22 @@ abstract class BleService {
   // Connection
   // ---------------------------------------------------------------------------
 
-  /// Attempt to connect to [deviceId]. Resolves when connected or throws on
-  /// failure. Subscribe to [connectionStateStream] to track subsequent changes.
+  /// Establish the wire link to [deviceId]: BLE connect + MTU + service
+  /// discovery + notify subscription. Resolves with the connection state at
+  /// [CameraConnectionState.reconciling] — NOT `connected`. The connect
+  /// controller (core/state/connect_controller.dart, the port's ONLY caller)
+  /// then runs the §9b handshake (protocol gate → time push → snapshot →
+  /// rehydrate → reconcile) and calls [completeHandshake] to reach
+  /// `connected`. Throws on link failure. Subscribe to
+  /// [connectionStateStream] to track subsequent changes.
   Future<void> connect(String deviceId);
+
+  /// Transition [deviceId] from `reconciling` to `connected` and start the
+  /// telemetry / match-state pollers. Called by the connect controller once
+  /// the handshake has fully completed — pollers must never run mid-handshake
+  /// (a match-state poll landing there would mutate live state before the
+  /// snapshot restore reads it). No-op unless the device is `reconciling`.
+  void completeHandshake(String deviceId) {}
 
   /// Disconnect from [deviceId]. No-op if not connected.
   Future<void> disconnect(String deviceId);
@@ -150,9 +163,14 @@ abstract class BleService {
   /// the firmware couldn't measure (too dark / no frame).
   Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId);
 
-  /// Motorized-focus control (ArduCAM VCM). [mode] auto = continuous autofocus;
-  /// manual holds [position] (0–1000 VCM code). [cameraIndex] null = both cameras.
-  Future<void> setCameraFocus(
+  /// Motorized-focus control (ArduCAM VCM). [mode] auto = continuous autofocus
+  /// (firmware pauses it while recording — this cycle's default); manual holds
+  /// [position] (0–1000 VCM code). [cameraIndex] null = both cameras.
+  /// Returns the firmware's echo: the EFFECTIVE mode/position now applied
+  /// (observed — may differ from the request) plus
+  /// [CameraFocusResult.autofocusAvailable] (false = fixed lens). Null when the
+  /// firmware omitted the payload.
+  Future<CameraFocusResult?> setCameraFocus(
     String deviceId, {
     required CameraFocusMode mode,
     int? position,
@@ -169,8 +187,11 @@ abstract class BleService {
   /// must never contend with the live broadcast encode).
   Future<ExportJob> requestOverlayExport(String deviceId, String recordingId);
 
-  /// Poll a running overlayed-export job. The READY result carries the
-  /// one-shot L2 [DownloadToken]; FAILED carries an error message.
+  /// Poll a running overlayed-export job. The READY result carries the L2
+  /// [DownloadToken]; FAILED carries an error message. The burned L2 persists
+  /// in the match folder on the camera (it also shows up in listRecordings),
+  /// so re-exporting an already-burned recording succeeds fast — the firmware
+  /// returns the existing file.
   Future<ExportJob> pollOverlayExport(String deviceId, String jobId);
 
   /// Set the camera's internet uplink config (ethernet / wifi STA) — the
@@ -219,6 +240,19 @@ class BleNetworkConfigUnsupportedException implements Exception {
   @override
   String toString() =>
       'BleNetworkConfigUnsupportedException: ${message ?? 'firmware too old'}';
+}
+
+/// Raised when the post-connect handshake (device-info read, time push,
+/// session-snapshot read, or reconcile push) fails or times out. The connect
+/// controller drops the BLE link before surfacing this, so the app never sits
+/// in a half-hydrated state. Distinct from [BleConnectionException] (link
+/// establishment) so call sites can word the failure accurately.
+class BleHandshakeException implements Exception {
+  const BleHandshakeException(this.message);
+  final String message;
+
+  @override
+  String toString() => 'BleHandshakeException: $message';
 }
 
 /// Raised when the firmware's reported `protocol_version` does not match the

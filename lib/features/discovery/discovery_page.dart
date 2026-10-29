@@ -1,18 +1,21 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../core/models/device.dart';
-import '../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../core/services/log_service.dart';
+import '../../core/widgets/borders.dart';
 import '../../core/ble/ble_providers.dart';
 import '../../core/ble/ble_service.dart';
-import '../../core/state/selection_sync.dart';
-import '../../core/state/last_camera.dart';
+import '../../core/state/connect_controller.dart';
+import '../../core/state/reconnect_controller.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
+import '../../core/widgets/notify.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
+
+final _log = Logger('Discovery');
 
 /// Scan & connect flow. Reachable from Settings → "Connect a different camera".
 class DiscoveryPage extends ConsumerStatefulWidget {
@@ -39,22 +42,25 @@ class _DiscoveryPageState extends ConsumerState<DiscoveryPage> {
   ///   is handled by the persistent "Bluetooth is off" banner (with an Enable
   ///   button), so we suppress the redundant snackbar for it.
   Future<void> _startScan() async {
+    _log.info('scan start');
     try {
       await ref.read(bleServiceProvider).startScan();
     } on StateError catch (e) {
       _showScanError(e.message);
     } catch (e) {
       final btOff = ref.read(bluetoothOnProvider).valueOrNull == false;
-      if (!btOff) _showScanError('Scan failed. $e');
+      if (btOff) {
+        _log.info('scan skipped: bluetooth off (banner shown)');
+      } else {
+        _showScanError('Scan failed. $e');
+      }
     }
     if (mounted) setState(() {});
   }
 
   void _showScanError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    // ignore: use_build_context_synchronously
+    showErrorSnack(context, message, source: 'Discovery');
   }
 
   /// Persistent prompt shown while the Bluetooth adapter is off — scanning can't
@@ -253,25 +259,21 @@ class _DeviceRow extends ConsumerWidget {
   const _DeviceRow({required this.device});
   final SstDevice device;
 
-  /// Connect, persist last-connected on success, and surface a real, actionable
-  /// error (with Retry) on failure. Extracted so the error sheet's Retry button
-  /// can re-run the exact same flow.
+  /// Connect via the universal handshake (protocol gate → time push →
+  /// snapshot → rehydrate → reconcile — see ConnectController), and surface a
+  /// real, actionable error (with Retry) on failure. The controller owns the
+  /// success side effects (active-camera id, last-connected persistence) and
+  /// selection adoption from the firmware snapshot. Extracted so the error
+  /// sheet's Retry button can re-run the exact same flow.
   Future<void> _attemptConnect(BuildContext context, WidgetRef ref) async {
-    final svc = ref.read(bleServiceProvider);
+    _log.info('device tapped → connect ${device.id} (${device.name})');
     try {
-      await svc.connect(device.id);
-      ref.read(activeCameraIdProvider.notifier).state = device.id;
-      // Match the firmware's fresh session — it resets the output camera to 0 /
-      // single view on disconnect, so start the UI there on every connect.
-      resetSelectionOnConnect(ref, device.id);
-      // Persist the last successfully-connected camera id so the Settings
-      // empty-state CTA can offer a one-tap reconnect. Best-effort — a persist
-      // failure must not break the connect flow.
-      unawaited(
-        ref.read(lastConnectedDeviceIdProvider.notifier).set(device.id),
-      );
+      await ref.read(connectControllerProvider).connect(device.id);
       if (context.mounted) Navigator.of(context).pop();
     } catch (e) {
+      // The controller already logged the raw cause at error; this records the
+      // human-readable reason the user is shown in the retry sheet.
+      _log.warn('connect from Discover failed: ${_humanConnectError(e)}');
       if (context.mounted) _showConnectErrorSheet(context, ref, e);
     }
   }
@@ -283,6 +285,8 @@ class _DeviceRow extends ConsumerWidget {
     BleProtocolVersionException(:final actual, :final expected) =>
       'Firmware protocol version $actual is incompatible with this app '
           '(expects $expected). Update the app or camera firmware.',
+    BleHandshakeException(:final message) =>
+      'Connected, but syncing camera state failed ($message). Try again.',
     BleConnectionException(:final message) => message,
     BleTimeoutException(:final message) => message,
     _ => error.toString(),
@@ -360,7 +364,11 @@ class _DeviceRow extends ConsumerWidget {
         ref.watch(connectionStateProvider(device.id)).valueOrNull ??
         CameraConnectionState.disconnected;
     final connected = connState == CameraConnectionState.connected;
-    final connecting = connState == CameraConnectionState.connecting;
+    // The handshake (reconciling) is still "connecting" as far as this row is
+    // concerned — keep the spinner until the device is actually usable.
+    final connecting =
+        connState == CameraConnectionState.connecting ||
+        connState == CameraConnectionState.reconciling;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -408,10 +416,13 @@ class _DeviceRow extends ConsumerWidget {
                   : WfButtonVariant.primary,
               size: WfButtonSize.sm,
               onPressed: () async {
-                final svc = ref.read(bleServiceProvider);
                 if (connected) {
-                  await svc.disconnect(device.id);
-                  ref.read(activeCameraIdProvider.notifier).state = null;
+                  // Manual disconnect via the reconnect controller: marks
+                  // the intent (the loop must never treat this drop as
+                  // unexpected) and clears the active camera (U6).
+                  await ref
+                      .read(reconnectControllerProvider.notifier)
+                      .manualDisconnect(device.id);
                 } else {
                   await _attemptConnect(context, ref);
                 }
@@ -421,8 +432,4 @@ class _DeviceRow extends ConsumerWidget {
       ),
     );
   }
-}
-
-extension on Border {
-  BoxDecoration toBoxDecoration() => BoxDecoration(border: this);
 }

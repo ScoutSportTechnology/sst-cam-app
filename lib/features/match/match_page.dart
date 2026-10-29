@@ -2,15 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 import '../../core/ble/ble_providers.dart' show bleServiceProvider;
 import '../../core/models/overlay_layout.dart';
+import '../../core/services/log_service.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import 'landing_screen.dart';
 import 'match_state.dart';
 import 'session/session_screen.dart';
 import 'session/session_state.dart';
 import 'setup_screen.dart';
+
+final _log = Logger('MatchPage');
 
 /// An empty overlay pushed to the camera when a match session ends, so the
 /// firmware stops compositing the (now-stale) scoreboard onto the preview.
@@ -60,6 +64,19 @@ class _MatchPageState extends ConsumerState<MatchPage> {
   }
 
   void _select(UpcomingMatch up) {
+    // Resume, don't reset: a live match restored by the connect handshake
+    // (rejoin after an app kill, U2) is still listed as upcoming — selecting
+    // it re-enters the running session; loadFromUpcoming would wipe the
+    // restored scoreboard.
+    final live = ref.read(liveMatchProvider);
+    if (isLiveMatchRunning(live) &&
+        ref.read(liveMatchProvider.notifier).matchId == up.match.id) {
+      setState(() {
+        _selected = up;
+        _setupConfirmed = true;
+      });
+      return;
+    }
     ref
         .read(liveMatchProvider.notifier)
         .loadFromUpcoming(
@@ -100,12 +117,19 @@ class _MatchPageState extends ConsumerState<MatchPage> {
       ref
           .read(bleServiceProvider)
           .pushOverlayLayout(deviceId, _clearOverlayLayout)
-          .catchError((Object _) {}),
+          // Fire-and-forget by design (leaving the match must never block on
+          // BLE), but log the failure instead of swallowing it silently.
+          .catchError((Object e) => _log.warn('overlay clear failed: $e')),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // Keep the firmware→live-match sync (2 s clock correction + poll-truth
+    // runtime flags) alive for the whole app session — MatchPage stays
+    // mounted in the shell's IndexedStack.
+    ref.watch(liveMatchFirmwareSyncProvider);
+
     final selected = _selected;
 
     // Live state owns the truth about whether the user is mid-session.

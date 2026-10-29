@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/match.dart';
+import '../../core/models/session_snapshot.dart';
 import '../../core/models/export_job.dart';
 import '../../core/models/network_config.dart';
 import '../../core/models/overlay_layout.dart';
@@ -18,6 +19,7 @@ import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
 import '../../core/models/video_mode.dart';
 import '../../core/models/wifi.dart';
+import '../../core/ble/ble_protocol.dart' show BleProtocol;
 import '../../core/ble/ble_service.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../mock_video_fetcher.dart';
@@ -202,10 +204,12 @@ class _DeviceState {
 
   CameraConnectionState connectionState = CameraConnectionState.disconnected;
   Timer? telemetryTimer;
+  Timer? matchStateTimer;
   int telemetryTick = 0;
 
   void dispose() {
     telemetryTimer?.cancel();
+    matchStateTimer?.cancel();
     connController.close();
     telemetryController.close();
     matchStateController.close();
@@ -268,8 +272,14 @@ class _TelemetryBaseline {
 }
 
 /// Test double for [BleService]. Simulates realistic device behaviour:
-/// progressive discovery, sinusoidal telemetry drift, and configurable
-/// failure injection for error-path testing.
+/// progressive discovery, sinusoidal telemetry drift, configurable failure
+/// injection for error-path testing, and — per the state-health cycle (U7) —
+/// full firmware session semantics: sessions survive disconnects with a
+/// ticking match clock, the auto-stop safety net, an observable FINALIZING
+/// window, camera-failure finalize, boot-orphan reboots, and idempotent
+/// StartWifiDirect. Every behaviour mirrors a documented wire contract
+/// (proto §9/§9b/§10) or firmware plan unit — see the doc comments on the
+/// individual seams.
 class MockBleService implements BleService {
   MockBleService({
     this.advertiseDevices = true,
@@ -293,7 +303,9 @@ class MockBleService implements BleService {
   final Duration connectionDelay;
 
   /// Probability [0.0, 1.0] that connect throws [BleConnectionException].
-  final double failureRate;
+  /// Mutable so tests can flip a healthy camera into an unreachable one
+  /// mid-test (U6: "device stays gone" while the reconnect loop runs).
+  double failureRate;
 
   final Random _rng;
   final _discoveryController = StreamController<List<SstDevice>>.broadcast();
@@ -443,14 +455,34 @@ class MockBleService implements BleService {
     }
   }
 
+  bool _bluetoothOn = true;
+  final _bluetoothController = StreamController<bool>.broadcast();
+
   @override
-  Stream<bool> get bluetoothOn => Stream.value(true);
+  Stream<bool> get bluetoothOn async* {
+    yield _bluetoothOn;
+    yield* _bluetoothController.stream;
+  }
+
+  /// Test seam: flip the emulated adapter. U6 uses this to prove the
+  /// reconnect loop stops on bluetooth-off and stays stopped when the
+  /// adapter comes back (re-eligible only on the next unexpected drop).
+  @visibleForTesting
+  void setBluetoothOn(bool on) {
+    _bluetoothOn = on;
+    _bluetoothController.add(on);
+  }
 
   @override
   Future<void> requestBluetoothOn() async {}
 
   @override
   bool get isScanning => _isScanning;
+
+  /// The protocol_version the emulated firmware reports. Defaults to the
+  /// app's own version (handshake passes); tests set a different value to
+  /// exercise the version-skew refusal path.
+  int mockProtocolVersion = kAppProtocolVersion;
 
   @override
   Future<DeviceInfoResponse> getDeviceInfo(String deviceId) async =>
@@ -459,7 +491,7 @@ class MockBleService implements BleService {
         name: 'SST Cam (mock)',
         firmwareVersion: '0.1.0',
         model: 'v1',
-        protocolVersion: kAppProtocolVersion,
+        protocolVersion: mockProtocolVersion,
         supportedModes: _kMockSupportedModes,
       );
 
@@ -534,10 +566,37 @@ class MockBleService implements BleService {
       );
     }
 
+    // Firmware parity (firmware plan U1): OnConnect cancels the unsupervised
+    // auto-stop timer — a reconnect at timeout−ε deterministically wins over
+    // the pending stop, so a supervised session never auto-finalizes.
+    _autoStopTimer?.cancel();
+    _autoStopTimer = null;
+
+    // Mirror the real service (state-health cycle): connect resolves at
+    // `reconciling` — the wire link is up but the §9b handshake has not run.
+    // The connect controller drives the handshake commands over sendCommand
+    // and then calls [completeHandshake]; telemetry starts only there.
     final state = _deviceState(deviceId, device);
+    state.connectionState = CameraConnectionState.reconciling;
+    state.connController.add(CameraConnectionState.reconciling);
+  }
+
+  @override
+  void completeHandshake(String deviceId) {
+    final state = _devices[deviceId];
+    // Same guard as the real impl: only a device sitting in `reconciling`
+    // can complete — a raced disconnect must not resurrect `connected`.
+    if (state == null ||
+        state.connectionState != CameraConnectionState.reconciling) {
+      return;
+    }
     state.connectionState = CameraConnectionState.connected;
     state.connController.add(CameraConnectionState.connected);
+    // Pollers/telemetry start only after the handshake — parity with the
+    // real service, and what keeps a match-state poll from ever landing
+    // mid-handshake.
     _startTelemetry(deviceId);
+    _startMatchStatePoll(deviceId);
   }
 
   @override
@@ -545,8 +604,34 @@ class MockBleService implements BleService {
     final state = _devices[deviceId];
     if (state == null) return;
     state.telemetryTimer?.cancel();
+    state.matchStateTimer?.cancel();
+    // Parity with the real impl: an app-initiated disconnect announces
+    // itself with `disconnecting` BEFORE `disconnected`. The U6 reconnect
+    // loop keys off exactly this — only a bare `connected → disconnected`
+    // edge (an unexpected drop, see [simulateUnexpectedDrop]) arms it.
+    state.connectionState = CameraConnectionState.disconnecting;
+    state.connController.add(CameraConnectionState.disconnecting);
     state.connectionState = CameraConnectionState.disconnected;
     state.connController.add(CameraConnectionState.disconnected);
+    // Firmware parity (firmware plan U1): OnDisconnect no longer finalizes or
+    // tears down WiFi when a session is active — it arms the auto-stop timer.
+    _armAutoStop();
+  }
+
+  /// Test seam: the link dies WITHOUT an app-initiated disconnect (camera
+  /// power-cut, radio drop) — `disconnected` with no `disconnecting` first.
+  /// This is the edge that arms the U6 auto-reconnect loop.
+  @visibleForTesting
+  void simulateUnexpectedDrop(String deviceId) {
+    final state = _devices[deviceId];
+    if (state == null) return;
+    state.telemetryTimer?.cancel();
+    state.matchStateTimer?.cancel();
+    state.connectionState = CameraConnectionState.disconnected;
+    state.connController.add(CameraConnectionState.disconnected);
+    // Same firmware OnDisconnect path as [disconnect]: the session (and its
+    // WiFi group) survives; only the auto-stop safety net is armed.
+    _armAutoStop();
   }
 
   @override
@@ -579,6 +664,44 @@ class MockBleService implements BleService {
     });
   }
 
+  /// 2 s match-state poll parity (state-health cycle): emits
+  /// [snapshotMatchState] while connected — the app's drift-correction
+  /// consumer runs against the same cadence as the real service, and each
+  /// sample carries the TICKING clock (U7): elapsed advances in real time
+  /// exactly like the firmware's LiveMatch loop.
+  void _startMatchStatePoll(String deviceId) {
+    final state = _devices[deviceId];
+    if (state == null) return;
+    state.matchStateTimer?.cancel();
+    state.matchStateTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_devices[deviceId]?.connectionState !=
+          CameraConnectionState.connected) {
+        return;
+      }
+      final ms = snapshotMatchState;
+      if (ms != null) state.matchStateController.add(ms);
+    });
+  }
+
+  /// Test seam: push a match-state sample into the poll stream NOW (as if a
+  /// 2 s poll had just returned) without waiting for the timer.
+  @visibleForTesting
+  void emitMatchState(String deviceId, MatchState ms) {
+    final device =
+        _deviceCatalog.where((d) => d.id == deviceId).firstOrNull ??
+        _deviceCatalog.first;
+    _deviceState(deviceId, device).matchStateController.add(ms);
+  }
+
+  /// Test seam: push a telemetry sample into the stream NOW.
+  @visibleForTesting
+  void emitTelemetry(String deviceId, DeviceTelemetry t) {
+    final device =
+        _deviceCatalog.where((d) => d.id == deviceId).firstOrNull ??
+        _deviceCatalog.first;
+    _deviceState(deviceId, device).telemetryController.add(t);
+  }
+
   DeviceTelemetry _makeTelemetry(int tick) {
     final b = _baseline;
     final used =
@@ -595,9 +718,14 @@ class MockBleService implements BleService {
       ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 10).clamp(0.0, 100.0),
       cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 20).clamp(0.0, 100.0),
       uptimeSeconds: tick,
-      isRecording: b.isRecording,
-      isStreaming: b.isStreaming,
-      isRawCapturing: isRawCapturingActive,
+      // Live activity flags mirror the emulator's actual state (parity with
+      // firmware telemetry) — the fixture baseline only sets the floor.
+      isRecording: b.isRecording || isRecordingActive,
+      isStreaming: b.isStreaming || isStreamingActive,
+      // Per-camera health rides every telemetry sample (parity with firmware
+      // plan U3) — the app's health gate folds this with the snapshot.
+      camera0Health: mockCamera0Health,
+      camera1Health: mockCamera1Health,
     );
   }
 
@@ -622,8 +750,14 @@ class MockBleService implements BleService {
     String deviceId,
     BleCommand command,
   ) async {
+    receivedCommands.add(command);
     await Future.delayed(const Duration(milliseconds: 80));
-    await _ensureCatalogLoaded();
+    // Load fixtures only for the commands whose response needs them. An
+    // unconditional await here would couple EVERY command (including the
+    // connect-handshake ones) to rootBundle asset I/O, which a widget test
+    // from an earlier fake-async zone can leave poisoned as a
+    // never-completing cached future — the handshake would hang forever.
+    if (command is GetTelemetryCommand) await _ensureCatalogLoaded();
     if (command is ListRecordingsCommand) await _ensureRecordingsLoaded();
 
     final correlationId = _uuid.v4();
@@ -653,225 +787,53 @@ class MockBleService implements BleService {
     final decodedRespChunk = proto.ChunkedPayload.fromBuffer(respBytes);
     final decodedResp = proto.CommandResponse.fromBuffer(decodedRespChunk.data);
 
-    // Mirror BleProtocol._statusToResponse so the emulated firmware surfaces the
-    // same distinct statuses as the real impl — collapsing UNSUPPORTED/TIMEOUT
-    // into a generic error here would hide divergence (e.g. raw PAUSE/RESUME,
-    // which firmware answers UNSUPPORTED).
-    switch (decodedResp.status) {
-      case proto.ResponseStatus.OK:
-        return _mapResponse<T>(command, decodedResp);
-      case proto.ResponseStatus.TIMEOUT:
-        return BleCommandResponse<T>.timeout();
-      case proto.ResponseStatus.UNSUPPORTED:
-        return BleCommandResponse<T>(
-          status: BleResponseStatus.unsupported,
-          errorMessage: decodedResp.errorMessage.isNotEmpty
-              ? decodedResp.errorMessage
-              : 'Command not supported by firmware',
-        );
-      default:
-        return BleCommandResponse<T>.error(
-          decodedResp.errorMessage.isNotEmpty
-              ? decodedResp.errorMessage
-              : 'Command failed with status ${decodedResp.status}',
-        );
-    }
+    // Shared status mapping (BleProtocol.statusToResponse) so the emulated
+    // firmware surfaces exactly the same distinct statuses as the real impl —
+    // a drift-prone copy previously lived here.
+    return BleProtocol.statusToResponse<T>(
+      decodedResp,
+      () => _mapResponse<T>(command, decodedResp),
+    );
   }
 
-  proto.Command _encodeCommand(
-    BleCommand cmd,
-    String correlationId,
-  ) => switch (cmd) {
-    GetDeviceInfoCommand() => proto.Command(
-      correlationId: correlationId,
-      getDeviceInfo: proto.GetDeviceInfoCommand(),
-    ),
-    RebootCommand() => proto.Command(
-      correlationId: correlationId,
-      reboot: proto.RebootCommand(),
-    ),
-    GetTelemetryCommand() => proto.Command(
-      correlationId: correlationId,
-      getTelemetry: proto.GetTelemetryCommand(),
-    ),
-    GetMatchStateCommand() => proto.Command(
-      correlationId: correlationId,
-      getMatchState: proto.GetMatchStateCommand(),
-    ),
-    ListRecordingsCommand() => proto.Command(
-      correlationId: correlationId,
-      listRecordings: proto.ListRecordingsCommand(),
-    ),
-    DownloadRequestCommand(:final recordingId) => proto.Command(
-      correlationId: correlationId,
-      downloadRequest: proto.DownloadRequestCommand(recordingId: recordingId),
-    ),
-    RequestThumbnailCommand(:final width, :final height, :final quality) =>
-      proto.Command(
-        correlationId: correlationId,
-        thumbnail: proto.ThumbnailRequest(
-          width: width,
-          height: height,
-          quality: quality,
-        ),
-      ),
-    RecordingControlCommand(:final action, :final captureGroupId) =>
-      proto.Command(
-        correlationId: correlationId,
-        recordingControl: proto.RecordingControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          // Mirror the real encoder (mock must not drift): the training-proxy
-          // pairing key rides the record command.
-          captureGroupId: captureGroupId,
-        ),
-      ),
-    RawCaptureControlCommand(:final action, :final captureGroupId) =>
-      proto.Command(
-        correlationId: correlationId,
-        rawCapture: proto.RawCaptureControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          captureGroupId: captureGroupId,
-        ),
-      ),
-    StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
-      correlationId: correlationId,
-      streamingControl: proto.StreamingControlCommand(
-        action: switch (action) {
-          StreamingControlAction.start => proto.StreamingAction.STREAMING_START,
-          StreamingControlAction.stop => proto.StreamingAction.STREAMING_STOP,
-        },
-        destination: rtmpUrl ?? '',
-      ),
-    ),
-    MatchControlCommand(:final action, :final period) => proto.Command(
-      correlationId: correlationId,
-      matchControl: proto.MatchControlCommand(
-        action: switch (action) {
-          BleMatchControlAction.kickoff =>
-            proto.MatchControlAction.MATCH_KICKOFF,
-          BleMatchControlAction.periodEnd =>
-            proto.MatchControlAction.MATCH_PERIOD_END,
-          BleMatchControlAction.periodStart =>
-            proto.MatchControlAction.MATCH_PERIOD_START,
-          BleMatchControlAction.finalWhistle =>
-            proto.MatchControlAction.MATCH_FINAL_WHISTLE,
-          BleMatchControlAction.clockPause =>
-            proto.MatchControlAction.MATCH_CLOCK_PAUSE,
-          BleMatchControlAction.clockResume =>
-            proto.MatchControlAction.MATCH_CLOCK_RESUME,
-        },
-        period: period,
-      ),
-    ),
-    ScoreUpdateCommand(:final teamId, :final delta) => proto.Command(
-      correlationId: correlationId,
-      scoreUpdate: proto.ScoreUpdateCommand(teamId: teamId, delta: delta),
-    ),
-    BannerEventCommand(
-      :final templateId,
-      :final params,
-      :final durationSeconds,
-      :final playerId,
-    ) =>
-      proto.Command(
-        correlationId: correlationId,
-        bannerEvent: proto.BannerEventCommand(
-          templateId: templateId,
-          params: params,
-          durationS: durationSeconds,
-          playerId: playerId ?? '',
-        ),
-      ),
-    PushOverlayLayoutCommand(:final layout) => proto.Command(
-      correlationId: correlationId,
-      pushOverlayLayout: proto.PushOverlayLayoutCommand(
-        layout: _dartLayoutToProto(layout),
-      ),
-    ),
-    SetPreviewLayoutCommand(:final layout) => proto.Command(
-      correlationId: correlationId,
-      setPreviewLayout: proto.SetPreviewLayoutCommand(
-        layout: layout == PreviewLayout.sideBySide
-            ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
-            : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
-      ),
-    ),
-    SetCameraCalibrationCommand(
-      :final rGain,
-      :final gGain,
-      :final bGain,
-      :final enabled,
-    ) =>
-      proto.Command(
-        correlationId: correlationId,
-        setCameraCalibration: proto.SetCameraCalibrationCommand(
-          rGain: rGain,
-          gGain: gGain,
-          bGain: bGain,
-          enabled: enabled,
-        ),
-      ),
-    AutoWhiteBalanceCommand() => proto.Command(
-      correlationId: correlationId,
-      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
-    ),
-    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
-      proto.Command(
-        correlationId: correlationId,
-        cameraFocus: proto.CameraFocusControlCommand(
-          mode: mode == CameraFocusMode.auto
-              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
-              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
-          focusPosition: position,
-          cameraIndex: cameraIndex,
-        ),
-      ),
-    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
-      correlationId: correlationId,
-      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
-    ),
-    ExportOverlayedCommand(:final recordingId) => proto.Command(
-      correlationId: correlationId,
-      exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
-    ),
-    PollExportCommand(:final jobId) => proto.Command(
-      correlationId: correlationId,
-      pollExport: proto.PollExportCommand(jobId: jobId),
-    ),
-    StartWifiDirectCommand() => proto.Command(
-      correlationId: correlationId,
-      startWifiDirect: proto.StartWifiDirectCommand(),
-    ),
-    StopWifiDirectCommand() => proto.Command(
-      correlationId: correlationId,
-      stopWifiDirect: proto.StopWifiDirectCommand(),
-    ),
+  /// Encodes with the production table ([BleProtocol.toProtoCommand]) — the
+  /// mock used to carry a hand-maintained copy that drifted (dropped record/
+  /// stream quality and the extended calibration fields). The firmware-side
+  /// decode below stays independent, preserving the parity round trip.
+  proto.Command _encodeCommand(BleCommand cmd, String correlationId) {
     // Uplink config uses the dedicated set/getNetworkConfig methods, not the
     // generic sendCommand round-trip the emulator's encode path serves.
-    SetNetworkConfigCommand() ||
-    GetNetworkConfigCommand() => throw UnsupportedError(
-      'network config uses the direct set/getNetworkConfig path',
-    ),
-  };
+    if (cmd is SetNetworkConfigCommand || cmd is GetNetworkConfigCommand) {
+      throw UnsupportedError(
+        'network config uses the direct set/getNetworkConfig path',
+      );
+    }
+    return BleProtocol.toProtoCommand(cmd, correlationId);
+  }
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
+    // Health enforcement parity (firmware plan U3): start-class capture
+    // commands are refused with DEVICE_INOPERABLE while any camera is DOWN —
+    // the wire backstop behind the app-side gate. Stops/pauses, downloads and
+    // WiFi commands are never health-gated. Refused BEFORE side effects so a
+    // rejected start never flips the mock's activity flags.
+    if ((mockCamera0Health == CameraHealth.down ||
+            mockCamera1Health == CameraHealth.down) &&
+        _isCaptureStart(cmd)) {
+      return proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.DEVICE_INOPERABLE,
+        errorMessage: 'camera down — capture unavailable',
+      );
+    }
+
     // Apply side effects for stateful commands before building the response.
+    // Stop-class commands that end the last running activity route through
+    // [_finalize] with SESSION_END_APP_STOP — the normal app-commanded stop
+    // is one of the firmware's four finalize triggers (fw plan U1), so a
+    // subsequent idle snapshot carries a LastSessionSummary exactly like the
+    // real peer's.
+    final wasSessionActive = _sessionActive;
     switch (cmd) {
       case RecordingControlCommand(:final action, :final quality):
         isRecordingActive =
@@ -880,16 +842,25 @@ class MockBleService implements BleService {
         lastRecordingAction = action;
         if (action == RecordingControlAction.start) {
           lastRecordingQuality = quality;
+          // Monotonic elapsed anchor (fw plan U1) + the session now owns a file.
+          _recordingStartedAt = nowProvider();
+          _sessionHadFile = true;
         }
-      case RawCaptureControlCommand(:final action, :final captureGroupId):
-        isRawCapturingActive = action == RecordingControlAction.start;
-        if (action == RecordingControlAction.start) {
-          lastRawCaptureGroupId = captureGroupId;
+        if (action == RecordingControlAction.stop) {
+          _recordingStartedAt = null;
+          if (wasSessionActive && !_sessionActive) {
+            _finalize(SessionEndReason.appStop);
+          }
         }
       case StreamingControlCommand(:final action, :final quality):
         isStreamingActive = action == StreamingControlAction.start;
         if (action == StreamingControlAction.start) {
           lastStreamingQuality = quality;
+        }
+        if (action == StreamingControlAction.stop &&
+            wasSessionActive &&
+            !_sessionActive) {
+          _finalize(SessionEndReason.appStop);
         }
       case MatchControlCommand(:final action):
         lastMatchControlAction = action;
@@ -901,6 +872,27 @@ class MockBleService implements BleService {
         lastPreviewLayout = layout;
       case ExportOverlayedCommand(:final recordingId):
         lastExportRecordingId = recordingId;
+      case SetActiveCameraCommand(:final cameraIndex):
+        // Session-scoped selection — reported back in the session snapshot
+        // (the app adopts it on reconnect instead of force-resetting).
+        lastActiveCamera = cameraIndex;
+      case SetMatchStateCommand():
+        lastSetMatchState = cmd;
+        // Absolute overwrite applied to the emulated LiveMatch (fw plan U2):
+        // GetMatchState / snapshot / the 2 s poll agree with the push.
+        _applySetMatchState(cmd);
+      case SetDeviceTimeCommand(:final epochMs):
+        lastSetDeviceTimeEpochMs = epochMs;
+      case StartWifiDirectCommand():
+        // Idempotent (proto §10): forming only when the group is down; a
+        // rejoin's redundant Start returns the existing credentials without
+        // re-formation — [wifiGroupFormationCount] is the proof.
+        if (!mockWifiGroupUp) {
+          mockWifiGroupUp = true;
+          wifiGroupFormationCount++;
+        }
+      case StopWifiDirectCommand():
+        mockWifiGroupUp = false;
       default:
         break;
     }
@@ -911,9 +903,10 @@ class MockBleService implements BleService {
         status: proto.ResponseStatus.OK,
         deviceInfo: proto.DeviceInfoResponse(
           deviceId: 'mock-device-uuid',
-          // Must match the app's expected version or decodeResponse rejects the
-          // session as a version skew (see kAppProtocolVersion).
-          protocolVersion: kAppProtocolVersion,
+          // Must match the app's expected version or the connect controller
+          // refuses the session as a version skew (see kAppProtocolVersion);
+          // tests override [mockProtocolVersion] to exercise the refusal.
+          protocolVersion: mockProtocolVersion,
           // Mirror the firmware's advertised record/stream modes so the setup
           // quality pickers are exercised against a real contract shape.
           supportedModes: _kMockSupportedModes
@@ -940,9 +933,24 @@ class MockBleService implements BleService {
       GetMatchStateCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
-        matchState: proto.MatchState(
-          status: proto.MatchStatus.MATCH_NOT_STARTED,
-        ),
+        matchState: snapshotMatchState != null
+            ? _dartMatchStateToProto(snapshotMatchState!)
+            : proto.MatchState(status: proto.MatchStatus.MATCH_NOT_STARTED),
+      ),
+      GetSessionSnapshotCommand() => _buildSessionSnapshotResponse(
+        correlationId,
+      ),
+      SetMatchStateCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+      ),
+      SetDeviceTimeCommand(:final epochMs) => proto.CommandResponse(
+        correlationId: correlationId,
+        // Mirror firmware: implausible values (pre-2020 epoch) are rejected
+        // and the clock is left untouched.
+        status: epochMs >= DateTime(2020).millisecondsSinceEpoch
+            ? proto.ResponseStatus.OK
+            : proto.ResponseStatus.ERROR,
       ),
       ListRecordingsCommand() => _buildRecordingListResponse(correlationId),
       DownloadRequestCommand(:final recordingId) => proto.CommandResponse(
@@ -971,15 +979,6 @@ class MockBleService implements BleService {
       RecordingControlCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
-      ),
-      RawCaptureControlCommand(:final action) => proto.CommandResponse(
-        correlationId: correlationId,
-        // Mirror firmware: pause/resume are unsupported for raw capture.
-        status:
-            (action == RecordingControlAction.pause ||
-                action == RecordingControlAction.resume)
-            ? proto.ResponseStatus.UNSUPPORTED
-            : proto.ResponseStatus.OK,
       ),
       StreamingControlCommand() => proto.CommandResponse(
         correlationId: correlationId,
@@ -1042,12 +1041,14 @@ class MockBleService implements BleService {
       CameraFocusCommand(:final mode, :final position) => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
+        // U9 parity: echo the EFFECTIVE mode (injection knobs emulate a fixed
+        // lens or a firmware that applies a different mode than requested).
         cameraFocus: proto.CameraFocusResponse(
-          mode: mode == CameraFocusMode.auto
+          mode: _effectiveFocusMode(mode) == CameraFocusMode.auto
               ? proto.CameraFocusMode.FOCUS_MODE_AUTO
               : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
           focusPosition: position,
-          autofocusAvailable: true,
+          autofocusAvailable: focusAutofocusAvailable,
         ),
       ),
       SetActiveCameraCommand(:final cameraIndex) => proto.CommandResponse(
@@ -1122,33 +1123,6 @@ class MockBleService implements BleService {
         )
         .toList();
 
-    // Model real firmware: a raw dual-capture session leaves two per-camera
-    // files stamped with the app-minted capture_group_id (proto RecordingMetadata
-    // 8–10, joint invariant). Surface them so the app's stop() → list → pair →
-    // download path exercises the real happy path against the emulated firmware.
-    // Without this the mock diverges from firmware and every raw download dead-
-    // ends on "incomplete". lastRawCaptureGroupId persists past STOP (set only on
-    // START), so the pair stays listed for download.
-    final rawGroup = lastRawCaptureGroupId;
-    if (rawGroup != null) {
-      final startedAt = Int64(DateTime.now().millisecondsSinceEpoch ~/ 1000);
-      for (var cam = 0; cam < 2; cam++) {
-        protoRecs.add(
-          proto.RecordingMetadata(
-            id: 'raw__${rawGroup}__cam$cam',
-            durationS: Int64(0),
-            sizeBytes: Int64(60 * 1024 * 1024),
-            startedAt: startedAt,
-            sport: '',
-            teams: '',
-            isRaw: true,
-            cameraIndex: cam,
-            captureGroupId: rawGroup,
-          ),
-        );
-      }
-    }
-
     return proto.CommandResponse(
       correlationId: correlationId,
       status: proto.ResponseStatus.OK,
@@ -1171,6 +1145,11 @@ class MockBleService implements BleService {
       GetMatchStateCommand() => BleCommandResponse.ok(
         _dartMatchState(resp.matchState) as T?,
       ),
+      GetSessionSnapshotCommand() => BleCommandResponse.ok(
+        _dartSessionSnapshot(resp.sessionSnapshot) as T?,
+      ),
+      SetMatchStateCommand() => BleCommandResponse.ok(null as T?),
+      SetDeviceTimeCommand() => BleCommandResponse.ok(null as T?),
       ListRecordingsCommand() => BleCommandResponse.ok(
         resp.recordingList.recordings
                 .map(
@@ -1183,11 +1162,6 @@ class MockBleService implements BleService {
                     ),
                     sport: r.sport,
                     teams: r.teams,
-                    isRaw: r.isRaw,
-                    cameraIndex: r.hasCameraIndex() ? r.cameraIndex : null,
-                    captureGroupId: r.hasCaptureGroupId()
-                        ? r.captureGroupId
-                        : null,
                   ),
                 )
                 .toList()
@@ -1214,7 +1188,6 @@ class MockBleService implements BleService {
             as T?,
       ),
       RecordingControlCommand() => BleCommandResponse.ok(null as T?),
-      RawCaptureControlCommand() => BleCommandResponse.ok(null as T?),
       StreamingControlCommand() => BleCommandResponse.ok(null as T?),
       MatchControlCommand() => BleCommandResponse.ok(null as T?),
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
@@ -1238,7 +1211,19 @@ class MockBleService implements BleService {
             )
             as T?,
       ),
-      CameraFocusCommand() => BleCommandResponse.ok(null as T?),
+      CameraFocusCommand() => BleCommandResponse.ok(
+        CameraFocusResult(
+              mode:
+                  resp.cameraFocus.mode == proto.CameraFocusMode.FOCUS_MODE_AUTO
+                  ? CameraFocusMode.auto
+                  : CameraFocusMode.manual,
+              position: resp.cameraFocus.hasFocusPosition()
+                  ? resp.cameraFocus.focusPosition
+                  : null,
+              autofocusAvailable: resp.cameraFocus.autofocusAvailable,
+            )
+            as T?,
+      ),
       SetActiveCameraCommand() => BleCommandResponse.ok(null as T?),
       SetPreviewLayoutCommand() => BleCommandResponse.ok(
         PreviewLayoutResult(
@@ -1294,9 +1279,15 @@ class MockBleService implements BleService {
       ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 10).clamp(0.0, 100.0),
       cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 20).clamp(0.0, 100.0),
       uptimeSeconds: Int64(tick),
-      isRecording: b.isRecording,
-      isStreaming: b.isStreaming,
-      isRawCapturing: isRawCapturingActive,
+      // Live activity flags mirror the emulator's actual state, exactly like
+      // the dart-side [_makeTelemetry] — firmware sets both wire paths from
+      // the same live sources (DeviceTelemetry 11/12/14). A baseline-only
+      // value here would report not-recording mid-session (the field-14 class
+      // of drift from the mock-parity learning).
+      isRecording: b.isRecording || isRecordingActive,
+      isStreaming: b.isStreaming || isStreamingActive,
+      camera0Health: _dartCameraHealthToProto(mockCamera0Health),
+      camera1Health: _dartCameraHealthToProto(mockCamera1Health),
     );
   }
 
@@ -1313,7 +1304,12 @@ class MockBleService implements BleService {
     uptimeSeconds: p.uptimeSeconds.toInt(),
     isRecording: p.isRecording,
     isStreaming: p.isStreaming,
-    isRawCapturing: p.isRawCapturing,
+    camera0Health: p.hasCamera0Health()
+        ? _protoCameraHealth(p.camera0Health)
+        : null,
+    camera1Health: p.hasCamera1Health()
+        ? _protoCameraHealth(p.camera1Health)
+        : null,
   );
 
   WifiState _dartWifiState(proto.WifiState s) => switch (s) {
@@ -1341,6 +1337,124 @@ class MockBleService implements BleService {
     updatedAt: s.hasUpdatedAt()
         ? DateTime.fromMillisecondsSinceEpoch(s.updatedAt.toInt())
         : DateTime.now(),
+    elapsedSeconds: s.hasElapsedSeconds() ? s.elapsedSeconds : null,
+    clockRunning: s.hasClockRunning() ? s.clockRunning : null,
+    matchUuid: s.hasMatchUuid() ? s.matchUuid : null,
+  );
+
+  proto.MatchState _dartMatchStateToProto(MatchState s) => proto.MatchState(
+    status: _dartMatchStatusToProto(s.status),
+    currentPeriod: s.currentPeriod,
+    timeRemainingS: s.timeRemainingSeconds,
+    scoreA: s.scoreA,
+    scoreB: s.scoreB,
+    teamAId: s.teamAId,
+    teamBId: s.teamBId,
+    updatedAt: Int64(s.updatedAt.millisecondsSinceEpoch),
+    // proto3 optional — stay unset when the dart model carries null.
+    elapsedSeconds: s.elapsedSeconds,
+    clockRunning: s.clockRunning,
+    matchUuid: s.matchUuid,
+  );
+
+  proto.MatchStatus _dartMatchStatusToProto(MatchStatus s) => switch (s) {
+    MatchStatus.notStarted => proto.MatchStatus.MATCH_NOT_STARTED,
+    MatchStatus.active => proto.MatchStatus.MATCH_ACTIVE,
+    MatchStatus.paused => proto.MatchStatus.MATCH_PAUSED,
+    MatchStatus.halfTime => proto.MatchStatus.MATCH_HALF_TIME,
+    MatchStatus.finished => proto.MatchStatus.MATCH_FINISHED,
+    MatchStatus.unknown => proto.MatchStatus.MATCH_STATUS_UNKNOWN,
+  };
+
+  // --- Session-snapshot enum/message conversions (§9b) ---
+
+  proto.SessionPhase _dartSessionPhaseToProto(SessionPhase p) => switch (p) {
+    SessionPhase.idle => proto.SessionPhase.SESSION_IDLE,
+    SessionPhase.configured => proto.SessionPhase.SESSION_CONFIGURED,
+    SessionPhase.ready => proto.SessionPhase.SESSION_READY,
+    SessionPhase.recording => proto.SessionPhase.SESSION_RECORDING,
+    SessionPhase.finalizing => proto.SessionPhase.SESSION_FINALIZING,
+    SessionPhase.unknown => proto.SessionPhase.SESSION_PHASE_UNKNOWN,
+  };
+
+  SessionPhase _protoSessionPhase(proto.SessionPhase p) => switch (p) {
+    proto.SessionPhase.SESSION_IDLE => SessionPhase.idle,
+    proto.SessionPhase.SESSION_CONFIGURED => SessionPhase.configured,
+    proto.SessionPhase.SESSION_READY => SessionPhase.ready,
+    proto.SessionPhase.SESSION_RECORDING => SessionPhase.recording,
+    proto.SessionPhase.SESSION_FINALIZING => SessionPhase.finalizing,
+    _ => SessionPhase.unknown,
+  };
+
+  proto.CameraHealth _dartCameraHealthToProto(CameraHealth h) => switch (h) {
+    CameraHealth.ok => proto.CameraHealth.CAMERA_HEALTH_OK,
+    CameraHealth.recovering => proto.CameraHealth.CAMERA_HEALTH_RECOVERING,
+    CameraHealth.down => proto.CameraHealth.CAMERA_HEALTH_DOWN,
+    CameraHealth.unknown => proto.CameraHealth.CAMERA_HEALTH_UNKNOWN,
+  };
+
+  CameraHealth _protoCameraHealth(proto.CameraHealth h) => switch (h) {
+    proto.CameraHealth.CAMERA_HEALTH_OK => CameraHealth.ok,
+    proto.CameraHealth.CAMERA_HEALTH_RECOVERING => CameraHealth.recovering,
+    proto.CameraHealth.CAMERA_HEALTH_DOWN => CameraHealth.down,
+    _ => CameraHealth.unknown,
+  };
+
+  proto.SessionEndReason _dartEndReasonToProto(SessionEndReason r) =>
+      switch (r) {
+        SessionEndReason.appStop => proto.SessionEndReason.SESSION_END_APP_STOP,
+        SessionEndReason.autoStop =>
+          proto.SessionEndReason.SESSION_END_AUTO_STOP,
+        SessionEndReason.cameraFailure =>
+          proto.SessionEndReason.SESSION_END_CAMERA_FAILURE,
+        SessionEndReason.reboot => proto.SessionEndReason.SESSION_END_REBOOT,
+        SessionEndReason.unknown => proto.SessionEndReason.SESSION_END_UNKNOWN,
+      };
+
+  SessionEndReason _protoEndReason(proto.SessionEndReason r) => switch (r) {
+    proto.SessionEndReason.SESSION_END_APP_STOP => SessionEndReason.appStop,
+    proto.SessionEndReason.SESSION_END_AUTO_STOP => SessionEndReason.autoStop,
+    proto.SessionEndReason.SESSION_END_CAMERA_FAILURE =>
+      SessionEndReason.cameraFailure,
+    proto.SessionEndReason.SESSION_END_REBOOT => SessionEndReason.reboot,
+    _ => SessionEndReason.unknown,
+  };
+
+  SessionSnapshot _dartSessionSnapshot(
+    proto.SessionSnapshotResponse s,
+  ) => SessionSnapshot(
+    sessionPhase: _protoSessionPhase(s.sessionPhase),
+    activeCameraIndex: s.hasActiveCameraIndex() ? s.activeCameraIndex : null,
+    previewLayout: s.hasPreviewLayout()
+        ? (s.previewLayout == proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+              ? PreviewLayout.sideBySide
+              : PreviewLayout.single)
+        : null,
+    isRecording: s.hasIsRecording() ? s.isRecording : null,
+    isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
+    recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
+        ? s.recordingElapsedSeconds
+        : null,
+    matchState: s.hasMatchState() ? _dartMatchState(s.matchState) : null,
+    camera0Health: s.hasCamera0Health()
+        ? _protoCameraHealth(s.camera0Health)
+        : null,
+    camera1Health: s.hasCamera1Health()
+        ? _protoCameraHealth(s.camera1Health)
+        : null,
+    lastSession: s.hasLastSession()
+        ? LastSessionSummary(
+            matchUuid: s.lastSession.matchUuid,
+            endReason: _protoEndReason(s.lastSession.endReason),
+            endClockSeconds: s.lastSession.hasEndClockSeconds()
+                ? s.lastSession.endClockSeconds
+                : null,
+            fileValid: s.lastSession.hasFileValid()
+                ? s.lastSession.fileValid
+                : null,
+          )
+        : null,
+    wifiGroupUp: s.hasWifiGroupUp() ? s.wifiGroupUp : null,
   );
 
   @override
@@ -1380,6 +1494,12 @@ class MockBleService implements BleService {
   /// this after a "Start match" tap to verify the correct values were sent.
   PushSessionConfig? lastPushedConfig;
 
+  /// Every config pushed via [pushSessionConfig], in arrival order — the
+  /// session-config counterpart of [receivedCommands] (PushSessionConfig is
+  /// not a BleCommand, so it never lands there). Tests assert the U5
+  /// mid-session auto-stop re-push off this log.
+  final List<PushSessionConfig> pushedConfigs = [];
+
   /// Whether [pushSessionConfig] should return an error on the next call.
   /// Reset to false after each call. Useful for error-path tests.
   bool failNextPushSessionConfig = false;
@@ -1410,6 +1530,432 @@ class MockBleService implements BleService {
   bool failNextOverlayExport = false;
 
   // ---------------------------------------------------------------------------
+  // Session snapshot / connect handshake (state-health cycle, §9b + U7)
+  //
+  // U7 parity scope: the emulated firmware carries FULL session semantics —
+  // a session survives mock disconnects with a match clock that keeps ticking
+  // (proto §9b: "the firmware clock is authority — it is the only clock that
+  // ran"), the unsupervised auto-stop timer (compressed timescale via
+  // [autoStopMinuteUnit]), an observable FINALIZING window
+  // ([finalizeDuration]), the camera-failure finalize hook (firmware plan
+  // U3), the boot-orphan path ([simulateReboot], firmware plan U1), and
+  // idempotent StartWifiDirect (proto §10). Extend these seams rather than
+  // adding a parallel path.
+  // ---------------------------------------------------------------------------
+
+  /// Every command received via [sendCommand], in arrival order. Tests assert
+  /// handshake ordering ("no time push after a failed protocol gate") and
+  /// absence ("no poller command while reconciling") off this log.
+  final List<BleCommand> receivedCommands = [];
+
+  /// Overrides the derived session phase (default: finalizing during a
+  /// finalize window, recording when a recording is active, configured after
+  /// a session-config push, else idle).
+  SessionPhase? mockSessionPhase;
+
+  /// Injectable clock seam. Defaults to the real wall clock so mock sessions
+  /// advance in real elapsed time (drift-reconciliation tests exercise real
+  /// gaps); tests that need deterministic seconds swap in a controlled now.
+  DateTime Function() nowProvider = DateTime.now;
+
+  /// Compressed-timescale seam: the length of one firmware "minute" for the
+  /// auto-stop timer (proto §9 `auto_stop_minutes`). Production default is a
+  /// real minute; tests shrink it so a 30-minute safety net fires in
+  /// milliseconds without changing the wire-visible unit.
+  Duration autoStopMinuteUnit = const Duration(minutes: 1);
+
+  /// How long the emulated finalize (recording EOS, stream stop, summary
+  /// write) takes. FINALIZING is a real observable state (proto §9b
+  /// SessionPhase): inject a non-zero window to read a snapshot mid-finalize.
+  /// Zero (default) completes synchronously — never a torn intermediate.
+  Duration finalizeDuration = Duration.zero;
+
+  /// Number of ACTUAL WiFi-Direct group formations. StartWifiDirect while the
+  /// group is already up returns the EXISTING credentials without re-forming
+  /// (proto §10: re-formation disrupts CSI/Argus capture and MUST NOT happen
+  /// mid-session) — rejoin tests assert this counter stays flat.
+  int wifiGroupFormationCount = 0;
+
+  /// The firmware LiveMatch equivalent: base match state as of
+  /// [_matchClockAnchor]. Read through [snapshotMatchState] (ticking view).
+  MatchState? _liveMatch;
+  DateTime? _matchClockAnchor;
+
+  /// When the running recording started ([nowProvider] time base) — drives
+  /// the snapshot's monotonic `recording_elapsed_seconds` (proto §9b).
+  DateTime? _recordingStartedAt;
+
+  /// Session-config axis (proto SESSION_CONFIGURED). Set by
+  /// [pushSessionConfig]; cleared when a finalize or reboot returns the
+  /// session to idle. Kept separate from [lastPushedConfig], which is a
+  /// test-inspection log and never resets.
+  bool _sessionConfigured = false;
+
+  /// Whether the current session wrote a file (recording start seen) —
+  /// feeds LastSessionSummary.file_valid on finalize.
+  bool _sessionHadFile = false;
+
+  /// Finalize claimed exactly once (firmware plan U1: CAS to `finalizing`
+  /// under the session mutex; losers return immediately).
+  bool _finalizing = false;
+  Timer? _finalizeTimer;
+  Timer? _autoStopTimer;
+  final Map<int, Timer> _healthScriptTimers = {};
+
+  bool get _sessionActive => isRecordingActive || isStreamingActive;
+
+  /// The match state reported in the session snapshot, by GetMatchState AND
+  /// by the 2 s poll. Null = no session config was ever pushed (snapshot
+  /// omits match_state). While `clockRunning == true` the returned
+  /// `elapsedSeconds` TICKS in real elapsed time from the moment of the last
+  /// set/SetMatchState — including while "disconnected" (§9b: a session
+  /// outlives the BLE connection and its clock is the only one that ran).
+  MatchState? get snapshotMatchState {
+    final m = _liveMatch;
+    if (m == null) return null;
+    final anchor = _matchClockAnchor;
+    final base = m.elapsedSeconds;
+    if (m.clockRunning != true || base == null || anchor == null) return m;
+    return _withElapsed(m, base + nowProvider().difference(anchor).inSeconds);
+  }
+
+  set snapshotMatchState(MatchState? m) {
+    _liveMatch = m;
+    _matchClockAnchor = m == null ? null : nowProvider();
+  }
+
+  static MatchState _withElapsed(MatchState m, int elapsedSeconds) =>
+      MatchState(
+        status: m.status,
+        currentPeriod: m.currentPeriod,
+        timeRemainingSeconds: m.timeRemainingSeconds,
+        scoreA: m.scoreA,
+        scoreB: m.scoreB,
+        teamAId: m.teamAId,
+        teamBId: m.teamBId,
+        updatedAt: m.updatedAt,
+        elapsedSeconds: elapsedSeconds,
+        clockRunning: m.clockRunning,
+        matchUuid: m.matchUuid,
+      );
+
+  /// Override for the snapshot's monotonic recording elapsed; when null (the
+  /// default) it derives from the recording-start anchor and keeps advancing
+  /// across disconnects, like the firmware's monotonic tracking (fw plan U1).
+  int? snapshotRecordingElapsedSeconds;
+
+  int? get _recordingElapsedSeconds =>
+      snapshotRecordingElapsedSeconds ??
+      (isRecordingActive && _recordingStartedAt != null
+          ? nowProvider().difference(_recordingStartedAt!).inSeconds
+          : null);
+
+  /// Injectable per-camera health. Rides the session snapshot AND every
+  /// telemetry sample; while either camera is [CameraHealth.down],
+  /// start-class capture commands are refused with DEVICE_INOPERABLE
+  /// (firmware parity). Setting DOWN while a recording runs triggers the
+  /// firmware plan U3 hook: the session finalizes cleanly with end-reason
+  /// camera-failure.
+  CameraHealth get mockCamera0Health => _camera0Health;
+  set mockCamera0Health(CameraHealth h) {
+    _camera0Health = h;
+    _onCameraHealthChanged();
+  }
+
+  CameraHealth get mockCamera1Health => _camera1Health;
+  set mockCamera1Health(CameraHealth h) {
+    _camera1Health = h;
+    _onCameraHealthChanged();
+  }
+
+  CameraHealth _camera0Health = CameraHealth.ok;
+  CameraHealth _camera1Health = CameraHealth.ok;
+
+  void _onCameraHealthChanged() {
+    // Firmware plan U3 session hook: recording + any camera DOWN →
+    // hold-then-finalize with end-reason camera failure (the mock skips the
+    // watchdog hold window). Streaming-only sessions ride out camera loss.
+    if ((_camera0Health == CameraHealth.down ||
+            _camera1Health == CameraHealth.down) &&
+        isRecordingActive) {
+      _finalize(SessionEndReason.cameraFailure);
+    }
+  }
+
+  /// Scripts camera [cameraIndex] (0/1) through [sequence], one step per
+  /// [interval] — the firmware plan U3 transition seam for flap tests
+  /// (e.g. RECOVERING → DOWN → OK as the watchdog loses then recovers a
+  /// sensor). Each step goes through the health setter, so a scripted DOWN
+  /// mid-recording exercises the camera-failure finalize exactly like a
+  /// direct injection.
+  @visibleForTesting
+  void scheduleCameraHealthSequence(
+    int cameraIndex,
+    List<CameraHealth> sequence, {
+    Duration interval = const Duration(milliseconds: 20),
+  }) {
+    _healthScriptTimers.remove(cameraIndex)?.cancel();
+    if (sequence.isEmpty) return;
+    var i = 0;
+    _healthScriptTimers[cameraIndex] = Timer.periodic(interval, (t) {
+      final h = sequence[i++];
+      if (cameraIndex == 0) {
+        mockCamera0Health = h;
+      } else {
+        mockCamera1Health = h;
+      }
+      if (i >= sequence.length) {
+        t.cancel();
+        _healthScriptTimers.remove(cameraIndex);
+      }
+    });
+  }
+
+  /// Arms the unsupervised auto-stop safety net (proto §9
+  /// `auto_stop_minutes`, firmware plan U1): minutes come from the last
+  /// pushed session config (absent ⇒ firmware default 30), scaled by
+  /// [autoStopMinuteUnit]. Armed only while a session is active — connect
+  /// cancels it; firing finalizes with end-reason auto-stop AND tears the
+  /// WiFi group down.
+  void _armAutoStop() {
+    _autoStopTimer?.cancel();
+    _autoStopTimer = null;
+    if (!_sessionActive) return;
+    final minutes =
+        lastPushedConfig?.autoStopMinutes ?? kDefaultAutoStopMinutes;
+    _autoStopTimer = Timer(autoStopMinuteUnit * minutes, () {
+      _autoStopTimer = null;
+      if (_sessionActive) {
+        _finalize(SessionEndReason.autoStop);
+      } else {
+        // Already stopped by a command race — idempotent, single summary
+        // (fw plan U1); only the idle group teardown remains.
+        mockWifiGroupUp = false;
+      }
+    });
+  }
+
+  /// The single finalize path (firmware plan U1): claimed exactly once, all
+  /// four triggers route here — app stop, auto-stop, camera failure (boot
+  /// orphans go through [simulateReboot], which writes the summary directly
+  /// because a crashed firmware never ran finalize). Activity stops
+  /// immediately (EOS); the phase reports FINALIZING for [finalizeDuration];
+  /// completion mints the LastSessionSummary and returns the session to idle.
+  void _finalize(SessionEndReason reason) {
+    if (_finalizing) return; // CAS parity: losers return immediately
+    _finalizing = true;
+    _autoStopTimer?.cancel();
+    _autoStopTimer = null;
+    final endClock = snapshotMatchState?.elapsedSeconds;
+    final hadFile = _sessionHadFile;
+    final matchUuid =
+        _liveMatch?.matchUuid ?? lastPushedConfig?.matchUuid ?? '';
+    isRecordingActive = false;
+    isStreamingActive = false;
+    _recordingStartedAt = null;
+    snapshotRecordingElapsedSeconds = null;
+    _freezeMatchClock();
+    void complete() {
+      _finalizing = false;
+      _finalizeTimer = null;
+      _sessionConfigured = false;
+      _sessionHadFile = false;
+      mockLastSessionSummary = LastSessionSummary(
+        matchUuid: matchUuid,
+        endReason: reason,
+        endClockSeconds: endClock,
+        // The finalize was clean, so the MP4 is playable (moov written) when
+        // the session wrote one; a file-less (streaming-only) session leaves
+        // the optional absent. Orphans (file_valid=false) exist only on the
+        // reboot path.
+        fileValid: hadFile ? true : null,
+      );
+      // Auto-stop is the unsupervised path: it also tears the group down
+      // (fw plan U1). App-commanded stops leave the group to the app.
+      if (reason == SessionEndReason.autoStop) mockWifiGroupUp = false;
+    }
+
+    if (finalizeDuration == Duration.zero) {
+      complete();
+    } else {
+      _finalizeTimer = Timer(finalizeDuration, complete);
+    }
+  }
+
+  /// Stops the ticking clock at its current value (finalize freezes the
+  /// LiveMatch clock; the summary's end clock was captured just before).
+  void _freezeMatchClock() {
+    final m = snapshotMatchState;
+    if (m == null) return;
+    _liveMatch = MatchState(
+      status: m.status,
+      currentPeriod: m.currentPeriod,
+      timeRemainingSeconds: m.timeRemainingSeconds,
+      scoreA: m.scoreA,
+      scoreB: m.scoreB,
+      teamAId: m.teamAId,
+      teamBId: m.teamBId,
+      updatedAt: m.updatedAt,
+      elapsedSeconds: m.elapsedSeconds,
+      clockRunning: m.clockRunning == null ? null : false,
+      matchUuid: m.matchUuid,
+    );
+    _matchClockAnchor = nowProvider();
+  }
+
+  /// Applies the absolute match-state overwrite (proto §9b SetMatchState):
+  /// present fields overwrite, ABSENT FIELDS ARE LEFT UNTOUCHED (partial set
+  /// is legal) — so a subsequent GetMatchState/snapshot agrees with what the
+  /// app pushed, exactly like the firmware's LiveMatch mutation (fw plan U2).
+  /// The base is the ticking view, so an absent elapsed_seconds keeps the
+  /// firmware clock running without a jump.
+  void _applySetMatchState(SetMatchStateCommand cmd) {
+    final base = snapshotMatchState ?? MatchState.idle();
+    _liveMatch = MatchState(
+      status: cmd.status ?? base.status,
+      currentPeriod: cmd.currentPeriod ?? base.currentPeriod,
+      timeRemainingSeconds: base.timeRemainingSeconds,
+      scoreA: cmd.scoreA ?? base.scoreA,
+      scoreB: cmd.scoreB ?? base.scoreB,
+      teamAId: base.teamAId,
+      teamBId: base.teamBId,
+      updatedAt: nowProvider(),
+      elapsedSeconds: cmd.elapsedSeconds ?? base.elapsedSeconds,
+      clockRunning: cmd.clockRunning ?? base.clockRunning,
+      matchUuid: base.matchUuid,
+    );
+    _matchClockAnchor = nowProvider();
+  }
+
+  /// Test seam (firmware plan U1 boot-orphan path): the camera loses power
+  /// and reboots. The link dies bare (no `disconnecting` first), ALL
+  /// in-memory session state is lost, and — when a recording was
+  /// orphaned — the boot-time scan records a LastSessionSummary with
+  /// SESSION_END_REBOOT and file_valid=false (crash artifact, moov never
+  /// written). The next connect's snapshot looks like a first-ever connect
+  /// (idle, default selections) plus that summary; a streaming-only session
+  /// leaves no orphan and therefore no summary.
+  @visibleForTesting
+  void simulateReboot(String deviceId) {
+    _autoStopTimer?.cancel();
+    _autoStopTimer = null;
+    _finalizeTimer?.cancel();
+    _finalizeTimer = null;
+    for (final t in _healthScriptTimers.values) {
+      t.cancel();
+    }
+    _healthScriptTimers.clear();
+    final orphanedFile = isRecordingActive;
+    mockLastSessionSummary = orphanedFile
+        ? LastSessionSummary(
+            matchUuid:
+                _liveMatch?.matchUuid ?? lastPushedConfig?.matchUuid ?? '',
+            endReason: SessionEndReason.reboot,
+            fileValid: false,
+          )
+        : null;
+    _finalizing = false;
+    isRecordingActive = false;
+    isStreamingActive = false;
+    _recordingStartedAt = null;
+    snapshotRecordingElapsedSeconds = null;
+    _sessionConfigured = false;
+    _sessionHadFile = false;
+    _liveMatch = null;
+    _matchClockAnchor = null;
+    mockSessionPhase = null;
+    // Fresh boot: default selections, group down, cameras re-primed OK.
+    lastActiveCamera = 0;
+    lastPreviewLayout = PreviewLayout.single;
+    mockWifiGroupUp = false;
+    _camera0Health = CameraHealth.ok;
+    _camera1Health = CameraHealth.ok;
+    simulateUnexpectedDrop(deviceId);
+  }
+
+  /// Whether [cmd] is a start-class capture command — the set the firmware
+  /// health-gates (proto: "start-class commands are refused with
+  /// DEVICE_INOPERABLE"). Resume counts: it re-opens the capture path.
+  static bool _isCaptureStart(BleCommand cmd) => switch (cmd) {
+    RecordingControlCommand(:final action) =>
+      action == RecordingControlAction.start ||
+          action == RecordingControlAction.resume,
+    StreamingControlCommand(:final action) =>
+      action == StreamingControlAction.start,
+    _ => false,
+  };
+
+  /// How the previous session ended; reported only when the phase is idle.
+  LastSessionSummary? mockLastSessionSummary;
+
+  /// Whether the emulated WiFi-Direct group is currently up.
+  bool mockWifiGroupUp = false;
+
+  /// When true the next GetSessionSnapshot answers TIMEOUT (handshake-failure
+  /// path: the connect controller must fail typed and drop the link). One-shot:
+  /// self-clears after firing, so a transparent connect retry recovers.
+  bool failNextSessionSnapshot = false;
+
+  /// When true EVERY GetSessionSnapshot answers TIMEOUT (persistent): models a
+  /// firmware that keeps NACKing so the connect controller's transient retry
+  /// exhausts and the failure surfaces terminally.
+  bool failAllSessionSnapshot = false;
+
+  /// The last absolute match-state overwrite received (reconcile push).
+  SetMatchStateCommand? lastSetMatchState;
+
+  /// The last device wall-clock push received (epoch ms), null before any.
+  int? lastSetDeviceTimeEpochMs;
+
+  proto.CommandResponse _buildSessionSnapshotResponse(String correlationId) {
+    if (failNextSessionSnapshot || failAllSessionSnapshot) {
+      failNextSessionSnapshot = false;
+      return proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.TIMEOUT,
+      );
+    }
+    final phase =
+        mockSessionPhase ??
+        (_finalizing
+            ? SessionPhase.finalizing
+            : isRecordingActive
+            ? SessionPhase.recording
+            : _sessionConfigured
+            ? SessionPhase.configured
+            : SessionPhase.idle);
+    final match = snapshotMatchState;
+    final lastSession = mockLastSessionSummary;
+    final snapshot = proto.SessionSnapshotResponse(
+      sessionPhase: _dartSessionPhaseToProto(phase),
+      activeCameraIndex: lastActiveCamera,
+      previewLayout: lastPreviewLayout == PreviewLayout.sideBySide
+          ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+          : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+      isRecording: isRecordingActive,
+      isStreaming: isStreamingActive,
+      recordingElapsedSeconds: _recordingElapsedSeconds,
+      matchState: match == null ? null : _dartMatchStateToProto(match),
+      camera0Health: _dartCameraHealthToProto(mockCamera0Health),
+      camera1Health: _dartCameraHealthToProto(mockCamera1Health),
+      lastSession: lastSession == null
+          ? null
+          : proto.LastSessionSummary(
+              matchUuid: lastSession.matchUuid,
+              endReason: _dartEndReasonToProto(lastSession.endReason),
+              endClockSeconds: lastSession.endClockSeconds,
+              fileValid: lastSession.fileValid,
+            ),
+      wifiGroupUp: mockWifiGroupUp,
+    );
+    return proto.CommandResponse(
+      correlationId: correlationId,
+      status: proto.ResponseStatus.OK,
+      sessionSnapshot: snapshot,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Control command side-effect fields
   // ---------------------------------------------------------------------------
 
@@ -1424,13 +1970,6 @@ class MockBleService implements BleService {
 
   /// True when recording is active (toggled by [RecordingControlCommand]).
   bool isRecordingActive = false;
-
-  /// True when raw dual-camera capture is active (toggled by
-  /// [RawCaptureControlCommand]); surfaced via telemetry `isRawCapturing`.
-  bool isRawCapturingActive = false;
-
-  /// The app-minted capture group id from the last raw-capture start.
-  String? lastRawCaptureGroupId;
 
   /// True when streaming is active (toggled by [StreamingControlCommand]).
   bool isStreamingActive = false;
@@ -1452,6 +1991,10 @@ class MockBleService implements BleService {
       throw const BleTimeoutException('Simulated pushSessionConfig failure');
     }
     lastPushedConfig = config;
+    pushedConfigs.add(config);
+    // Session-config axis: the snapshot now reports SESSION_CONFIGURED until
+    // recording starts or a finalize/reboot returns the session to idle.
+    _sessionConfigured = true;
   }
 
   @override
@@ -1529,8 +2072,23 @@ class MockBleService implements BleService {
   ({CameraFocusMode mode, int? position, int? cameraIndex})? lastFocus;
   int lastActiveCamera = 0;
 
+  /// U9 AF-echo injection knobs. [focusAutofocusAvailable] false emulates a
+  /// fixed lens (no VCM motor): the echo forces MANUAL and flags AF as
+  /// unavailable. [focusEffectiveModeOverride] non-null makes the echo report
+  /// that mode regardless of the request (firmware policy divergence, e.g. AF
+  /// refused while recording).
+  bool focusAutofocusAvailable = true;
+  CameraFocusMode? focusEffectiveModeOverride;
+
+  /// The EFFECTIVE mode the emulated firmware applies for a [requested] mode —
+  /// shared by the wire-path response builder and the direct port method so
+  /// both echoes agree.
+  CameraFocusMode _effectiveFocusMode(CameraFocusMode requested) =>
+      focusEffectiveModeOverride ??
+      (focusAutofocusAvailable ? requested : CameraFocusMode.manual);
+
   @override
-  Future<void> setCameraFocus(
+  Future<CameraFocusResult?> setCameraFocus(
     String deviceId, {
     required CameraFocusMode mode,
     int? position,
@@ -1538,6 +2096,11 @@ class MockBleService implements BleService {
   }) async {
     await Future.delayed(const Duration(milliseconds: 20));
     lastFocus = (mode: mode, position: position, cameraIndex: cameraIndex);
+    return CameraFocusResult(
+      mode: _effectiveFocusMode(mode),
+      position: position,
+      autofocusAvailable: focusAutofocusAvailable,
+    );
   }
 
   @override
@@ -1640,91 +2203,21 @@ class MockBleService implements BleService {
         : null,
   );
 
-  // ---------------------------------------------------------------------------
-  // Overlay layout → proto helpers (duplicated from BleProtocol for
-  // self-containment; round-trip validated via _encodeCommand/_buildResponse)
-  // ---------------------------------------------------------------------------
-
-  proto.OverlayLayout _dartLayoutToProto(OverlayLayout layout) {
-    return proto.OverlayLayout(
-      canvasWidth: layout.canvasWidth,
-      canvasHeight: layout.canvasHeight,
-      elements: layout.elements.map(_dartElementToProto).toList(),
-      templates: layout.templates
-          .map(
-            (t) => proto.OverlayTemplate(
-              eventType: t.eventType,
-              durationMs: t.durationMs,
-              elements: t.elements.map(_dartElementToProto).toList(),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  proto.OverlayElement _dartElementToProto(OverlayElement el) {
-    return proto.OverlayElement(
-      id: el.id,
-      shape: _dartShapeToProto(el.shape),
-      bounds: proto.OverlayRect(
-        x1: el.bounds.x1,
-        y1: el.bounds.y1,
-        z: el.bounds.z,
-        x2: el.bounds.x2,
-        y2: el.bounds.y2,
-      ),
-      style: proto.OverlayStyle(
-        fillColor: el.style.fillColor ?? '',
-        textColor: el.style.textColor ?? '',
-        opacity: el.style.opacity,
-        cornerRadius: el.style.cornerRadius,
-        fontFamily: el.style.fontFamily ?? '',
-        fontSize: el.style.fontSize,
-        textAlign: _dartTextAlignToProto(el.style.textAlign),
-        fontWeight: _dartFontWeightToProto(el.style.fontWeight),
-        staticText: el.style.staticText ?? '',
-      ),
-      binding: _dartBindingToProto(el.binding),
-      visible: el.visible,
-    );
-  }
-
-  proto.OverlayShape _dartShapeToProto(OverlayShape s) => switch (s) {
-    OverlayShape.rect => proto.OverlayShape.SHAPE_RECT,
-    OverlayShape.text => proto.OverlayShape.SHAPE_TEXT,
-    OverlayShape.circle => proto.OverlayShape.SHAPE_CIRCLE,
-  };
-
-  proto.OverlayBinding _dartBindingToProto(OverlayBinding b) => switch (b) {
-    OverlayBinding.static => proto.OverlayBinding.BINDING_STATIC,
-    OverlayBinding.scoreA => proto.OverlayBinding.BINDING_SCORE_A,
-    OverlayBinding.scoreB => proto.OverlayBinding.BINDING_SCORE_B,
-    OverlayBinding.scoreVs => proto.OverlayBinding.BINDING_SCORE_VS,
-    OverlayBinding.teamAName => proto.OverlayBinding.BINDING_TEAM_A_NAME,
-    OverlayBinding.teamBName => proto.OverlayBinding.BINDING_TEAM_B_NAME,
-    OverlayBinding.matchClock => proto.OverlayBinding.BINDING_MATCH_CLOCK,
-    OverlayBinding.periodLabel => proto.OverlayBinding.BINDING_PERIOD_LABEL,
-  };
-
-  proto.TextAlign _dartTextAlignToProto(OverlayTextAlign a) => switch (a) {
-    OverlayTextAlign.left => proto.TextAlign.TEXT_ALIGN_LEFT,
-    OverlayTextAlign.center => proto.TextAlign.TEXT_ALIGN_CENTER,
-    OverlayTextAlign.right => proto.TextAlign.TEXT_ALIGN_RIGHT,
-  };
-
-  proto.FontWeight _dartFontWeightToProto(OverlayFontWeight w) => switch (w) {
-    OverlayFontWeight.normal => proto.FontWeight.FONT_WEIGHT_NORMAL,
-    OverlayFontWeight.bold => proto.FontWeight.FONT_WEIGHT_BOLD,
-  };
-
   @override
   Future<void> dispose() async {
     await stopScan();
+    _autoStopTimer?.cancel();
+    _finalizeTimer?.cancel();
+    for (final t in _healthScriptTimers.values) {
+      t.cancel();
+    }
+    _healthScriptTimers.clear();
     for (final s in _devices.values) {
       s.dispose();
     }
     _devices.clear();
     await _discoveryController.close();
+    await _bluetoothController.close();
   }
 
   _DeviceState _deviceState(String id, SstDevice device) {

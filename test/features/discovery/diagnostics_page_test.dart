@@ -8,6 +8,8 @@ import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/version/version_info.dart';
 import 'package:sst_cam_app/features/discovery/diagnostics_page.dart';
 
+import '../../test_helpers.dart';
+
 const _deviceId = 'SST-CAM-001';
 
 DeviceTelemetry _telemetry({int? battery, int? rssi, bool internet = false}) =>
@@ -83,6 +85,9 @@ void main() {
           (ref) => Stream.value(_telemetry(battery: null, rssi: null)),
         ),
         appVersionProvider.overrideWith((ref) async => '0.1.0 (dev)'),
+        // Pin health OK so the U4 camera tiles don't add their own "—"s —
+        // this test counts the battery + RSSI dashes only.
+        healthyDeviceOverride(),
       ],
     );
     // Battery + WiFi RSSI tiles both show the em dash, not "0".

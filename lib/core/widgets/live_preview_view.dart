@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
+import 'package:logging/logging.dart';
 
 import '../models/wifi.dart';
+import '../services/log_service.dart';
+import '../state/device_health.dart' show captureBlockedProvider;
 import '../wifi/wifi_providers.dart';
 import '../theme/tokens.dart';
 import 'wf_button.dart';
 import 'wf_card.dart';
+
+final _log = Logger('LivePreview');
 
 /// 16:9 live preview surface. Plays the camera's RTSP H.264 stream via VLC
 /// when the WiFi Direct group is up and the descriptor URL is reachable;
@@ -59,6 +66,24 @@ class LivePreviewView extends ConsumerStatefulWidget {
   /// surface should hold the client; it resumes automatically when un-paused.
   final bool paused;
 
+  /// How long a dead VLC client (errored, or stalled after playing) waits
+  /// before the automatic teardown → recreate cycle. Long enough to not
+  /// hammer a camera that is mid-restart, short enough to feel automatic.
+  static const vlcRestartDelay = Duration(seconds: 3);
+
+  /// Cadence of the silent-stall watchdog (see [stallWindow]).
+  static const stallCheckInterval = Duration(seconds: 2);
+
+  /// How long the client may sit with no observable progress (position and
+  /// playing state both frozen) before it is treated as silently stalled and
+  /// cycled. Field bug (2026-07-08, real Jetson + phone): when the camera's
+  /// pipeline restarts under the preview, VLC often neither errors nor
+  /// transitions to stopped/ended — it pins on a frozen frame ("playing") or
+  /// sits in buffering forever, so the error/stop-edge restart above never
+  /// fired and the pane needed a manual Stop → Preview. Generous enough to
+  /// ride out a slow RTSP (re)connect, short enough to feel automatic.
+  static const stallWindow = Duration(seconds: 8);
+
   @override
   ConsumerState<LivePreviewView> createState() => _LivePreviewViewState();
 }
@@ -69,6 +94,25 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   String? _vlcUrl;
   bool _vlcError = false;
   bool _vlcPlaying = false;
+  Timer? _vlcRestartTimer;
+
+  // Silent-stall watchdog state — see [LivePreviewView.stallWindow]. Progress
+  // is "position moved or playing state changed"; when neither happens for a
+  // whole stall window (counted in watchdog ticks, so the logic follows the
+  // timer rather than the wall clock) the client is cycled like an explicit
+  // error would be.
+  Timer? _stallTicker;
+  Duration _stallLastPosition = Duration.zero;
+  PlayingState? _stallLastState;
+  int _stallTicksWithoutProgress = 0;
+  static final int _stallTickLimit =
+      LivePreviewView.stallWindow.inMilliseconds ~/
+      LivePreviewView.stallCheckInterval.inMilliseconds;
+  // Frozen-frame detection ("playing" but position pinned) is armed only once
+  // the position has been seen advancing for THIS controller — on a source
+  // where VLC never reports position (so a frozen position is meaningless)
+  // the watchdog must not cycle a healthy stream every window.
+  bool _sawPositionAdvance = false;
 
   void _enablePreview() {
     ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state = true;
@@ -90,11 +134,15 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // never attached — handle it on the future, not via a sync try/catch.
     // ignore: discarded_futures
     controller.dispose().catchError((Object e) {
-      debugPrint('LivePreviewView: VLC dispose skipped ($e)');
+      _log.warn('VLC dispose skipped ($e)');
     });
   }
 
   void _tearDownVlc() {
+    _vlcRestartTimer?.cancel();
+    _vlcRestartTimer = null;
+    _stallTicker?.cancel();
+    _stallTicker = null;
     _disposeVlc(_vlc);
     _vlc = null;
     _vlcUrl = null;
@@ -104,19 +152,67 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
 
   @override
   void dispose() {
+    _vlcRestartTimer?.cancel();
+    _stallTicker?.cancel();
     _disposeVlc(_vlc);
     super.dispose();
   }
 
+  void _checkStall() {
+    final value = _vlc?.value;
+    if (value == null) return;
+    final positionMoved = value.position != _stallLastPosition;
+    if (positionMoved || value.playingState != _stallLastState) {
+      _stallLastPosition = value.position;
+      _stallLastState = value.playingState;
+      _stallTicksWithoutProgress = 0;
+      if (positionMoved) _sawPositionAdvance = true;
+      return;
+    }
+    if (value.playingState == PlayingState.paused) return;
+    if (++_stallTicksWithoutProgress < _stallTickLimit) return;
+    // Frozen frame while "playing" (armed once position proved live), or
+    // pinned pre-playback (buffering/initializing/stopped limbo with no error
+    // event) — either way nothing will ever move again without a cycle.
+    final frozenPlaying = value.isPlaying && _sawPositionAdvance;
+    final pinnedStarting = !value.isPlaying;
+    if (frozenPlaying || pinnedStarting) _scheduleVlcRestart();
+  }
+
   void _onVlcChange() {
-    final hasError = _vlc?.value.hasError ?? false;
-    final isPlaying = _vlc?.value.isPlaying ?? false;
+    final value = _vlc?.value;
+    if (value == null) return;
+    final hasError = value.hasError;
+    final isPlaying = value.isPlaying;
+    // A dead client never comes back on its own — an errored player (e.g. the
+    // RTSP connect raced the camera's pipeline restart right after the health
+    // gate lifted) or a stream that was playing and then stopped/ended (the
+    // camera died mid-preview) stays dead until it gets a fresh stop → play
+    // cycle. Schedule the same teardown → recreate a manual Stop → Preview
+    // performs, so the pane auto-resumes instead of pinning on a placeholder.
+    final stalled =
+        _vlcPlaying &&
+        !isPlaying &&
+        (value.playingState == PlayingState.stopped ||
+            value.playingState == PlayingState.ended);
+    if (hasError || stalled) _scheduleVlcRestart();
     if ((hasError != _vlcError || isPlaying != _vlcPlaying) && mounted) {
       setState(() {
         _vlcError = hasError;
         _vlcPlaying = isPlaying;
       });
     }
+  }
+
+  void _scheduleVlcRestart() {
+    if (_vlcRestartTimer?.isActive ?? false) return;
+    _vlcRestartTimer = Timer(LivePreviewView.vlcRestartDelay, () {
+      if (!mounted) return;
+      // Release the dead client. The rebuild recreates a fresh controller
+      // (the URL was cleared) while `shouldStream` still holds; if the next
+      // attempt dies too, its own error/stall schedules the next cycle.
+      setState(_tearDownVlc);
+    });
   }
 
   void _swapVlcController(String url) {
@@ -134,6 +230,17 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     _vlcUrl = url;
     _vlcError = false;
     _vlcPlaying = false;
+    // Fresh watchdog per controller — a rebound client starts with a clean
+    // progress baseline and re-proves its position signal.
+    _stallLastPosition = controller.value.position;
+    _stallLastState = controller.value.playingState;
+    _stallTicksWithoutProgress = 0;
+    _sawPositionAdvance = false;
+    _stallTicker?.cancel();
+    _stallTicker = Timer.periodic(
+      LivePreviewView.stallCheckInterval,
+      (_) => _checkStall(),
+    );
   }
 
   @override
@@ -172,6 +279,10 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     });
 
     final previewEnabled = ref.watch(livePreviewEnabledProvider(deviceId));
+    // U3 health gate: live preview is a capture-start action — blocked while
+    // the device is inoperable (or health unknown while connected). Same one
+    // provider every surface gates off.
+    final captureBlocked = ref.watch(captureBlockedProvider);
 
     // Preview is off — show placeholder (and optional Preview button).
     if (!previewEnabled) {
@@ -190,7 +301,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
                       size: 13,
                       color: T.ink,
                     ),
-                    onPressed: _enablePreview,
+                    onPressed: captureBlocked ? null : _enablePreview,
                   ),
                 ),
               ],
@@ -224,7 +335,16 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // can get stuck on the placeholder. A paused/disconnected surface releases
     // its client (and the active, reconnected one auto-recreates here), so only
     // the visible surface holds a client on the single-stream RTSP server.
-    final shouldStream = previewEnabled && !widget.paused && wifiConnected;
+    // The health gate also releases a RUNNING preview's client: a camera down
+    // mid-preview stops delivering frames anyway — show the explicit
+    // unavailable state instead of a silent frozen/blank feed (R7). The
+    // teardown clears `_vlcUrl`, so the moment the gate lifts (inoperable →
+    // OK) this same block mints a fresh controller and playback auto-resumes
+    // — no manual Stop → Preview needed. If that reconnect races the camera's
+    // pipeline restart and errors/stalls, `_onVlcChange` schedules another
+    // stop → play cycle until frames flow again.
+    final shouldStream =
+        previewEnabled && !widget.paused && wifiConnected && !captureBlocked;
     if (shouldStream) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
@@ -261,6 +381,8 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     // state (preview just turned on), kept distinct from a reconnect.
     final statusLabel = widget.paused
         ? (widget.label ?? 'PREVIEW')
+        : captureBlocked
+        ? 'CAMERA UNAVAILABLE'
         : switch (wifiState) {
             WifiDirectState.starting ||
             WifiDirectState.failed ||

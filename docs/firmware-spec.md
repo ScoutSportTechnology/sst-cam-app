@@ -1,6 +1,6 @@
 # SST-Cam Firmware Contract
 
-_Last updated: 2026-06-28 | Version: 2 | Companion app version: see `DeviceInfoResponse.protocol_version`_
+_Last updated: 2026-07-07 | Version: 2 | Companion app version: see `DeviceInfoResponse.protocol_version` (expected: 4)_
 
 This document is the **single source of truth for firmware development**. It describes what the SST-Cam firmware must implement to work correctly with the companion app, how communication is structured, and explicit constraints the firmware must respect. When this document and the proto files conflict, the proto files win — but that indicates this document needs updating.
 
@@ -12,7 +12,7 @@ As of Phase D #6 the overlay is **firmware-unilateral** and recordings are **cle
 
 - **Live stream:** the camera composites the scoreboard overlay onto the RTSP preview only. The app draws no overlay of its own, live or on playback.
 - **Recording (L1):** the recorded MP4 is **clean** — the overlay is **never** burned into it. Alongside `<matchId>.mp4`, the camera persists the overlay as a **timeline** file `<matchId>.timeline.json` (an `anchor_ms` plus the ordered scene changes shown during the recording).
-- **Overlaid copy (L2), on demand:** when the app asks for an overlaid clip, the camera decodes the clean L1, composites the persisted timeline, and encodes a separate **L2** into `videos/exports/`, exposed for a single tokened download. This is offline/CPU-bound (no NVENC) and is **refused while a match is live** (`ResponseStatus.LIVE_SESSION_ACTIVE`).
+- **Overlaid copy (L2), on demand:** when the app asks for an overlaid clip, the camera decodes the clean L1, composites the persisted timeline, and encodes a separate **L2** that **persists in the match folder beside the clean L1** (no exports dir, no post-download deletion). Once burned, the L2 appears in `ListRecordingsCommand` results and is downloadable like any recording; a re-export of an already-burned recording succeeds fast (the firmware returns the existing file). The burn itself is offline/CPU-bound (no NVENC) and is **refused while a match is live** (`ResponseStatus.LIVE_SESSION_ACTIVE`).
 - **New commands** (additive over proto `v0.1.0-beta.2`): `ExportOverlayedCommand` + `PollExportCommand` (the burn/poll flow) and `SetPreviewLayoutCommand` (single vs side-by-side dual-camera preview).
 
 Sections below that still describe "overlay baked into the recorded footage" predate this model; where they conflict, **§0.1 wins**.
@@ -86,6 +86,53 @@ The phone **keeps its cellular connection** while on WiFi Direct. The camera can
 
 ## 3. Connection handshake
 
+### 3.0. Universal connect handshake (state-health cycle, proto §9b)
+
+**Every connect runs the same handshake** — first connect, manual reconnect, app
+relaunch, camera reboot — because a session OUTLIVES the BLE connection (the
+firmware keeps recording/streaming through app disconnects, bounded by
+`PushSessionConfigCommand.auto_stop_minutes`). Immediately after the GATT
+channel is up, and **before treating the device as connected**, the app sends,
+in order:
+
+1. `GetDeviceInfoCommand` — protocol gate. The app refuses the session on a
+   `protocol_version` skew (current expected version: **4**) and drops the link.
+2. `SetDeviceTimeCommand` (phone epoch ms) — fixes the device wall clock.
+   Firmware must apply it to the system clock and reject implausible values
+   (pre-2020 epoch) with `ERROR`, leaving the clock untouched.
+3. `GetSessionSnapshotCommand` — pure read of the firmware's ACTUAL state
+   (`SessionSnapshotResponse`: session phase, active camera, preview layout,
+   recording/streaming flags, recording elapsed, match state incl.
+   `match_uuid`, per-camera health, last-session summary, wifi_group_up). The
+   app **adopts** these values instead of force-resetting selections — the
+   firmware must therefore report its real current selections, not defaults.
+4. Reconcile: when the app holds persisted match data for the running
+   `match_uuid`, it pushes an absolute `SetMatchStateCommand` carrying app
+   scores only (absent fields must be left untouched — the firmware clock is
+   authoritative and is never overwritten on reconnect).
+
+Any step failing (or timing out) makes the app drop the link — the firmware
+must tolerate a disconnect at any point in this sequence. Telemetry and
+match-state polling start **only after** the handshake completes.
+
+The app leans on three snapshot/poll contract points for scoreboard survival
+(U2), so the firmware must report them faithfully:
+
+- `MatchState.elapsed_seconds` / `clock_running` — the app adopts the
+  firmware clock outright on every rejoin AND corrects its local clock from
+  every ~2 s match-state poll (an adopted elapsed past the configured period
+  length auto-fires one `MATCH_PERIOD_END`). `elapsed_seconds` must be
+  monotonic per period and NOT clamped at the period length.
+- `last_session` (idle snapshots only, with `match_uuid` + `end_reason` +
+  `end_clock_seconds` + `file_valid`) — a reconnecting app uses it to explain
+  "ended while away" and to finalize its library entry; it matches the
+  summary against its persisted match's uuid and ignores it otherwise.
+- Telemetry `is_recording` — the app treats an observed true→false edge
+  without an app command as firmware truth (auto-stop / recovery) and follows
+  it instead of erroring, so the flag must reflect the real encoder state.
+
+### 3.1. WiFi Direct credential exchange
+
 **The WiFi Direct credential exchange happens automatically as part of connecting.**
 The app sends `StartWifiDirectCommand` immediately after the BLE connection is established
 and device info is confirmed. No user action is required. The app will not enable any
@@ -100,15 +147,24 @@ App                                    Camera
 
 BLE connect ─────────────────────────► GATT service ready
 
-──── Step 1: identify the device ──────────────────────────────────────
+──── Step 1: identify the device (protocol gate) ──────────────────────
 
 → GetDeviceInfoCommand
 ← DeviceInfoResponse
     device_id:        "sst-cam-a1b2c3d4"   ← stable hardware UUID
     firmware_version: "1.0.0"
-    protocol_version: 1
+    protocol_version: 4                    ← app refuses the session on skew
 
-──── Step 2: start telemetry stream ────────────────────────────────────
+──── Step 1b: fix the device clock, read actual state (§3.0) ───────────
+
+→ SetDeviceTimeCommand { epoch_ms }
+← CommandResponse (status only)
+→ GetSessionSnapshotCommand
+← SessionSnapshotResponse (phase, selections, activity, match state, health)
+→ SetMatchStateCommand (only when the app holds the running match's data)
+← CommandResponse (status only)
+
+──── Step 2: start telemetry stream (only after the handshake) ─────────
 
 → GetTelemetryCommand (repeated every ~1 s for the lifetime of the connection)
 ← DeviceTelemetry
@@ -456,7 +512,7 @@ Authorization: Bearer tok_9f3a2b...
      Content-Type: video/mp4
      Content-Length: 3221225472
      Accept-Ranges: bytes
-     [binary MP4 bytes — full file. The L1 at /recordings/<id> is CLEAN; an overlaid copy is a separate on-demand L2 under videos/exports/ (§0.1)]
+     [binary MP4 bytes — full file. The L1 at /recordings/<id> is CLEAN; an overlaid copy is a separate on-demand L2 persisted in the match folder (§0.1)]
 
 ──── Resumable download (if connection drops mid-transfer) ─────────────
 
@@ -681,6 +737,27 @@ Sent in response to `GetTelemetryCommand` (polled at ~1 Hz by the app):
 | `is_recording` | bool | True while recording is active (false when paused) |
 | `is_streaming` | bool | True while RTMP stream is active |
 | `battery_level_pct` | uint32 | 0–100; report 0 when on wired power or unknown |
+| `camera0_health` / `camera1_health` | CameraHealth enum (optional, fields 15–16) | Frame-truth per-camera health, on EVERY sample. Absent ⇒ the app renders "unreported" — it never fabricates OK |
+
+### Per-camera health expectations (state-health cycle, U3)
+
+The app folds the snapshot health with every 1 Hz telemetry sample (newest
+wins) into one device-level gate:
+
+- any camera `CAMERA_HEALTH_DOWN` → the app shows the persistent "device
+  inoperable" banner and disables live preview, recording start and streaming
+  start; downloads, WiFi and diagnostics stay available. The firmware MUST
+  also refuse start-class capture commands (recording start/resume,
+  streaming start) with `ResponseStatus.DEVICE_INOPERABLE` —
+  the wire backstop the app surfaces as an explicit error. Stops, downloads
+  and `StartWifiDirectCommand` are never health-gated.
+- `CAMERA_HEALTH_RECOVERING` → soft indicator only; the app keeps actions
+  enabled and relies on the `DEVICE_INOPERABLE` refusal, so recovering must
+  NOT be reported as down (flapping OK↔RECOVERING must never look inoperable).
+- The app trusts a health reading for ~5 poll intervals: if telemetry stalls
+  while connected, health degrades to unknown and capture starts are
+  conservatively disabled until a fresh sample arrives — keep health on every
+  telemetry sample.
 
 ---
 
@@ -703,6 +780,7 @@ Sent in response to `GetTelemetryCommand` (polled at ~1 Hz by the app):
 | `team_b_name` | string | Display name for scoreboard |
 | `team_a_color_hex` | string | Scoreboard accent colour, e.g. `"#FFFFFF"` |
 | `team_b_color_hex` | string | Scoreboard accent colour |
+| `auto_stop_minutes` | uint32? | Unsupervised-session timeout (app setting, default 30, bounds 5–240). The app always sends it and **re-pushes the whole config mid-session when the operator changes it** — map it on every PushSessionConfig, not just the first |
 
 ---
 
@@ -717,7 +795,8 @@ Sent in response to `GetTelemetryCommand` (polled at ~1 Hz by the app):
 - On `RECORDING_PAUSE` / `RECORDING_RESUME`, pause and resume the muxer — the output is still a single continuous MP4, not segments.
 - On `RECORDING_STOP`, finalize and close the file immediately.
 - On unexpected BLE disconnect, finalize whatever was recorded even if `RECORDING_STOP` was not sent.
-- On `ListRecordingsCommand`, scan the paths known from session state and return what exists on disk.
+- On `ListRecordingsCommand`, scan the paths known from session state and return what exists on disk. A burned L2 (§0.1) persists in the match folder and is listed/downloadable like any recording.
+- **Dual-camera training proxy is firmware-internal.** It rides the record/stream lifecycle automatically and has **no wire surface**: no command starts or stops it, no telemetry or snapshot field reports it, and its per-camera files are never listed or downloaded over this contract. Proxy files pair with their match on-device by `match_uuid` (folder layout) and are retrieved via ssh.
 
 ---
 
