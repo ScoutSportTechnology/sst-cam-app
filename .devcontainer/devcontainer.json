@@ -12,7 +12,6 @@
     "SHELL": "/bin/bash"
   },
   "features": {
-    // Claude Code is baked into the Dockerfile image — no feature needed here.
     //"ghcr.io/devcontainers-extra/features/go-task:1": {}
     // `just` task runner — backs the repo's justfile (build/test recipes).
     "ghcr.io/guiyomh/features/just:0": {}
@@ -24,7 +23,6 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "anthropic.claude-code",
         "dart-code.flutter",
         "dart-code.dart-code",
         //"task.vscode-task",
@@ -56,7 +54,6 @@
   "waitFor": "postStartCommand",
   "remoteEnv": {
     "CHOKIDAR_USEPOLLING": "true",
-    "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037",
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+    "ADB_SERVER_SOCKET": "tcp:host.docker.internal:5037"
   }
 }

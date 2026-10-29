@@ -83,7 +83,7 @@ just ci       # format-check + analyze + test
 ```
 
 iOS builds need macOS + Xcode (devcontainer is Linux-only). See
-[`CLAUDE.md`](CLAUDE.md) for architecture, the full command list, and the
+[`AGENTS.md`](AGENTS.md) for architecture, the full command list, and the
 contract-first design.
 
 ---
@@ -107,7 +107,7 @@ already-built beta artifact. Three branch-scoped workflows
 `scripts/ci/resolve-version.sh`.
 Each release publishes a **developer** APK (`stage` flavor, `APP_ENV=stage`) and,
 from beta on, a **production** APK (`prod` flavor, `APP_ENV=prod`) — both from the
-single `lib/main.dart` entry. See [`CLAUDE.md`](CLAUDE.md) and `docs/ci/` for the
+single `lib/main.dart` entry. See [`AGENTS.md`](AGENTS.md) and `docs/ci/` for the
 full model and maintainer runbooks.
 
 ---

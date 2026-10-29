@@ -16,7 +16,6 @@ services:
     tty: true
     volumes:
       - ..:/workspaces/sst-cam-app:cached
-      - claude-code:/home/vscode/.claude
     # Required: bridges host.docker.internal so ADB_SERVER_SOCKET
     # (tcp:host.docker.internal:5037) can reach the host ADB server.
     extra_hosts:
@@ -36,9 +35,3 @@ services:
     ports:
       - "127.0.0.1:8555:8554"   # RTSP H.264 preview (8555 avoids QEMU virtualscene on 8554)
       - "127.0.0.1:8080:8080"   # HTTP recording download
-
-volumes:
-  claude-code:
-    # Explicit name prevents Docker Compose from prefixing with the project name.
-    # This makes the volume stable across rebuilds — your Claude Code sessions survive.
-    name: sst-cam-app-claude-code

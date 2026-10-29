@@ -89,12 +89,3 @@ USER vscode
 # Copy SDKs from the builder stage to the user's home directory
 COPY --from=builder --chown=vscode:vscode /android-sdk ${ANDROID_SDK_ROOT}
 COPY --from=builder --chown=vscode:vscode /flutter ${FLUTTER_SDK_ROOT}
-
-# Set claude config directory permissions
-RUN mkdir -p /home/vscode/.claude && chown -R vscode:vscode /home/vscode/.claude
-
-# Install Claude Code globally in a user-writable npm prefix so it can self-update
-# without sudo. NPM_CONFIG_PREFIX directs all `npm install -g` to this directory.
-ENV NPM_CONFIG_PREFIX=/home/vscode/.npm-global
-ENV PATH=$PATH:/home/vscode/.npm-global/bin
-RUN mkdir -p /home/vscode/.npm-global && npm install -g @anthropic-ai/claude-code

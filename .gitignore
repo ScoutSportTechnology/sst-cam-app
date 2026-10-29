@@ -48,8 +48,16 @@ app.*.map.json
 # Protoc binaries — devcontainer already provides protoc
 protoc-*.zip
 
-# Claude Code local settings — machine-specific, not shared
-.claude/settings.local.json
+# Agent harness folders: per-user, machine-specific state, never committed.
+# Shared agent rules live in AGENTS.md and shared skills in .agents/ (tracked).
+.claude/
+.opencode/
+.codex/
+.cursor/
+.gemini/
+.windsurf/
+.continue/
+.aider*
 
 # Generated protobuf Dart bindings — run `just gen-proto` to regenerate
 lib/models/proto/
@@ -60,8 +68,6 @@ android/key.properties
 *.jks
 *.keystore
 
-# Lock files
-pubspec.lock.claude/worktrees/
 
 # Local dev tooling (adb pairing keys — never commit)
 .devtools/
