@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'ble_service.dart';
 import 'ble_service_impl.dart';
+import '../models/command.dart' show DeviceInfoResponse;
 import '../models/device.dart';
 import '../models/telemetry.dart';
 import '../models/match.dart';
@@ -27,6 +28,12 @@ final discoveredDevicesProvider = StreamProvider<List<SstDevice>>((ref) {
   return ref.watch(bleServiceProvider).discoveredDevices;
 });
 
+/// Whether the host Bluetooth adapter is on. Drives the discovery screen's
+/// "Bluetooth is off" prompt. Mock/fakes emit `true`.
+final bluetoothOnProvider = StreamProvider<bool>((ref) {
+  return ref.watch(bleServiceProvider).bluetoothOn;
+});
+
 // ---------------------------------------------------------------------------
 // Per-device (family = one provider instance per deviceId)
 // ---------------------------------------------------------------------------
@@ -42,6 +49,16 @@ final telemetryProvider = StreamProvider.family<DeviceTelemetry, String>((
 ) {
   return ref.watch(bleServiceProvider).telemetryStream(deviceId);
 });
+
+/// The connected camera's real DeviceInfo (firmware version + wire
+/// protocol_version). Null until connected — the scan-time SstDevice carries
+/// empty firmware/0 protocol. Re-fetches when connection state changes.
+final connectedDeviceInfoProvider =
+    FutureProvider.family<DeviceInfoResponse?, String>((ref, deviceId) async {
+      final state = ref.watch(connectionStateProvider(deviceId)).valueOrNull;
+      if (state != CameraConnectionState.connected) return null;
+      return ref.read(bleServiceProvider).getDeviceInfo(deviceId);
+    });
 
 final matchStateProvider = StreamProvider.family<MatchState, String>((
   ref,

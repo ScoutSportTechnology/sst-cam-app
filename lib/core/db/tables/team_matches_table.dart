@@ -24,6 +24,14 @@ class TeamMatchesTable extends Table {
   /// Empty array '[]' when no events recorded.
   TextColumn get eventsJson => text().withDefault(const Constant('[]'))();
 
+  /// Per-match streaming credential (U5). Set at match setup or mid-match when
+  /// streaming starts with no destination; scoped to this match only (never
+  /// added to the global streaming_destinations list). Null when the match has
+  /// no streaming credential. Stored plaintext (accepted risk; debug-signed
+  /// builds are ADB-readable) and excluded from BackupService exports.
+  TextColumn get rtmpUrl => text().nullable()();
+  TextColumn get streamKey => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

@@ -10,13 +10,27 @@ import 'package:uuid/uuid.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
 import '../../core/models/match.dart';
+import '../../core/models/export_job.dart';
+import '../../core/models/network_config.dart';
 import '../../core/models/overlay_layout.dart';
+import '../../core/models/preview_layout.dart';
 import '../../core/models/recording.dart';
 import '../../core/models/telemetry.dart';
+import '../../core/models/video_mode.dart';
 import '../../core/models/wifi.dart';
 import '../../core/ble/ble_service.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
 import '../mock_video_fetcher.dart';
+
+/// The record/stream modes the mock camera advertises — mirrors the firmware's
+/// kSupportedVideoModes so the setup quality pickers exercise a real shape.
+/// (1080p60 is deliberately excluded — the Orin Nano's software encoder can't
+/// sustain it; see firmware video-quality.hpp.)
+const _kMockSupportedModes = <VideoMode>[
+  VideoMode(width: 1920, height: 1080, fps: 30),
+  VideoMode(width: 1280, height: 720, fps: 60),
+  VideoMode(width: 1280, height: 720, fps: 30),
+];
 
 // Minimal 1×1 white JPEG
 const _kPlaceholderJpeg = [
@@ -231,8 +245,8 @@ class _TelemetryBaseline {
     tempCelsius: 48.0,
     wifiSsid: 'StadiumNet-5G',
     wifiSignalDbm: -65,
-    cpuUsedPct: 0.30,
-    ramUsedPct: 0.45,
+    cpuUsedPct: 30, // 0–100 percent, matching the firmware wire contract
+    ramUsedPct: 45,
     internetReachable: true,
     isRecording: false,
     isStreaming: false,
@@ -430,7 +444,24 @@ class MockBleService implements BleService {
   }
 
   @override
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  @override
+  Future<void> requestBluetoothOn() async {}
+
+  @override
   bool get isScanning => _isScanning;
+
+  @override
+  Future<DeviceInfoResponse> getDeviceInfo(String deviceId) async =>
+      DeviceInfoResponse(
+        deviceId: deviceId,
+        name: 'SST Cam (mock)',
+        firmwareVersion: '0.1.0',
+        model: 'v1',
+        protocolVersion: kAppProtocolVersion,
+        supportedModes: _kMockSupportedModes,
+      );
 
   @override
   Stream<List<SstDevice>> get discoveredDevices async* {
@@ -561,8 +592,8 @@ class MockBleService implements BleService {
       wifiSignalDbm: (b.wifiSignalDbm + (sin(tick * 0.4) * 8)).round(),
       internetReachable: b.internetReachable,
       tempCelsius: b.tempCelsius + sin(tick * 0.1) * 6,
-      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
-      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
+      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 10).clamp(0.0, 100.0),
+      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 20).clamp(0.0, 100.0),
       uptimeSeconds: tick,
       isRecording: b.isRecording,
       isStreaming: b.isStreaming,
@@ -655,6 +686,10 @@ class MockBleService implements BleService {
       correlationId: correlationId,
       getDeviceInfo: proto.GetDeviceInfoCommand(),
     ),
+    RebootCommand() => proto.Command(
+      correlationId: correlationId,
+      reboot: proto.RebootCommand(),
+    ),
     GetTelemetryCommand() => proto.Command(
       correlationId: correlationId,
       getTelemetry: proto.GetTelemetryCommand(),
@@ -680,18 +715,24 @@ class MockBleService implements BleService {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(:final action) => proto.Command(
-      correlationId: correlationId,
-      recordingControl: proto.RecordingControlCommand(
-        action: switch (action) {
-          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
-          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
-          RecordingControlAction.resume =>
-            proto.RecordingAction.RECORDING_RESUME,
-        },
+    RecordingControlCommand(:final action, :final captureGroupId) =>
+      proto.Command(
+        correlationId: correlationId,
+        recordingControl: proto.RecordingControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          // Mirror the real encoder (mock must not drift): the training-proxy
+          // pairing key rides the record command.
+          captureGroupId: captureGroupId,
+        ),
       ),
-    ),
     RawCaptureControlCommand(:final action, :final captureGroupId) =>
       proto.Command(
         correlationId: correlationId,
@@ -763,6 +804,56 @@ class MockBleService implements BleService {
         layout: _dartLayoutToProto(layout),
       ),
     ),
+    SetPreviewLayoutCommand(:final layout) => proto.Command(
+      correlationId: correlationId,
+      setPreviewLayout: proto.SetPreviewLayoutCommand(
+        layout: layout == PreviewLayout.sideBySide
+            ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+            : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+      ),
+    ),
+    SetCameraCalibrationCommand(
+      :final rGain,
+      :final gGain,
+      :final bGain,
+      :final enabled,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        setCameraCalibration: proto.SetCameraCalibrationCommand(
+          rGain: rGain,
+          gGain: gGain,
+          bGain: bGain,
+          enabled: enabled,
+        ),
+      ),
+    AutoWhiteBalanceCommand() => proto.Command(
+      correlationId: correlationId,
+      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
+    ),
+    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
+      proto.Command(
+        correlationId: correlationId,
+        cameraFocus: proto.CameraFocusControlCommand(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          cameraIndex: cameraIndex,
+        ),
+      ),
+    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
+      correlationId: correlationId,
+      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
+    ),
+    ExportOverlayedCommand(:final recordingId) => proto.Command(
+      correlationId: correlationId,
+      exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
+    ),
+    PollExportCommand(:final jobId) => proto.Command(
+      correlationId: correlationId,
+      pollExport: proto.PollExportCommand(jobId: jobId),
+    ),
     StartWifiDirectCommand() => proto.Command(
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
@@ -771,29 +862,45 @@ class MockBleService implements BleService {
       correlationId: correlationId,
       stopWifiDirect: proto.StopWifiDirectCommand(),
     ),
+    // Uplink config uses the dedicated set/getNetworkConfig methods, not the
+    // generic sendCommand round-trip the emulator's encode path serves.
+    SetNetworkConfigCommand() ||
+    GetNetworkConfigCommand() => throw UnsupportedError(
+      'network config uses the direct set/getNetworkConfig path',
+    ),
   };
 
   proto.CommandResponse _buildResponse(BleCommand cmd, String correlationId) {
     // Apply side effects for stateful commands before building the response.
     switch (cmd) {
-      case RecordingControlCommand(:final action):
+      case RecordingControlCommand(:final action, :final quality):
         isRecordingActive =
             action == RecordingControlAction.start ||
             action == RecordingControlAction.resume;
         lastRecordingAction = action;
+        if (action == RecordingControlAction.start) {
+          lastRecordingQuality = quality;
+        }
       case RawCaptureControlCommand(:final action, :final captureGroupId):
         isRawCapturingActive = action == RecordingControlAction.start;
         if (action == RecordingControlAction.start) {
           lastRawCaptureGroupId = captureGroupId;
         }
-      case StreamingControlCommand(:final action):
+      case StreamingControlCommand(:final action, :final quality):
         isStreamingActive = action == StreamingControlAction.start;
+        if (action == StreamingControlAction.start) {
+          lastStreamingQuality = quality;
+        }
       case MatchControlCommand(:final action):
         lastMatchControlAction = action;
       case BannerEventCommand():
         lastBannerEvent = cmd;
       case PushOverlayLayoutCommand(:final layout):
         lastPushedOverlayLayout = layout;
+      case SetPreviewLayoutCommand(:final layout):
+        lastPreviewLayout = layout;
+      case ExportOverlayedCommand(:final recordingId):
+        lastExportRecordingId = recordingId;
       default:
         break;
     }
@@ -807,7 +914,23 @@ class MockBleService implements BleService {
           // Must match the app's expected version or decodeResponse rejects the
           // session as a version skew (see kAppProtocolVersion).
           protocolVersion: kAppProtocolVersion,
+          // Mirror the firmware's advertised record/stream modes so the setup
+          // quality pickers are exercised against a real contract shape.
+          supportedModes: _kMockSupportedModes
+              .map(
+                (m) => proto.VideoQuality(
+                  width: m.width,
+                  height: m.height,
+                  fps: m.fps,
+                ),
+              )
+              .toList(),
         ),
+      ),
+      // Mock acks the reboot (obviously without rebooting anything).
+      RebootCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
       ),
       GetTelemetryCommand() => proto.CommandResponse(
         correlationId: correlationId,
@@ -878,6 +1001,90 @@ class MockBleService implements BleService {
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
       ),
+      SetPreviewLayoutCommand(:final layout) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        previewLayout: proto.PreviewLayoutResponse(
+          layout: layout == PreviewLayout.sideBySide
+              ? proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+              : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+          width: layout == PreviewLayout.sideBySide ? 2560 : 1280,
+          height: 720,
+        ),
+      ),
+      SetCameraCalibrationCommand(
+        :final rGain,
+        :final gGain,
+        :final bGain,
+        :final enabled,
+      ) =>
+        proto.CommandResponse(
+          correlationId: correlationId,
+          status: proto.ResponseStatus.OK,
+          cameraCalibration: proto.CameraCalibrationResponse(
+            rGain: rGain,
+            gGain: gGain,
+            bGain: bGain,
+            enabled: enabled,
+          ),
+        ),
+      AutoWhiteBalanceCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        // Emulated grey-world result: a plausible magenta-neutralizing gain set.
+        cameraCalibration: proto.CameraCalibrationResponse(
+          rGain: 0.6,
+          gGain: 1.0,
+          bGain: 0.62,
+          enabled: true,
+        ),
+      ),
+      CameraFocusCommand(:final mode, :final position) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        cameraFocus: proto.CameraFocusResponse(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          autofocusAvailable: true,
+        ),
+      ),
+      SetActiveCameraCommand(:final cameraIndex) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        activeCamera: proto.ActiveCameraResponse(cameraIndex: cameraIndex),
+      ),
+      ExportOverlayedCommand() => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        exportJob: proto.ExportJobResponse(
+          jobId: 'export-1',
+          state: proto.ExportJobState.EXPORT_JOB_PENDING,
+        ),
+      ),
+      PollExportCommand(:final jobId) => proto.CommandResponse(
+        correlationId: correlationId,
+        status: proto.ResponseStatus.OK,
+        exportJob: proto.ExportJobResponse(
+          jobId: jobId,
+          state: proto.ExportJobState.EXPORT_JOB_READY,
+          token: proto.DownloadTokenResponse(
+            recordingId: lastExportRecordingId ?? '',
+            httpUrl: joinBaseUrl(
+              downloadBaseUrl,
+              'recordings/${lastExportRecordingId ?? ''}',
+            ),
+            authToken: 'mock-export-token',
+            expiresAt: Int64(
+              DateTime.now()
+                      .add(const Duration(minutes: 15))
+                      .millisecondsSinceEpoch ~/
+                  1000,
+            ),
+          ),
+        ),
+      ),
       StartWifiDirectCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
@@ -893,6 +1100,10 @@ class MockBleService implements BleService {
       StopWifiDirectCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
+      ),
+      SetNetworkConfigCommand() ||
+      GetNetworkConfigCommand() => throw UnsupportedError(
+        'network config uses the direct set/getNetworkConfig path',
       ),
     };
   }
@@ -953,6 +1164,7 @@ class MockBleService implements BleService {
       GetDeviceInfoCommand() => BleCommandResponse.ok(
         DeviceInfoResponse(deviceId: resp.deviceInfo.deviceId) as T?,
       ),
+      RebootCommand() => BleCommandResponse.ok(null as T?),
       GetTelemetryCommand() => BleCommandResponse.ok(
         _dartTelemetry(resp.telemetry) as T?,
       ),
@@ -1008,6 +1220,44 @@ class MockBleService implements BleService {
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
       BannerEventCommand() => BleCommandResponse.ok(null as T?),
       PushOverlayLayoutCommand() => BleCommandResponse.ok(null as T?),
+      SetCameraCalibrationCommand() => BleCommandResponse.ok(
+        CameraCalibrationResult(
+              rGain: resp.cameraCalibration.rGain,
+              gGain: resp.cameraCalibration.gGain,
+              bGain: resp.cameraCalibration.bGain,
+              enabled: resp.cameraCalibration.enabled,
+            )
+            as T?,
+      ),
+      AutoWhiteBalanceCommand() => BleCommandResponse.ok(
+        CameraCalibrationResult(
+              rGain: resp.cameraCalibration.rGain,
+              gGain: resp.cameraCalibration.gGain,
+              bGain: resp.cameraCalibration.bGain,
+              enabled: resp.cameraCalibration.enabled,
+            )
+            as T?,
+      ),
+      CameraFocusCommand() => BleCommandResponse.ok(null as T?),
+      SetActiveCameraCommand() => BleCommandResponse.ok(null as T?),
+      SetPreviewLayoutCommand() => BleCommandResponse.ok(
+        PreviewLayoutResult(
+              layout:
+                  resp.previewLayout.layout ==
+                      proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE
+                  ? PreviewLayout.sideBySide
+                  : PreviewLayout.single,
+              width: resp.previewLayout.width,
+              height: resp.previewLayout.height,
+            )
+            as T?,
+      ),
+      ExportOverlayedCommand() => BleCommandResponse.ok(
+        _dartExportJob(resp.exportJob) as T?,
+      ),
+      PollExportCommand() => BleCommandResponse.ok(
+        _dartExportJob(resp.exportJob) as T?,
+      ),
       StartWifiDirectCommand() => BleCommandResponse.ok(
         WifiDirectGroup(
               ssid: resp.wifiDirectGroup.ssid,
@@ -1020,6 +1270,10 @@ class MockBleService implements BleService {
             as T?,
       ),
       StopWifiDirectCommand() => BleCommandResponse.ok(null as T?),
+      SetNetworkConfigCommand() ||
+      GetNetworkConfigCommand() => throw UnsupportedError(
+        'network config uses the direct set/getNetworkConfig path',
+      ),
     };
   }
 
@@ -1037,8 +1291,8 @@ class MockBleService implements BleService {
       wifiSignalDbm: (b.wifiSignalDbm + (sin(tick * 0.4) * 8)).round(),
       internetReachable: b.internetReachable,
       tempCelsius: b.tempCelsius + sin(tick * 0.1) * 6,
-      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 0.1).clamp(0.0, 1.0),
-      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 0.2).clamp(0.0, 1.0),
+      ramUsedPct: (b.ramUsedPct + sin(tick * 0.2) * 10).clamp(0.0, 100.0),
+      cpuUsedPct: (b.cpuUsedPct + sin(tick * 0.15) * 20).clamp(0.0, 100.0),
       uptimeSeconds: Int64(tick),
       isRecording: b.isRecording,
       isStreaming: b.isStreaming,
@@ -1141,12 +1395,32 @@ class MockBleService implements BleService {
   /// When true the next [pushOverlayLayout] call throws [BleTimeoutException].
   bool failNextPushOverlayLayout = false;
 
+  /// The last layout requested via [setPreviewLayout] (#6 A6b).
+  PreviewLayout lastPreviewLayout = PreviewLayout.single;
+  ({double r, double g, double b, bool enabled})? lastCameraCalibration;
+
+  /// When true the next [setPreviewLayout] call throws [BleTimeoutException].
+  bool failNextSetPreviewLayout = false;
+
+  /// The recording id from the last [requestOverlayExport] (#6 A6c).
+  String? lastExportRecordingId;
+
+  /// When true the next [requestOverlayExport] throws (simulates the
+  /// LIVE_SESSION_ACTIVE rejection — firmware refuses a burn mid-session).
+  bool failNextOverlayExport = false;
+
   // ---------------------------------------------------------------------------
   // Control command side-effect fields
   // ---------------------------------------------------------------------------
 
   /// Tracks the last recording action applied via [RecordingControlCommand].
   RecordingControlAction? lastRecordingAction;
+
+  /// Record quality carried on the last recording START (U12); null if none.
+  VideoMode? lastRecordingQuality;
+
+  /// Stream quality carried on the last streaming START (U12); null if none.
+  VideoMode? lastStreamingQuality;
 
   /// True when recording is active (toggled by [RecordingControlCommand]).
   bool isRecordingActive = false;
@@ -1189,6 +1463,182 @@ class MockBleService implements BleService {
     }
     lastPushedOverlayLayout = layout;
   }
+
+  @override
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    if (failNextSetPreviewLayout) {
+      failNextSetPreviewLayout = false;
+      throw const BleTimeoutException('Simulated setPreviewLayout failure');
+    }
+    lastPreviewLayout = layout;
+    // Emulated geometry: single = one 16:9 sensor (1280×720); side-by-side
+    // composites both cams horizontally into one 32:9 frame (2560×720).
+    return switch (layout) {
+      PreviewLayout.single => const PreviewLayoutResult(
+        layout: PreviewLayout.single,
+        width: 1280,
+        height: 720,
+      ),
+      PreviewLayout.sideBySide => const PreviewLayoutResult(
+        layout: PreviewLayout.sideBySide,
+        width: 2560,
+        height: 720,
+      ),
+    };
+  }
+
+  @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastCameraCalibration = (r: rGain, g: gGain, b: bGain, enabled: enabled);
+  }
+  // saturation/contrast/brightness are accepted by the interface below; the mock
+  // only tracks the WB gains for assertions.
+
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 40));
+    const result = CameraCalibrationResult(
+      rGain: 0.6,
+      gGain: 1.0,
+      bGain: 0.62,
+      enabled: true,
+    );
+    lastCameraCalibration = (
+      r: result.rGain,
+      g: result.gGain,
+      b: result.bGain,
+      enabled: result.enabled,
+    );
+    return result;
+  }
+
+  ({CameraFocusMode mode, int? position, int? cameraIndex})? lastFocus;
+  int lastActiveCamera = 0;
+
+  @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastFocus = (mode: mode, position: position, cameraIndex: cameraIndex);
+  }
+
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {
+    await Future.delayed(const Duration(milliseconds: 20));
+    lastActiveCamera = cameraIndex;
+  }
+
+  @override
+  Future<ExportJob> requestOverlayExport(
+    String deviceId,
+    String recordingId,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    if (failNextOverlayExport) {
+      failNextOverlayExport = false;
+      throw const BleConnectionException(
+        'overlay export request failed: LIVE_SESSION_ACTIVE',
+      );
+    }
+    lastExportRecordingId = recordingId;
+    return const ExportJob(jobId: 'export-1', state: ExportJobState.pending);
+  }
+
+  @override
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async {
+    await Future.delayed(const Duration(milliseconds: 80));
+    // The emulated firmware can't really burn an L2, so the job is ready on the
+    // first poll, with a token that points at the same recording over the mock
+    // download server (the overlay would be baked in on real hardware).
+    final rid = lastExportRecordingId ?? '';
+    return ExportJob(
+      jobId: jobId,
+      state: ExportJobState.ready,
+      token: DownloadToken(
+        recordingId: rid,
+        httpUrl: joinBaseUrl(downloadBaseUrl, 'recordings/$rid'),
+        authToken: 'mock-export-token',
+        expiresAt: DateTime.now().add(const Duration(minutes: 15)),
+      ),
+    );
+  }
+
+  NetworkConfig _uplinkConfig = const NetworkConfig();
+
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) async {
+    await Future.delayed(const Duration(milliseconds: 60));
+    _uplinkConfig = config;
+    return _uplinkStatus(config);
+  }
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async {
+    await Future.delayed(const Duration(milliseconds: 40));
+    return _uplinkStatus(_uplinkConfig);
+  }
+
+  // Emulated firmware status: ethernet reports "up" with a stock address when
+  // enabled; wifi-STA is gated unavailable (single radio = WiFi-Direct GO),
+  // matching the real firmware's NmcliUplinkConfigurator.
+  NetworkConfigResult _uplinkStatus(NetworkConfig config) =>
+      NetworkConfigResult(
+        config: config,
+        ethernetUp: config.ethernet.enabled,
+        ethernetAddress: config.ethernet.enabled
+            ? (config.ethernet.ip.dhcp
+                  ? '10.10.1.30/24'
+                  : config.ethernet.ip.address)
+            : '',
+        wifiUp: false,
+        wifiStatus: config.wifi.enabled
+            ? 'unavailable: single radio is dedicated to the WiFi-Direct GO'
+            : '',
+      );
+
+  // Maps a proto ExportJobResponse to the dart ExportJob (used by the
+  // sendCommand round-trip path; the public methods above bypass this).
+  ExportJob _dartExportJob(proto.ExportJobResponse job) => ExportJob(
+    jobId: job.jobId,
+    state: switch (job.state) {
+      proto.ExportJobState.EXPORT_JOB_PENDING => ExportJobState.pending,
+      proto.ExportJobState.EXPORT_JOB_RUNNING => ExportJobState.running,
+      proto.ExportJobState.EXPORT_JOB_READY => ExportJobState.ready,
+      proto.ExportJobState.EXPORT_JOB_FAILED => ExportJobState.failed,
+      _ => ExportJobState.unknown,
+    },
+    token: job.hasToken()
+        ? DownloadToken(
+            recordingId: job.token.recordingId,
+            httpUrl: job.token.httpUrl,
+            authToken: job.token.authToken,
+            expiresAt: DateTime.fromMillisecondsSinceEpoch(
+              job.token.expiresAt.toInt() * 1000,
+            ),
+          )
+        : null,
+  );
 
   // ---------------------------------------------------------------------------
   // Overlay layout → proto helpers (duplicated from BleProtocol for

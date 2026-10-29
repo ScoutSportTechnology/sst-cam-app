@@ -7,12 +7,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/device.dart';
 import '../../core/models/telemetry.dart';
-import 'camera_state.dart' show activeCameraIdProvider;
-import 'raw_capture_state.dart';
+import 'camera_state.dart'
+    show
+        activeCameraIdProvider,
+        activeTabProvider,
+        modalPreviewActiveProvider,
+        AppTab;
 import '../../core/ble/ble_providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
 import '../../core/widgets/live_preview_view.dart';
+import '../../core/widgets/output_camera_toggle.dart';
+import '../../core/widgets/preview_layout_toggle.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import '../../core/wifi/wifi_providers.dart' show livePreviewEnabledProvider;
@@ -50,20 +56,28 @@ class MainPage extends ConsumerWidget {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-        children: [
-          _HeroCameraCard(
-            deviceId: activeId,
-            device: device,
-            isLive: connState == CameraConnectionState.connected,
-          ),
-          const SizedBox(height: 14),
-          const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
-          _TelemetryGrid(telemetry: telemetry),
-          const SizedBox(height: 16),
-          const Center(child: WfNote('One camera at a time')),
-        ],
+      // Compact enough to fit a phone viewport without scrolling (the point of
+      // #1 — telemetry was trimmed to a flatter 2×2 so the hero + stats fit).
+      // Kept in a SingleChildScrollView rather than a bare Column so a genuinely
+      // short viewport (split-screen, small device, landscape) scrolls gracefully
+      // instead of throwing a RenderFlex overflow — on a normal phone it fits, so
+      // it never actually scrolls.
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        child: Column(
+          children: [
+            _HeroCameraCard(
+              deviceId: activeId,
+              device: device,
+              isLive: connState == CameraConnectionState.connected,
+            ),
+            const SizedBox(height: 12),
+            const WfSection('Telemetry', padding: EdgeInsets.only(bottom: 8)),
+            _TelemetryGrid(telemetry: telemetry),
+            const SizedBox(height: 8),
+            const Center(child: WfNote('One camera at a time')),
+          ],
+        ),
       ),
     );
   }
@@ -84,10 +98,34 @@ class _HeroCameraCard extends ConsumerWidget {
     final connected = deviceId != null && isLive;
     final name = device?.name ?? 'No camera';
     final id = deviceId ?? '—';
-    final fwRaw = device?.firmwareVersion ?? '';
+    // Real firmware from the connected camera's DeviceInfo — the scan-time
+    // SstDevice carries an empty firmwareVersion (matches the settings card).
+    final info = deviceId == null
+        ? null
+        : ref.watch(connectedDeviceInfoProvider(deviceId!)).valueOrNull;
+    final fwRaw = info?.firmwareVersion ?? '';
     final fw = fwRaw.isEmpty ? '—' : fwRaw;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(deviceId));
+    // Only the visible tab's preview surface holds an RTSP/VLC client (two on
+    // one single-stream server stalls the second — home vs match both stay
+    // mounted in the shell's IndexedStack).
+    final onMainTab = ref.watch(activeTabProvider) == AppTab.main;
+    // A pushed full-screen preview (e.g. calibration) claims the sole RTSP client;
+    // release the hero's while it's up so we never run two on the single stream.
+    final modalPreview = ref.watch(modalPreviewActiveProvider);
+
+    // Real camera state from telemetry flags, not connection alone. The dot was
+    // green "LIVE" whenever connected even while idle — misleading. Precedence
+    // Streaming > Recording > Preview > Standby > Disconnected.
+    final telemetry = deviceId == null
+        ? null
+        : ref.watch(telemetryProvider(deviceId!)).valueOrNull;
+    final (camLabel, camColor) = cameraHeroState(
+      connected: connected,
+      previewOn: previewOn,
+      telemetry: telemetry,
+    );
 
     return Container(
       decoration: BoxDecoration(
@@ -95,6 +133,7 @@ class _HeroCameraCard extends ConsumerWidget {
         border: Border.all(color: T.hair, width: 1),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Video surface — buttons are in the action row below, not overlaid.
@@ -102,6 +141,7 @@ class _HeroCameraCard extends ConsumerWidget {
             deviceId: deviceId,
             label: 'LIVE THUMBNAIL',
             showButtons: false,
+            paused: !onMainTab || modalPreview,
           ),
           Padding(
             padding: const EdgeInsets.all(14),
@@ -142,17 +182,17 @@ class _HeroCameraCard extends ConsumerWidget {
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: connected ? T.accent : T.ink3,
+                            color: camColor,
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          connected ? 'LIVE' : 'IDLE',
+                          camLabel.toUpperCase(),
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: connected ? T.accent : T.ink3,
+                            color: camColor,
                             letterSpacing: 0.6,
                           ),
                         ),
@@ -160,25 +200,21 @@ class _HeroCameraCard extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
                 if (connected) ...[
-                  // Primary: open match tab.
-                  WfButton(
-                    label: 'Open match',
-                    variant: WfButtonVariant.primary,
-                    full: true,
-                    onPressed: () =>
-                        DefaultTabController.maybeOf(context)?.animateTo(2),
-                  ),
-                  const SizedBox(height: 8),
-                  // Secondary row: Preview/Stop + Disconnect.
+                  // Preview controls inline — Preview button + Single|Both mode
+                  // toggle in two equal columns, mirroring the match session
+                  // screen so widths and right edges line up.
                   Row(
                     children: [
                       Expanded(
                         child: WfButton(
                           label: previewOn ? 'Stop preview' : 'Preview',
-                          variant: WfButtonVariant.outline,
+                          variant: previewOn
+                              ? WfButtonVariant.danger
+                              : WfButtonVariant.outline,
                           size: WfButtonSize.sm,
+                          full: true,
                           leading: previewOn
                               ? null
                               : const Icon(
@@ -199,21 +235,52 @@ class _HeroCameraCard extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      WfButton(
-                        label: 'Disconnect',
-                        size: WfButtonSize.sm,
-                        onPressed: () {
-                          ref.read(bleServiceProvider).disconnect(deviceId!);
-                          ref.read(activeCameraIdProvider.notifier).state =
-                              null;
-                        },
+                      Expanded(
+                        child: previewOn
+                            ? PreviewLayoutToggle(
+                                deviceId: deviceId,
+                                full: true,
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ],
                   ),
+                  if (previewOn) ...[
+                    const SizedBox(height: 8),
+                    OutputCameraToggle(deviceId: deviceId, full: true),
+                  ],
                   const SizedBox(height: 8),
-                  // Raw dual-camera training capture — a distinct RAW affordance,
-                  // never confused with normal recording.
-                  _RawCaptureButton(),
+                  // Open match + Disconnect share one row (were two stacked
+                  // full-width buttons) to keep the hero card inside the phone
+                  // viewport without scrolling. Match is tab index 2; the shell
+                  // is a NavigationBar + IndexedStack driven by activeTabProvider
+                  // (no DefaultTabController, so maybeOf() would return null).
+                  Row(
+                    children: [
+                      Expanded(
+                        child: WfButton(
+                          label: 'Open match',
+                          variant: WfButtonVariant.primary,
+                          full: true,
+                          onPressed: () =>
+                              ref.read(activeTabProvider.notifier).state = 2,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: WfButton(
+                          label: 'Disconnect',
+                          variant: WfButtonVariant.danger,
+                          full: true,
+                          onPressed: () {
+                            ref.read(bleServiceProvider).disconnect(deviceId!);
+                            ref.read(activeCameraIdProvider.notifier).state =
+                                null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ] else
                   WfButton(
                     label: 'Connect camera',
@@ -236,6 +303,22 @@ class _HeroCameraCard extends ConsumerWidget {
   }
 }
 
+/// Maps connection + preview + telemetry flags to the hero-card status label and
+/// color. Precedence: Streaming > Recording > Preview > Standby > Disconnected.
+/// Connection gates all live states, so an inconsistent flag combination (e.g.
+/// recording reported while disconnected) resolves to Disconnected.
+(String, Color) cameraHeroState({
+  required bool connected,
+  required bool previewOn,
+  required DeviceTelemetry? telemetry,
+}) {
+  if (!connected) return ('Disconnected', T.ink3);
+  if (telemetry?.isStreaming ?? false) return ('Streaming', T.ok);
+  if (telemetry?.isRecording ?? false) return ('Recording', T.danger);
+  if (previewOn) return ('Preview', T.accent);
+  return ('Standby', T.warn);
+}
+
 class _TelemetryGrid extends StatelessWidget {
   const _TelemetryGrid({required this.telemetry});
   final DeviceTelemetry? telemetry;
@@ -245,14 +328,16 @@ class _TelemetryGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final battery = _battery(telemetry);
     final storage = _storage(telemetry);
-    final wifi = _wifi(telemetry);
+    final cpu = _cpu(telemetry);
     final temp = _temp(telemetry);
 
     return GridView.count(
       crossAxisCount: 2,
-      crossAxisSpacing: 8,
-      mainAxisSpacing: 8,
-      childAspectRatio: 2.0,
+      crossAxisSpacing: 6,
+      mainAxisSpacing: 6,
+      // Slightly flatter than default so the four stats fit under the hero, but
+      // tall enough for the label row + value (2.6 clipped the content by 11px).
+      childAspectRatio: 2.3,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
@@ -274,11 +359,12 @@ class _TelemetryGrid extends StatelessWidget {
           ),
         ),
         _TelemetryTile(
-          label: 'WiFi',
-          value: wifi.value,
-          accessory: SignalIndicator(
-            bars: wifi.bars,
-            size: _TelemetryGrid.IconSize,
+          label: 'CPU',
+          value: cpu,
+          accessory: const Icon(
+            Icons.memory,
+            size: _TelemetryGrid.IconSize * 1.8,
+            color: T.ink2,
           ),
         ),
         _TelemetryTile(
@@ -311,18 +397,12 @@ class _TelemetryGrid extends StatelessWidget {
     return '${freeGb.toStringAsFixed(0)} GB free';
   }
 
-  ({String value, int bars}) _wifi(DeviceTelemetry? t) {
-    if (t == null) return (value: '—', bars: 0);
-    if (t.wifiState != WifiState.connected) return (value: 'Off', bars: 0);
-    final dbm = t.wifiSignalDbm ?? -90;
-    final bars = dbm > -55
-        ? 4
-        : dbm > -65
-        ? 3
-        : dbm > -75
-        ? 2
-        : 1;
-    return (value: 'AP · ready', bars: bars);
+  String _cpu(DeviceTelemetry? t) {
+    // cpuUsedPct is already a 0–100 percent from the firmware CPU-busy probe
+    // (CpuBusyPercent → [0,100]) — display it directly. Multiplying by 100 read
+    // 61.79% as "6179%".
+    if (t == null) return '—';
+    return '${t.cpuUsedPct.round()}%';
   }
 
   String _temp(DeviceTelemetry? t) {
@@ -344,13 +424,13 @@ class _TelemetryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return WfCard(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           SizedBox(
-            height: _TelemetryGrid.IconSize * 1.8,
+            height: _TelemetryGrid.IconSize * 1.5,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -364,7 +444,7 @@ class _TelemetryTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.w600,
               color: T.ink,
               letterSpacing: -0.3,
@@ -376,74 +456,9 @@ class _TelemetryTile extends StatelessWidget {
   }
 }
 
-/// Raw dual-camera capture control. Phase-aware label + a RAW affordance (red
-/// record dot) so it never reads as normal recording, plus an interrupted/
-/// incomplete banner. Logic lives in [rawCaptureProvider].
-class _RawCaptureButton extends ConsumerWidget {
-  static const _rawRed = Color(0xFFE5484D);
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final raw = ref.watch(rawCaptureProvider);
-    final ctrl = ref.read(rawCaptureProvider.notifier);
-    final capturing = raw.isCapturing;
-    final busyOther =
-        raw.phase == RawCapturePhase.starting ||
-        raw.phase == RawCapturePhase.stopping ||
-        raw.phase == RawCapturePhase.downloading;
-
-    final label = switch (raw.phase) {
-      RawCapturePhase.capturing => 'Stop RAW capture',
-      RawCapturePhase.starting => 'Starting RAW…',
-      RawCapturePhase.stopping => 'Stopping…',
-      RawCapturePhase.downloading => 'Downloading pair…',
-      _ => 'Record RAW (training)',
-    };
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        WfButton(
-          label: label,
-          full: true,
-          size: WfButtonSize.sm,
-          variant: capturing
-              ? WfButtonVariant.primary
-              : WfButtonVariant.outline,
-          leading: Icon(
-            Icons.fiber_manual_record,
-            size: 13,
-            color: capturing ? T.ink : _rawRed,
-          ),
-          onPressed: busyOther
-              ? null
-              : () => capturing ? ctrl.stop() : ctrl.start(),
-        ),
-        if (raw.phase == RawCapturePhase.error && raw.message != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  size: 13,
-                  color: _rawRed,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    raw.message!,
-                    style: const TextStyle(fontSize: 11, color: _rawRed),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: ctrl.acknowledge,
-                  child: const Icon(Icons.close, size: 13, color: T.ink3),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
+// The manual "Record raw footage (training)" button was removed: the dual-camera
+// training proxy is internal/training-only and runs automatically, coupled to the
+// match RECORD lifecycle — the app mints a capture_group_id and sends it on the
+// RecordingControlCommand START (session_screen), and the firmware starts/stops
+// the per-camera proxy alongside the recording (U5/U6). It is NOT tied to
+// streaming (a stream-only match has nothing to train on).

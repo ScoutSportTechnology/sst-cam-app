@@ -62,3 +62,6 @@ android/key.properties
 
 # Lock files
 pubspec.lock.claude/worktrees/
+
+# Local dev tooling (adb pairing keys — never commit)
+.devtools/

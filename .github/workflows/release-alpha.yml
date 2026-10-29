@@ -12,9 +12,9 @@ name: release-alpha
 # code has still landed — recover by re-dispatching via workflow_dispatch. This
 # keeps the only build-can-fail-after-merge risk on development, never on main (R3).
 #
-# Alpha base = conventional-commit bump from the latest *stable* tag; the alpha
-# counter increments within that base. Version math lives in
-# scripts/ci/resolve-version.sh (single source shared with release-beta/release).
+# Alpha base = conventional-commit bump from the latest *stable* tag (release floor
+# while a release/X.Y.Z is open); the alpha counter increments within that base.
+# Version math lives in the shared resolve-version action (ScoutSportTechnology/.github).
 #
 # The check jobs are gated to pull_request and the alpha release job to push, so
 # the release job is intentionally NOT `needs:`-dependent on the checks (a check
@@ -28,6 +28,12 @@ on:
     branches: [development]
   push:
     branches: [development]
+    # Docs-only pushes must not build/mint an alpha — a Markdown or docs/ change
+    # carries no APK delta. (PR-gate checks still run via the pull_request trigger
+    # above so required status checks stay satisfiable.)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
     inputs:
       version:
@@ -48,13 +54,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # changes — detect whether a PR touches build-relevant paths. The expensive
+  # PR-gate check (Analyze & Test ~2-3 min) gates on `code`; a docs/markdown-only
+  # PR skips it. A job SKIPPED by `if:` counts as SUCCESS for required status
+  # checks (only a never-reported/pending check blocks the merge), so the wired
+  # `Analyze & Test (Linux)` name stays green on a docs-only PR without running.
+  # `CI Scripts` (~13 s) stays always-on. Mirrors sst-cam-firmware's release
+  # workflows; the push-side paths-ignore above skips the BUILD on docs commits.
+  changes:
+    name: changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Filter build-relevant paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'lib/**'
+              - 'test/**'
+              - 'integration_test/**'
+              - 'android/**'
+              - 'ios/**'
+              - 'proto/**'
+              - 'scripts/**'
+              - 'pubspec.yaml'
+              - 'pubspec.lock'
+              - 'analysis_options.yaml'
+              - 'flutter_launcher_icons-*.yaml'
+              - 'justfile'
+              - '.github/workflows/**'
+
   # ---- CI CHECK jobs (PRs only) -------------------------------------------
   # job name: values below are wired ruleset required-status-check contexts —
   # do NOT rename them or branch protection breaks.
 
-  # Gates the shared release version logic. resolve-version.sh drives all three
-  # release workflows (alpha/beta/release); it is committed but only ever runs in
-  # CI here — keep it covered and shellcheck-clean.
+  # Gates the CI scripts (shellcheck), the workflows (actionlint) and the proto/
+  # contract pin. Version math lives in the shared actions of
+  # ScoutSportTechnology/.github (pinned tag), not in this repo.
   version-script:
     name: CI Scripts (shellcheck + version tests)
     if: ${{ github.event_name == 'pull_request' }}
@@ -68,12 +108,19 @@ jobs:
       - name: Lint workflows (actionlint)
         uses: reviewdog/action-actionlint@v1.72.0
 
-      - name: resolve-version unit tests
-        run: ./scripts/ci/resolve-version-test.sh
+      # proto/ must point at a commit merged into the sst-cam-proto branch with
+      # the same name as this PR's base (development or release/X.Y.Z).
+      - name: proto pin check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: ./scripts/ci/check-proto-pin.sh "$BASE_REF"
 
   analyze-and-test:
     name: Analyze & Test (Linux)
-    if: ${{ github.event_name == 'pull_request' }}
+    needs: changes
+    # Skipped on a docs/markdown-only PR (code == 'false') — a skipped required
+    # check counts as success, so the merge is not blocked. Build-relevant PRs run.
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -132,47 +179,12 @@ jobs:
           files: coverage/lcov.info
         continue-on-error: true
 
-  build-android:
-    name: Build Android APK
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    needs: analyze-and-test
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Dart protoc plugin
-        run: |
-          dart pub global activate protoc_plugin 21.1.2
-          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
-
-      - name: Generate proto bindings
-        run: |
-          mkdir -p lib/models/proto
-          protoc --dart_out=lib/models/proto -I proto proto/*.proto
-
-      - name: Build debug APK
-        run: flutter build apk --debug
+  # NOTE: the PR-gate APK build was removed (R1/AE5). analyze-and-test +
+  # version-script are the PR gate; the APK is built only on push (the alpha
+  # job below). `main` still never builds — the beta artifact is promoted
+  # unchanged. The `Build Android APK` ruleset required-check is dropped in
+  # lockstep (see docs/ci/rulesets.md) so PRs don't wait on a job that no
+  # longer runs.
 
   # iOS builds require macOS + Xcode — run separately on macOS runners.
   # Uncomment when a macOS CI runner is available (e.g. GitHub Actions macos-latest,
@@ -198,23 +210,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history for the conventional-commit scan in resolve-version.sh;
+          # Full history for the conventional-commit scan in the resolver;
           # proto/*.proto comes from the git submodule.
           fetch-depth: 0
           submodules: recursive
 
       - name: Resolve version (alpha)
         id: ver
-        env:
-          IN_VERSION: ${{ inputs.version }}
-          IN_BUMP: ${{ inputs.bump }}
-        run: ./scripts/ci/resolve-version.sh alpha
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: alpha
+          version: ${{ inputs.version }}
+          bump: ${{ inputs.bump }}
 
       - uses: actions/setup-java@v4
         if: steps.ver.outputs.released == 'true'
         with:
           distribution: temurin
           java-version: 17
+
+      # Caches the Gradle deps + build cache across runs — the largest Android
+      # build cost. Pairs with flutter-action's SDK/pub cache below (R9).
+      - name: Set up Gradle cache
+        if: steps.ver.outputs.released == 'true'
+        uses: gradle/actions/setup-gradle@v4
 
       - uses: subosito/flutter-action@v2
         if: steps.ver.outputs.released == 'true'
@@ -269,11 +288,22 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
 
-      # Alpha publishes the developer APK only (stage env). The production APK is
-      # a beta/stable concern.
+      # Per-flavor launcher icons (dev/stage/prod) into android/app/src/<flavor>/res
+      # from flutter_launcher_icons-{dev,prod}.yaml. Needed before a flavored
+      # build so the variant ships its own icon (R8).
+      - name: Generate launcher icons
+        if: steps.ver.outputs.released == 'true'
+        run: dart run flutter_launcher_icons
+
+      # Alpha publishes the developer APK only — the developer VARIANT: real
+      # backend + dev tooling (APP_ENV=stage) on the single entry (lib/main.dart),
+      # built on the `stage` Gradle flavor (com.sst.sstcam.stage). The production
+      # APK is a beta/stable concern.
+      # arm64-only — Jetson + device-test phones are all 64-bit ARM; skipping the
+      # 32-bit/x86 ABIs cuts build time and APK size. Matches release-beta.yml.
       - name: Build developer APK
         if: steps.ver.outputs.released == 'true'
-        run: flutter build apk --release --dart-define=APP_ENV=stage
+        run: flutter build apk --release --flavor stage --dart-define=APP_ENV=stage --dart-define=APP_VERSION=${{ steps.ver.outputs.tag }} --dart-define=APP_CHANNEL=alpha --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
 
       - name: Rename developer APK
         if: steps.ver.outputs.released == 'true'
@@ -281,19 +311,15 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           mkdir -p dist
-          cp build/app/outputs/apk/release/app-release.apk \
+          cp build/app/outputs/apk/stage/release/app-stage-release.apk \
             "dist/sst-cam-app-${TAG}-developer.apk"
 
-      - name: Create prerelease + upload alpha APK
+      # publish-release (ScoutSportTechnology/.github): draft -> upload -> publish,
+      # recording `sha256: <hex>  <asset>` for each APK in the notes.
+      - name: Publish alpha prerelease (developer APK)
         if: steps.ver.outputs.released == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          set -euo pipefail
-          gh release create "$TAG" \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
-            --generate-notes \
-            "dist/sst-cam-app-${TAG}-developer.apk"
+        uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
+        with:
+          tag: ${{ steps.ver.outputs.tag }}
+          files: dist/sst-cam-app-${{ steps.ver.outputs.tag }}-developer.apk
+          prerelease: "true"

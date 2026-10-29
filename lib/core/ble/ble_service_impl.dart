@@ -2,15 +2,23 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:logging/logging.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../models/proto/bluetooth.pb.dart' as proto;
+import '../async/seeded_broadcast.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/network_config.dart';
+import '../models/export_job.dart';
 import '../models/overlay_layout.dart';
+import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
+import '../services/log_service.dart';
 import 'ble_protocol.dart';
+import 'ble_seams.dart';
 import 'ble_service.dart';
 
 // UUIDs defined in proto/README.md.
@@ -18,9 +26,9 @@ import 'ble_service.dart';
 // When wiring proto encoding, regenerate Dart bindings from
 // `proto/bluetooth.proto` (the schema was consolidated from six smaller
 // files; see proto/README.md history note).
-final _serviceUuid = Guid('A1B2C3D401000000800000805F9B34FB');
-final _cmdWriteUuid = Guid('A1B2C3D401100000800000805F9B34FB');
-final _cmdResponseUuid = Guid('A1B2C3D401200000800000805F9B34FB');
+final _serviceUuid = Guid('A1B2C3D400010000800000805F9B34FB');
+final _cmdWriteUuid = Guid('A1B2C3D400110000800000805F9B34FB');
+final _cmdResponseUuid = Guid('A1B2C3D400120000800000805F9B34FB');
 
 // Device name prefix — secondary filter after UUID filter
 const _kNamePrefix = 'sst-cam-';
@@ -35,16 +43,65 @@ Duration _remainingUntil(DateTime deadline) {
   return remaining.isNegative ? Duration.zero : remaining;
 }
 
+final _log = Logger('BleService');
+
 class BleServiceImpl implements BleService {
-  final _discoveryController = StreamController<List<SstDevice>>.broadcast();
-  final Map<String, _ConnectedDevice> _connected = {};
+  // Seeded so a late subscriber (e.g. re-entering the discovery page) replays the
+  // last known device list immediately instead of seeing nothing until the next
+  // scan result lands.
+  final _discovery = SeededBroadcast<List<SstDevice>>(const []);
+
+  // Accumulated discovered devices, keyed by id. Persists across the FlutterBluePlus
+  // scan-restart (startScan internally emits an empty `[]` first); we merge into
+  // this map and never relay that empty, so the device list never blanks mid-scan
+  // (the bug where a found camera flashed then vanished). Cleared silently at the
+  // start of a new scan so stale devices drop without blanking the UI.
+  final Map<String, SstDevice> _discovered = {};
+
+  // Persistent per-device channels. A slot is created lazily on first
+  // stream access OR on connect and is REUSED across connect/disconnect cycles —
+  // never removed on disconnect — so the connection/telemetry/match streams keep
+  // a stable identity and replay current state to late subscribers. Slots are
+  // only torn down in [dispose].
+  final Map<String, _ConnectedDevice> _devices = {};
   bool _isScanning = false;
+
+  // Live subscriptions for the active scan. The results listener MUST outlive
+  // the `FlutterBluePlus.startScan()` future: that future completes the instant
+  // the platform scan STARTS (its `timeout` only schedules a later auto-stop),
+  // so the old code — which cancelled the listener in a `finally` right after
+  // the await — tore it down before any advert was delivered. The platform scan
+  // kept running and buffering, but nothing relayed results into `_discovery`,
+  // so the page sat empty until you re-entered it (which re-listened and picked
+  // up the buffered results). These subs instead live until the scan actually
+  // stops, observed via `FlutterBluePlus.isScanning`.
+  StreamSubscription<List<ScanResult>>? _scanResultsSub;
+  StreamSubscription<bool>? _isScanningSub;
+
+  @override
+  Stream<bool> get bluetoothOn =>
+      FlutterBluePlus.adapterState.map((s) => s == BluetoothAdapterState.on);
+
+  @override
+  Future<void> requestBluetoothOn() async {
+    // Android can prompt the user to enable Bluetooth in-app; other platforms
+    // have no equivalent, and a decline/timeout just leaves the adapter off
+    // (the UI keeps showing the "Bluetooth is off" banner).
+    try {
+      await FlutterBluePlus.turnOn();
+    } catch (_) {
+      // Unsupported platform / user declined — nothing to do.
+    }
+  }
 
   @override
   bool get isScanning => _isScanning;
 
   @override
-  Stream<List<SstDevice>> get discoveredDevices => _discoveryController.stream;
+  Stream<List<SstDevice>> get discoveredDevices => _discovery.stream;
+
+  _ConnectedDevice _deviceSlot(String deviceId) =>
+      _devices.putIfAbsent(deviceId, () => _ConnectedDevice(deviceId));
 
   // ---------------------------------------------------------------------------
   // Discovery — filter by advertised service UUID (primary) + name prefix
@@ -55,37 +112,91 @@ class BleServiceImpl implements BleService {
     Duration timeout = const Duration(seconds: 10),
   }) async {
     if (_isScanning) return;
+    // Claim the scan slot BEFORE the first await. The permission request below
+    // can suspend for seconds behind the OS dialog; without claiming the slot
+    // up-front a second startScan (e.g. a double-tapped Scan button) would slip
+    // past the guard, re-wire the subscriptions, and orphan the first call's
+    // live results listener (alive, feeding _discovery, unreachable to cancel).
+    // The catch releases the slot on any setup failure.
     _isScanning = true;
 
-    final accumulated = <String, SstDevice>{};
-    StreamSubscription<List<ScanResult>>? sub;
-
-    sub = FlutterBluePlus.onScanResults.listen((results) {
-      for (final r in results) {
-        final name = r.advertisementData.advName.toLowerCase();
-        if (!name.startsWith(_kNamePrefix)) continue;
-        accumulated[r.device.remoteId.str] = SstDevice(
-          id: r.device.remoteId.str,
-          name: r.advertisementData.advName,
-          firmwareVersion: '',
-          model: '',
-          protocolVersion: 0,
+    try {
+      // Android 12+ requires the BLUETOOTH_SCAN/CONNECT runtime permissions (and
+      // FINE_LOCATION on API <= 31) to be granted before a scan returns any
+      // results — declaring them in the manifest is not enough. Without this the
+      // OS never prompts and FlutterBluePlus.startScan silently yields nothing.
+      // permission_handler no-ops on platforms that don't gate these (iOS asks
+      // via Info.plist usage strings on first BLE use).
+      final statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
+      ].request();
+      if (statuses[Permission.bluetoothScan]?.isGranted == false ||
+          statuses[Permission.bluetoothConnect]?.isGranted == false) {
+        throw StateError(
+          'Bluetooth permission denied — grant Nearby devices / Bluetooth to scan.',
         );
       }
-      _discoveryController.add(List.unmodifiable(accumulated.values.toList()));
-    });
 
-    try {
-      // Primary filter: only devices advertising the SST-Cam service UUID.
-      // This is set in the BLE advertising payload by the firmware.
-      // The name-prefix check above is a secondary safeguard.
+      // Drop stale devices for this fresh scan WITHOUT emitting — late
+      // subscribers keep seeing the last list (replayed by the seeded stream)
+      // until the first real result repopulates, so the UI never flashes empty.
+      _discovered.clear();
+
+      // Relay scan results for the WHOLE lifetime of the scan. Stored in a field
+      // (not a local cancelled in `finally`) because `startScan()` returns before
+      // results arrive — see the field doc.
+      await _scanResultsSub?.cancel();
+      _scanResultsSub = FlutterBluePlus.onScanResults.listen((results) {
+        var changed = false;
+        for (final r in results) {
+          final name = r.advertisementData.advName.toLowerCase();
+          if (!name.startsWith(_kNamePrefix)) continue;
+          _discovered[r.device.remoteId.str] = SstDevice(
+            id: r.device.remoteId.str,
+            name: r.advertisementData.advName,
+            firmwareVersion: '',
+            model: '',
+            protocolVersion: 0,
+          );
+          changed = true;
+        }
+        // Only emit when we actually have matching results — never relay the
+        // empty list FlutterBluePlus pushes at scan start (that blanked the UI).
+        if (changed) {
+          _discovery.add(List.unmodifiable(_discovered.values.toList()));
+        }
+      });
+
+      // Retire the results listener when the platform scan actually stops
+      // (timeout fires or stopScan is called) — NOT when `startScan()` returns.
+      // Guard on `sawScanning` so a stale `false` replayed at subscribe time
+      // can't clear the slot we claimed above before the scan has even begun.
+      final scanLifecycle = ScanLifecycleTracker();
+      await _isScanningSub?.cancel();
+      _isScanningSub = FlutterBluePlus.isScanning.listen((scanning) {
+        if (scanLifecycle.onScanningChanged(scanning)) {
+          _isScanning = false;
+          unawaited(_teardownScanSubscriptions());
+        }
+      });
+
+      // Primary filter: only devices advertising the SST-Cam service UUID (set in
+      // the firmware advertising payload). The name-prefix check above is a
+      // secondary safeguard. This future completes when the scan STARTS; the
+      // subscriptions above carry it the rest of the way.
       await FlutterBluePlus.startScan(
         withServices: [_serviceUuid],
         timeout: timeout,
       );
-    } finally {
+    } catch (_) {
+      // Setup failed (permission denied, adapter off, platform throw): release
+      // the claimed slot and tear down any partial subscriptions so the next
+      // startScan starts clean and nothing relays results with no active scan.
       _isScanning = false;
-      await sub.cancel();
+      await _teardownScanSubscriptions();
+      rethrow;
     }
   }
 
@@ -93,6 +204,17 @@ class BleServiceImpl implements BleService {
   Future<void> stopScan() async {
     await FlutterBluePlus.stopScan();
     _isScanning = false;
+    await _teardownScanSubscriptions();
+  }
+
+  // Cancel and null both scan subscriptions. Single teardown path shared by
+  // stopScan, the scan-end listener, a failed startScan, and dispose so the two
+  // subs never diverge across the competing call sites.
+  Future<void> _teardownScanSubscriptions() async {
+    await _scanResultsSub?.cancel();
+    _scanResultsSub = null;
+    await _isScanningSub?.cancel();
+    _isScanningSub = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -101,9 +223,13 @@ class BleServiceImpl implements BleService {
 
   @override
   Future<void> connect(String deviceId) async {
+    _log.info('connecting to camera $deviceId');
     final device = BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
-    final conn = _ConnectedDevice(device);
-    _connected[deviceId] = conn;
+    // Reuse the persistent slot so any stream subscribed BEFORE connect (the
+    // discovery row watches connectionStateStream at build time) receives the
+    // connecting/connected transitions on the same controller.
+    final conn = _deviceSlot(deviceId);
+    conn._device = device;
 
     conn._connController.add(CameraConnectionState.connecting);
 
@@ -164,18 +290,34 @@ class BleServiceImpl implements BleService {
       }
 
       conn._connController.add(CameraConnectionState.connected);
+      _log.info(
+        'connected to camera $deviceId '
+        '(proto v${info.payload!.protocolVersion})',
+      );
 
-      // Listen for unexpected disconnection
-      device.connectionState.listen((s) {
+      // Poll telemetry / match state from here (not as a stream-subscribe side
+      // effect) so the pollers' lifecycle is tied to the connection, and so a
+      // UI that subscribes before connect still gets ticks after connect.
+      conn._startTelemetryPolling(
+        (cmd) => sendCommand<DeviceTelemetry>(deviceId, cmd),
+      );
+      conn._startMatchStatePolling(
+        (cmd) => sendCommand<MatchState>(deviceId, cmd),
+      );
+
+      // Listen for unexpected disconnection. Keep the slot (replays
+      // disconnected to existing/late subscribers) — only tear down the
+      // transient connection resources.
+      conn._connSub = device.connectionState.listen((s) {
         if (s == BluetoothConnectionState.disconnected) {
           conn._connController.add(CameraConnectionState.disconnected);
-          conn.dispose();
-          _connected.remove(deviceId);
+          conn.teardownConnection();
         }
       });
     } catch (e) {
+      _log.warn('connect to camera $deviceId failed', e);
       conn._connController.add(CameraConnectionState.disconnected);
-      _connected.remove(deviceId);
+      conn.teardownConnection();
       if (e is BleConnectionException || e is BleProtocolVersionException) {
         rethrow;
       }
@@ -185,19 +327,23 @@ class BleServiceImpl implements BleService {
 
   @override
   Future<void> disconnect(String deviceId) async {
-    final conn = _connected[deviceId];
+    final conn = _devices[deviceId];
     if (conn == null) return;
+    _log.info('disconnecting camera $deviceId');
     conn._connController.add(CameraConnectionState.disconnecting);
-    await conn.device.disconnect();
+    await conn._device?.disconnect();
     conn._connController.add(CameraConnectionState.disconnected);
-    conn.dispose();
-    _connected.remove(deviceId);
+    // Keep the slot so the connection stream replays disconnected and a later
+    // reconnect reuses the same controllers.
+    conn.teardownConnection();
   }
 
   @override
   Stream<CameraConnectionState> connectionStateStream(String deviceId) {
-    return (_connected[deviceId]?._connController.stream) ??
-        Stream.value(CameraConnectionState.disconnected);
+    // Seeded with disconnected, so a subscriber attaching before connect (or
+    // after disconnect) immediately sees the current state and then every
+    // transition on this stable controller.
+    return _deviceSlot(deviceId)._connController.stream;
   }
 
   // ---------------------------------------------------------------------------
@@ -206,12 +352,9 @@ class BleServiceImpl implements BleService {
 
   @override
   Stream<DeviceTelemetry> telemetryStream(String deviceId) {
-    final conn = _connected[deviceId];
-    if (conn == null) return const Stream.empty();
-    conn._startTelemetryPolling(
-      (cmd) => sendCommand<DeviceTelemetry>(deviceId, cmd),
-    );
-    return conn._telemetryController.stream;
+    // Stable seeded stream; polling is started by connect(), not here, so
+    // subscription order relative to connect no longer changes behavior.
+    return _deviceSlot(deviceId)._telemetryController.stream;
   }
 
   // ---------------------------------------------------------------------------
@@ -243,12 +386,8 @@ class BleServiceImpl implements BleService {
 
   @override
   Stream<MatchState> matchStateStream(String deviceId) {
-    final conn = _connected[deviceId];
-    if (conn == null) return const Stream.empty();
-    conn._startMatchStatePolling(
-      (cmd) => sendCommand<MatchState>(deviceId, cmd),
-    );
-    return conn._matchStateController.stream;
+    // Stable seeded stream; polling is started by connect(), not here.
+    return _deviceSlot(deviceId)._matchStateController.stream;
   }
 
   // ---------------------------------------------------------------------------
@@ -261,7 +400,7 @@ class BleServiceImpl implements BleService {
     String deviceId,
     BleCommand command,
   ) async {
-    final conn = _connected[deviceId];
+    final conn = _devices[deviceId];
     if (conn == null || conn._cmdWrite == null) {
       return BleCommandResponse.error('Device $deviceId not connected');
     }
@@ -295,7 +434,7 @@ class BleServiceImpl implements BleService {
     String deviceId,
     PushSessionConfig config,
   ) async {
-    final conn = _connected[deviceId];
+    final conn = _devices[deviceId];
     if (conn == null || conn._cmdWrite == null) {
       throw BleConnectionException('Device $deviceId not connected');
     }
@@ -336,6 +475,209 @@ class BleServiceImpl implements BleService {
     }
   }
 
+  @override
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  ) async {
+    final resp = await sendCommand<PreviewLayoutResult>(
+      deviceId,
+      SetPreviewLayoutCommand(layout: layout),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setPreviewLayout failed: ${resp.errorMessage}',
+      );
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw const BleConnectionException(
+        'setPreviewLayout: firmware returned no PreviewLayoutResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
+  }) async {
+    // Decodes to a CameraCalibrationResult echo; we ignore it (the sliders are the
+    // source of truth for a manual set).
+    final resp = await sendCommand<CameraCalibrationResult>(
+      deviceId,
+      SetCameraCalibrationCommand(
+        rGain: rGain,
+        gGain: gGain,
+        bGain: bGain,
+        enabled: enabled,
+        saturation: saturation,
+        contrast: contrast,
+        brightness: brightness,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setCameraCalibration failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async {
+    final resp = await sendCommand<CameraCalibrationResult>(
+      deviceId,
+      AutoWhiteBalanceCommand(),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'autoWhiteBalance failed: ${resp.errorMessage}',
+      );
+    }
+    return resp.payload;
+  }
+
+  @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      CameraFocusCommand(
+        mode: mode,
+        position: position,
+        cameraIndex: cameraIndex,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setCameraFocus failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {
+    final resp = await sendCommand<void>(
+      deviceId,
+      SetActiveCameraCommand(cameraIndex: cameraIndex),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'setActiveCamera failed: ${resp.errorMessage}',
+      );
+    }
+  }
+
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) => _networkConfig(
+    deviceId,
+    SetNetworkConfigCommand(config: config),
+    'setNetworkConfig',
+  );
+
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) =>
+      _networkConfig(deviceId, GetNetworkConfigCommand(), 'getNetworkConfig');
+
+  @override
+  Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async {
+    final r = await sendCommand<DeviceInfoResponse>(
+      deviceId,
+      GetDeviceInfoCommand(),
+    );
+    return (r.isOk) ? r.payload : null;
+  }
+
+  // Shared round-trip for Set/GetNetworkConfig — both reply with the same
+  // NetworkConfigResult (echoed config + live status).
+  Future<NetworkConfigResult> _networkConfig(
+    String deviceId,
+    BleCommand command,
+    String label,
+  ) async {
+    final resp = await sendCommand<NetworkConfigResult>(deviceId, command);
+    if (!resp.isOk) {
+      if (resp.isUnsupported) {
+        // Old firmware predating the NetworkConfig command surface — surface a
+        // distinct, actionable exception rather than a generic failure.
+        throw BleNetworkConfigUnsupportedException(resp.errorMessage);
+      }
+      throw BleConnectionException('$label failed: ${resp.errorMessage}');
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw BleConnectionException(
+        '$label: firmware returned no NetworkConfigResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ExportJob> requestOverlayExport(
+    String deviceId,
+    String recordingId,
+  ) async {
+    final resp = await sendCommand<ExportJob>(
+      deviceId,
+      ExportOverlayedCommand(recordingId: recordingId),
+    );
+    if (!resp.isOk) {
+      // Carry the stable LIVE_SESSION_ACTIVE token (derived from the typed
+      // response status, NOT the firmware's free-form message) so the UI can
+      // recognise the live-session case regardless of wording.
+      if (resp.isLiveSessionActive) {
+        throw const BleConnectionException(
+          'overlay export request failed: LIVE_SESSION_ACTIVE',
+        );
+      }
+      throw BleConnectionException(
+        'overlay export request failed: ${resp.errorMessage}',
+      );
+    }
+    final job = resp.payload;
+    if (job == null) {
+      throw const BleConnectionException(
+        'overlay export: firmware returned no ExportJobResponse',
+      );
+    }
+    return job;
+  }
+
+  @override
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async {
+    final resp = await sendCommand<ExportJob>(
+      deviceId,
+      PollExportCommand(jobId: jobId),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'overlay export poll failed: ${resp.errorMessage}',
+      );
+    }
+    final job = resp.payload;
+    if (job == null) {
+      throw const BleConnectionException(
+        'overlay export poll: firmware returned no ExportJobResponse',
+      );
+    }
+    return job;
+  }
+
   // ---------------------------------------------------------------------------
   // Recordings
   // ---------------------------------------------------------------------------
@@ -373,12 +715,13 @@ class BleServiceImpl implements BleService {
 
   @override
   Future<void> dispose() async {
-    for (final conn in _connected.values) {
-      await conn.device.disconnect();
+    await _teardownScanSubscriptions();
+    for (final conn in _devices.values) {
+      await conn._device?.disconnect();
       conn.dispose();
     }
-    _connected.clear();
-    await _discoveryController.close();
+    _devices.clear();
+    await _discovery.close();
   }
 }
 
@@ -387,12 +730,24 @@ class BleServiceImpl implements BleService {
 // ---------------------------------------------------------------------------
 
 class _ConnectedDevice {
-  _ConnectedDevice(this.device);
+  _ConnectedDevice(this.deviceId);
 
-  final BluetoothDevice device;
-  final _connController = StreamController<CameraConnectionState>.broadcast();
-  final _telemetryController = StreamController<DeviceTelemetry>.broadcast();
-  final _matchStateController = StreamController<MatchState>.broadcast();
+  /// Stable id for this persistent slot. The transient [_device] (and the
+  /// characteristics/timers below) are (re)assigned on each connect and cleared
+  /// on disconnect; the seeded controllers below live for the slot's lifetime.
+  final String deviceId;
+
+  BluetoothDevice? _device;
+  StreamSubscription<BluetoothConnectionState>? _connSub;
+
+  // Seeded controllers: replay current value to late subscribers and keep a
+  // stable identity across connect/disconnect cycles. Connection state seeds
+  // disconnected so a pre-connect subscriber sees a defined state immediately.
+  final _connController = SeededBroadcast<CameraConnectionState>(
+    CameraConnectionState.disconnected,
+  );
+  final _telemetryController = SeededBroadcast<DeviceTelemetry>();
+  final _matchStateController = SeededBroadcast<MatchState>();
   final _pendingRequests = <String, Completer<List<int>>>{};
 
   /// Per-frame `data` budget derived from the negotiated ATT MTU at connect.
@@ -459,14 +814,19 @@ class _ConnectedDevice {
     if (write == null) {
       throw const BleConnectionException('command-write characteristic absent');
     }
+    // The firmware command characteristic declares ONLY "write-without-response"
+    // (see firmware gatt-application.cpp). Writing with-response issues an ATT
+    // Write Request the GATT stack rejects, which failed the very first
+    // GetDeviceInfo handshake on hardware. Application-level confirmation comes
+    // back via the response/notify characteristic (ChunkAck), not the ATT layer.
     if (frames.length == 1) {
-      await write.write(frames.first, withoutResponse: false);
+      await write.write(frames.first, withoutResponse: true);
       return;
     }
     for (var i = 0; i < frames.length; i++) {
       final ackCompleter = Completer<void>();
       (_pendingAcks[corrId] ??= {})[i] = ackCompleter;
-      await write.write(frames[i], withoutResponse: false);
+      await write.write(frames[i], withoutResponse: true);
       try {
         // Share the caller's overall deadline; a missing/late ack surfaces as a
         // BleTimeoutException (so sendCommand maps it to a clean timeout result)
@@ -501,19 +861,20 @@ class _ConnectedDevice {
         final total = chunk.totalChunks;
 
         // Disambiguate an inbound ChunkAck (outbound flow-control) from an
-        // inbound ChunkedPayload response. Convention (mirrors firmware):
-        // total_chunks == 0 marks an ack frame; a real payload has total >= 1.
-        if (total == 0) {
-          _pendingAcks[corrId]?.remove(chunk.chunkIndex)?.complete();
-          return;
-        }
-
-        if (total == 1) {
-          // Single-chunk fast path: ack (flow control is symmetric per the
-          // contract) then deliver immediately.
-          _sendAck(corrId, chunk.chunkIndex);
-          _pendingRequests.remove(corrId)?.complete(rawBytes);
-          return;
+        // inbound ChunkedPayload response (total_chunks: 0=ack, 1=single, >=2
+        // multi). See [classifyInboundFrame].
+        switch (classifyInboundFrame(total)) {
+          case InboundFrameKind.ack:
+            _pendingAcks[corrId]?.remove(chunk.chunkIndex)?.complete();
+            return;
+          case InboundFrameKind.singlePayload:
+            // Single-chunk fast path: ack (flow control is symmetric per the
+            // contract) then deliver immediately.
+            _sendAck(corrId, chunk.chunkIndex);
+            _pendingRequests.remove(corrId)?.complete(rawBytes);
+            return;
+          case InboundFrameKind.multiPayload:
+            break; // fall through to reassembly below
         }
 
         // Multi-chunk: ack this chunk, then place its data at chunk_index
@@ -586,10 +947,20 @@ class _ConnectedDevice {
     });
   }
 
-  void dispose() {
+  /// Tears down the transient connection (timers, response subscription,
+  /// in-flight requests, characteristics) WITHOUT closing the seeded controllers
+  /// or removing the slot. Called on disconnect so the connection stream keeps
+  /// replaying the (disconnected) state and a later reconnect reuses the same
+  /// controllers. Safe to call repeatedly.
+  void teardownConnection() {
     _telemetryTimer?.cancel();
+    _telemetryTimer = null;
     _matchStateTimer?.cancel();
+    _matchStateTimer = null;
     _responseSub?.cancel();
+    _responseSub = null;
+    _connSub?.cancel();
+    _connSub = null;
     // Fail any in-flight requests/acks so awaiting callers get a clean error
     // immediately on disconnect instead of hanging until their timeout fires.
     for (final c in _pendingRequests.values) {
@@ -607,6 +978,14 @@ class _ConnectedDevice {
     }
     _pendingAcks.clear();
     _reassemblers.clear();
+    _cmdWrite = null;
+    _cmdResponse = null;
+    _device = null;
+  }
+
+  /// Full teardown including the seeded controllers — only on service dispose.
+  void dispose() {
+    teardownConnection();
     _connController.close();
     _telemetryController.close();
     _matchStateController.close();

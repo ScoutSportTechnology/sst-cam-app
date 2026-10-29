@@ -128,6 +128,10 @@ class BackupService {
 
     final matchesJson = allTeams.expand<Map<String, dynamic>>((team) {
       final matches = teamMatches[team.id] ?? [];
+      // Explicit field allowlist — the per-match streaming credential
+      // (rtmpUrl/streamKey, U5) is intentionally NOT exported so a backup file
+      // never carries plaintext stream keys. Restore leaves them null; the user
+      // re-enters per match.
       return matches.map(
         (m) => <String, dynamic>{
           'id': m.id,

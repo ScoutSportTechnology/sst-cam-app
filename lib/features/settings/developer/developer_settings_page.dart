@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/dev_config.dart';
+import '../../../core/config/dev_navigation.dart';
+import '../../../core/config/env.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
@@ -106,6 +109,9 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
         ],
       ),
     );
+    // The page may have been popped (e.g. Android back gesture) while the
+    // dialog was open — don't act on a disposed widget.
+    if (!mounted) return;
     if (confirmed == true) {
       await SystemNavigator.pop();
     }
@@ -116,6 +122,7 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
     final state = ref.watch(developerSettingsProvider);
     final notifier = ref.read(developerSettingsProvider.notifier);
     final staged = state.stagedConfig;
+    final devNav = ref.watch(devNavigationProvider);
 
     return Scaffold(
       backgroundColor: T.bg,
@@ -136,94 +143,131 @@ class _DeveloperSettingsPageState extends ConsumerState<DeveloperSettingsPage> {
             const SizedBox(height: 12),
           ],
 
-          // Seed app data
-          const _SectionHeader('Seed app data'),
-          WfCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          // App logs (+ camera-link logs) live in Settings → Diagnostics; the
+          // database browser stays here in Developer settings.
+          if (devNav.debugPage != null) ...[
+            const _SectionHeader('Database'),
+            WfCard(
+              padding: EdgeInsets.zero,
+              child: Material(
+                type: MaterialType.transparency,
+                child: ListTile(
+                  title: const Text(
+                    'Database browser',
+                    style: TextStyle(color: T.ink, fontSize: 14),
+                  ),
+                  subtitle: const Text(
+                    'Inspect users/teams/matches/clips; reset + reseed.',
+                    style: TextStyle(color: T.ink2, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, color: T.ink3),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => devNav.debugPage!()),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Mock/seed controls — only meaningful on the mock backend (dev
+          // entry). On a real-backend build (stage/prod) seeding and camera
+          // emulation do nothing, so the switches stay visible but are forced
+          // OFF and disabled (see the switch value/onChanged below) instead of
+          // showing a misleading ON.
+          ...[
+            const _SectionHeader('Seed app data'),
+            WfCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Seed app data',
+                          style: TextStyle(color: T.ink, fontSize: 14),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Fills the local database with sample teams, matches '
+                          'and players, plus on-device past-match videos.',
+                          style: TextStyle(color: T.ink2, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    key: const Key('seedDataSwitch'),
+                    // Real backend (stage/prod) → forced off + disabled.
+                    value: kAppEnv.isDevBackend && staged.seedData,
+                    onChanged: kAppEnv.isDevBackend
+                        ? notifier.setSeedData
+                        : null,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Camera (BLE + live WiFi)
+            const _SectionHeader('Camera'),
+            WfCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Column(
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        'Seed app data',
-                        style: TextStyle(color: T.ink, fontSize: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Emulate camera',
+                              style: TextStyle(color: T.ink, fontSize: 14),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Mock BLE device advertises and the live WiFi '
+                              'preview/download endpoints respond.',
+                              style: TextStyle(color: T.ink2, fontSize: 12),
+                            ),
+                          ],
+                        ),
                       ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Fills the local database with sample teams, matches '
-                        'and players, plus on-device past-match videos.',
-                        style: TextStyle(color: T.ink2, fontSize: 12),
+                      Switch(
+                        key: const Key('cameraEmulationSwitch'),
+                        // Real backend (stage/prod) → forced off + disabled.
+                        value: kAppEnv.isDevBackend && staged.cameraEmulation,
+                        onChanged: kAppEnv.isDevBackend
+                            ? notifier.setCameraEmulation
+                            : null,
                       ),
                     ],
                   ),
-                ),
-                Switch(
-                  key: const Key('seedDataSwitch'),
-                  value: staged.seedData,
-                  onChanged: notifier.setSeedData,
-                  activeThumbColor: T.accent,
-                ),
-              ],
+                  const Divider(height: 20, color: T.hair),
+                  _baseUrlField(
+                    fieldKey: const Key('previewBaseField'),
+                    label: 'Preview base URL',
+                    controller: _previewController,
+                    hint: DevConfig.defaults.previewBaseUrl,
+                    onChanged: () => _previewDirty = true,
+                    onCommit: _commitPreviewBase,
+                  ),
+                  const SizedBox(height: 10),
+                  _baseUrlField(
+                    fieldKey: const Key('downloadBaseField'),
+                    label: 'Download base URL',
+                    controller: _downloadController,
+                    hint: DevConfig.defaults.downloadBaseUrl,
+                    onChanged: () => _downloadDirty = true,
+                    onCommit: _commitDownloadBase,
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-
-          // Camera (BLE + live WiFi)
-          const _SectionHeader('Camera'),
-          WfCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Emulate camera',
-                            style: TextStyle(color: T.ink, fontSize: 14),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Mock BLE device advertises and the live WiFi '
-                            'preview/download endpoints respond.',
-                            style: TextStyle(color: T.ink2, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      key: const Key('cameraEmulationSwitch'),
-                      value: staged.cameraEmulation,
-                      onChanged: notifier.setCameraEmulation,
-                      activeThumbColor: T.accent,
-                    ),
-                  ],
-                ),
-                const Divider(height: 20, color: T.hair),
-                _baseUrlField(
-                  fieldKey: const Key('previewBaseField'),
-                  label: 'Preview base URL',
-                  controller: _previewController,
-                  hint: DevConfig.defaults.previewBaseUrl,
-                  onChanged: () => _previewDirty = true,
-                  onCommit: _commitPreviewBase,
-                ),
-                const SizedBox(height: 10),
-                _baseUrlField(
-                  fieldKey: const Key('downloadBaseField'),
-                  label: 'Download base URL',
-                  controller: _downloadController,
-                  hint: DevConfig.defaults.downloadBaseUrl,
-                  onChanged: () => _downloadDirty = true,
-                  onCommit: _commitDownloadBase,
-                ),
-              ],
-            ),
-          ),
+          ],
           const SizedBox(height: 32),
 
           WfButton(

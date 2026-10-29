@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../config/app_config.dart';
 import 'daos/clips_dao.dart';
@@ -23,7 +24,10 @@ import 'tables/users_table.dart';
 
 part 'app_database.g.dart';
 
-const _kDefaultUserId = 'default-user';
+/// Stable UUID for the seeded starter user. A fixed sentinel (not a random v4)
+/// so the static seed fixtures that reference it stay linked across reseeds.
+/// Real users created in Settings get their own generated UUIDs.
+const kDefaultUserId = '00000000-0000-0000-0000-000000000001';
 
 @DriftDatabase(
   tables: [
@@ -59,7 +63,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -123,6 +127,16 @@ class AppDatabase extends _$AppDatabase {
             'ON raw_recordings(capture_group_id)',
           );
         }
+        if (from < 5) {
+          // v4→v5: per-match streaming credential (U5). Nullable — existing
+          // matches have no credential.
+          await customStatement(
+            'ALTER TABLE team_matches ADD COLUMN rtmp_url TEXT',
+          );
+          await customStatement(
+            'ALTER TABLE team_matches ADD COLUMN stream_key TEXT',
+          );
+        }
       });
     },
     beforeOpen: (details) async {
@@ -135,17 +149,23 @@ class AppDatabase extends _$AppDatabase {
 
   /// Seeds the default user and built-in sport presets.
   ///
-  /// Safe to call multiple times — uses insertOnConflictUpdate internally.
-  Future<void> _seedBaseData() async {
+  /// `userId` is generated per-install by default — NEVER a hardcoded constant,
+  /// so two installs don't share an identity and collide in the camera's
+  /// per-user video directory (`/videos/<user_uuid>/…`). The dev/mock callers
+  /// pass `kDefaultUserId` explicitly so the emulator fixtures (which reference
+  /// that id) line up. Safe to call multiple times — uses insertOnConflictUpdate.
+  Future<void> _seedBaseData({String? userId}) async {
+    final id = userId ?? const Uuid().v4();
     await usersDao.insertUser(
-      UsersTableCompanion.insert(id: _kDefaultUserId, name: 'Coach'),
+      UsersTableCompanion.insert(id: id, name: 'Coach'),
     );
-    await sportPresetsDao.seedBuiltInsForUser(_kDefaultUserId);
+    await sportPresetsDao.seedBuiltInsForUser(id);
   }
 
   /// Re-seeds base data after a manual reset (e.g., from the debug screen).
-  /// Public so the debug screen can call it after wiping the DB.
-  Future<void> seedBaseData() => _seedBaseData();
+  /// Public so the debug/mock layers can call it after wiping the DB. Pass
+  /// `userId: kDefaultUserId` from the mock/dev path so fixtures match.
+  Future<void> seedBaseData({String? userId}) => _seedBaseData(userId: userId);
 }
 
 /// Opens (or creates) the application SQLite database file.

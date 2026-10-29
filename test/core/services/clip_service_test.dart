@@ -59,9 +59,9 @@ void main() {
       expect(clips, isEmpty);
     });
 
-    // NOTE: The success path (FFmpeg executes, row inserted) cannot be covered
-    // in unit tests because FFmpegKit calls a native MethodChannel that is not
-    // available in the unit-test environment. Integration tests with a real
-    // device or emulator are required for the success path.
+    // NOTE: The success path (native trim executes, row inserted) cannot be
+    // covered in unit tests — ClipService.trim calls the com.sst.sstcam/media
+    // platform channel (MediaExtractor + MediaMuxer), unavailable in the
+    // unit-test environment. Covered by on-device integration testing.
   });
 }

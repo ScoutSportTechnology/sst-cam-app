@@ -15,7 +15,7 @@ the raw-capture contract commit and run `just gen-proto` before building.
 1. **Build a RELEASE prod APK** — never a debug/profile build (debug leaks BLE
    payloads, incl. any stream key, to logcat):
    ```bash
-   just build-android-prod      # release, real backend (main_prod.dart)
+   just build-android-prod      # release, real backend (single entry, APP_ENV=prod)
    ```
 2. **Confirm the Android-16 ffmpeg-kit fix is intact.** `ffmpeg_kit_flutter_new`
    throws `UnsatisfiedLinkError` (a `java.lang.Error`) on API 36, which aborts

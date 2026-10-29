@@ -73,6 +73,11 @@ Future<VideoDownloadProgress> _terminal(VideoDownloadHandle handle) {
 }
 
 void main() {
+  // WifiServiceImpl's constructor subscribes to a platform EventChannel
+  // (connectivity monitoring), which touches ServicesBinding.instance — so the
+  // test binding must be initialized before any WifiServiceImpl is constructed.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late Directory tmp;
   setUp(() => tmp = Directory.systemTemp.createTempSync('sst-dl'));
   tearDown(() => tmp.deleteSync(recursive: true));

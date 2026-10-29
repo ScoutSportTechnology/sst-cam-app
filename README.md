@@ -105,9 +105,10 @@ already-built beta artifact. Three branch-scoped workflows
 (`release-alpha` owns `development`, `release-beta` owns `release/**`, `release` owns
 `main`), each folding its PR gate in — no separate `ci` workflow; version math is
 `scripts/ci/resolve-version.sh`.
-Each release publishes a **developer** APK (`APP_ENV=stage`) and, from beta on, a
-**production** APK (`main_prod.dart`, `APP_ENV=prod`). See [`CLAUDE.md`](CLAUDE.md)
-and `docs/ci/` for the full model and maintainer runbooks.
+Each release publishes a **developer** APK (`stage` flavor, `APP_ENV=stage`) and,
+from beta on, a **production** APK (`prod` flavor, `APP_ENV=prod`) — both from the
+single `lib/main.dart` entry. See [`CLAUDE.md`](CLAUDE.md) and `docs/ci/` for the
+full model and maintainer runbooks.
 
 ---
 

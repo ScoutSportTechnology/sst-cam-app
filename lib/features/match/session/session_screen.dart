@@ -6,6 +6,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
@@ -13,16 +14,25 @@ import '../../../core/models/device.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/indicators.dart';
 import '../../../core/widgets/live_preview_view.dart';
-import '../../../core/models/overlay_layout.dart';
+import '../../../core/widgets/output_camera_toggle.dart';
+import '../../../core/widgets/preview_layout_toggle.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/widgets/wf_card.dart';
 import '../../../core/models/wifi.dart' show WifiDirectState;
 import '../../../core/wifi/wifi_providers.dart'
     show livePreviewEnabledProvider, wifiConnectionStateProvider;
-import '../../camera/camera_state.dart' show activeCameraIdProvider;
+import '../../camera/camera_state.dart'
+    show
+        activeCameraIdProvider,
+        activeTabProvider,
+        modalPreviewActiveProvider,
+        AppTab;
+import '../../../core/models/streaming.dart' show resolveWireStream, joinRtmp;
+import '../../../core/state/db_providers.dart' show teamsDaoProvider;
+import '../../settings/streaming/streaming_destination_form_sheet.dart'
+    show showStreamingDestinationFormSheet;
 import '../match_state.dart' show UpcomingMatch;
 import 'event_sheet.dart';
-import 'overlay_renderer.dart';
 import 'session_state.dart';
 
 class SessionScreen extends ConsumerWidget {
@@ -71,31 +81,66 @@ class SessionScreen extends ConsumerWidget {
                   ? onLeave
                   : null,
             ),
-            _LiveThumb(matchState: state, isLive: isPeriodActive),
-            // Preview toggle — sits below the feed surface, not overlaid on it.
-            // Only shown when a camera is connected.
+            // Inset the preview to the same horizontal margin as the controls
+            // below, so its edges line up with the Mark event / phase buttons.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: _LiveThumb(matchState: state, isLive: isPeriodActive),
+            ),
+            // Preview controls — below the feed (not overlaid). The Single|Both
+            // mode toggle sits next to the Preview button, matching the main
+            // camera card's layout. Only shown when a camera is connected.
             if (activeId != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-                child: WfButton(
-                  label: previewOn ? 'Stop preview' : 'Preview',
-                  variant: WfButtonVariant.outline,
-                  size: WfButtonSize.sm,
-                  full: true,
-                  leading: previewOn
-                      ? null
-                      : const Icon(
-                          Icons.play_arrow_rounded,
-                          size: 13,
-                          color: T.ink,
-                        ),
-                  onPressed: () {
-                    ref
-                            .read(livePreviewEnabledProvider(activeId).notifier)
-                            .state =
-                        !previewOn;
-                  },
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                // Two columns mirroring the Mark event / phase action row below,
+                // so the Preview button's width and right edge line up with the
+                // Mark event button. The Single|Both toggle sits in the right
+                // column (right-aligned), empty when preview is off.
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: WfButton(
+                        label: previewOn ? 'Stop preview' : 'Preview',
+                        variant: previewOn
+                            ? WfButtonVariant.danger
+                            : WfButtonVariant.outline,
+                        size: WfButtonSize.sm,
+                        full: true,
+                        leading: previewOn
+                            ? null
+                            : const Icon(
+                                Icons.play_arrow_rounded,
+                                size: 13,
+                                color: T.ink,
+                              ),
+                        onPressed: () {
+                          ref
+                                  .read(
+                                    livePreviewEnabledProvider(
+                                      activeId,
+                                    ).notifier,
+                                  )
+                                  .state =
+                              !previewOn;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: previewOn
+                          ? PreviewLayoutToggle(deviceId: activeId, full: true)
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
+              ),
+            // Manual tracking — pick the output camera mid-match while watching
+            // the live preview.
+            if (activeId != null && previewOn)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                child: OutputCameraToggle(deviceId: activeId, full: true),
               ),
             _PrimaryActionRow(
               state: state,
@@ -156,6 +201,10 @@ class SessionScreen extends ConsumerWidget {
                           ref,
                           RecordingControlCommand(
                             action: RecordingControlAction.start,
+                            quality: state.recordQuality,
+                            captureGroupId:
+                                ref.read(liveMatchProvider.notifier).matchId ??
+                                const Uuid().v4(),
                           ),
                         );
                       } else if (currentRec == RecState.recording) {
@@ -175,31 +224,8 @@ class SessionScreen extends ConsumerWidget {
                       }
                     }
                   : null,
-              onRecStop: connected
-                  ? () {
-                      _sendIfConnected(
-                        ref,
-                        RecordingControlCommand(
-                          action: RecordingControlAction.stop,
-                        ),
-                      );
-                      ctl.stopRecording();
-                    }
-                  : null,
               onStreamToggle: connected
-                  ? () {
-                      final newStreaming = !state.streaming;
-                      _sendIfConnected(
-                        ref,
-                        StreamingControlCommand(
-                          action: newStreaming
-                              ? StreamingControlAction.start
-                              : StreamingControlAction.stop,
-                          rtmpUrl: null,
-                        ),
-                      );
-                      ctl.setStreaming(newStreaming);
-                    }
+                  ? () => _toggleStream(context, ref, ctl, state)
                   : null,
             ),
           ],
@@ -217,6 +243,89 @@ class SessionScreen extends ConsumerWidget {
       separatorBuilder: (_, _) => const Divider(height: 1, color: T.rule),
       itemBuilder: (_, i) => _EventLogRow(e: visible[i]),
     );
+  }
+
+  /// Toggle streaming mid-match. Stopping is unconditional. Starting resolves
+  /// the per-match credential: use the one stored at setup, or — if none — prompt
+  /// for a one-off, store it on the match, then start. Cancelling the prompt
+  /// starts nothing and leaves the session unchanged.
+  Future<void> _toggleStream(
+    BuildContext context,
+    WidgetRef ref,
+    LiveMatchController ctl,
+    LiveMatchState state,
+  ) async {
+    if (state.streaming) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(
+          action: StreamingControlAction.stop,
+          rtmpUrl: null,
+        ),
+      );
+      ctl.setStreaming(false);
+      return;
+    }
+
+    final matchId = ref.read(liveMatchProvider.notifier).matchId;
+    String? wireUrl;
+    try {
+      if (matchId != null) {
+        final m = await ref.read(teamsDaoProvider).getMatchById(matchId);
+        final url = m?.rtmpUrl;
+        if (url != null && url.isNotEmpty) {
+          final key = m!.streamKey;
+          wireUrl = (key == null || key.isEmpty) ? url : joinRtmp(url, key);
+        }
+      }
+
+      if (wireUrl == null) {
+        if (!context.mounted) return;
+        // Same URL+key (and RTSP) form as setup — entered fresh for this match.
+        final draft = await showStreamingDestinationFormSheet(context);
+        if (draft == null) return; // cancelled — start nothing
+        final resolved = resolveWireStream(draft.config);
+        if (resolved == null) return;
+        if (matchId != null) {
+          await ref
+              .read(teamsDaoProvider)
+              .setMatchStreamingCredential(
+                matchId,
+                rtmpUrl: resolved.storeUrl,
+                streamKey: resolved.storeKey,
+              );
+        }
+        wireUrl = resolved.wireUrl;
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start streaming.')),
+        );
+      }
+      return;
+    }
+
+    final sent = _sendIfConnected(
+      ref,
+      StreamingControlCommand(
+        action: StreamingControlAction.start,
+        rtmpUrl: wireUrl,
+        quality: state.streamQuality,
+      ),
+    );
+    // Only reflect streaming in the UI when the start actually dispatched — a
+    // mid-await disconnect would otherwise show "streaming" while the camera
+    // never received the command.
+    if (sent) {
+      ctl.setStreaming(true);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera disconnected — streaming not started.'),
+        ),
+      );
+    }
   }
 
   Future<void> _kickoff(
@@ -265,6 +374,31 @@ class SessionScreen extends ConsumerWidget {
         period: state.currentPeriod + 1,
       ),
     );
+    // Honor the start-prompt choices on the camera. startPeriod only flips the
+    // local UI state; without these explicit control commands the firmware
+    // records/streams nothing (the match dir stays empty).
+    if (choice.$1 == true) {
+      // Mint a training-proxy pairing key so the firmware couples the always-on
+      // dual-camera proxy to this match record (U6). Sent only on START.
+      _sendIfConnected(
+        ref,
+        RecordingControlCommand(
+          action: RecordingControlAction.start,
+          quality: state.recordQuality,
+          captureGroupId:
+              ref.read(liveMatchProvider.notifier).matchId ?? const Uuid().v4(),
+        ),
+      );
+    }
+    if (choice.$2 == true) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(
+          action: StreamingControlAction.start,
+          quality: state.streamQuality,
+        ),
+      );
+    }
     ctl.startPeriod(startRecording: choice.$1, startStreaming: choice.$2);
   }
 
@@ -286,6 +420,7 @@ class SessionScreen extends ConsumerWidget {
         ),
       );
       ctl.endMatch(stopRecording: false, stopStreaming: false);
+      _finalizeMatchToLibrary(ref);
       return;
     }
     final choice = await _showEndPrompt(
@@ -301,10 +436,26 @@ class SessionScreen extends ConsumerWidget {
         period: state.currentPeriod,
       ),
     );
+    // Stop recording/streaming on the camera per the prompt. endMatch only flips
+    // local state; without these the firmware keeps recording and the mp4 never
+    // finalizes (no moov atom → unplayable, file grows unbounded).
+    if (choice.$1 == true) {
+      _sendIfConnected(
+        ref,
+        RecordingControlCommand(action: RecordingControlAction.stop),
+      );
+    }
+    if (choice.$2 == true) {
+      _sendIfConnected(
+        ref,
+        StreamingControlCommand(action: StreamingControlAction.stop),
+      );
+    }
     ctl.endMatch(
       stopRecording: choice.$1 ?? false,
       stopStreaming: choice.$2 ?? false,
     );
+    _finalizeMatchToLibrary(ref);
   }
 
   void _showEventSheet(BuildContext context, WidgetRef ref) {
@@ -316,12 +467,15 @@ class SessionScreen extends ConsumerWidget {
       builder: (_) => EventSheet(
         homeTeamId: match.team.id,
         onSave: (type, team, jersey) {
-          // Build the param map the firmware uses for {{param}} substitution.
-          // The local preview substitutes the same keys from LiveEvent.params,
-          // so both stacks render identical banner text. Keep these keys in
-          // sync with overlay_renderer's _resolveBinding substitution.
+          // Build the param map the firmware uses for {{param}} substitution in
+          // the event-banner templates (e.g. "{{player}}"). The firmware is the
+          // sole overlay renderer now (A6a), so these keys must match the
+          // template static_text placeholders in defaultScoreboardLayout.
           final params = <String, String>{
             if (jersey != null && jersey.isNotEmpty) 'jersey': jersey,
+            // Always present (blank when no jersey) so the banner's "{{player}}"
+            // subtitle resolves to a clean string, never a literal placeholder.
+            'player': jersey != null && jersey.isNotEmpty ? '#$jersey' : '',
           };
           // player_id carries the jersey number as the player identifier
           // available on the wire (no roster id is selected in this flow).
@@ -646,7 +800,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'Kickoff',
           variant: WfButtonVariant.primary,
-          size: WfButtonSize.lg,
+          size: WfButtonSize.sm,
           full: true,
           onPressed: onKickoff,
         );
@@ -654,7 +808,7 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = WfButton(
           label: 'End period ${state.currentPeriod}',
           variant: WfButtonVariant.danger,
-          size: WfButtonSize.lg,
+          size: WfButtonSize.sm,
           full: true,
           onPressed: onEndPeriod,
         );
@@ -663,14 +817,14 @@ class _PrimaryActionRow extends StatelessWidget {
             ? WfButton(
                 label: 'End match',
                 variant: WfButtonVariant.danger,
-                size: WfButtonSize.lg,
+                size: WfButtonSize.sm,
                 full: true,
                 onPressed: onEndMatch,
               )
             : WfButton(
                 label: 'Start period ${state.currentPeriod + 1}',
                 variant: WfButtonVariant.primary,
-                size: WfButtonSize.lg,
+                size: WfButtonSize.sm,
                 full: true,
                 onPressed: onStartNextPeriod,
               );
@@ -678,13 +832,13 @@ class _PrimaryActionRow extends StatelessWidget {
         phaseButton = const WfButton(
           label: 'Match ended',
           variant: WfButtonVariant.outline,
-          size: WfButtonSize.lg,
+          size: WfButtonSize.sm,
           full: true,
         );
     }
 
     return Padding(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       child: Row(
         children: [
           Expanded(
@@ -693,7 +847,8 @@ class _PrimaryActionRow extends StatelessWidget {
               variant: onMarkEvent != null
                   ? WfButtonVariant.primary
                   : WfButtonVariant.outline,
-              size: WfButtonSize.lg,
+              size: WfButtonSize.sm,
+              full: true,
               leading: const _Square(color: T.accentInk),
               onPressed: onMarkEvent,
             ),
@@ -746,14 +901,12 @@ class _BottomControls extends StatelessWidget {
     required this.state,
     required this.onTimerTap,
     required this.onRecToggle,
-    required this.onRecStop,
     required this.onStreamToggle,
   });
 
   final LiveMatchState state;
   final VoidCallback onTimerTap;
   final VoidCallback? onRecToggle;
-  final VoidCallback? onRecStop;
   final VoidCallback? onStreamToggle;
 
   @override
@@ -761,7 +914,7 @@ class _BottomControls extends StatelessWidget {
     final timerEnabled = state.phase == MatchPhase.period;
 
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
       decoration: const Border(
         top: BorderSide(color: T.rule),
       ).toBoxDecoration(),
@@ -777,6 +930,7 @@ class _BottomControls extends StatelessWidget {
                     label: state.timer == MatchTimer.running
                         ? 'Pause'
                         : 'Resume',
+                    size: WfButtonSize.sm,
                     leading: state.timer == MatchTimer.running
                         ? const _PauseGlyph()
                         : const _PlayGlyph(),
@@ -793,32 +947,24 @@ class _BottomControls extends StatelessWidget {
                       ? T.accent
                       : T.ink2,
                   dotColor: state.rec == RecState.recording ? T.accent : null,
-                  body: Row(
-                    children: [
-                      Expanded(
-                        child: WfButton(
-                          label: state.rec == RecState.recording
-                              ? 'Pause'
-                              : state.rec == RecState.paused
-                              ? 'Resume'
-                              : 'Record',
-                          leading: state.rec == RecState.recording
-                              ? const _PauseGlyph()
-                              : const _Dot(color: T.danger),
-                          onPressed: onRecToggle,
-                          full: true,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      WfButton(
-                        label: 'Stop',
-                        variant: WfButtonVariant.danger,
-                        leading: const _Square(color: T.dangerInk),
-                        onPressed: state.rec == RecState.idle
-                            ? null
-                            : onRecStop,
-                      ),
-                    ],
+                  // One continuous file per match: Record → Pause/Resume.
+                  // There is no mid-match "stop" — finalizing mid-match then
+                  // recording again re-opened the SAME <matchId>.mp4 and
+                  // overwrote the earlier footage. The recording is finalized
+                  // once, at match end ("Also stop recording"). Pause through
+                  // anything you don't want recorded.
+                  body: WfButton(
+                    label: state.rec == RecState.recording
+                        ? 'Pause'
+                        : state.rec == RecState.paused
+                        ? 'Resume'
+                        : 'Record',
+                    size: WfButtonSize.sm,
+                    leading: state.rec == RecState.recording
+                        ? const _PauseGlyph()
+                        : const _Dot(color: T.danger),
+                    onPressed: onRecToggle,
+                    full: true,
                   ),
                 ),
               ),
@@ -834,6 +980,7 @@ class _BottomControls extends StatelessWidget {
               variant: state.streaming
                   ? WfButtonVariant.danger
                   : WfButtonVariant.outline,
+              size: WfButtonSize.sm,
               full: true,
               onPressed: onStreamToggle,
             ),
@@ -922,13 +1069,6 @@ class _TopBar extends StatelessWidget {
 // LIVE THUMB
 // ---------------------------------------------------------------------------
 
-const _emptyOverlayLayout = OverlayLayout(
-  canvasWidth: 1920,
-  canvasHeight: 1080,
-  elements: [],
-  templates: [],
-);
-
 class _LiveThumb extends ConsumerWidget {
   const _LiveThumb({required this.matchState, required this.isLive});
   final LiveMatchState matchState;
@@ -937,6 +1077,11 @@ class _LiveThumb extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeId = ref.watch(activeCameraIdProvider);
+    // Only the visible tab holds a VLC client (home + match preview cards both
+    // stay mounted in the shell's IndexedStack; two clients on the single-stream
+    // RTSP server stall the second — the match preview was the loser).
+    final onMatchTab = ref.watch(activeTabProvider) == AppTab.match;
+    final modalPreview = ref.watch(modalPreviewActiveProvider);
 
     // When WiFi Direct fails (e.g. iOS does not support local preview),
     // show a static placeholder instead of the live preview surface.
@@ -949,20 +1094,22 @@ class _LiveThumb extends ConsumerWidget {
       children: [
         if (wifiFailed)
           _PreviewUnavailablePlaceholder(matchState: matchState, isLive: isLive)
-        else ...[
+        else
+          // The firmware composites the scoreboard onto the RTSP stream itself
+          // (overlay is firmware-unilateral, #6), so the app must NOT draw its
+          // own overlay here — doing both showed a doubled scoreboard. The app
+          // only authors + pushes the layout (PushOverlayLayout); the preview
+          // shows the firmware-baked stream as-is.
           // No buttons inside the surface — Preview/Stop is in the parent layout.
           LivePreviewView(
             deviceId: activeId,
             label: isLive ? 'LIVE PREVIEW' : 'PREVIEW',
             showButtons: false,
+            paused: !onMatchTab || modalPreview,
+            isStreaming: matchState.streaming,
           ),
-          Positioned.fill(
-            child: OverlayLayoutRenderer(
-              layout: matchState.overlayLayout ?? _emptyOverlayLayout,
-              matchState: matchState,
-            ),
-          ),
-        ],
+        // The Single|Both toggle now lives below the feed next to the Preview
+        // button (see the parent layout), not overlaid on the feed.
       ],
     );
   }
@@ -1154,7 +1301,7 @@ class _ControlGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      padding: const EdgeInsets.fromLTRB(10, 5, 10, 7),
       decoration: BoxDecoration(border: Border.all(color: T.rule)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1187,7 +1334,7 @@ class _ControlGroup extends StatelessWidget {
               ],
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 5),
           body,
         ],
       ),
@@ -1317,10 +1464,40 @@ extension on Border {
 // BLE HELPER — fire-and-forget command when a camera is connected
 // ---------------------------------------------------------------------------
 
-void _sendIfConnected(WidgetRef ref, BleCommand cmd) {
+/// Sends [cmd] only when a camera is connected. Returns true when the command
+/// was dispatched, false when skipped (no device / not connected) — callers that
+/// mutate UI state on the back of a send (e.g. streaming on/off) gate on this so
+/// app and camera don't diverge.
+bool _sendIfConnected(WidgetRef ref, BleCommand cmd) {
   final id = ref.read(activeCameraIdProvider);
-  if (id == null) return;
+  if (id == null) return false;
   final connState = ref.read(connectionStateProvider(id)).valueOrNull;
-  if (connState != CameraConnectionState.connected) return;
+  if (connState != CameraConnectionState.connected) return false;
   unawaited(ref.read(bleServiceProvider).sendCommand<void>(id, cmd));
+  return true;
+}
+
+/// Persist the just-ended match into the Library: flips its team_match row to
+/// 'past' with the final score + events so it appears on the Video/Library page.
+/// No-op for an ad-hoc session with no library row (matchId == null).
+void _finalizeMatchToLibrary(WidgetRef ref) {
+  final ctl = ref.read(liveMatchProvider.notifier);
+  final matchId = ctl.matchId;
+  final result = ctl.resultString();
+  if (matchId == null) {
+    debugPrint('[finalize] SKIP — no matchId (ad-hoc session, no library row)');
+    return;
+  }
+  debugPrint('[finalize] writing matchId=$matchId result=$result');
+  unawaited(
+    ref
+        .read(teamsDaoProvider)
+        .finalizeMatch(matchId, result: result, eventsJson: ctl.eventsJson())
+        .then(
+          (ok) => debugPrint('[finalize] done updated=$ok matchId=$matchId'),
+        )
+        .catchError((Object e) {
+          debugPrint('[finalize] ERROR $e');
+        }),
+  );
 }

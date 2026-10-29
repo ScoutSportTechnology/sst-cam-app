@@ -1,6 +1,7 @@
 ---
 title: "CI/CD release pipeline: PR-gated CI + signed-APK auto-release (app)"
 date: 2026-06-15
+last_updated: 2026-06-25
 category: tooling-decisions
 module: ci-cd
 problem_type: tooling_decision
@@ -21,6 +22,23 @@ related_components: [development_workflow, tooling]
 CI/CD for the Flutter app, set up alongside proto + firmware. The cross-cutting design was forced by an org constraint: **"Allow GitHub Actions to create and approve PRs" is disabled org-wide** (changing it needs `admin:org`), so **release-please can't open its release PR**. A GitHub App was attempted and abandoned. Result: default `GITHUB_TOKEN` + conventional-commit tag-on-merge. This doc records the app-specific pipeline + the gotchas that bit during setup.
 
 ## Guidance
+
+> **Partially superseded (2026-06-25).** The org constraint, default-`GITHUB_TOKEN`
+> approach, and the **gotchas below** (proto-gen ordering, `protoc_plugin` pin,
+> format-before-codegen, signing fallback) still hold. But the workflow *shape* in
+> this section is outdated — three changes landed since 2026-06-15:
+> 1. **Two workflows → three branch-scoped ones.** `ci.yml` + `release.yml` (main
+>    builds) became `release-alpha.yml` (development), `release-beta.yml`
+>    (release/*), `release.yml` (main, **promote-only — never builds**). See the
+>    CI/CD section of `CLAUDE.md`/`AGENTS.md`.
+> 2. **The two APKs are now Gradle product flavors** (`dev`/`prod`, distinct
+>    applicationId/name/icon, side-by-side installable), not just entry-point +
+>    `--dart-define` variants. The build commands now carry `--flavor`.
+> 3. **The beta lane builds the two flavors in a parallel matrix, arm64-only.**
+>    See `docs/solutions/tooling-decisions/flutter-release-pipeline-build-time-optimization-2026-06-25.md`.
+>
+> Treat the workflow/APK description immediately below as historical context for
+> *why* the pipeline started this way; the docs above are the current truth.
 
 **Two workflows, default `GITHUB_TOKEN` only:**
 

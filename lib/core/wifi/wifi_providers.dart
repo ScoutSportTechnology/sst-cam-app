@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../ble/ble_providers.dart';
+import '../models/preview_layout.dart';
 import '../models/wifi.dart';
 import 'wifi_service.dart';
 import 'wifi_service_impl.dart';
@@ -68,4 +69,12 @@ final allDownloadsProgressProvider = StreamProvider<VideoDownloadProgress>((
 /// (always false) when no camera is selected.
 final livePreviewEnabledProvider = StateProvider.family<bool, String?>(
   (ref, _) => false,
+);
+
+/// Selected live-preview composition (#6 A6b), keyed by deviceId. Reflects the
+/// last layout the firmware acknowledged via `setPreviewLayout`. The preview
+/// surface still drives its aspect from the RTSP descriptor geometry — this
+/// provider only tracks which composition the user asked for.
+final previewLayoutProvider = StateProvider.family<PreviewLayout, String?>(
+  (ref, _) => PreviewLayout.single,
 );

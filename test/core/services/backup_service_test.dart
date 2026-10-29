@@ -9,7 +9,10 @@ import 'package:sst_cam_app/core/db/app_database.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/match.dart';
+import 'package:sst_cam_app/core/models/network_config.dart';
 import 'package:sst_cam_app/core/models/overlay_layout.dart';
+import 'package:sst_cam_app/core/models/export_job.dart';
+import 'package:sst_cam_app/core/models/preview_layout.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/services/backup_service.dart';
@@ -28,6 +31,12 @@ class _StubBleService implements BleService {
   final Object? deviceInfoResult; // DeviceInfoResponse | null | Exception
 
   @override
+  Stream<bool> get bluetoothOn => Stream.value(true);
+
+  @override
+  Future<void> requestBluetoothOn() async {}
+
+  @override
   Future<BleCommandResponse<T>> sendCommand<T>(
     String deviceId,
     BleCommand command,
@@ -42,6 +51,8 @@ class _StubBleService implements BleService {
   }
 
   // Unused for backup tests — minimal no-op implementations below.
+  @override
+  Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async => null;
   @override
   bool get isScanning => false;
   @override
@@ -85,6 +96,54 @@ class _StubBleService implements BleService {
   ) async {}
   @override
   Future<void> pushOverlayLayout(String deviceId, OverlayLayout layout) async {}
+  @override
+  Future<PreviewLayoutResult> setPreviewLayout(
+    String deviceId,
+    PreviewLayout layout,
+  ) async => const PreviewLayoutResult(
+    layout: PreviewLayout.single,
+    width: 1280,
+    height: 720,
+  );
+  @override
+  Future<void> setCameraCalibration(
+    String deviceId, {
+    required double rGain,
+    required double gGain,
+    required double bGain,
+    bool enabled = true,
+    double saturation = 1.0,
+    double contrast = 1.0,
+    double brightness = 0.0,
+  }) async {}
+  @override
+  Future<CameraCalibrationResult?> autoWhiteBalance(String deviceId) async =>
+      null;
+  @override
+  Future<void> setCameraFocus(
+    String deviceId, {
+    required CameraFocusMode mode,
+    int? position,
+    int? cameraIndex,
+  }) async {}
+  @override
+  Future<void> setActiveCamera(String deviceId, int cameraIndex) async {}
+  @override
+  Future<ExportJob> requestOverlayExport(
+    String deviceId,
+    String recordingId,
+  ) async => const ExportJob(jobId: 'export-1', state: ExportJobState.pending);
+  @override
+  Future<ExportJob> pollOverlayExport(String deviceId, String jobId) async =>
+      const ExportJob(jobId: 'export-1', state: ExportJobState.failed);
+  @override
+  Future<NetworkConfigResult> setNetworkConfig(
+    String deviceId,
+    NetworkConfig config,
+  ) async => throw UnimplementedError();
+  @override
+  Future<NetworkConfigResult> getNetworkConfig(String deviceId) async =>
+      throw UnimplementedError();
   @override
   Future<void> dispose() async {}
 }
@@ -415,8 +474,9 @@ void main() {
     final userId = _uuid.v4();
     final teamId = _uuid.v4();
 
-    // Remove base-seeded default-user so only Coach Diego is in the export.
-    await db.usersDao.deleteById('default-user');
+    // Remove the base-seeded default user (random per-install id now, so wipe
+    // the table rather than a fixed id) so only Coach Diego is in the export.
+    await db.delete(db.usersTable).go();
 
     await db.usersDao.insertUser(
       UsersTableCompanion.insert(id: userId, name: 'Coach Diego'),

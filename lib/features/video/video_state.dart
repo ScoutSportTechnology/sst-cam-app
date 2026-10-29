@@ -6,12 +6,56 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ble/ble_providers.dart' show telemetryProvider;
 import '../../core/db/daos/teams_dao.dart';
 import '../../core/models/team.dart';
 import '../../core/state/db_providers.dart';
+import '../../core/wifi/wifi_providers.dart' show wifiServiceProvider;
+import '../camera/camera_state.dart' show activeCameraIdProvider;
+import '../match/session/session_state.dart' show liveMatchProvider, RecState;
 import '../teams/teams_state.dart' show teamsControllerProvider;
 
 export '../../core/models/team.dart';
+
+/// True while a recording and/or streaming session is live — either the app's
+/// own match controller has it running, or the connected firmware reports it
+/// via telemetry. Enforces the HARD INVARIANT: no past-video retrieval or
+/// overlayed export while a session is live. Firmware is the authoritative
+/// source (it rejects with `LIVE_SESSION_ACTIVE`); this gate is UX. Retrieval
+/// re-enables once the session ends.
+final liveSessionActiveProvider = Provider<bool>((ref) {
+  final m = ref.watch(liveMatchProvider);
+  if (m.rec != RecState.idle || m.streaming) return true;
+
+  // Fold in firmware truth when a camera is connected, so a session started
+  // outside this app's controller still locks retrieval.
+  final camId = ref.watch(activeCameraIdProvider);
+  if (camId == null) return false;
+  final tele = ref.watch(telemetryProvider(camId)).valueOrNull;
+  if (tele == null) return false;
+  return tele.isRecording || tele.isStreaming || tele.isRawCapturing;
+});
+
+/// Local cache path for a match's camera-rendered thumbnail, or null when none
+/// is available yet. Cache-first: returns the cached `<matchId>.jpg` if present;
+/// otherwise fetches it once over WiFi when a camera is connected and no live
+/// session is active (retrieval is blocked mid-match, per
+/// [liveSessionActiveProvider]). Null while offline with no cache → the card
+/// falls back to its team-badge placeholder.
+final matchThumbnailProvider = FutureProvider.family<String?, String>((
+  ref,
+  matchId,
+) async {
+  final pathSvc = ref.watch(videoPathServiceProvider);
+  final cachePath = await pathSvc.thumbnailPath(matchId);
+  if (File(cachePath).existsSync()) return cachePath;
+
+  // Not cached — only reach the camera when connected and not mid-match.
+  if (ref.watch(liveSessionActiveProvider)) return null;
+  final camId = ref.watch(activeCameraIdProvider);
+  if (camId == null) return null;
+  return ref.watch(wifiServiceProvider).fetchThumbnail(camId, matchId);
+});
 
 class LibraryEvent {
   const LibraryEvent({

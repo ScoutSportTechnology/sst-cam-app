@@ -143,7 +143,9 @@ class _MatchFormState extends ConsumerState<_MatchForm> {
         periodLengthSeconds = m * 60;
       }
     }
-    final opp = opponent.startsWith('vs ') ? opponent : 'vs $opponent';
+    // Store the bare opponent name (e.g. "Eastfield FC"), never "vs Eastfield
+    // FC". The "vs " is a display concern; views add it where they want it.
+    final opp = opponent.startsWith('vs ') ? opponent.substring(3) : opponent;
     Navigator.of(context).pop(
       TeamMatchDraft(
         opponent: opp,

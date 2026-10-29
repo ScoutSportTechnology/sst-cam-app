@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/device.dart';
 import '../camera/camera_state.dart' show activeCameraIdProvider;
 import '../../core/ble/ble_providers.dart';
+import '../../core/ble/ble_service.dart';
+import '../../core/state/selection_sync.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/indicators.dart';
@@ -25,20 +27,97 @@ class _DiscoveryPageState extends ConsumerState<DiscoveryPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(bleServiceProvider).startScan();
+      _startScan();
     });
   }
+
+  /// Kick off a scan and surface any failure to the user. Both call sites are
+  /// fire-and-forget, so without these catches the throw lands in an unawaited
+  /// Future and the screen silently sits on "Idle":
+  /// - StateError → BLUETOOTH_SCAN/CONNECT permission denied.
+  /// - PlatformException("Bluetooth must be turned on") → adapter off. That one
+  ///   is handled by the persistent "Bluetooth is off" banner (with an Enable
+  ///   button), so we suppress the redundant snackbar for it.
+  Future<void> _startScan() async {
+    try {
+      await ref.read(bleServiceProvider).startScan();
+    } on StateError catch (e) {
+      _showScanError(e.message);
+    } catch (e) {
+      final btOff = ref.read(bluetoothOnProvider).valueOrNull == false;
+      if (!btOff) _showScanError('Scan failed. $e');
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _showScanError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Persistent prompt shown while the Bluetooth adapter is off — scanning can't
+  /// start without it. "Enable" asks the OS to turn it on (Android system
+  /// prompt); the scan auto-resumes via the `bluetoothOnProvider` listener.
+  Widget _bluetoothOffBanner() => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+    child: WfCard(
+      child: Row(
+        children: [
+          const Icon(Icons.bluetooth_disabled, color: T.warn, size: 22),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Bluetooth is off',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: T.ink,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Turn on Bluetooth to find your camera.',
+                  style: TextStyle(fontSize: 12, color: T.ink2),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          WfButton(
+            label: 'Enable',
+            size: WfButtonSize.sm,
+            variant: WfButtonVariant.primary,
+            onPressed: () => ref.read(bleServiceProvider).requestBluetoothOn(),
+          ),
+        ],
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final devices = ref.watch(discoveredDevicesProvider).valueOrNull ?? [];
     final scanning = ref.watch(bleServiceProvider).isScanning;
+    // Default true so a not-yet-resolved adapter state doesn't flash the banner.
+    final btOn = ref.watch(bluetoothOnProvider).valueOrNull ?? true;
+    // Auto-resume scanning the moment the user turns Bluetooth back on.
+    ref.listen(bluetoothOnProvider, (prev, next) {
+      if (next.valueOrNull == true && (prev?.valueOrNull ?? true) == false) {
+        _startScan();
+      }
+    });
 
     return Scaffold(
       backgroundColor: T.bg,
       appBar: AppBar(title: const Text('Connect a camera')),
       body: ListView(
         children: [
+          if (!btOn) _bluetoothOffBanner(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
             child: Row(
@@ -71,13 +150,12 @@ class _DiscoveryPageState extends ConsumerState<DiscoveryPage> {
                 ),
                 TextButton(
                   onPressed: () {
-                    final svc = ref.read(bleServiceProvider);
                     if (scanning) {
-                      svc.stopScan();
+                      ref.read(bleServiceProvider).stopScan();
+                      setState(() {});
                     } else {
-                      svc.startScan();
+                      _startScan();
                     }
-                    setState(() {});
                   },
                   child: Text(scanning ? 'Stop' : 'Scan'),
                 ),
@@ -175,6 +253,107 @@ class _DeviceRow extends ConsumerWidget {
   const _DeviceRow({required this.device});
   final SstDevice device;
 
+  /// Connect, persist last-connected on success, and surface a real, actionable
+  /// error (with Retry) on failure. Extracted so the error sheet's Retry button
+  /// can re-run the exact same flow.
+  Future<void> _attemptConnect(BuildContext context, WidgetRef ref) async {
+    final svc = ref.read(bleServiceProvider);
+    try {
+      await svc.connect(device.id);
+      ref.read(activeCameraIdProvider.notifier).state = device.id;
+      // Match the firmware's fresh session — it resets the output camera to 0 /
+      // single view on disconnect, so start the UI there on every connect.
+      resetSelectionOnConnect(ref, device.id);
+      // Persist the last successfully-connected camera id so the Settings
+      // empty-state CTA can offer a one-tap reconnect. Best-effort — a persist
+      // failure must not break the connect flow.
+      unawaited(
+        ref.read(lastConnectedDeviceIdProvider.notifier).set(device.id),
+      );
+      if (context.mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (context.mounted) _showConnectErrorSheet(context, ref, e);
+    }
+  }
+
+  /// Maps a connect exception to a human-readable, actionable reason instead of
+  /// a generic "Connection failed". The impl throws descriptive exceptions; the
+  /// old SnackBar discarded them entirely.
+  String _humanConnectError(Object error) => switch (error) {
+    BleProtocolVersionException(:final actual, :final expected) =>
+      'Firmware protocol version $actual is incompatible with this app '
+          '(expects $expected). Update the app or camera firmware.',
+    BleConnectionException(:final message) => message,
+    BleTimeoutException(:final message) => message,
+    _ => error.toString(),
+  };
+
+  void _showConnectErrorSheet(
+    BuildContext context,
+    WidgetRef ref,
+    Object error,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: WfCard(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.error_outline, size: 18, color: T.danger),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Couldn't connect to ${device.name}",
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: T.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _humanConnectError(error),
+                style: const TextStyle(fontSize: 12, color: T.ink2),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: WfButton(
+                      label: 'Dismiss',
+                      variant: WfButtonVariant.outline,
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: WfButton(
+                      label: 'Retry',
+                      variant: WfButtonVariant.primary,
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _attemptConnect(context, ref);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connState =
@@ -234,30 +413,7 @@ class _DeviceRow extends ConsumerWidget {
                   await svc.disconnect(device.id);
                   ref.read(activeCameraIdProvider.notifier).state = null;
                 } else {
-                  try {
-                    await svc.connect(device.id);
-                    ref.read(activeCameraIdProvider.notifier).state = device.id;
-                    // Persist the last successfully-connected camera id so
-                    // the Settings empty-state CTA can offer a one-tap
-                    // reconnect on next launch / after disconnect.
-                    // Best-effort — failure to persist must not break the
-                    // connect flow.
-                    unawaited(
-                      ref
-                          .read(lastConnectedDeviceIdProvider.notifier)
-                          .set(device.id),
-                    );
-                    if (context.mounted) Navigator.of(context).pop();
-                  } catch (_) {
-                    // Surface failures via SnackBar; UI stays put.
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Connection failed — retry?'),
-                        ),
-                      );
-                    }
-                  }
+                  await _attemptConnect(context, ref);
                 }
               },
             ),

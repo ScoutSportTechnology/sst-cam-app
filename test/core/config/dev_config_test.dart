@@ -10,8 +10,10 @@ void main() {
   group('DevConfig.load', () {
     test('returns defaults when no prefs exist', () async {
       final config = await DevConfig.load();
-      expect(config.seedData, true);
-      expect(config.cameraEmulation, true);
+      // Defaults come from the EMULATE / SEED build flags (both default off);
+      // a plain `flutter test` sets no dart-defines, so both are false.
+      expect(config.seedData, false);
+      expect(config.cameraEmulation, false);
       expect(config.previewBaseUrl, 'rtsp://localhost:8554');
       expect(config.downloadBaseUrl, 'http://localhost:8080');
     });
@@ -38,7 +40,7 @@ void main() {
       });
       final config = await DevConfig.load();
       expect(config.seedData, false);
-      expect(config.cameraEmulation, true);
+      expect(config.cameraEmulation, false);
       expect(config.previewBaseUrl, 'rtsp://localhost:8554');
       expect(config.downloadBaseUrl, 'http://localhost:8080');
     });

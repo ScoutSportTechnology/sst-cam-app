@@ -1,0 +1,10 @@
+# Launcher icon for the `dev` Gradle flavor (com.sst.sstcam.dev / "SST Cam Dev").
+# Generated into android/app/src/dev/res by `dart run flutter_launcher_icons`
+# (see `just gen-icons`). Paired with APP_ENV=stage (tooling on).
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: false
+  image_path: "launcher/icon-dev-1024.png"
+  adaptive_icon_foreground: "launcher/icon-dev-foreground.png"
+  adaptive_icon_background: "#E8FF3C"
+  min_sdk_android: 21

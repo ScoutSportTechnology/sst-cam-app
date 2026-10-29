@@ -977,6 +977,22 @@ class $TeamMatchesTableTable extends TeamMatchesTable
     defaultValue: const Constant('[]'),
   );
   @override
+  late final GeneratedColumn<String> rtmpUrl = GeneratedColumn<String>(
+    'rtmp_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumn<String> streamKey = GeneratedColumn<String>(
+    'stream_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
   List<GeneratedColumn> get $columns => [
     id,
     teamId,
@@ -989,6 +1005,8 @@ class $TeamMatchesTableTable extends TeamMatchesTable
     clips,
     sizeMb,
     eventsJson,
+    rtmpUrl,
+    streamKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1045,6 +1063,14 @@ class $TeamMatchesTableTable extends TeamMatchesTable
         DriftSqlType.string,
         data['${effectivePrefix}events_json'],
       )!,
+      rtmpUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}rtmp_url'],
+      ),
+      streamKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}stream_key'],
+      ),
     );
   }
 
@@ -1072,6 +1098,14 @@ class TeamMatchesTableData extends DataClass
   /// JSON-encoded list of match events: [{timeSeconds, label, team, kind}].
   /// Empty array '[]' when no events recorded.
   final String eventsJson;
+
+  /// Per-match streaming credential (U5). Set at match setup or mid-match when
+  /// streaming starts with no destination; scoped to this match only (never
+  /// added to the global streaming_destinations list). Null when the match has
+  /// no streaming credential. Stored plaintext (accepted risk; debug-signed
+  /// builds are ADB-readable) and excluded from BackupService exports.
+  final String? rtmpUrl;
+  final String? streamKey;
   const TeamMatchesTableData({
     required this.id,
     required this.teamId,
@@ -1084,6 +1118,8 @@ class TeamMatchesTableData extends DataClass
     required this.clips,
     required this.sizeMb,
     required this.eventsJson,
+    this.rtmpUrl,
+    this.streamKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1099,6 +1135,12 @@ class TeamMatchesTableData extends DataClass
     map['clips'] = Variable<int>(clips);
     map['size_mb'] = Variable<int>(sizeMb);
     map['events_json'] = Variable<String>(eventsJson);
+    if (!nullToAbsent || rtmpUrl != null) {
+      map['rtmp_url'] = Variable<String>(rtmpUrl);
+    }
+    if (!nullToAbsent || streamKey != null) {
+      map['stream_key'] = Variable<String>(streamKey);
+    }
     return map;
   }
 
@@ -1115,6 +1157,12 @@ class TeamMatchesTableData extends DataClass
       clips: Value(clips),
       sizeMb: Value(sizeMb),
       eventsJson: Value(eventsJson),
+      rtmpUrl: rtmpUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(rtmpUrl),
+      streamKey: streamKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(streamKey),
     );
   }
 
@@ -1137,6 +1185,8 @@ class TeamMatchesTableData extends DataClass
       clips: serializer.fromJson<int>(json['clips']),
       sizeMb: serializer.fromJson<int>(json['sizeMb']),
       eventsJson: serializer.fromJson<String>(json['eventsJson']),
+      rtmpUrl: serializer.fromJson<String?>(json['rtmpUrl']),
+      streamKey: serializer.fromJson<String?>(json['streamKey']),
     );
   }
   @override
@@ -1154,6 +1204,8 @@ class TeamMatchesTableData extends DataClass
       'clips': serializer.toJson<int>(clips),
       'sizeMb': serializer.toJson<int>(sizeMb),
       'eventsJson': serializer.toJson<String>(eventsJson),
+      'rtmpUrl': serializer.toJson<String?>(rtmpUrl),
+      'streamKey': serializer.toJson<String?>(streamKey),
     };
   }
 
@@ -1169,6 +1221,8 @@ class TeamMatchesTableData extends DataClass
     int? clips,
     int? sizeMb,
     String? eventsJson,
+    Value<String?> rtmpUrl = const Value.absent(),
+    Value<String?> streamKey = const Value.absent(),
   }) => TeamMatchesTableData(
     id: id ?? this.id,
     teamId: teamId ?? this.teamId,
@@ -1181,6 +1235,8 @@ class TeamMatchesTableData extends DataClass
     clips: clips ?? this.clips,
     sizeMb: sizeMb ?? this.sizeMb,
     eventsJson: eventsJson ?? this.eventsJson,
+    rtmpUrl: rtmpUrl.present ? rtmpUrl.value : this.rtmpUrl,
+    streamKey: streamKey.present ? streamKey.value : this.streamKey,
   );
   TeamMatchesTableData copyWithCompanion(TeamMatchesTableCompanion data) {
     return TeamMatchesTableData(
@@ -1201,6 +1257,8 @@ class TeamMatchesTableData extends DataClass
       eventsJson: data.eventsJson.present
           ? data.eventsJson.value
           : this.eventsJson,
+      rtmpUrl: data.rtmpUrl.present ? data.rtmpUrl.value : this.rtmpUrl,
+      streamKey: data.streamKey.present ? data.streamKey.value : this.streamKey,
     );
   }
 
@@ -1217,7 +1275,9 @@ class TeamMatchesTableData extends DataClass
           ..write('periodLengthSeconds: $periodLengthSeconds, ')
           ..write('clips: $clips, ')
           ..write('sizeMb: $sizeMb, ')
-          ..write('eventsJson: $eventsJson')
+          ..write('eventsJson: $eventsJson, ')
+          ..write('rtmpUrl: $rtmpUrl, ')
+          ..write('streamKey: $streamKey')
           ..write(')'))
         .toString();
   }
@@ -1235,6 +1295,8 @@ class TeamMatchesTableData extends DataClass
     clips,
     sizeMb,
     eventsJson,
+    rtmpUrl,
+    streamKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -1250,7 +1312,9 @@ class TeamMatchesTableData extends DataClass
           other.periodLengthSeconds == this.periodLengthSeconds &&
           other.clips == this.clips &&
           other.sizeMb == this.sizeMb &&
-          other.eventsJson == this.eventsJson);
+          other.eventsJson == this.eventsJson &&
+          other.rtmpUrl == this.rtmpUrl &&
+          other.streamKey == this.streamKey);
 }
 
 class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
@@ -1265,6 +1329,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
   final Value<int> clips;
   final Value<int> sizeMb;
   final Value<String> eventsJson;
+  final Value<String?> rtmpUrl;
+  final Value<String?> streamKey;
   final Value<int> rowid;
   const TeamMatchesTableCompanion({
     this.id = const Value.absent(),
@@ -1278,6 +1344,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     this.clips = const Value.absent(),
     this.sizeMb = const Value.absent(),
     this.eventsJson = const Value.absent(),
+    this.rtmpUrl = const Value.absent(),
+    this.streamKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TeamMatchesTableCompanion.insert({
@@ -1292,6 +1360,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     this.clips = const Value.absent(),
     this.sizeMb = const Value.absent(),
     this.eventsJson = const Value.absent(),
+    this.rtmpUrl = const Value.absent(),
+    this.streamKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        teamId = Value(teamId),
@@ -1313,6 +1383,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     Expression<int>? clips,
     Expression<int>? sizeMb,
     Expression<String>? eventsJson,
+    Expression<String>? rtmpUrl,
+    Expression<String>? streamKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1328,6 +1400,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
       if (clips != null) 'clips': clips,
       if (sizeMb != null) 'size_mb': sizeMb,
       if (eventsJson != null) 'events_json': eventsJson,
+      if (rtmpUrl != null) 'rtmp_url': rtmpUrl,
+      if (streamKey != null) 'stream_key': streamKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1344,6 +1418,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     Value<int>? clips,
     Value<int>? sizeMb,
     Value<String>? eventsJson,
+    Value<String?>? rtmpUrl,
+    Value<String?>? streamKey,
     Value<int>? rowid,
   }) {
     return TeamMatchesTableCompanion(
@@ -1358,6 +1434,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
       clips: clips ?? this.clips,
       sizeMb: sizeMb ?? this.sizeMb,
       eventsJson: eventsJson ?? this.eventsJson,
+      rtmpUrl: rtmpUrl ?? this.rtmpUrl,
+      streamKey: streamKey ?? this.streamKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1398,6 +1476,12 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
     if (eventsJson.present) {
       map['events_json'] = Variable<String>(eventsJson.value);
     }
+    if (rtmpUrl.present) {
+      map['rtmp_url'] = Variable<String>(rtmpUrl.value);
+    }
+    if (streamKey.present) {
+      map['stream_key'] = Variable<String>(streamKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1418,6 +1502,8 @@ class TeamMatchesTableCompanion extends UpdateCompanion<TeamMatchesTableData> {
           ..write('clips: $clips, ')
           ..write('sizeMb: $sizeMb, ')
           ..write('eventsJson: $eventsJson, ')
+          ..write('rtmpUrl: $rtmpUrl, ')
+          ..write('streamKey: $streamKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4892,6 +4978,8 @@ typedef $$TeamMatchesTableTableCreateCompanionBuilder =
       Value<int> clips,
       Value<int> sizeMb,
       Value<String> eventsJson,
+      Value<String?> rtmpUrl,
+      Value<String?> streamKey,
       Value<int> rowid,
     });
 typedef $$TeamMatchesTableTableUpdateCompanionBuilder =
@@ -4907,6 +4995,8 @@ typedef $$TeamMatchesTableTableUpdateCompanionBuilder =
       Value<int> clips,
       Value<int> sizeMb,
       Value<String> eventsJson,
+      Value<String?> rtmpUrl,
+      Value<String?> streamKey,
       Value<int> rowid,
     });
 
@@ -5050,6 +5140,16 @@ class $$TeamMatchesTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get rtmpUrl => $composableBuilder(
+    column: $table.rtmpUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get streamKey => $composableBuilder(
+    column: $table.streamKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$TeamsTableTableFilterComposer get teamId {
     final $$TeamsTableTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -5183,6 +5283,16 @@ class $$TeamMatchesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get rtmpUrl => $composableBuilder(
+    column: $table.rtmpUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get streamKey => $composableBuilder(
+    column: $table.streamKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$TeamsTableTableOrderingComposer get teamId {
     final $$TeamsTableTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -5251,6 +5361,12 @@ class $$TeamMatchesTableTableAnnotationComposer
     column: $table.eventsJson,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get rtmpUrl =>
+      $composableBuilder(column: $table.rtmpUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get streamKey =>
+      $composableBuilder(column: $table.streamKey, builder: (column) => column);
 
   $$TeamsTableTableAnnotationComposer get teamId {
     final $$TeamsTableTableAnnotationComposer composer = $composerBuilder(
@@ -5372,6 +5488,8 @@ class $$TeamMatchesTableTableTableManager
                 Value<int> clips = const Value.absent(),
                 Value<int> sizeMb = const Value.absent(),
                 Value<String> eventsJson = const Value.absent(),
+                Value<String?> rtmpUrl = const Value.absent(),
+                Value<String?> streamKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TeamMatchesTableCompanion(
                 id: id,
@@ -5385,6 +5503,8 @@ class $$TeamMatchesTableTableTableManager
                 clips: clips,
                 sizeMb: sizeMb,
                 eventsJson: eventsJson,
+                rtmpUrl: rtmpUrl,
+                streamKey: streamKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -5400,6 +5520,8 @@ class $$TeamMatchesTableTableTableManager
                 Value<int> clips = const Value.absent(),
                 Value<int> sizeMb = const Value.absent(),
                 Value<String> eventsJson = const Value.absent(),
+                Value<String?> rtmpUrl = const Value.absent(),
+                Value<String?> streamKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TeamMatchesTableCompanion.insert(
                 id: id,
@@ -5413,6 +5535,8 @@ class $$TeamMatchesTableTableTableManager
                 clips: clips,
                 sizeMb: sizeMb,
                 eventsJson: eventsJson,
+                rtmpUrl: rtmpUrl,
+                streamKey: streamKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

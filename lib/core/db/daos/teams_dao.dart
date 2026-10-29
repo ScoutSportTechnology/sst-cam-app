@@ -109,9 +109,52 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
   Future<void> insertTeamMatch(TeamMatchesTableCompanion companion) =>
       into(teamMatchesTable).insert(companion);
 
+  /// Fetch a single match row by id (used to read the per-match streaming
+  /// credential mid-match). Null when no such match.
+  Future<TeamMatchesTableData?> getMatchById(String matchId) => (select(
+    teamMatchesTable,
+  )..where((m) => m.id.equals(matchId))).getSingleOrNull();
+
+  /// Set (or clear, with nulls) the per-match streaming credential (U5).
+  /// Scoped to this match only — never added to streaming_destinations.
+  Future<void> setMatchStreamingCredential(
+    String matchId, {
+    required String? rtmpUrl,
+    required String? streamKey,
+  }) => (update(teamMatchesTable)..where((m) => m.id.equals(matchId))).write(
+    TeamMatchesTableCompanion(
+      rtmpUrl: Value(rtmpUrl),
+      streamKey: Value(streamKey),
+    ),
+  );
+
   /// Delete a team match by id.
   Future<int> deleteTeamMatch(String matchId) =>
       (delete(teamMatchesTable)..where((m) => m.id.equals(matchId))).go();
+
+  /// Finalize a played match into the library: flip it to 'past' and record the
+  /// result + events. [sizeMb] stays 0 until the recording is downloaded (the
+  /// library then shows it as remote/needs-download). The scheduled date is kept.
+  /// Returns true if a row was updated.
+  Future<bool> finalizeMatch(
+    String matchId, {
+    required String result,
+    required String eventsJson,
+    int sizeMb = 0,
+  }) async {
+    final updated =
+        await (update(
+          teamMatchesTable,
+        )..where((m) => m.id.equals(matchId))).write(
+          TeamMatchesTableCompanion(
+            kind: const Value('past'),
+            result: Value(result),
+            eventsJson: Value(eventsJson),
+            sizeMb: Value(sizeMb),
+          ),
+        );
+    return updated > 0;
+  }
 
   /// Watch all past matches joined with their team, for the library screen.
   /// Emits on any mutation to teamMatchesTable or teamsTable.
@@ -124,7 +167,11 @@ class TeamsDao extends DatabaseAccessor<AppDatabase> with _$TeamsDaoMixin {
             ),
           ])
           ..where(teamMatchesTable.kind.equals('past'))
-          ..orderBy([OrderingTerm.desc(teamMatchesTable.date)]);
+          // Newest match on top. `date` is a display label ("Mar 12") — sorting
+          // it as text is alphabetical, not chronological (e.g. "Jan 5" > "Jan
+          // 30", and it breaks across years). Order by the row's insertion order
+          // (SQLite rowid) instead, which is match-creation order.
+          ..orderBy([OrderingTerm.desc(teamMatchesTable.rowId)]);
 
     return query.watch().map(
       (rows) => rows

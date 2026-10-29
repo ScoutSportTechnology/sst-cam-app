@@ -135,7 +135,7 @@ void main() {
         // the App section onto the camera card per R5.
         expect(find.text('Connected camera'), findsOneWidget);
         expect(find.text('Reboot'), findsOneWidget);
-        expect(find.text('Update fw'), findsOneWidget);
+        expect(find.text('Upgrade'), findsOneWidget);
         expect(find.text('Disconnect'), findsOneWidget);
         expect(find.text('Diagnostics'), findsOneWidget);
         // Users section collapses to a single nav row; badge shows active user.

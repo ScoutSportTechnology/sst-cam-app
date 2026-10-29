@@ -9,14 +9,19 @@ import 'streaming/streaming_state.dart'
 import 'users/users_state.dart'
     show activeUserProvider, usersControllerProvider;
 import '../../core/ble/ble_providers.dart';
+import '../../core/state/selection_sync.dart';
+import '../../core/models/command.dart';
 import '../../core/state/last_camera.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/version/version_info.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
 import 'data/data_settings_page.dart';
 import '../discovery/diagnostics_page.dart';
 import '../discovery/discovery_page.dart';
 import 'sport_presets/sport_presets_page.dart';
+import 'calibration/calibration_page.dart';
+import 'network/network_settings_page.dart';
 import 'streaming/streaming_destinations_page.dart';
 import 'users/users_settings_page.dart';
 
@@ -95,11 +100,42 @@ class SettingsPage extends ConsumerWidget {
                 const _StreamingRow(),
                 const Divider(height: 1, color: T.rule),
                 _NavRow(
+                  leading: const Icon(Icons.lan_outlined),
+                  label: 'Network',
+                  sub: 'Camera internet uplink (ethernet / wifi)',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const NetworkSettingsPage(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
+                  leading: const Icon(Icons.tune_rounded),
+                  label: 'Calibration',
+                  sub: 'Camera colour, focus + output tracking',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CalibrationPage()),
+                  ),
+                ),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
                   leading: const Icon(Icons.storage_outlined),
                   label: 'Backup & restore',
                   sub: 'Export or restore app data',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const DataSettingsPage()),
+                  ),
+                ),
+                const Divider(height: 1, color: T.rule),
+                _NavRow(
+                  leading: const Icon(Icons.monitor_heart_outlined),
+                  label: 'Diagnostics',
+                  sub: 'Camera telemetry · app build · live logs',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => DiagnosticsPage(deviceId: activeId),
+                    ),
                   ),
                 ),
                 Builder(
@@ -152,29 +188,9 @@ class SettingsPage extends ConsumerWidget {
                   ),
                 ),
                 const Divider(height: 1, color: T.rule),
-                Builder(
-                  builder: (ctx) {
-                    final devNav = ref.watch(devNavigationProvider);
-                    return GestureDetector(
-                      onLongPress: devNav.debugPage != null
-                          ? () => Navigator.push(
-                              ctx,
-                              MaterialPageRoute<void>(
-                                builder: (_) => devNav.debugPage!(),
-                              ),
-                            )
-                          : null,
-                      child: const _RowItem(
-                        leading: Icon(Icons.info_outline),
-                        label: 'About',
-                        trailing: Text(
-                          '0.3.2',
-                          style: TextStyle(color: T.ink2, fontSize: 12),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                // The DB debug browser used to hide behind a long-press here;
+                // it now has a visible row in Settings → Developer.
+                const _AboutRow(),
               ],
             ),
           ),
@@ -214,10 +230,32 @@ class _StreamingRow extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
+// About row — real app version (git-derived define, package metadata fallback)
+// plus channel, replacing the old hardcoded literal.
+// ---------------------------------------------------------------------------
+
+class _AboutRow extends ConsumerWidget {
+  const _AboutRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final version = ref.watch(appVersionProvider).valueOrNull ?? '—';
+    return _RowItem(
+      leading: const Icon(Icons.info_outline),
+      label: 'About',
+      trailing: Text(
+        version,
+        style: const TextStyle(color: T.ink2, fontSize: 12),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Camera card. Reboot and Update fw remain visual placeholders until
 // firmware lands; they render disabled with a tooltip explaining that.
-// fw / proto values are placeholder strings — pipe them from the
-// SstDevice / telemetry stream when that data is reachable here.
+// fw / proto values are now real: firmware from the device's firmwareVersion,
+// proto from the built-against repo tag + the wire protocol_version.
 // ---------------------------------------------------------------------------
 
 class _CameraCard extends ConsumerWidget {
@@ -227,6 +265,14 @@ class _CameraCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Real firmware version from the connected camera's DeviceInfo (the
+    // scan-time SstDevice carries empty fw). proto = the built-against repo tag.
+    // The wire protocol_version is technical — it lives in Diagnostics, not here.
+    final info = ref.watch(connectedDeviceInfoProvider(deviceId)).valueOrNull;
+    final fwRaw = info?.firmwareVersion ?? '';
+    final fw = fwRaw.isEmpty ? '—' : fwRaw;
+    final protoLine = 'proto $protoRepoVersion';
+
     return WfCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -248,9 +294,9 @@ class _CameraCard extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    const Text(
-                      'fw 0.3.2 · proto v0.3',
-                      style: TextStyle(
+                    Text(
+                      'fw $fw · $protoLine',
+                      style: const TextStyle(
                         fontFamily: T.mono,
                         fontSize: 11,
                         color: T.ink2,
@@ -271,56 +317,38 @@ class _CameraCard extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Row(
-            children: const [
-              Expanded(
-                child: Tooltip(
-                  message: 'Coming soon — firmware integration',
-                  child: WfButton(
-                    label: 'Reboot',
-                    size: WfButtonSize.sm,
-                    onPressed: null,
-                  ),
-                ),
-              ),
-              SizedBox(width: 8),
-              Expanded(
-                child: Tooltip(
-                  message: 'Coming soon — firmware integration',
-                  child: WfButton(
-                    label: 'Update fw',
-                    size: WfButtonSize.sm,
-                    onPressed: null,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Bottom button row: Disconnect · Diagnostics — both wired.
-          Row(
             children: [
               Expanded(
                 child: WfButton(
-                  label: 'Disconnect',
+                  label: 'Reboot',
                   size: WfButtonSize.sm,
-                  onPressed: () => _disconnect(ref, deviceId),
+                  // Connected => protocol 3 (exact-match version gate), so the
+                  // reboot command surface is guaranteed present. Disabled only
+                  // while DeviceInfo is still loading.
+                  onPressed: info == null
+                      ? null
+                      : () => _confirmReboot(context, ref),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: WfButton(
-                  label: 'Diagnostics',
+                  label: 'Upgrade',
                   size: WfButtonSize.sm,
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const DiagnosticsPage(),
-                      ),
-                    );
-                  },
+                  onPressed: () => _showUpgradeInfo(context),
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          // Disconnect — Diagnostics now lives in the Settings list as its own
+          // row (Settings → Diagnostics), not buried on the camera card.
+          WfButton(
+            label: 'Disconnect',
+            variant: WfButtonVariant.danger,
+            size: WfButtonSize.sm,
+            full: true,
+            onPressed: () => _disconnect(ref, deviceId),
           ),
         ],
       ),
@@ -333,6 +361,73 @@ class _CameraCard extends ConsumerWidget {
   Future<void> _disconnect(WidgetRef ref, String deviceId) async {
     await ref.read(bleServiceProvider).disconnect(deviceId);
     ref.read(activeCameraIdProvider.notifier).state = null;
+  }
+
+  /// Confirm, then send RebootCommand (U11). The camera replies OK and then
+  /// goes down, so a timeout here is success (the link dropped), not failure.
+  Future<void> _confirmReboot(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reboot camera?'),
+        content: const Text(
+          'The camera will restart and briefly disconnect. Any recording or '
+          'streaming in progress will stop.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reboot'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    String message;
+    try {
+      final resp = await ref
+          .read(bleServiceProvider)
+          .sendCommand<void>(deviceId, RebootCommand());
+      final reached =
+          resp.status == BleResponseStatus.ok ||
+          resp.status == BleResponseStatus.timeout;
+      message = reached
+          ? 'Reboot sent — the camera is restarting.'
+          : 'Camera could not reboot (${resp.status.name}).';
+    } catch (_) {
+      // A dropped link mid-send is the camera going down — treat as sent.
+      message = 'Reboot sent — the camera is restarting.';
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// OTA firmware upgrade isn't built yet (R14); point at the on-device path.
+  void _showUpgradeInfo(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Firmware upgrade'),
+        content: const Text(
+          'Over-the-air upgrade is not available yet. Update the camera '
+          'firmware on the Jetson with deploy/install.sh (see the firmware repo).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -386,6 +481,8 @@ class _ConnectCameraBannerState extends ConsumerState<_ConnectCameraBanner> {
         await svc.connect(lastId).timeout(const Duration(seconds: 5));
         // Success: set active camera id; the page rerenders to populated.
         ref.read(activeCameraIdProvider.notifier).state = lastId;
+        // Match the firmware's fresh session (camera 0 / single view) on reconnect.
+        resetSelectionOnConnect(ref, lastId);
       } catch (_) {
         // BleConnectionException, TimeoutException, anything else — same
         // user-facing fallback per the plan.

@@ -6,11 +6,21 @@ import 'package:uuid/uuid.dart';
 import '../models/command.dart';
 import '../models/device.dart';
 import '../models/match.dart';
+import '../models/export_job.dart';
+import '../models/network_config.dart';
 import '../models/overlay_layout.dart';
+import '../models/preview_layout.dart';
 import '../models/recording.dart';
 import '../models/telemetry.dart';
+import '../models/video_mode.dart';
 import '../models/wifi.dart';
 import '../../models/proto/bluetooth.pb.dart' as proto;
+
+/// Maps a nullable domain [VideoMode] onto the optional wire `VideoQuality`.
+/// Returns null (so the proto field stays unset) when no quality is pinned.
+proto.VideoQuality? _toProtoQuality(VideoMode? mode) => mode == null
+    ? null
+    : proto.VideoQuality(width: mode.width, height: mode.height, fps: mode.fps);
 
 const _uuid = Uuid();
 
@@ -238,6 +248,12 @@ class BleProtocol {
               ? resp.errorMessage
               : 'Command not supported by firmware',
         );
+      case proto.ResponseStatus.LIVE_SESSION_ACTIVE:
+        return BleCommandResponse<T>.liveSessionActive(
+          resp.errorMessage.isNotEmpty
+              ? resp.errorMessage
+              : 'Cannot do this while a match is live',
+        );
       default:
         return BleCommandResponse.error(
           resp.errorMessage.isNotEmpty
@@ -254,6 +270,10 @@ class BleProtocol {
     GetDeviceInfoCommand() => proto.Command(
       correlationId: correlationId,
       getDeviceInfo: proto.GetDeviceInfoCommand(),
+    ),
+    RebootCommand() => proto.Command(
+      correlationId: correlationId,
+      reboot: proto.RebootCommand(),
     ),
     GetTelemetryCommand() => proto.Command(
       correlationId: correlationId,
@@ -280,18 +300,29 @@ class BleProtocol {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(:final action) => proto.Command(
-      correlationId: correlationId,
-      recordingControl: proto.RecordingControlCommand(
-        action: switch (action) {
-          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
-          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
-          RecordingControlAction.resume =>
-            proto.RecordingAction.RECORDING_RESUME,
-        },
+    RecordingControlCommand(
+      :final action,
+      :final quality,
+      :final captureGroupId,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        recordingControl: proto.RecordingControlCommand(
+          action: switch (action) {
+            RecordingControlAction.start =>
+              proto.RecordingAction.RECORDING_START,
+            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+            RecordingControlAction.pause =>
+              proto.RecordingAction.RECORDING_PAUSE,
+            RecordingControlAction.resume =>
+              proto.RecordingAction.RECORDING_RESUME,
+          },
+          // proto3 optional — omitted unless the app pinned a record quality.
+          quality: _toProtoQuality(quality),
+          // proto3 optional — couples the training proxy when present (START).
+          captureGroupId: captureGroupId,
+        ),
       ),
-    ),
     RawCaptureControlCommand(:final action, :final captureGroupId) =>
       proto.Command(
         correlationId: correlationId,
@@ -309,16 +340,20 @@ class BleProtocol {
           captureGroupId: captureGroupId,
         ),
       ),
-    StreamingControlCommand(:final action, :final rtmpUrl) => proto.Command(
-      correlationId: correlationId,
-      streamingControl: proto.StreamingControlCommand(
-        action: switch (action) {
-          StreamingControlAction.start => proto.StreamingAction.STREAMING_START,
-          StreamingControlAction.stop => proto.StreamingAction.STREAMING_STOP,
-        },
-        destination: rtmpUrl ?? '',
+    StreamingControlCommand(:final action, :final rtmpUrl, :final quality) =>
+      proto.Command(
+        correlationId: correlationId,
+        streamingControl: proto.StreamingControlCommand(
+          action: switch (action) {
+            StreamingControlAction.start =>
+              proto.StreamingAction.STREAMING_START,
+            StreamingControlAction.stop => proto.StreamingAction.STREAMING_STOP,
+          },
+          destination: rtmpUrl ?? '',
+          // proto3 optional — omitted unless the app pinned a stream quality.
+          quality: _toProtoQuality(quality),
+        ),
       ),
-    ),
     MatchControlCommand(:final action, :final period) => proto.Command(
       correlationId: correlationId,
       matchControl: proto.MatchControlCommand(
@@ -364,6 +399,60 @@ class BleProtocol {
         layout: _dartLayoutToProto(layout),
       ),
     ),
+    SetPreviewLayoutCommand(:final layout) => proto.Command(
+      correlationId: correlationId,
+      setPreviewLayout: proto.SetPreviewLayoutCommand(
+        layout: _dartPreviewLayoutToProto(layout),
+      ),
+    ),
+    SetCameraCalibrationCommand(
+      :final rGain,
+      :final gGain,
+      :final bGain,
+      :final enabled,
+      :final saturation,
+      :final contrast,
+      :final brightness,
+    ) =>
+      proto.Command(
+        correlationId: correlationId,
+        setCameraCalibration: proto.SetCameraCalibrationCommand(
+          rGain: rGain,
+          gGain: gGain,
+          bGain: bGain,
+          enabled: enabled,
+          saturation: saturation,
+          contrast: contrast,
+          brightness: brightness,
+        ),
+      ),
+    AutoWhiteBalanceCommand() => proto.Command(
+      correlationId: correlationId,
+      autoWhiteBalance: proto.AutoWhiteBalanceCommand(),
+    ),
+    CameraFocusCommand(:final mode, :final position, :final cameraIndex) =>
+      proto.Command(
+        correlationId: correlationId,
+        cameraFocus: proto.CameraFocusControlCommand(
+          mode: mode == CameraFocusMode.auto
+              ? proto.CameraFocusMode.FOCUS_MODE_AUTO
+              : proto.CameraFocusMode.FOCUS_MODE_MANUAL,
+          focusPosition: position,
+          cameraIndex: cameraIndex,
+        ),
+      ),
+    SetActiveCameraCommand(:final cameraIndex) => proto.Command(
+      correlationId: correlationId,
+      setActiveCamera: proto.SetActiveCameraCommand(cameraIndex: cameraIndex),
+    ),
+    ExportOverlayedCommand(:final recordingId) => proto.Command(
+      correlationId: correlationId,
+      exportOverlayed: proto.ExportOverlayedCommand(recordingId: recordingId),
+    ),
+    PollExportCommand(:final jobId) => proto.Command(
+      correlationId: correlationId,
+      pollExport: proto.PollExportCommand(jobId: jobId),
+    ),
     StartWifiDirectCommand() => proto.Command(
       correlationId: correlationId,
       startWifiDirect: proto.StartWifiDirectCommand(),
@@ -372,7 +461,40 @@ class BleProtocol {
       correlationId: correlationId,
       stopWifiDirect: proto.StopWifiDirectCommand(),
     ),
+    SetNetworkConfigCommand(:final config) => proto.Command(
+      correlationId: correlationId,
+      setNetworkConfig: proto.SetNetworkConfigCommand(
+        config: _dartNetworkConfigToProto(config),
+      ),
+    ),
+    GetNetworkConfigCommand() => proto.Command(
+      correlationId: correlationId,
+      getNetworkConfig: proto.GetNetworkConfigCommand(),
+    ),
   };
+
+  /// Maps the dart [NetworkConfig] view model to the wire `proto.NetworkConfig`
+  /// (flat scalars). Static IP fields ride along regardless of [UplinkIp.dhcp];
+  /// the firmware ignores them when dhcp is true.
+  static proto.NetworkConfig _dartNetworkConfigToProto(NetworkConfig config) =>
+      proto.NetworkConfig(
+        ethernet: proto.EthernetUplinkConfig(
+          enabled: config.ethernet.enabled,
+          dhcp: config.ethernet.ip.dhcp,
+          address: config.ethernet.ip.address,
+          gateway: config.ethernet.ip.gateway,
+          dns: config.ethernet.ip.dns,
+        ),
+        wifi: proto.WifiUplinkConfig(
+          enabled: config.wifi.enabled,
+          ssid: config.wifi.ssid,
+          password: config.wifi.password,
+          dhcp: config.wifi.ip.dhcp,
+          address: config.wifi.ip.address,
+          gateway: config.wifi.ip.gateway,
+          dns: config.wifi.ip.dns,
+        ),
+      );
 
   /// Maps an OK [proto.CommandResponse] to a typed [BleCommandResponse] by
   /// switching on the actual `whichPayload()` variant the firmware sent. A
@@ -398,6 +520,15 @@ class BleProtocol {
                 firmwareVersion: info.firmwareVersion,
                 model: info.model,
                 protocolVersion: info.protocolVersion,
+                supportedModes: info.supportedModes
+                    .map(
+                      (q) => VideoMode(
+                        width: q.width,
+                        height: q.height,
+                        fps: q.fps,
+                      ),
+                    )
+                    .toList(),
               )
               as T?,
         );
@@ -464,6 +595,79 @@ class BleProtocol {
               )
               as T?,
         );
+      case proto.CommandResponse_Payload.previewLayout:
+        // #6 A6b dual-preview: the active layout + the geometry the firmware now
+        // composites, so the app can size its preview box.
+        final pl = resp.previewLayout;
+        return BleCommandResponse.ok(
+          PreviewLayoutResult(
+                layout: _protoPreviewLayout(pl.layout),
+                width: pl.width,
+                height: pl.height,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.exportJob:
+        // #6 A6c overlayed-export job: state + (when READY) the one-shot L2
+        // download token nested in the response.
+        final job = resp.exportJob;
+        return BleCommandResponse.ok(
+          ExportJob(
+                jobId: job.jobId,
+                state: _protoExportState(job.state),
+                token: job.hasToken()
+                    ? DownloadToken(
+                        recordingId: job.token.recordingId,
+                        httpUrl: job.token.httpUrl,
+                        authToken: job.token.authToken,
+                        expiresAt: DateTime.fromMillisecondsSinceEpoch(
+                          job.token.expiresAt.toInt() * 1000,
+                        ),
+                      )
+                    : null,
+                errorMessage: resp.errorMessage.isEmpty
+                    ? null
+                    : resp.errorMessage,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.networkConfig:
+        // Uplink config echoed back + live per-interface status (Settings →
+        // Network reads this to show what the camera actually applied).
+        final nc = resp.networkConfig;
+        return BleCommandResponse.ok(
+          NetworkConfigResult(
+                config: _protoNetworkConfig(nc.config),
+                ethernetUp: nc.ethernetUp,
+                ethernetAddress: nc.ethernetAddress,
+                wifiUp: nc.wifiUp,
+                wifiStatus: nc.wifiStatus,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.cameraFocus:
+        // Motorized-focus response (U8): mode + position + autofocus_available.
+        // Fire-and-forget from the UI (optimistic); OK with null.
+        return BleCommandResponse.ok(null as T?);
+      case proto.CommandResponse_Payload.activeCamera:
+        // Manual tracking ack — the toggle is optimistic; OK with null.
+        return BleCommandResponse.ok(null as T?);
+      case proto.CommandResponse_Payload.cameraCalibration:
+        // The firmware-applied gains — auto-white-balance uses them to seed the
+        // sliders; setCameraCalibration ignores its own echo.
+        final cc = resp.cameraCalibration;
+        return BleCommandResponse.ok(
+          CameraCalibrationResult(
+                rGain: cc.rGain,
+                gGain: cc.gGain,
+                bGain: cc.bGain,
+                enabled: cc.enabled,
+                saturation: cc.saturation,
+                contrast: cc.contrast,
+                brightness: cc.brightness,
+              )
+              as T?,
+        );
       case proto.CommandResponse_Payload.notSet:
         // No typed payload — valid for control commands (recording/streaming/
         // match control, score/banner events, overlay/session push). If T is a
@@ -472,6 +676,30 @@ class BleProtocol {
         return BleCommandResponse.ok(null as T?);
     }
   }
+
+  static NetworkConfig _protoNetworkConfig(proto.NetworkConfig p) =>
+      NetworkConfig(
+        ethernet: EthernetUplink(
+          enabled: p.ethernet.enabled,
+          ip: UplinkIp(
+            dhcp: p.ethernet.dhcp,
+            address: p.ethernet.address,
+            gateway: p.ethernet.gateway,
+            dns: p.ethernet.dns,
+          ),
+        ),
+        wifi: WifiUplink(
+          enabled: p.wifi.enabled,
+          ssid: p.wifi.ssid,
+          password: p.wifi.password,
+          ip: UplinkIp(
+            dhcp: p.wifi.dhcp,
+            address: p.wifi.address,
+            gateway: p.wifi.gateway,
+            dns: p.wifi.dns,
+          ),
+        ),
+      );
 
   static DeviceTelemetry _dartTelemetry(proto.DeviceTelemetry p) =>
       DeviceTelemetry(
@@ -497,6 +725,33 @@ class BleProtocol {
     proto.WifiState.WIFI_CONNECTED => WifiState.connected,
     _ => WifiState.unknown,
   };
+
+  // ---------------------------------------------------------------------------
+  // Preview layout ↔ proto helpers (#6 A6b)
+  // ---------------------------------------------------------------------------
+
+  static proto.PreviewLayout _dartPreviewLayoutToProto(PreviewLayout layout) =>
+      switch (layout) {
+        PreviewLayout.single => proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
+        PreviewLayout.sideBySide =>
+          proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE,
+      };
+
+  static PreviewLayout _protoPreviewLayout(proto.PreviewLayout layout) =>
+      switch (layout) {
+        proto.PreviewLayout.PREVIEW_LAYOUT_SIDE_BY_SIDE =>
+          PreviewLayout.sideBySide,
+        _ => PreviewLayout.single,
+      };
+
+  static ExportJobState _protoExportState(proto.ExportJobState state) =>
+      switch (state) {
+        proto.ExportJobState.EXPORT_JOB_PENDING => ExportJobState.pending,
+        proto.ExportJobState.EXPORT_JOB_RUNNING => ExportJobState.running,
+        proto.ExportJobState.EXPORT_JOB_READY => ExportJobState.ready,
+        proto.ExportJobState.EXPORT_JOB_FAILED => ExportJobState.failed,
+        _ => ExportJobState.unknown,
+      };
 
   // ---------------------------------------------------------------------------
   // Overlay layout → proto helpers

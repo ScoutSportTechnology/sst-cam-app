@@ -1,6 +1,19 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Two orthogonal build flags, both default OFF, that seed the [DevConfig]
+/// runtime defaults. Only the `dev` env reads them — a `stage`/`prod` build never
+/// runs the dev bootstrap, so both are forced false there automatically (real
+/// backend, no seed). The in-app Developer switches override these at runtime and
+/// persist (SharedPreferences wins over the compile default).
+///
+/// - [kEmulated] — mock BLE/WiFi backend instead of the real device.
+/// - [kSeed]     — insert dev fixture data (teams/matches/…) into the DB.
+///
+/// Set per build, e.g. `--dart-define=EMULATE=true --dart-define=SEED=true`.
+const bool kEmulated = bool.fromEnvironment('EMULATE', defaultValue: false);
+const bool kSeed = bool.fromEnvironment('SEED', defaultValue: false);
+
 const _kSeedDataKey = 'dev_config_seed_data';
 const _kLegacyDataModeKey = 'dev_config_data_mode';
 const _kCameraEmulationKey = 'dev_config_camera_emulation';
@@ -10,8 +23,8 @@ const _kLegacyServerAddressKey = 'dev_config_server_address';
 
 class DevConfig {
   const DevConfig({
-    this.seedData = true,
-    this.cameraEmulation = true,
+    this.seedData = kSeed,
+    this.cameraEmulation = kEmulated,
     this.previewBaseUrl = 'rtsp://localhost:8554',
     this.downloadBaseUrl = 'http://localhost:8080',
   });

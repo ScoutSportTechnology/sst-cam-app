@@ -196,11 +196,11 @@ void main() {
       expect(cfg.matchUuid, isNotEmpty);
       expect(
         cfg.videoOutputPath,
-        equals('/data/video/user-1/${cfg.matchUuid}/'),
+        equals('/var/lib/sst/cam/videos/user-1/${cfg.matchUuid}/'),
       );
       expect(
         cfg.thumbnailOutputPath,
-        equals('/data/thumbnail/user-1/${cfg.matchUuid}/'),
+        equals('/var/lib/sst/cam/thumbnails/user-1/${cfg.matchUuid}/'),
       );
 
       // Setup screen should no longer be visible — we entered the session.

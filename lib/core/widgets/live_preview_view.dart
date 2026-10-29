@@ -32,6 +32,8 @@ class LivePreviewView extends ConsumerStatefulWidget {
     this.aspect,
     this.autoStart = false,
     this.showButtons = true,
+    this.paused = false,
+    this.isStreaming = false,
   });
 
   final String? deviceId;
@@ -40,9 +42,22 @@ class LivePreviewView extends ConsumerStatefulWidget {
   final double? aspect;
   final bool autoStart;
 
+  /// Whether the camera is actively live-streaming (RTMP egress). The LIVE badge
+  /// is shown ONLY in this case — for a plain local preview you can already tell
+  /// it's live from the moving feed, so no badge is drawn.
+  final bool isStreaming;
+
   /// Whether to render Preview / Stop toggle buttons inside this surface.
   /// Set false when the parent provides external controls.
   final bool showButtons;
+
+  /// When true this surface releases its RTSP/VLC client (but keeps the shared
+  /// [livePreviewEnabledProvider] on). Set it for a surface that is mounted but
+  /// not visible — the home and match preview cards are BOTH alive in the tab
+  /// shell's IndexedStack, and two VLC clients on one single-stream RTSP server
+  /// makes the second stall on "waiting for frames". Only the active tab's
+  /// surface should hold the client; it resumes automatically when un-paused.
+  final bool paused;
 
   @override
   ConsumerState<LivePreviewView> createState() => _LivePreviewViewState();
@@ -53,6 +68,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   VlcPlayerController? _vlc;
   String? _vlcUrl;
   bool _vlcError = false;
+  bool _vlcPlaying = false;
 
   void _enablePreview() {
     ref.read(livePreviewEnabledProvider(widget.deviceId).notifier).state = true;
@@ -83,6 +99,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     _vlc = null;
     _vlcUrl = null;
     _vlcError = false;
+    _vlcPlaying = false;
   }
 
   @override
@@ -93,8 +110,12 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
 
   void _onVlcChange() {
     final hasError = _vlc?.value.hasError ?? false;
-    if (hasError != _vlcError && mounted) {
-      setState(() => _vlcError = hasError);
+    final isPlaying = _vlc?.value.isPlaying ?? false;
+    if ((hasError != _vlcError || isPlaying != _vlcPlaying) && mounted) {
+      setState(() {
+        _vlcError = hasError;
+        _vlcPlaying = isPlaying;
+      });
     }
   }
 
@@ -112,6 +133,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     _vlc = controller;
     _vlcUrl = url;
     _vlcError = false;
+    _vlcPlaying = false;
   }
 
   @override
@@ -189,32 +211,64 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final wifiState = ref
         .watch(wifiConnectionStateProvider(deviceId))
         .valueOrNull;
-    final frame = ref.watch(previewFrameProvider(deviceId)).valueOrNull;
     final stats = ref.watch(previewStatsProvider(deviceId)).valueOrNull;
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
-    // Spin up / replace the VLC controller whenever the descriptor URL changes.
-    if (previewEnabled) {
+    final wifiConnected = wifiState == WifiDirectState.connected;
+
+    // Spin up / replace the VLC controller only while it can actually attach +
+    // play: preview on, this surface visible (not paused), and WiFi connected
+    // with a descriptor URL. Creating a controller before WiFi is up (or on an
+    // off-tab surface) yields an ORPHAN that never mounts a platform view — its
+    // dispose then throws a LateInitializationError on `_viewId` and the preview
+    // can get stuck on the placeholder. A paused/disconnected surface releases
+    // its client (and the active, reconnected one auto-recreates here), so only
+    // the visible surface holds a client on the single-stream RTSP server.
+    final shouldStream = previewEnabled && !widget.paused && wifiConnected;
+    if (shouldStream) {
       final url = descriptor?.url;
       if (url != null && url != _vlcUrl) {
         _swapVlcController(url);
       } else if (url == null && _vlc != null) {
         _tearDownVlc();
       }
+    } else if (_vlc != null) {
+      _tearDownVlc();
     }
 
-    final wifiConnected = wifiState == WifiDirectState.connected;
-    final liveBadgeOn = wifiConnected && frame != null;
     final showVlc = wifiConnected && _vlc != null && !_vlcError;
+    // Liveness is driven by VLC actually decoding frames, not by the
+    // previewFrameProvider heartbeat — the real backend's previewFrames() stream
+    // is empty (pending firmware wiring), so frame is always null and the preview
+    // stayed pinned at "WAITING FOR FRAMES" even while video was playing.
+    final vlcPlaying = showVlc && _vlcPlaying;
+    // The LIVE badge means "broadcasting", not "preview is moving" — show it only
+    // while actually streaming and decoding frames.
+    final showStreamBadge = widget.isStreaming && vlcPlaying;
 
-    final statusLabel = switch (wifiState) {
-      WifiDirectState.starting => 'WIFI · LINKING',
-      WifiDirectState.failed => 'WIFI · FAILED',
-      WifiDirectState.stopping => 'WIFI · STOPPING',
-      WifiDirectState.idle || null => widget.label ?? 'WIFI · IDLE',
-      WifiDirectState.connected =>
-        frame == null ? 'WIFI · WAITING FOR FRAMES' : 'LIVE',
-    };
+    // Drive the surface aspect from the stream's real geometry (the descriptor
+    // carries width/height); a hardcoded 16:9 stretched non-16:9 streams.
+    final streamAspect = (descriptor != null && descriptor.height > 0)
+        ? descriptor.width / descriptor.height
+        : null;
+
+    // Lean recovery: the app never re-forms the group; the phone OS rejoins the
+    // stable saved network on its own and `wifiState` flips back to connected,
+    // which re-arms `shouldStream` above and auto-resumes VLC. So a transient
+    // down state (the GO cycling, a re-form on a new match) is a *reconnecting*
+    // wait, not an error — label it that way instead of a scary "FAILED", and it
+    // clears itself once the OS is back. `idle`/null is the pre-connect initial
+    // state (preview just turned on), kept distinct from a reconnect.
+    final statusLabel = widget.paused
+        ? (widget.label ?? 'PREVIEW')
+        : switch (wifiState) {
+            WifiDirectState.starting ||
+            WifiDirectState.failed ||
+            WifiDirectState.stopping => 'RECONNECTING…',
+            WifiDirectState.idle || null => widget.label ?? 'WIFI · IDLE',
+            WifiDirectState.connected =>
+              vlcPlaying ? 'LIVE' : 'WIFI · WAITING FOR FRAMES',
+          };
 
     final body = Stack(
       fit: StackFit.expand,
@@ -222,19 +276,14 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         if (showVlc)
           VlcPlayer(
             controller: _vlc!,
-            aspectRatio: 16 / 9,
+            aspectRatio: streamAspect ?? widget.aspect ?? 16 / 9,
             placeholder: const ThumbPlaceholder(),
           )
         else
-          ThumbPlaceholder(label: liveBadgeOn ? null : statusLabel),
-        if (liveBadgeOn)
-          Positioned(left: 8, top: 8, child: _LiveBadge(stats: stats)),
-        if (liveBadgeOn)
-          Positioned(
-            right: 8,
-            top: 8,
-            child: _FrameCounter(sequence: frame.sequence),
-          ),
+          ThumbPlaceholder(label: statusLabel),
+        // LIVE badge: top-right, only while live-streaming (not for plain preview).
+        if (showStreamBadge)
+          Positioned(right: 8, top: 8, child: _LiveBadge(stats: stats)),
         if (widget.showButtons)
           Positioned(
             right: 8,
@@ -256,7 +305,10 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         child: body,
       );
     }
-    return AspectRatio(aspectRatio: widget.aspect ?? 16 / 9, child: body);
+    return AspectRatio(
+      aspectRatio: widget.aspect ?? streamAspect ?? 16 / 9,
+      child: body,
+    );
   }
 }
 
@@ -266,6 +318,7 @@ class _LiveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = stats;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -285,7 +338,9 @@ class _LiveBadge extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            'LIVE · ${(stats?.fps ?? 0).toStringAsFixed(0)} FPS · ${(stats?.kbps ?? 0).toStringAsFixed(0)} KB/S',
+            s == null
+                ? 'LIVE'
+                : 'LIVE · ${s.fps.toStringAsFixed(0)} FPS · ${s.kbps.toStringAsFixed(0)} KB/S',
             style: const TextStyle(
               fontFamily: T.mono,
               fontSize: 9,
@@ -295,26 +350,6 @@ class _LiveBadge extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _FrameCounter extends StatelessWidget {
-  const _FrameCounter({required this.sequence});
-  final int sequence;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: T.bg.withValues(alpha: 0.85),
-        border: Border.all(color: T.hair),
-      ),
-      child: Text(
-        '#${sequence.toString().padLeft(5, '0')}',
-        style: const TextStyle(fontFamily: T.mono, fontSize: 9, color: T.ink2),
       ),
     );
   }

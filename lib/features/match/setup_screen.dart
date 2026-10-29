@@ -2,11 +2,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/ble/ble_providers.dart';
 import '../../core/models/command.dart';
 import '../../core/models/device.dart';
+import '../../core/models/streaming.dart';
+import '../../core/models/video_mode.dart';
+import '../../core/state/db_providers.dart' show teamsDaoProvider;
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/wf_button.dart';
 import '../../core/widgets/wf_card.dart';
@@ -19,25 +21,51 @@ import '../settings/users/users_state.dart' show activeUserProvider;
 import 'match_state.dart' show UpcomingMatch;
 import 'session/session_state.dart' show liveMatchProvider;
 
-enum _Quality {
-  hd720p30('720p · 30 fps'),
-  fhd1080p30('1080p · 30 fps'),
-  fhd1080p60('1080p · 60 fps'),
-  uhd4k30('4K · 30 fps');
+/// The preferred default record/stream mode when the firmware advertises it:
+/// 1080p30 is a sensible middle of the ladder. Falls back to the first
+/// advertised mode when this exact mode isn't offered.
+const _preferredDefaultMode = VideoMode(width: 1920, height: 1080, fps: 30);
 
-  const _Quality(this.label);
-  final String label;
+/// The dropdown value for a (possibly stale) held selection against the CURRENT
+/// firmware-advertised [modes]. A held pick is used only while it's still
+/// offered; otherwise — and when nothing is held — it falls back to the default
+/// (the preferred mode when advertised, else the first). Empty modes → null.
+///
+/// This keeps the DropdownButton value ALWAYS present in its items: a held value
+/// that isn't in `modes` (firmware re-advertised a different set on reconnect /
+/// camera switch) trips DropdownButton's value-in-items assertion and crashes
+/// the build.
+VideoMode? effectiveVideoMode(VideoMode? held, List<VideoMode> modes) {
+  if (modes.isEmpty) return null;
+  if (held != null && modes.contains(held)) return held;
+  return modes.contains(_preferredDefaultMode)
+      ? _preferredDefaultMode
+      : modes.first;
 }
 
-enum _StreamMethod {
-  youtube('YouTube Live', 'NR U14 channel · 1080p'),
-  instagram('Instagram Live', 'Connected account · 720p'),
-  local('Local network', 'mDNS · for parents on WiFi'),
-  custom('Custom RTMP', '');
+/// Per-match streaming destination protocol. `none` = record without streaming.
+/// The others map onto [StreamingProtocol]; the operator enters the URL (and a
+/// stream key for RTMP/RTMPS) inline. NOTE: the firmware egress pushes over
+/// rtmp2sink (RTMP/RTMPS only) — an RTSP destination is accepted here but will
+/// not stream until firmware gains an RTSP-push path.
+enum _Dest {
+  none('None'),
+  rtmp('RTMP'),
+  rtmps('RTMPS'),
+  rtsp('RTSP');
 
-  const _StreamMethod(this.label, this.defaultSub);
+  const _Dest(this.label);
   final String label;
-  final String defaultSub;
+
+  StreamingProtocol? get protocol => switch (this) {
+    _Dest.none => null,
+    _Dest.rtmp => StreamingProtocol.rtmp,
+    _Dest.rtmps => StreamingProtocol.rtmps,
+    _Dest.rtsp => StreamingProtocol.rtsp,
+  };
+
+  /// RTMP/RTMPS carry a separate stream key; RTSP folds creds into the URL.
+  bool get hasStreamKey => this == _Dest.rtmp || this == _Dest.rtmps;
 }
 
 class SetupScreen extends ConsumerStatefulWidget {
@@ -56,16 +84,22 @@ class SetupScreen extends ConsumerStatefulWidget {
 }
 
 class _SetupScreenState extends ConsumerState<SetupScreen> {
-  _Quality _quality = _Quality.fhd1080p30;
+  // Independent record + stream quality selections (R15). Null until the operator
+  // picks — an unset selection defaults to the preferred advertised mode. Empty
+  // advertised-modes list (older/disconnected firmware) disables the pickers.
+  VideoMode? _recordMode;
+  VideoMode? _streamMode;
   // null = Custom (use _customPeriods + _customMinutes from match init).
   SportPreset? _preset;
   int _customPeriods = 2;
   int _customPeriodSeconds = 35 * 60;
   bool _initialized = false;
 
-  // Streaming destinations.
-  final Set<_StreamMethod> _streamMethods = {};
-  String _customRtmpUrl = '';
+  // Per-match streaming destination: protocol + inline URL/key. `none` = record
+  // without streaming.
+  _Dest _dest = _Dest.none;
+  final TextEditingController _streamUrlCtl = TextEditingController();
+  final TextEditingController _streamKeyCtl = TextEditingController();
 
   // Session push state (U9).
   bool _pushing = false;
@@ -74,7 +108,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   // and reused on retry so the camera always sees the same UUID.
   String? _matchUuid;
 
-  static const _uuid = Uuid();
+  @override
+  void dispose() {
+    _streamUrlCtl.dispose();
+    _streamKeyCtl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,6 +125,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         activeId != null &&
         ref.watch(connectionStateProvider(activeId)).valueOrNull ==
             CameraConnectionState.connected;
+
+    // Firmware-advertised capture modes (R16). Empty when disconnected or on
+    // firmware that predates supported_modes → the quality pickers render
+    // disabled.
+    final modes = activeId == null
+        ? const <VideoMode>[]
+        : ref
+                  .watch(connectedDeviceInfoProvider(activeId))
+                  .valueOrNull
+                  ?.supportedModes ??
+              const <VideoMode>[];
 
     if (!_initialized) {
       _customPeriods = m.numPeriods > 0 ? m.numPeriods : 2;
@@ -172,17 +222,48 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               ],
             ),
           ),
-          const WfSection('Recording'),
+          const WfSection('Quality'),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
             child: WfCard(
               padding: EdgeInsets.zero,
-              child: _DropdownRow<_Quality>(
-                label: 'Quality',
-                value: _quality,
-                items: _Quality.values,
-                labelOf: (q) => q.label,
-                onChanged: (v) => setState(() => _quality = v),
+              child: Column(
+                children: [
+                  // Record and stream quality are independent (R15) and offered
+                  // only from firmware-advertised modes (R16). No modes (older /
+                  // disconnected firmware) → shown but disabled with a hint.
+                  _DropdownRow<VideoMode>(
+                    label: 'Record quality',
+                    value: modes.isEmpty ? null : _effectiveRecord(modes),
+                    items: modes,
+                    labelOf: (mode) => mode.label,
+                    hint: 'Unavailable',
+                    onChanged: modes.isEmpty
+                        ? null
+                        : (v) => setState(() => _recordMode = v),
+                  ),
+                  const Divider(height: 1, color: T.rule),
+                  _DropdownRow<VideoMode>(
+                    label: 'Stream quality',
+                    value: modes.isEmpty ? null : _effectiveStream(modes),
+                    items: modes,
+                    labelOf: (mode) => mode.label,
+                    hint: 'Unavailable',
+                    onChanged: modes.isEmpty
+                        ? null
+                        : (v) => setState(() => _streamMode = v),
+                  ),
+                  if (modes.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(14, 0, 14, 12),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: WfNote(
+                          'Connect to camera to load available modes',
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -190,36 +271,60 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
             child: WfCard(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              padding: EdgeInsets.zero,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const WfNote('DESTINATIONS'),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final m in _StreamMethod.values)
-                        GestureDetector(
-                          onTap: () => _toggleStreamMethod(m),
-                          child: WfChip(
-                            label:
-                                m == _StreamMethod.custom &&
-                                    _customRtmpUrl.isNotEmpty
-                                ? 'Custom RTMP · configured'
-                                : m.label,
-                            active: _streamMethods.contains(m),
+                  _DropdownRow<_Dest>(
+                    label: 'Destination',
+                    value: _dest,
+                    items: _Dest.values,
+                    labelOf: (d) => d.label,
+                    onChanged: (v) => setState(() => _dest = v),
+                  ),
+                  if (_dest != _Dest.none) ...[
+                    const Divider(height: 1, color: T.rule),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                      child: TextField(
+                        controller: _streamUrlCtl,
+                        autocorrect: false,
+                        keyboardType: TextInputType.url,
+                        onChanged: (_) => setState(() {}),
+                        style: const TextStyle(fontSize: 13, color: T.ink),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          labelText: '${_dest.label} URL',
+                          hintText:
+                              '${_dest.protocol!.urlScheme}your-server/live',
+                          errorText: _streamUrlError(),
+                        ),
+                      ),
+                    ),
+                    if (_dest.hasStreamKey)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+                        child: TextField(
+                          controller: _streamKeyCtl,
+                          autocorrect: false,
+                          obscureText: true,
+                          style: const TextStyle(fontSize: 13, color: T.ink),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            labelText: 'Stream key (optional)',
                           ),
                         ),
-                    ],
-                  ),
-                  if (_streamMethods.isEmpty) ...[
-                    const SizedBox(height: 8),
-                    const WfNote(
-                      'Pick one or more destinations to stream to. You can '
-                      'still record without streaming.',
-                    ),
+                      ),
+                    if (_dest == _Dest.rtsp)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(14, 0, 14, 10),
+                        child: WfNote(
+                          'RTSP egress is not yet supported by the camera '
+                          'firmware — this destination will not stream.',
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 8),
                   ],
                 ],
               ),
@@ -232,7 +337,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               variant: WfButtonVariant.primary,
               size: WfButtonSize.lg,
               full: true,
-              onPressed: (_pushing || !connected)
+              onPressed: (_pushing || !connected || !_streamReady())
                   ? null
                   : () => _startMatch(
                       periods,
@@ -269,7 +374,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     label: 'Retry',
                     variant: WfButtonVariant.outline,
                     full: true,
-                    onPressed: connected
+                    onPressed: (connected && _streamReady())
                         ? () => _startMatch(
                             periods,
                             _preset?.periodLengthSeconds ??
@@ -287,8 +392,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     );
   }
 
-  // Fix 17: UUID v4 format regex used to validate UUIDs before interpolating
-  // them into output paths.
+  // matchUuid is the team_match id — a v4 UUID by contract (ids are minted with
+  // Uuid().v4()). It is interpolated into the camera filesystem path, so enforce
+  // the UUID shape here: it both upholds the "ids are UUIDs, never strings" rule
+  // and guarantees the value can't contain a '/'/'.'/'..' that escapes the dir.
   static final _uuidRegex = RegExp(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
   );
@@ -299,6 +406,22 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
   }
 
+  /// Firmware-advertised modes, or empty when disconnected / unsupported.
+  List<VideoMode> _advertisedModes() {
+    final activeId = ref.read(activeCameraIdProvider);
+    if (activeId == null) return const [];
+    return ref
+            .read(connectedDeviceInfoProvider(activeId))
+            .valueOrNull
+            ?.supportedModes ??
+        const [];
+  }
+
+  VideoMode? _effectiveRecord(List<VideoMode> modes) =>
+      effectiveVideoMode(_recordMode, modes);
+  VideoMode? _effectiveStream(List<VideoMode> modes) =>
+      effectiveVideoMode(_streamMode, modes);
+
   Future<void> _startMatch(int periods, int periodLengthSeconds) async {
     final deviceId = ref.read(activeCameraIdProvider);
     if (deviceId == null) return;
@@ -306,15 +429,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final userUuid = ref.read(activeUserProvider);
     if (userUuid == null) return;
 
-    // Generate a stable match UUID on first tap; reuse on retry.
-    _matchUuid ??= _uuid.v4();
+    // Record under the team_match id (a UUID): the firmware writes to
+    // .../videos/<user>/<matchUuid>/, and the Library row finalized on match end
+    // shares that id, so the recording links back to it and can be downloaded.
+    _matchUuid ??= widget.match.match.id;
     final matchUuid = _matchUuid!;
 
-    final rtmpUrl =
-        _streamMethods.contains(_StreamMethod.custom) &&
-            _customRtmpUrl.isNotEmpty
-        ? _customRtmpUrl
-        : null;
+    // The chosen destination resolved to its full ingest URL, or null to record
+    // without streaming (destination = None).
+    final stream = _resolvedStream();
+    final rtmpUrl = stream?.wireUrl;
 
     final opponentName = widget.match.match.opponent.startsWith('vs ')
         ? widget.match.match.opponent.substring(3)
@@ -327,15 +451,22 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       numPeriods: periods,
       periodLengthSeconds: periodLengthSeconds,
       rtmpUrl: rtmpUrl,
-      videoOutputPath: '/data/video/$userUuid/$matchUuid/',
-      thumbnailOutputPath: '/data/thumbnail/$userUuid/$matchUuid/',
+      // Root these under the firmware's provisioned storage (chowned to the
+      // non-root sst-cam service user, and the dir the DownloadServer enumerates).
+      // The old /data/video|/data/thumbnail roots don't exist on the device and
+      // aren't writable, so mkdir failed -> "Failed to configure camera", and any
+      // recording there would also be invisible to downloads.
+      videoOutputPath: '/var/lib/sst/cam/videos/$userUuid/$matchUuid/',
+      thumbnailOutputPath: '/var/lib/sst/cam/thumbnails/$userUuid/$matchUuid/',
       teamAId: widget.match.team.id,
       // The opponent has no team record/UUID, so its display name doubles as the
       // stable team B identifier. ScoreUpdateCommand for the away team sends the
       // same value (see session_screen) so the firmware routes goals correctly.
       teamBId: opponentName,
-      teamAName: widget.match.team.name,
-      teamBName: opponentName,
+      // The scoreboard bug is compact — show short codes (home short-name,
+      // a derived 3-letter code for the opponent), standardised in length.
+      teamAName: widget.match.team.shortName,
+      teamBName: _shortCode(opponentName),
       teamAColorHex: widget.match.team.colorHex,
     );
 
@@ -345,11 +476,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     });
 
     try {
-      // Fix 17: Validate matchUuid against the UUID v4 format before
-      // interpolating it into the camera filesystem path. matchUuid is
-      // generated above via Uuid().v4(), so this guard should never fire in
-      // practice — it defends against accidental code changes that replace the
-      // UUID generator with unvalidated input.
+      // matchUuid (the team_match id) is interpolated into the camera
+      // filesystem path; reject anything that isn't a safe path segment before
+      // it gets there, so a malformed id can't escape the per-match directory.
       _validateUuid(matchUuid, 'matchUuid');
 
       final ble = ref.read(bleServiceProvider);
@@ -358,13 +487,24 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       await ble.pushSessionConfig(deviceId, config);
       if (!mounted) return;
 
+      // Persist the per-match streaming credential (scoped to this match only;
+      // mid-match start reuses it). Clears the columns when no destination set.
+      await ref
+          .read(teamsDaoProvider)
+          .setMatchStreamingCredential(
+            matchUuid,
+            rtmpUrl: stream?.storeUrl,
+            streamKey: stream?.storeKey,
+          );
+
       // Step 2: build and push overlay layout.
       final opponent = widget.match.match.opponent;
       final awayName = opponent.startsWith('vs ')
           ? opponent.substring(3)
           : opponent;
       final layout = defaultScoreboardLayout(
-        homeName: widget.match.team.name,
+        // Short name reads best in the compact scoreboard bug.
+        homeName: widget.match.team.shortName,
         awayName: awayName,
         homeColorHex: widget.match.team.colorHex,
         awayColorHex: null,
@@ -372,10 +512,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       await ble.pushOverlayLayout(deviceId, layout);
       if (!mounted) return;
 
-      // Store layout + colors in live session state.
+      // Store layout + colors + the independent record/stream quality in live
+      // session state so the record/stream start commands carry them (R15). Null
+      // when no modes are advertised → firmware default.
       final ctl = ref.read(liveMatchProvider.notifier);
       ctl.setOverlayLayout(layout);
       ctl.setTeamColors(widget.match.team.colorHex, null);
+      final modes = _advertisedModes();
+      ctl.setQuality(
+        record: _effectiveRecord(modes),
+        stream: _effectiveStream(modes),
+      );
 
       setState(() {
         _pushing = false;
@@ -390,30 +537,36 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
   }
 
-  Future<void> _toggleStreamMethod(_StreamMethod method) async {
-    final isOn = _streamMethods.contains(method);
-    if (method == _StreamMethod.custom) {
-      final url = await _showCustomRtmpModal(context, initial: _customRtmpUrl);
-      if (url == null) return;
-      setState(() {
-        if (url.isEmpty) {
-          _streamMethods.remove(_StreamMethod.custom);
-          _customRtmpUrl = '';
-        } else {
-          _streamMethods.add(_StreamMethod.custom);
-          _customRtmpUrl = url;
-        }
-      });
-      return;
-    }
-    setState(() {
-      if (isOn) {
-        _streamMethods.remove(method);
-      } else {
-        _streamMethods.add(method);
-      }
-    });
+  /// The parsed per-match streaming selection for the chosen destination, or
+  /// null when `none` (record-only) or the URL is not yet scheme-valid.
+  /// rtmp/rtmps carry a stream key; rtsp folds creds into the URL (no key).
+  WireStream? _resolvedStream() {
+    final protocol = _dest.protocol;
+    if (protocol == null) return null;
+    final url = _streamUrlCtl.text.trim();
+    if (!url.startsWith(protocol.urlScheme)) return null;
+    final StreamingConfig cfg = protocol == StreamingProtocol.rtsp
+        ? RtspConfig(url: url)
+        : RtmpConfig(url: url, streamKey: _streamKeyCtl.text.trim());
+    return resolveWireStream(cfg);
   }
+
+  /// Inline URL-field validation: an error string when the entered URL doesn't
+  /// match the selected protocol's scheme. An empty URL shows no error (the
+  /// Start button stays disabled via [_streamReady]).
+  String? _streamUrlError() {
+    final protocol = _dest.protocol;
+    if (protocol == null) return null;
+    final url = _streamUrlCtl.text.trim();
+    if (url.isEmpty) return null;
+    return url.startsWith(protocol.urlScheme)
+        ? null
+        : 'Must start with ${protocol.urlScheme}';
+  }
+
+  /// Whether the streaming selection is complete enough to start the match:
+  /// either record-only (none) or a destination with a scheme-valid URL.
+  bool _streamReady() => _dest == _Dest.none || _resolvedStream() != null;
 
   Future<void> _editCustom(BuildContext context) async {
     final result = await showDialog<(int, int)>(
@@ -437,6 +590,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 String _stripSportPrefix(String name, String sport) {
   final pref = '$sport · ';
   return name.startsWith(pref) ? name.substring(pref.length) : name;
+}
+
+/// A compact, scoreboard-friendly code for a free-text opponent name (which has
+/// no short-name field): the first three letters, uppercased — "Eastfield FC"
+/// → "EAS". Falls back to the trimmed name when it has no letters.
+String _shortCode(String name) {
+  final letters = name.replaceAll(RegExp('[^A-Za-z]'), '');
+  if (letters.isEmpty) return name.trim().toUpperCase();
+  return letters
+      .substring(0, letters.length < 3 ? letters.length : 3)
+      .toUpperCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -482,15 +646,22 @@ class _DropdownRow<V> extends StatelessWidget {
     required this.items,
     required this.labelOf,
     required this.onChanged,
+    this.hint,
   });
   final String label;
-  final V value;
+
+  /// Null renders the [hint] placeholder — used for the disabled state.
+  final V? value;
   final List<V> items;
   final String Function(V) labelOf;
-  final ValueChanged<V> onChanged;
+
+  /// Null disables the dropdown (greyed, non-interactive).
+  final ValueChanged<V>? onChanged;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onChanged != null;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(
@@ -498,9 +669,9 @@ class _DropdownRow<V> extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
-                color: T.ink,
+                color: enabled ? T.ink : T.ink2,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -511,149 +682,32 @@ class _DropdownRow<V> extends StatelessWidget {
               isDense: true,
               dropdownColor: T.surface,
               style: const TextStyle(fontSize: 13, color: T.ink),
-              icon: const Icon(Icons.expand_more, size: 16, color: T.ink2),
+              icon: Icon(
+                Icons.expand_more,
+                size: 16,
+                color: enabled ? T.ink2 : T.ink3,
+              ),
+              hint: hint == null
+                  ? null
+                  : Text(
+                      hint!,
+                      style: const TextStyle(fontSize: 13, color: T.ink3),
+                    ),
               items: [
                 for (final item in items)
                   DropdownMenuItem(value: item, child: Text(labelOf(item))),
               ],
-              onChanged: (v) {
-                if (v != null) onChanged(v);
-              },
+              onChanged: enabled
+                  ? (v) {
+                      if (v != null) onChanged!(v);
+                    }
+                  : null,
             ),
           ),
         ],
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// CUSTOM RTMP MODAL (top-level helper, setup only)
-// ---------------------------------------------------------------------------
-
-Future<String?> _showCustomRtmpModal(
-  BuildContext context, {
-  required String initial,
-}) {
-  final controller = TextEditingController(text: initial);
-  String? error;
-  return showModalBottomSheet<String>(
-    context: context,
-    backgroundColor: T.bg,
-    isScrollControlled: true,
-    builder: (ctx) {
-      return StatefulBuilder(
-        builder: (ctx, setSt) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: T.fillMid,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Custom RTMP',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      color: T.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Full RTMP URL including stream key. Stored on the camera, '
-                    'never logged by the app.',
-                    style: TextStyle(fontSize: 11, color: T.ink2, height: 1.4),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: T.fillSoft,
-                      border: Border.all(color: T.hair),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: TextField(
-                      controller: controller,
-                      autofocus: true,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        hintText: 'rtmp://stream.example.com/app/key',
-                        hintStyle: TextStyle(color: T.ink3, fontSize: 13),
-                        border: InputBorder.none,
-                        isCollapsed: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      style: const TextStyle(color: T.ink, fontSize: 13),
-                    ),
-                  ),
-                  if (error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      error!,
-                      style: const TextStyle(color: T.danger, fontSize: 12),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      if (initial.isNotEmpty)
-                        Expanded(
-                          child: WfButton(
-                            label: 'Remove',
-                            variant: WfButtonVariant.danger,
-                            onPressed: () => Navigator.of(ctx).pop(''),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: WfButton(
-                            label: 'Cancel',
-                            onPressed: () => Navigator.of(ctx).pop(),
-                          ),
-                        ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: WfButton(
-                          label: 'Save',
-                          variant: WfButtonVariant.primary,
-                          onPressed: () {
-                            final url = controller.text.trim();
-                            if (!url.startsWith('rtmp://') &&
-                                !url.startsWith('rtmps://')) {
-                              setSt(
-                                () => error =
-                                    'URL must start with rtmp:// or rtmps://',
-                              );
-                              return;
-                            }
-                            Navigator.of(ctx).pop(url);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    },
-  );
 }
 
 // ---------------------------------------------------------------------------

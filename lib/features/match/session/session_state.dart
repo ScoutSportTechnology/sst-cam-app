@@ -8,10 +8,13 @@
 //   periodBreak  → between periods (or after final period, awaiting end-of-match)
 //   ended        → match is over; back-arrow returns to landing
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/overlay_layout.dart';
+import '../../../core/models/video_mode.dart';
 
 enum MatchPhase { idle, period, periodBreak, ended }
 
@@ -52,6 +55,8 @@ class LiveMatchState {
     this.homeColorHex,
     this.awayColorHex,
     this.overlayLayout,
+    this.recordQuality,
+    this.streamQuality,
   });
 
   final MatchPhase phase;
@@ -75,6 +80,13 @@ class LiveMatchState {
   final String? homeColorHex;
   final String? awayColorHex;
   final OverlayLayout? overlayLayout;
+
+  /// Operator-selected record/stream quality from setup. Attached to the
+  /// RecordingControl / StreamingControl start commands so the firmware applies
+  /// them at session start (independent — record may differ from stream). Null =>
+  /// firmware default (no advertised modes / older firmware).
+  final VideoMode? recordQuality;
+  final VideoMode? streamQuality;
 
   bool get isPeriodActive => phase == MatchPhase.period;
   bool get isLastPeriod => currentPeriod == numPeriods && numPeriods > 0;
@@ -125,6 +137,8 @@ class LiveMatchState {
     String? homeColorHex,
     String? awayColorHex,
     Object? overlayLayout = _sentinel,
+    VideoMode? recordQuality,
+    VideoMode? streamQuality,
   }) {
     return LiveMatchState(
       phase: phase ?? this.phase,
@@ -145,6 +159,8 @@ class LiveMatchState {
       overlayLayout: identical(overlayLayout, _sentinel)
           ? this.overlayLayout
           : overlayLayout as OverlayLayout?,
+      recordQuality: recordQuality ?? this.recordQuality,
+      streamQuality: streamQuality ?? this.streamQuality,
     );
   }
 
@@ -168,6 +184,11 @@ class LiveMatchState {
 class LiveMatchController extends Notifier<LiveMatchState> {
   @override
   LiveMatchState build() => LiveMatchState.initial;
+
+  /// The team_match id this live session finalizes into when the match ends
+  /// (set by [loadFromUpcoming]). Null for an ad-hoc session with no library row.
+  String? _matchId;
+  String? get matchId => _matchId;
 
   static String _fmt(int s) {
     final m = (s ~/ 60).toString().padLeft(2, '0');
@@ -342,6 +363,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
   /// Callers pass the relevant fields from [UpcomingMatch] directly to avoid
   /// a cross-feature import cycle between session_state and match_state.
   void loadFromUpcoming({
+    required String matchId,
     required String teamShortName,
     required String teamName,
     required String opponent,
@@ -349,6 +371,7 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     required int periodLengthSeconds,
     String? homeColorHex,
   }) {
+    _matchId = matchId;
     final home = teamShortName.isNotEmpty ? teamShortName : teamName;
     final away = opponent.startsWith('vs ') ? opponent.substring(3) : opponent;
     final periods = numPeriods > 0 ? numPeriods : 2;
@@ -370,9 +393,40 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     state = state.copyWith(homeColorHex: home, awayColorHex: away);
   }
 
+  /// Record the operator's setup-time quality choices so the record/stream start
+  /// commands can carry them. Null args leave the existing selection untouched.
+  void setQuality({VideoMode? record, VideoMode? stream}) {
+    state = state.copyWith(recordQuality: record, streamQuality: stream);
+  }
+
   void reset() {
+    _matchId = null;
     state = LiveMatchState.initial;
   }
+
+  /// Serialize the live events to the Library's eventsJson shape (a list of
+  /// `{timeSeconds, label, team, kind}`). Phase markers (kickoff/end) are
+  /// dropped; the type/team live inside the label string, so team is left empty
+  /// and kind is generic — enough to show the event list + time in the Library.
+  String eventsJson() {
+    final out = <Map<String, Object>>[];
+    for (final e in state.events) {
+      if (e.kind == 'phase') continue;
+      final parts = e.clock.split(':');
+      final seconds = parts.length == 2
+          ? (int.tryParse(parts[0]) ?? 0) * 60 + (int.tryParse(parts[1]) ?? 0)
+          : 0;
+      out.add({
+        'timeSeconds': seconds,
+        'label': e.label,
+        'team': '',
+        'kind': 'other',
+      });
+    }
+    return jsonEncode(out);
+  }
+
+  String resultString() => '${state.scoreHome}-${state.scoreAway}';
 }
 
 final liveMatchProvider = NotifierProvider<LiveMatchController, LiveMatchState>(

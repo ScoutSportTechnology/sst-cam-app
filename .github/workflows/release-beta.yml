@@ -20,28 +20,78 @@ name: release-beta
 # Default GITHUB_TOKEN only (contents:write); the "Release Tags" ruleset allows
 # creating compliant semver tags, so no PAT/App is needed.
 #
-# Two APKs from one Gradle flavor, differing only by entrypoint + env:
-#   - production: -t lib/main_prod.dart --dart-define=APP_ENV=prod
-#   - developer : --dart-define=APP_ENV=stage
+# Two APKs from two Gradle flavors (real backend both), on the single entry
+# (lib/main.dart), differing by flavor + env:
+#   - production: --flavor prod  --dart-define=APP_ENV=prod
+#   - developer : --flavor stage --dart-define=APP_ENV=stage
 
 on:
   pull_request:
     branches: [release/**]
   push:
     branches: [release/**]
+    # Docs-only pushes must not build/mint a beta — a Markdown or docs/ change
+    # carries no APK delta, so rebuilding both APKs would be pure waste. (PR-gate
+    # checks still run via the pull_request trigger above so required status
+    # checks stay satisfiable.)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# A stabilization branch takes many quick fix pushes; without this two near
+# simultaneous pushes would both resolve the same -beta.N tag and race on
+# `gh release create`. Cancel the older run — the latest commit is the intended
+# beta. (Matches release-alpha.yml.)
+concurrency:
+  group: beta-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # changes — detect whether a PR touches build-relevant paths. The expensive
+  # PR-gate check (Analyze & Test ~2-3 min) gates on `code`; a docs/markdown-only
+  # PR skips it. A job SKIPPED by `if:` counts as SUCCESS for required status
+  # checks (only a never-reported/pending check blocks the merge), so the wired
+  # `Analyze & Test (Linux)` name stays green on a docs-only PR without running.
+  # `CI Scripts` (~13 s) stays always-on. Mirrors sst-cam-firmware's release
+  # workflows; the push-side paths-ignore above skips the BUILD on docs commits.
+  changes:
+    name: changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Filter build-relevant paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'lib/**'
+              - 'test/**'
+              - 'integration_test/**'
+              - 'android/**'
+              - 'ios/**'
+              - 'proto/**'
+              - 'scripts/**'
+              - 'pubspec.yaml'
+              - 'pubspec.lock'
+              - 'analysis_options.yaml'
+              - 'flutter_launcher_icons-*.yaml'
+              - 'justfile'
+              - '.github/workflows/**'
+
   # ---- CI CHECK jobs (PRs only) -------------------------------------------
   # job name: values below are wired ruleset required-status-check contexts —
   # do NOT rename them or branch protection breaks.
 
-  # Gates the shared release version logic. resolve-version.sh drives all three
-  # release workflows (alpha/beta/release); it is committed but only ever runs in
-  # CI here — keep it covered and shellcheck-clean.
+  # Gates the CI scripts (shellcheck), the workflows (actionlint) and the proto/
+  # contract pin. Version math lives in the shared actions of
+  # ScoutSportTechnology/.github (pinned tag), not in this repo.
   version-script:
     name: CI Scripts (shellcheck + version tests)
     if: ${{ github.event_name == 'pull_request' }}
@@ -55,12 +105,19 @@ jobs:
       - name: Lint workflows (actionlint)
         uses: reviewdog/action-actionlint@v1.72.0
 
-      - name: resolve-version unit tests
-        run: ./scripts/ci/resolve-version-test.sh
+      # proto/ must point at a commit merged into the sst-cam-proto branch with
+      # the same name as this PR's base (development or release/X.Y.Z).
+      - name: proto pin check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: ./scripts/ci/check-proto-pin.sh "$BASE_REF"
 
   analyze-and-test:
     name: Analyze & Test (Linux)
-    if: ${{ github.event_name == 'pull_request' }}
+    needs: changes
+    # Skipped on a docs/markdown-only PR (code == 'false') — a skipped required
+    # check counts as success, so the merge is not blocked. Build-relevant PRs run.
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -119,75 +176,77 @@ jobs:
           files: coverage/lcov.info
         continue-on-error: true
 
-  build-android:
-    name: Build Android APK
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    needs: analyze-and-test
+  # NOTE: the PR-gate APK build was removed (R1/AE5). analyze-and-test +
+  # version-script are the PR gate; both APKs are built only on push, in the
+  # parallel matrix below. The `Build Android APK` ruleset required-check is
+  # dropped in lockstep (see docs/ci/rulesets.md).
 
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Dart protoc plugin
-        run: |
-          dart pub global activate protoc_plugin 21.1.2
-          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
-
-      - name: Generate proto bindings
-        run: |
-          mkdir -p lib/models/proto
-          protoc --dart_out=lib/models/proto -I proto proto/*.proto
-
-      - name: Build debug APK
-        run: flutter build apk --debug
-
-  # ---- beta release job (push / dispatch only) ----------------------------
-  release-beta:
-    name: Build & publish beta APKs
+  # ---- beta release (push / dispatch only) --------------------------------
+  # Split across three jobs so the two ~6-min flavor builds run on SEPARATE
+  # runners in PARALLEL instead of sequentially in one (~halves wall-clock):
+  #   version → resolve the -beta.N tag once (shared by both builds + publish)
+  #   build   → matrix [prod, dev]: each builds + signs + uploads its APK artifact
+  #   publish → download both artifacts, record SHA-256, create/refresh the Release
+  # Trade-off: two runners re-do checkout/setup and the APKs cross job boundaries
+  # as artifacts — more runner-minutes, but lower wall-clock, which is the goal.
+  version:
+    name: Resolve beta/rc version
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so resolve-version.sh sees existing beta tags; proto
-          # comes from the git submodule.
+          # Full history so the resolver sees existing beta/rc tags. No
+          # submodules needed — version math is pure git tags.
           fetch-depth: 0
-          submodules: recursive
 
-      - name: Resolve version (beta)
+      # mode: release takes X.Y.Z from the release/X.Y.Z branch name (fails fast
+      # on any other shape) and mints beta.N, or rc.N once promote-rc.yml
+      # re-tagged the hardware-validated beta as rc.1.
+      - name: Resolve version (beta or rc)
         id: ver
-        run: |
-          set -euo pipefail
-          # Base X.Y.Z is the release branch name. Fail fast on a malformed branch.
-          base="${GITHUB_REF_NAME#release/}"
-          echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::branch '${GITHUB_REF_NAME}' is not release/X.Y.Z"; exit 1; }
-          ./scripts/ci/resolve-version.sh beta "$base"
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: release
+
+  build:
+    name: Build ${{ matrix.kind }} APK
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      # Build both flavors even if one fails, so both outcomes show in the logs.
+      fail-fast: false
+      matrix:
+        include:
+          # prod VARIANT: real backend, tooling compiled OUT — prod flavor
+          # (com.sst.sstcam) + APP_ENV=prod. The promotion candidate.
+          - flavor: prod
+            app_env: prod
+            kind: production
+          # developer VARIANT: real backend + tooling — stage flavor
+          # (com.sst.sstcam.stage) + APP_ENV=stage. What the maintainer
+          # device-tests for sign-off. Installs side-by-side with production.
+          - flavor: stage
+            app_env: stage
+            kind: developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # proto comes from the git submodule (the BLE layer imports the bindings).
+          submodules: recursive
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+
+      # Caches the Gradle deps + build cache across runs — the largest Android
+      # build cost. Pairs with flutter-action's SDK/pub cache below (R9).
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
 
       - uses: subosito/flutter-action@v2
         with:
@@ -220,10 +279,15 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
           set -euo pipefail
-          # No keystore secret yet → skip; build.gradle.kts falls back to debug
-          # signing so the release still produces (debug-signed) APKs.
+          # No keystore secret yet → warn and continue; build.gradle.kts falls
+          # back to debug signing so the beta still produces (debug-signed) APKs,
+          # which are fine for sideload device-testing during stabilization.
+          # Release-signing is enforced at STABLE PROMOTION (see release.yml), not
+          # here — gating the build hard would block the lane while no keystore
+          # exists. Once ANDROID_KEYSTORE_BASE64 is configured, add a release-signed
+          # assertion (apksigner) to the release.yml promote step.
           if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
-            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building APKs with debug signing."
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building beta APK with debug signing (not distributable; see release.yml promote note)."
             exit 0
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
@@ -234,64 +298,72 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
 
-      - name: Build production APK
-        run: flutter build apk --release -t lib/main_prod.dart --dart-define=APP_ENV=prod
+      # Per-flavor launcher icons before building this variant (R8).
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
 
-      - name: Rename production APK
+      # arm64-only: the Jetson and the device-test phones are all 64-bit ARM, so
+      # we skip the armeabi-v7a (32-bit) and x86_64 (emulator) ABIs — fewer native
+      # libs to compile + package cuts build time and APK size substantially.
+      # Stable inherits this (it promotes these beta bytes). Re-add ABIs here if a
+      # 32-bit / x86 target is ever needed.
+      - name: Build ${{ matrix.kind }} APK
+        run: flutter build apk --release --flavor ${{ matrix.flavor }} --dart-define=APP_ENV=${{ matrix.app_env }} --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} --dart-define=APP_CHANNEL=beta --dart-define=PROTO_VERSION=$(git -C proto describe --tags --always 2>/dev/null || echo dev) --target-platform android-arm64
+
+      - name: Stage APK artifact
         env:
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          mkdir -p dist
-          cp build/app/outputs/apk/release/app-release.apk \
-            "dist/sst-cam-app-${TAG}-production.apk"
-
-      - name: Build developer APK
-        run: flutter build apk --release --dart-define=APP_ENV=stage
-
-      - name: Rename developer APK
-        env:
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          mkdir -p dist
-          cp build/app/outputs/apk/release/app-release.apk \
-            "dist/sst-cam-app-${TAG}-developer.apk"
-
-      - name: Create prerelease + upload beta APKs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ver.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
+          FLAVOR: ${{ matrix.flavor }}
+          KIND: ${{ matrix.kind }}
         run: |
           set -euo pipefail
-          prod="dist/sst-cam-app-${TAG}-production.apk"
-          dev="dist/sst-cam-app-${TAG}-developer.apk"
+          mkdir -p dist
+          src="build/app/outputs/apk/${FLAVOR}/release/app-${FLAVOR}-release.apk"
+          [ -f "$src" ] \
+            || { echo "::error::APK not found at ${src} — check Gradle flavor output path"; exit 1; }
+          cp "$src" "dist/sst-cam-app-${TAG}-${KIND}.apk"
 
-          # Record the SHA-256 of each APK in the Release notes. release.yml
-          # copies these exact bytes to the stable Release with NO rebuild, so
-          # this digest is the integrity hand-off it verifies against (fail
-          # closed on mismatch). Line format is contractual:
-          #   sha256: <64hex>  sst-cam-app-<tag>-<kind>.apk
-          prod_sha="$(sha256sum "$prod" | cut -d' ' -f1)"
-          dev_sha="$(sha256sum "$dev" | cut -d' ' -f1)"
-          notes="$(mktemp)"
-          {
-            echo "### APK integrity (SHA-256)"
-            echo ""
-            echo "Promotion to stable copies these bytes unchanged; release.yml"
-            echo "verifies each APK against the digest below before publishing."
-            echo ""
-            echo "    sha256: ${prod_sha}  sst-cam-app-${TAG}-production.apk"
-            echo "    sha256: ${dev_sha}  sst-cam-app-${TAG}-developer.apk"
-          } > "$notes"
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ matrix.kind }}
+          path: dist/sst-cam-app-${{ needs.version.outputs.tag }}-${{ matrix.kind }}.apk
+          retention-days: 1
+          if-no-files-found: error
 
-          gh release create "$TAG" \
-            --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
-            --notes-file "$notes" \
-            "$prod" \
-            "$dev"
+  publish:
+    name: Publish beta release
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      # NOTE (open item): production + developer APKs share applicationId
-      # "com.sst.sstcam" so they can't coexist on one device. Add
-      # applicationIdSuffix ".dev" to the developer variant if needed
-      # (see TODO in android/app/build.gradle.kts).
+      - name: Assemble APKs
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # download-artifact lays each artifact in its own subdir — flatten them.
+          find artifacts -name '*.apk' -exec cp {} dist/ \;
+          for kind in production developer; do
+            f="dist/sst-cam-app-${TAG}-${kind}.apk"
+            [ -f "$f" ] || { echo "::error::expected artifact '${f}' missing from the build matrix"; exit 1; }
+          done
+
+      # publish-release (ScoutSportTechnology/.github): draft -> upload -> publish,
+      # recording `sha256: <hex>  <asset>` per APK — the digest promote verifies
+      # before copying the production APK to the stable Release.
+      - name: Publish beta/rc prerelease (both APKs)
+        uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
+        with:
+          tag: ${{ needs.version.outputs.tag }}
+          files: |
+            dist/sst-cam-app-${{ needs.version.outputs.tag }}-production.apk
+            dist/sst-cam-app-${{ needs.version.outputs.tag }}-developer.apk
+          prerelease: "true"
+          notes: "Prerelease for hardware sign-off: production + developer APK."

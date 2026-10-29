@@ -1,0 +1,16 @@
+# Launcher icon for the `stage` Gradle flavor (com.sst.sstcam.stage /
+# "SST Cam Stage"). Generated into android/app/src/stage/res by
+# `dart run flutter_launcher_icons` (see `just gen-icons`). Paired with
+# APP_ENV=stage (real backend + dev tooling on).
+#
+# Reuses the dev artwork + the SST brand yellow; the "SST Cam Stage" app name +
+# com.sst.sstcam.stage applicationId distinguish it from dev/prod. Swap
+# icon-stage-1024.png / -foreground.png for real stage art if you want a distinct
+# mark.
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: false
+  image_path: "launcher/icon-stage-1024.png"
+  adaptive_icon_foreground: "launcher/icon-stage-foreground.png"
+  adaptive_icon_background: "#E8FF3C"
+  min_sdk_android: 21

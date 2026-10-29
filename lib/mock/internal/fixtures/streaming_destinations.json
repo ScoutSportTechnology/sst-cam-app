@@ -6,7 +6,7 @@
 [
   {
     "id": "mock-dest-001",
-    "userId": "default-user",
+    "userId": "00000000-0000-0000-0000-000000000001",
     "name": "YouTube Live",
     "provider": "youtube",
     "protocol": "rtmp",

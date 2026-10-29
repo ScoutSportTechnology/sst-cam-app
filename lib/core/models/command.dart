@@ -1,7 +1,10 @@
 // Dart-side command types — map 1:1 to proto Command.payload variants.
 // RealBleService translates these to/from protobuf bytes on the wire.
 
+import 'network_config.dart';
 import 'overlay_layout.dart';
+import 'preview_layout.dart';
+import 'video_mode.dart';
 
 sealed class BleCommand {}
 
@@ -22,6 +25,7 @@ class DeviceInfoResponse {
     this.firmwareVersion = '',
     this.model = '',
     this.protocolVersion = 0,
+    this.supportedModes = const [],
   });
   final String deviceId;
   final String name;
@@ -31,16 +35,29 @@ class DeviceInfoResponse {
   /// Firmware's reported wire-contract version. The app compares this against
   /// [kAppProtocolVersion]; a mismatch is a version-skew error.
   final int protocolVersion;
+
+  /// The record/stream capture modes the firmware actually supports. The setup
+  /// screen offers only these (R16). Empty on firmware that predates the field
+  /// (the quality pickers then render disabled).
+  final List<VideoMode> supportedModes;
 }
 
 /// The wire-contract version this app build implements. Compared against
 /// [DeviceInfoResponse.protocolVersion] on connect; a mismatch must surface a
 /// clean version-skew signal and refuse the session (see proto contract
 /// DeviceInfoResponse.protocol_version comment).
-const int kAppProtocolVersion = 1;
+///
+/// v3: proto U6 (RebootCommand + record/stream quality + supported_modes).
+/// Bumped with the firmware (device.handler kProtocolVersion) as a coordinated
+/// release — a connected camera is therefore always exactly this version, so
+/// the Reboot action gates on connection alone.
+const int kAppProtocolVersion = 3;
 
 // Device
 class GetDeviceInfoCommand extends BleCommand {}
+
+// Reboot the camera (U7/U11). Parameterless; gated on protocol_version >= 3.
+class RebootCommand extends BleCommand {}
 
 // Telemetry — app polls at ~1 Hz
 class GetTelemetryCommand extends BleCommand {}
@@ -119,12 +136,13 @@ class PushSessionConfig {
   /// (optional). May be null even when [rtmpUrl] is provided.
   final String? streamKey;
 
-  /// Absolute path on the camera where video files will be written, e.g.
-  /// `/data/video/{userUuid}/{matchUuid}/`.
+  /// Absolute path on the camera where video files will be written, under the
+  /// firmware's provisioned storage root, e.g.
+  /// `/var/lib/sst/cam/videos/{userUuid}/{matchUuid}/`.
   final String videoOutputPath;
 
   /// Absolute path on the camera where thumbnail files will be written, e.g.
-  /// `/data/thumbnail/{userUuid}/{matchUuid}/`.
+  /// `/var/lib/sst/cam/thumbnails/{userUuid}/{matchUuid}/`.
   final String thumbnailOutputPath;
 
   /// Stable id of team A (home), e.g. the local DB team UUID. Optional —
@@ -171,8 +189,22 @@ enum BleMatchControlAction {
 // ---------------------------------------------------------------------------
 
 class RecordingControlCommand extends BleCommand {
-  RecordingControlCommand({required this.action});
+  RecordingControlCommand({
+    required this.action,
+    this.quality,
+    this.captureGroupId,
+  });
   final RecordingControlAction action;
+
+  /// Record resolution/fps, applied by firmware at session start (independent of
+  /// the stream quality). Null => firmware default. Only meaningful on a start.
+  final VideoMode? quality;
+
+  /// App-minted pairing key sent on START. Couples the always-on dual-camera
+  /// training proxy to this match record (firmware starts the per-camera proxy
+  /// and stamps the proxy files with this id). Null => record with no proxy.
+  /// Must be null on STOP.
+  final String? captureGroupId;
 }
 
 /// Independent raw dual-camera capture, distinct from [RecordingControlCommand].
@@ -186,9 +218,14 @@ class RawCaptureControlCommand extends BleCommand {
 }
 
 class StreamingControlCommand extends BleCommand {
-  StreamingControlCommand({required this.action, this.rtmpUrl});
+  StreamingControlCommand({required this.action, this.rtmpUrl, this.quality});
   final StreamingControlAction action;
   final String? rtmpUrl;
+
+  /// Stream resolution/fps, applied by firmware at stream start (independent of
+  /// the record quality — e.g. record 1080p while streaming 720p). Null =>
+  /// firmware default. Only meaningful on a start.
+  final VideoMode? quality;
 }
 
 class MatchControlCommand extends BleCommand {
@@ -221,9 +258,116 @@ class PushOverlayLayoutCommand extends BleCommand {
   final OverlayLayout layout;
 }
 
+/// Switch the live preview composition between single-camera (overlay baked in)
+/// and side-by-side dual-camera (clean). Replies with [PreviewLayoutResult].
+class SetPreviewLayoutCommand extends BleCommand {
+  SetPreviewLayoutCommand({required this.layout});
+  final PreviewLayout layout;
+}
+
+/// Live per-channel white-balance gain calibration for the camera's
+/// postprocessor — the diagnostic Calibration → Camera screen drives these with
+/// sliders against the live preview to neutralize the IMX477 magenta cast.
+/// Gains multiply the BGR channels (1.0 = identity); [enabled] false bypasses
+/// correction. Fire-and-forget: applied live, no meaningful payload back.
+class SetCameraCalibrationCommand extends BleCommand {
+  SetCameraCalibrationCommand({
+    required this.rGain,
+    required this.gGain,
+    required this.bGain,
+    this.enabled = true,
+    this.saturation = 1.0,
+    this.contrast = 1.0,
+    this.brightness = 0.0,
+  });
+  final double rGain;
+  final double gGain;
+  final double bGain;
+  final bool enabled;
+  final double saturation;
+  final double contrast;
+  final double brightness;
+}
+
+/// One-shot auto white-balance: the firmware measures the current frame (point
+/// the camera at a white/grey surface) and computes the neutralizing gains,
+/// applies them live, and returns them as a [CameraCalibrationResult] so the app
+/// can seed its sliders.
+class AutoWhiteBalanceCommand extends BleCommand {
+  AutoWhiteBalanceCommand();
+}
+
+enum CameraFocusMode { auto, manual }
+
+/// Motorized-focus control for the ArduCAM VCM lens. [mode] auto hands the camera
+/// to continuous autofocus; manual holds [position] (0–1000 VCM code). [cameraIndex]
+/// null = both cameras.
+class CameraFocusCommand extends BleCommand {
+  CameraFocusCommand({required this.mode, this.position, this.cameraIndex});
+  final CameraFocusMode mode;
+  final int? position;
+  final int? cameraIndex;
+}
+
+/// Manual camera selection (manual tracking) — picks which camera feeds the
+/// record/stream/single-preview output. The human override of the future AI
+/// camera decision. [cameraIndex] 0 or 1.
+class SetActiveCameraCommand extends BleCommand {
+  SetActiveCameraCommand({required this.cameraIndex});
+  final int cameraIndex;
+}
+
+/// Firmware-applied white-balance gains — returned by [AutoWhiteBalanceCommand]
+/// (and echoed by SetCameraCalibration) so the calibration sliders can reflect
+/// what the camera is actually applying.
+class CameraCalibrationResult {
+  const CameraCalibrationResult({
+    required this.rGain,
+    required this.gGain,
+    required this.bGain,
+    required this.enabled,
+    this.saturation = 1.0,
+    this.contrast = 1.0,
+    this.brightness = 0.0,
+  });
+  final double rGain;
+  final double gGain;
+  final double bGain;
+  final bool enabled;
+  final double saturation;
+  final double contrast;
+  final double brightness;
+}
+
+/// Request an on-demand overlayed burn of a clean recording (#6 A6c). Replies
+/// with an [ExportJob] in the PENDING state; poll it with [PollExportCommand].
+class ExportOverlayedCommand extends BleCommand {
+  ExportOverlayedCommand({required this.recordingId});
+  final String recordingId;
+}
+
+/// Poll a running overlayed-export job. Replies with the job's current
+/// [ExportJob] state (READY carries the L2 download token).
+class PollExportCommand extends BleCommand {
+  PollExportCommand({required this.jobId});
+  final String jobId;
+}
+
+/// Set the camera's internet uplink config (ethernet / wifi STA) — persisted +
+/// applied by the firmware. Replies with [NetworkConfigResult] (echoed config +
+/// live status).
+class SetNetworkConfigCommand extends BleCommand {
+  SetNetworkConfigCommand({required this.config});
+  final NetworkConfig config;
+}
+
+/// Read the camera's current uplink config + live status. Replies with
+/// [NetworkConfigResult].
+class GetNetworkConfigCommand extends BleCommand {}
+
 // ---------------------------------------------------------------------------
 
-enum BleResponseStatus { ok, error, timeout, unsupported }
+enum BleResponseStatus { ok, error, timeout, unsupported, liveSessionActive }
 
 class BleCommandResponse<T> {
   const BleCommandResponse({
@@ -238,6 +382,18 @@ class BleCommandResponse<T> {
 
   bool get isOk => status == BleResponseStatus.ok;
 
+  /// The firmware refused the command because a match is live
+  /// (`ResponseStatus.LIVE_SESSION_ACTIVE`). Distinct from a generic error so
+  /// callers can surface the "end the match first" guidance off the typed
+  /// status rather than substring-matching the firmware's human message.
+  bool get isLiveSessionActive => status == BleResponseStatus.liveSessionActive;
+
+  /// The firmware does not implement this command (`ResponseStatus.UNSUPPORTED`)
+  /// — typically a camera running firmware older than the one that introduced
+  /// the command. Distinct from a generic error so callers can surface
+  /// actionable "update the camera firmware" guidance.
+  bool get isUnsupported => status == BleResponseStatus.unsupported;
+
   factory BleCommandResponse.ok([T? payload]) =>
       BleCommandResponse(status: BleResponseStatus.ok, payload: payload);
 
@@ -245,6 +401,12 @@ class BleCommandResponse<T> {
     status: BleResponseStatus.error,
     errorMessage: message,
   );
+
+  factory BleCommandResponse.liveSessionActive(String message) =>
+      BleCommandResponse(
+        status: BleResponseStatus.liveSessionActive,
+        errorMessage: message,
+      );
 
   factory BleCommandResponse.timeout() =>
       BleCommandResponse(status: BleResponseStatus.timeout);

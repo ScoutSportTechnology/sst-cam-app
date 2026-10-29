@@ -56,6 +56,39 @@ class WfSection extends StatelessWidget {
   }
 }
 
+/// AppBar title with a trailing muted count (hidden when 0). Surfaces a list
+/// size on the page header itself — used by the Match and Teams pages so the
+/// count lives next to the top-level title instead of the sub-section label.
+class WfCountTitle extends StatelessWidget {
+  const WfCountTitle(this.title, {super.key, required this.count});
+
+  final String title;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(title),
+        if (count > 0) ...[
+          const SizedBox(width: 8),
+          Text(
+            '$count',
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: T.ink3,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 /// Tiny secondary text — used for meta info, hints.
 class WfNote extends StatelessWidget {
   const WfNote(this.text, {super.key, this.style});

@@ -363,15 +363,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(StreamingDestinationsPage), findsOneWidget);
 
-      // Add a YouTube destination via the FAB.
+      // Add a destination via the FAB (custom-RTMP-only form).
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
-      // YouTube is the default provider; protocol is fixed to RTMP. Fill
-      // URL + Stream key.
+      // Custom RTMP is the only mode; a name is required. Fill name + URL + key.
+      await tester.enterText(
+        find.byKey(const Key('streaming-name-field')),
+        'Match stream',
+      );
       await tester.enterText(
         find.byKey(const Key('streaming-url-field')),
-        'rtmp://a.rtmp.youtube.com/live2/',
+        'rtmp://a.example.com/live2/',
       );
       // Smoke check: the stream key field starts obscured; toggle flips it.
       final keyFieldBefore = tester.widget<TextField>(
@@ -400,24 +403,19 @@ void main() {
       await tester.tap(find.text('Add destination').last);
       await tester.pumpAndSettle();
 
-      // YouTube row appears.
-      expect(find.text('YouTube'), findsAtLeastNWidgets(1));
+      // The new RTMP row appears.
+      expect(find.text('Match stream'), findsAtLeastNWidgets(1));
       expect(find.text('RTMP'), findsOneWidget);
 
       // Add a custom RTSP destination via the FAB again.
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
-      // Switch provider to Custom (chip with label "Custom" inside the
-      // form sheet's provider picker).
-      await tester.tap(find.text('Custom'));
-      await tester.pumpAndSettle();
-
-      // Switch protocol to RTSP (RTSP chip in the protocol picker).
+      // Custom-only form — switch protocol to RTSP (RTSP chip in the picker).
       await tester.tap(find.text('RTSP'));
       await tester.pumpAndSettle();
 
-      // The Custom provider clears the default name; type one.
+      // Type a name + RTSP creds.
       await tester.enterText(
         find.byKey(const Key('streaming-name-field')),
         'Backyard cam',

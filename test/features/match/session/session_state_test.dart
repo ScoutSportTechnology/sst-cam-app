@@ -5,6 +5,9 @@ import 'package:sst_cam_app/features/match/session/session_state.dart';
 
 ProviderContainer _makeContainer() => ProviderContainer();
 
+// Match ids are UUIDs (not magic strings); loadFromUpcoming requires one.
+const _matchId = '11111111-1111-4111-8111-111111111111';
+
 const _minimalLayout = OverlayLayout(
   canvasWidth: 1920,
   canvasHeight: 1080,
@@ -28,6 +31,7 @@ void main() {
 
     test('loadFromUpcoming with homeColorHex sets state.homeColorHex', () {
       ctrl.loadFromUpcoming(
+        matchId: _matchId,
         teamShortName: 'NR',
         teamName: 'Norton Rangers',
         opponent: 'vs EFC',
@@ -42,6 +46,7 @@ void main() {
       'loadFromUpcoming with homeColorHex null leaves state.homeColorHex null',
       () {
         ctrl.loadFromUpcoming(
+          matchId: _matchId,
           teamShortName: 'NR',
           teamName: 'Norton Rangers',
           opponent: 'vs EFC',
@@ -70,6 +75,7 @@ void main() {
 
     test('reset sets homeColorHex to null', () {
       ctrl.loadFromUpcoming(
+        matchId: _matchId,
         teamShortName: 'NR',
         teamName: 'Norton Rangers',
         opponent: 'vs EFC',

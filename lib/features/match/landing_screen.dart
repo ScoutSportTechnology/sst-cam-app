@@ -21,7 +21,12 @@ class LandingScreen extends ConsumerWidget {
     final async = ref.watch(upcomingMatchesProvider);
     return Scaffold(
       backgroundColor: T.bg,
-      appBar: AppBar(title: const Text('Match')),
+      appBar: AppBar(
+        title: WfCountTitle(
+          'Match',
+          count: ref.watch(filteredUpcomingMatchesProvider).length,
+        ),
+      ),
       body: Column(
         children: [
           const Padding(
@@ -47,6 +52,7 @@ class LandingScreen extends ConsumerWidget {
                 if (matches.isEmpty) {
                   return _NoUpcomingState(
                     onSchedule: () => _schedule(context, ref),
+                    onTraining: () => _startTraining(context, ref),
                   );
                 }
                 if (filtered.isEmpty) {
@@ -54,11 +60,13 @@ class LandingScreen extends ConsumerWidget {
                     child: WfNote('No matches match your filters'),
                   );
                 }
+                // With matches present, the standalone training button is gone —
+                // the "+" FAB offers Training session / Match instead.
                 return Column(
                   children: [
-                    WfSection(
-                      'Upcoming · ${filtered.length}',
-                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    const WfSection(
+                      'Upcoming',
+                      padding: EdgeInsets.fromLTRB(14, 12, 14, 6),
                     ),
                     Expanded(
                       child: ListView.separated(
@@ -81,7 +89,7 @@ class LandingScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: null,
-        onPressed: () => _schedule(context, ref),
+        onPressed: () => _chooseAdd(context, ref),
         backgroundColor: T.accent,
         foregroundColor: T.accentInk,
         elevation: 0,
@@ -91,6 +99,51 @@ class LandingScreen extends ConsumerWidget {
         child: const Icon(Icons.add, size: 28),
       ),
     );
+  }
+
+  /// The "+" FAB chooser: training session (one-tap record) or a scheduled
+  /// match. Shown when matches already exist (the empty state has its own
+  /// dedicated buttons).
+  Future<void> _chooseAdd(BuildContext context, WidgetRef ref) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: T.bg,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.fiber_manual_record, color: T.danger),
+              title: const Text(
+                'Training session',
+                style: TextStyle(color: T.ink),
+              ),
+              subtitle: const Text(
+                'One-tap record now',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+              onTap: () => Navigator.of(ctx).pop('training'),
+            ),
+            const Divider(height: 1, color: T.rule),
+            ListTile(
+              leading: const Icon(Icons.event_outlined, color: T.ink),
+              title: const Text('Match', style: TextStyle(color: T.ink)),
+              subtitle: const Text(
+                'Schedule a match',
+                style: TextStyle(color: T.ink2, fontSize: 12),
+              ),
+              onTap: () => Navigator.of(ctx).pop('match'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted || choice == null) return;
+    if (choice == 'training') {
+      await _startTraining(context, ref);
+    } else {
+      await _schedule(context, ref);
+    }
   }
 
   Future<void> _schedule(BuildContext context, WidgetRef ref) async {
@@ -118,6 +171,69 @@ class LandingScreen extends ConsumerWidget {
       ).showSnackBar(SnackBar(content: Text('Could not add match: $e')));
     }
   }
+
+  /// One-tap "record now": create a lightweight `Training session` match under
+  /// a chosen team and drop straight into the session. It flows through the
+  /// same setup → session → finalize-to-library pipeline as a scheduled match,
+  /// so a training recording lands in the Library like any other.
+  Future<void> _startTraining(BuildContext context, WidgetRef ref) async {
+    final teams =
+        ref.read(teamsControllerProvider).valueOrNull ?? const <TeamRecord>[];
+    final visible = teams.where((t) => !t.hidden).toList();
+    if (visible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add a team in the Teams tab before recording.'),
+        ),
+      );
+      return;
+    }
+    final team = visible.length == 1
+        ? visible.first
+        : await _pickTeam(context, visible);
+    if (team == null || !context.mounted) return;
+    try {
+      final created = await ref
+          .read(teamsControllerProvider.notifier)
+          .addMatch(
+            team.id,
+            TeamMatchDraft(
+              opponent: 'Training session',
+              date: _todayLabel(),
+              kind: MatchKind.upcoming,
+              numPeriods: 1,
+              periodLengthSeconds: 40 * 60,
+            ),
+          );
+      if (!context.mounted) return;
+      onSelect(UpcomingMatch(team: team, match: created));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not start training: $e')));
+    }
+  }
+}
+
+/// Today as a `MMM dd` label, matching the match-form date format.
+String _todayLabel() {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final d = DateTime.now();
+  return '${months[d.month - 1]} ${d.day.toString().padLeft(2, '0')}';
 }
 
 // ---------------------------------------------------------------------------
@@ -412,8 +528,9 @@ class _UpcomingRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _NoUpcomingState extends StatelessWidget {
-  const _NoUpcomingState({required this.onSchedule});
+  const _NoUpcomingState({required this.onSchedule, required this.onTraining});
   final VoidCallback onSchedule;
+  final VoidCallback onTraining;
 
   @override
   Widget build(BuildContext context) {
@@ -462,6 +579,17 @@ class _NoUpcomingState extends StatelessWidget {
               variant: WfButtonVariant.primary,
               full: true,
               onPressed: onSchedule,
+            ),
+            const SizedBox(height: 10),
+            WfButton(
+              label: 'Record a training session',
+              full: true,
+              leading: const Icon(
+                Icons.fiber_manual_record,
+                size: 14,
+                color: T.danger,
+              ),
+              onPressed: onTraining,
             ),
           ],
         ),
