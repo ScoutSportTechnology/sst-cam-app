@@ -13,11 +13,8 @@ import '../../../core/models/network_config.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/wf_button.dart';
 import '../../../core/wifi/wifi_handoff.dart' show previewProbeProvider;
-import '../../../core/state/db_providers.dart' show wifiCredentialsDaoProvider;
 import '../../../core/wifi/wifi_providers.dart' show wifiServiceProvider;
 import '../../camera/camera_state.dart' show activeCameraIdProvider;
-import '../users/users_state.dart'
-    show activeUserProvider, usersControllerProvider;
 import 'lan_reachability_gate.dart';
 
 /// Settings → Network. Two distinct affordances:
@@ -1096,50 +1093,49 @@ class _FriendlyBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(status.message, style: theme.textTheme.bodyMedium),
-          if (status.actionHint != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              status.actionHint!,
-              style: theme.textTheme.bodySmall?.copyWith(color: T.ink2),
-            ),
-          ],
-          if (status.debugDetail != null) ...[
-            const SizedBox(height: 4),
-            Theme(
-              data: theme.copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                childrenPadding: const EdgeInsets.only(bottom: 8),
-                title: Text('Details', style: theme.textTheme.bodySmall),
-                children: [
-                  // Already redacted by FriendlyStatus — no SSID/passphrase.
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      status.debugDetail!,
-                      style: const TextStyle(
-                        fontFamily: T.mono,
-                        fontSize: 11,
-                        color: T.ink2,
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(status.message, style: theme.textTheme.bodyMedium),
+            if (status.actionHint != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                status.actionHint!,
+                style: theme.textTheme.bodySmall?.copyWith(color: T.ink2),
+              ),
+            ],
+            if (status.debugDetail != null) ...[
+              const SizedBox(height: 4),
+              Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  title: Text('Details', style: theme.textTheme.bodySmall),
+                  children: [
+                    // Already redacted by FriendlyStatus — no SSID/passphrase.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        status.debugDetail!,
+                        style: const TextStyle(
+                          fontFamily: T.mono,
+                          fontSize: 11,
+                          color: T.ink2,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/models/command.dart' show DeviceInfoResponse;
-import 'package:sst_cam_app/core/models/device.dart' show CameraConnectionState;
 import 'package:sst_cam_app/core/errors/friendly_status.dart'
     show ConnectivityOutcome, FriendlyStatus;
 import 'package:sst_cam_app/core/models/network_config.dart'
@@ -284,7 +283,7 @@ Future<void> _pump(
   required MockBleService ble,
   required MockWifiService wifi,
   required bool reachable,
-  int protocolVersion = 4,
+  int protocolVersion = 5,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
