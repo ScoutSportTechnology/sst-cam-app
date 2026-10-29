@@ -38,7 +38,7 @@ just ci               # format-check + analyze + test (mirrors CI)
 Open in VS Code → "Reopen in Container". Docker Compose
 (`.devcontainer/docker-compose.yml`), two services:
 
-- **app** — Flutter SDK, Android SDK, `protoc`, Dart protoc plugin, Node.js 22, Claude Code.
+- **app** — Flutter SDK, Android SDK, `protoc`, Dart protoc plugin, Node.js 22.
   All `just` commands run inside this container.
 - **mock-camera-wifi** — RTSP H.264 preview on `:8554` (mediamtx + ffmpeg loop) and
   HTTP recording download on `:8080` (Bearer auth + Range). Simulates the camera's
