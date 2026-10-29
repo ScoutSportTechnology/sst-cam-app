@@ -30,7 +30,7 @@ CI/CD for the Flutter app, set up alongside proto + firmware. The cross-cutting 
 > 1. **Two workflows → three branch-scoped ones.** `ci.yml` + `release.yml` (main
 >    builds) became `release-alpha.yml` (development), `release-beta.yml`
 >    (release/*), `release.yml` (main, **promote-only — never builds**). See the
->    CI/CD section of `CLAUDE.md`/`AGENTS.md`.
+>    CI/CD section of `AGENTS.md`.
 > 2. **The two APKs are now Gradle product flavors** (`dev`/`prod`, distinct
 >    applicationId/name/icon, side-by-side installable), not just entry-point +
 >    `--dart-define` variants. The build commands now carry `--flavor`.
@@ -91,4 +91,4 @@ gh workflow run release.yml -R ScoutSportTechnology/sst-cam-app -f bump=minor
 
 - `docs/solutions/developer-experience/bool-fromEnvironment-default-tied-to-app-env-2026-05-19.md` — the `--dart-define=APP_ENV` flag pattern the release variants build on.
 - Sibling captures: `sst-cam-proto` and `sst-cam-firmware` have repo-specific versions under `docs/solutions/tooling-decisions/`. proto's covers the cross-cutting GITHUB_TOKEN/ruleset rationale.
-- `CLAUDE.md` → "CI/CD & releasing" section.
+- `AGENTS.md` → "CI/CD & releasing" section.
