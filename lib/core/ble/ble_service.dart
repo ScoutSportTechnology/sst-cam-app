@@ -187,8 +187,11 @@ abstract class BleService {
   /// must never contend with the live broadcast encode).
   Future<ExportJob> requestOverlayExport(String deviceId, String recordingId);
 
-  /// Poll a running overlayed-export job. The READY result carries the
-  /// one-shot L2 [DownloadToken]; FAILED carries an error message.
+  /// Poll a running overlayed-export job. The READY result carries the L2
+  /// [DownloadToken]; FAILED carries an error message. The burned L2 persists
+  /// in the match folder on the camera (it also shows up in listRecordings),
+  /// so re-exporting an already-burned recording succeeds fast — the firmware
+  /// returns the existing file.
   Future<ExportJob> pollOverlayExport(String deviceId, String jobId);
 
   /// Set the camera's internet uplink config (ethernet / wifi STA) — the

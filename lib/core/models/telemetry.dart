@@ -13,7 +13,6 @@ class DeviceTelemetry {
     required this.isRecording,
     required this.isStreaming,
     this.batteryLevelPct,
-    this.isRawCapturing = false,
     this.camera0Health,
     this.camera1Health,
   });
@@ -37,9 +36,6 @@ class DeviceTelemetry {
 
   /// Battery charge 0–100, or null when the device does not report a battery.
   final int? batteryLevelPct;
-
-  /// Whether raw dual-camera capture is running. Absent on the wire ⇒ false.
-  final bool isRawCapturing;
 
   /// Per-camera frame-truth health (DeviceTelemetry 15–16, state-health
   /// cycle). Null = unreported (absent on the wire — firmware predating health

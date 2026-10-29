@@ -12,7 +12,7 @@ As of Phase D #6 the overlay is **firmware-unilateral** and recordings are **cle
 
 - **Live stream:** the camera composites the scoreboard overlay onto the RTSP preview only. The app draws no overlay of its own, live or on playback.
 - **Recording (L1):** the recorded MP4 is **clean** — the overlay is **never** burned into it. Alongside `<matchId>.mp4`, the camera persists the overlay as a **timeline** file `<matchId>.timeline.json` (an `anchor_ms` plus the ordered scene changes shown during the recording).
-- **Overlaid copy (L2), on demand:** when the app asks for an overlaid clip, the camera decodes the clean L1, composites the persisted timeline, and encodes a separate **L2** into `videos/exports/`, exposed for a single tokened download. This is offline/CPU-bound (no NVENC) and is **refused while a match is live** (`ResponseStatus.LIVE_SESSION_ACTIVE`).
+- **Overlaid copy (L2), on demand:** when the app asks for an overlaid clip, the camera decodes the clean L1, composites the persisted timeline, and encodes a separate **L2** that **persists in the match folder beside the clean L1** (no exports dir, no post-download deletion). Once burned, the L2 appears in `ListRecordingsCommand` results and is downloadable like any recording; a re-export of an already-burned recording succeeds fast (the firmware returns the existing file). The burn itself is offline/CPU-bound (no NVENC) and is **refused while a match is live** (`ResponseStatus.LIVE_SESSION_ACTIVE`).
 - **New commands** (additive over proto `v0.1.0-beta.2`): `ExportOverlayedCommand` + `PollExportCommand` (the burn/poll flow) and `SetPreviewLayoutCommand` (single vs side-by-side dual-camera preview).
 
 Sections below that still describe "overlay baked into the recorded footage" predate this model; where they conflict, **§0.1 wins**.
@@ -102,7 +102,7 @@ in order:
    (pre-2020 epoch) with `ERROR`, leaving the clock untouched.
 3. `GetSessionSnapshotCommand` — pure read of the firmware's ACTUAL state
    (`SessionSnapshotResponse`: session phase, active camera, preview layout,
-   recording/streaming/raw flags, recording elapsed, match state incl.
+   recording/streaming flags, recording elapsed, match state incl.
    `match_uuid`, per-camera health, last-session summary, wifi_group_up). The
    app **adopts** these values instead of force-resetting selections — the
    firmware must therefore report its real current selections, not defaults.
@@ -512,7 +512,7 @@ Authorization: Bearer tok_9f3a2b...
      Content-Type: video/mp4
      Content-Length: 3221225472
      Accept-Ranges: bytes
-     [binary MP4 bytes — full file. The L1 at /recordings/<id> is CLEAN; an overlaid copy is a separate on-demand L2 under videos/exports/ (§0.1)]
+     [binary MP4 bytes — full file. The L1 at /recordings/<id> is CLEAN; an overlaid copy is a separate on-demand L2 persisted in the match folder (§0.1)]
 
 ──── Resumable download (if connection drops mid-transfer) ─────────────
 
@@ -747,8 +747,8 @@ wins) into one device-level gate:
 - any camera `CAMERA_HEALTH_DOWN` → the app shows the persistent "device
   inoperable" banner and disables live preview, recording start and streaming
   start; downloads, WiFi and diagnostics stay available. The firmware MUST
-  also refuse start-class capture commands (recording start/resume, raw
-  capture start, streaming start) with `ResponseStatus.DEVICE_INOPERABLE` —
+  also refuse start-class capture commands (recording start/resume,
+  streaming start) with `ResponseStatus.DEVICE_INOPERABLE` —
   the wire backstop the app surfaces as an explicit error. Stops, downloads
   and `StartWifiDirectCommand` are never health-gated.
 - `CAMERA_HEALTH_RECOVERING` → soft indicator only; the app keeps actions
@@ -795,7 +795,8 @@ wins) into one device-level gate:
 - On `RECORDING_PAUSE` / `RECORDING_RESUME`, pause and resume the muxer — the output is still a single continuous MP4, not segments.
 - On `RECORDING_STOP`, finalize and close the file immediately.
 - On unexpected BLE disconnect, finalize whatever was recorded even if `RECORDING_STOP` was not sent.
-- On `ListRecordingsCommand`, scan the paths known from session state and return what exists on disk.
+- On `ListRecordingsCommand`, scan the paths known from session state and return what exists on disk. A burned L2 (§0.1) persists in the match folder and is listed/downloadable like any recording.
+- **Dual-camera training proxy is firmware-internal.** It rides the record/stream lifecycle automatically and has **no wire surface**: no command starts or stops it, no telemetry or snapshot field reports it, and its per-camera files are never listed or downloaded over this contract. Proxy files pair with their match on-device by `match_uuid` (folder layout) and are retrieved via ssh.
 
 ---
 

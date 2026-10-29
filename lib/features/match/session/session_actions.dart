@@ -7,7 +7,6 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
@@ -206,16 +205,12 @@ Future<void> sessionKickoff(
   // records/streams nothing (the match dir stays empty).
   if (!context.mounted) return;
   if (choice.$1 == true) {
-    // Mint a training-proxy pairing key so the firmware couples the always-on
-    // dual-camera proxy to this match record (U6). Sent only on START.
     sendStartIfConnected(
       context,
       ref,
       RecordingControlCommand(
         action: RecordingControlAction.start,
         quality: state.recordQuality,
-        captureGroupId:
-            ref.read(liveMatchProvider.notifier).matchId ?? const Uuid().v4(),
       ),
     );
   }

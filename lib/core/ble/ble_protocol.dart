@@ -346,46 +346,20 @@ class BleProtocol {
           quality: quality,
         ),
       ),
-    RecordingControlCommand(
-      :final action,
-      :final quality,
-      :final captureGroupId,
-    ) =>
-      proto.Command(
-        correlationId: correlationId,
-        recordingControl: proto.RecordingControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          // proto3 optional — omitted unless the app pinned a record quality.
-          quality: _toProtoQuality(quality),
-          // proto3 optional — couples the training proxy when present (START).
-          captureGroupId: captureGroupId,
-        ),
+    RecordingControlCommand(:final action, :final quality) => proto.Command(
+      correlationId: correlationId,
+      recordingControl: proto.RecordingControlCommand(
+        action: switch (action) {
+          RecordingControlAction.start => proto.RecordingAction.RECORDING_START,
+          RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
+          RecordingControlAction.pause => proto.RecordingAction.RECORDING_PAUSE,
+          RecordingControlAction.resume =>
+            proto.RecordingAction.RECORDING_RESUME,
+        },
+        // proto3 optional — omitted unless the app pinned a record quality.
+        quality: _toProtoQuality(quality),
       ),
-    RawCaptureControlCommand(:final action, :final captureGroupId) =>
-      proto.Command(
-        correlationId: correlationId,
-        rawCapture: proto.RawCaptureControlCommand(
-          action: switch (action) {
-            RecordingControlAction.start =>
-              proto.RecordingAction.RECORDING_START,
-            RecordingControlAction.stop => proto.RecordingAction.RECORDING_STOP,
-            RecordingControlAction.pause =>
-              proto.RecordingAction.RECORDING_PAUSE,
-            RecordingControlAction.resume =>
-              proto.RecordingAction.RECORDING_RESUME,
-          },
-          // proto3 optional — only set when the app minted one (start).
-          captureGroupId: captureGroupId,
-        ),
-      ),
+    ),
     StreamingControlCommand(:final action, :final rtmpUrl, :final quality) =>
       proto.Command(
         correlationId: correlationId,
@@ -601,13 +575,6 @@ class BleProtocol {
                       ),
                       sport: r.sport,
                       teams: r.teams,
-                      // Raw identity (proto3 optional, joint invariant): present
-                      // together on a raw file, absent on a final recording.
-                      isRaw: r.isRaw,
-                      cameraIndex: r.hasCameraIndex() ? r.cameraIndex : null,
-                      captureGroupId: r.hasCaptureGroupId()
-                          ? r.captureGroupId
-                          : null,
                     ),
                   )
                   .toList()
@@ -660,7 +627,7 @@ class BleProtocol {
               as T?,
         );
       case proto.CommandResponse_Payload.exportJob:
-        // #6 A6c overlayed-export job: state + (when READY) the one-shot L2
+        // #6 A6c overlayed-export job: state + (when READY) the L2
         // download token nested in the response.
         final job = resp.exportJob;
         return BleCommandResponse.ok(
@@ -780,7 +747,6 @@ class BleProtocol {
         isRecording: p.isRecording,
         isStreaming: p.isStreaming,
         batteryLevelPct: p.hasBatteryLevelPct() ? p.batteryLevelPct : null,
-        isRawCapturing: p.isRawCapturing,
         // Absent ⇒ null (unreported) — never fabricate OK for a firmware that
         // doesn't report health (proto DeviceTelemetry 15–16 are optional).
         camera0Health: p.hasCamera0Health()
@@ -980,7 +946,6 @@ class BleProtocol {
         : null,
     isRecording: s.hasIsRecording() ? s.isRecording : null,
     isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
-    isRawCapturing: s.hasIsRawCapturing() ? s.isRawCapturing : null,
     recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
         ? s.recordingElapsedSeconds
         : null,

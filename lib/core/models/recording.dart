@@ -6,9 +6,6 @@ class RecordingMetadata {
     required this.startedAt,
     required this.sport,
     required this.teams,
-    this.isRaw = false,
-    this.cameraIndex,
-    this.captureGroupId,
   });
 
   final String id;
@@ -17,13 +14,6 @@ class RecordingMetadata {
   final DateTime startedAt;
   final String sport;
   final String teams;
-
-  /// Raw dual-camera capture identity (proto joint invariant). For a raw file
-  /// [isRaw] is true and [cameraIndex] + [captureGroupId] are both present; for
-  /// a final recording [isRaw] is false and the other two are null.
-  final bool isRaw;
-  final int? cameraIndex;
-  final String? captureGroupId;
 }
 
 class DownloadToken {

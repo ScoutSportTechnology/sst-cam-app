@@ -161,8 +161,6 @@ class _CameraDiagnostics extends StatelessWidget {
               WfChip(label: 'Rec', active: t.isRecording),
               const SizedBox(width: 6),
               WfChip(label: 'Stream', active: t.isStreaming),
-              const SizedBox(width: 6),
-              WfChip(label: 'Raw', active: t.isRawCapturing),
             ],
           ),
         ),

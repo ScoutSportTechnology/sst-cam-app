@@ -722,7 +722,6 @@ class MockBleService implements BleService {
       // firmware telemetry) — the fixture baseline only sets the floor.
       isRecording: b.isRecording || isRecordingActive,
       isStreaming: b.isStreaming || isStreamingActive,
-      isRawCapturing: isRawCapturingActive,
       // Per-camera health rides every telemetry sample (parity with firmware
       // plan U3) — the app's health gate folds this with the snapshot.
       camera0Health: mockCamera0Health,
@@ -853,17 +852,6 @@ class MockBleService implements BleService {
             _finalize(SessionEndReason.appStop);
           }
         }
-      case RawCaptureControlCommand(:final action, :final captureGroupId):
-        isRawCapturingActive = action == RecordingControlAction.start;
-        if (action == RecordingControlAction.start) {
-          lastRawCaptureGroupId = captureGroupId;
-          _sessionHadFile = true;
-        }
-        if (action == RecordingControlAction.stop &&
-            wasSessionActive &&
-            !_sessionActive) {
-          _finalize(SessionEndReason.appStop);
-        }
       case StreamingControlCommand(:final action, :final quality):
         isStreamingActive = action == StreamingControlAction.start;
         if (action == StreamingControlAction.start) {
@@ -991,15 +979,6 @@ class MockBleService implements BleService {
       RecordingControlCommand() => proto.CommandResponse(
         correlationId: correlationId,
         status: proto.ResponseStatus.OK,
-      ),
-      RawCaptureControlCommand(:final action) => proto.CommandResponse(
-        correlationId: correlationId,
-        // Mirror firmware: pause/resume are unsupported for raw capture.
-        status:
-            (action == RecordingControlAction.pause ||
-                action == RecordingControlAction.resume)
-            ? proto.ResponseStatus.UNSUPPORTED
-            : proto.ResponseStatus.OK,
       ),
       StreamingControlCommand() => proto.CommandResponse(
         correlationId: correlationId,
@@ -1144,33 +1123,6 @@ class MockBleService implements BleService {
         )
         .toList();
 
-    // Model real firmware: a raw dual-capture session leaves two per-camera
-    // files stamped with the app-minted capture_group_id (proto RecordingMetadata
-    // 8–10, joint invariant). Surface them so the app's stop() → list → pair →
-    // download path exercises the real happy path against the emulated firmware.
-    // Without this the mock diverges from firmware and every raw download dead-
-    // ends on "incomplete". lastRawCaptureGroupId persists past STOP (set only on
-    // START), so the pair stays listed for download.
-    final rawGroup = lastRawCaptureGroupId;
-    if (rawGroup != null) {
-      final startedAt = Int64(DateTime.now().millisecondsSinceEpoch ~/ 1000);
-      for (var cam = 0; cam < 2; cam++) {
-        protoRecs.add(
-          proto.RecordingMetadata(
-            id: 'raw__${rawGroup}__cam$cam',
-            durationS: Int64(0),
-            sizeBytes: Int64(60 * 1024 * 1024),
-            startedAt: startedAt,
-            sport: '',
-            teams: '',
-            isRaw: true,
-            cameraIndex: cam,
-            captureGroupId: rawGroup,
-          ),
-        );
-      }
-    }
-
     return proto.CommandResponse(
       correlationId: correlationId,
       status: proto.ResponseStatus.OK,
@@ -1210,11 +1162,6 @@ class MockBleService implements BleService {
                     ),
                     sport: r.sport,
                     teams: r.teams,
-                    isRaw: r.isRaw,
-                    cameraIndex: r.hasCameraIndex() ? r.cameraIndex : null,
-                    captureGroupId: r.hasCaptureGroupId()
-                        ? r.captureGroupId
-                        : null,
                   ),
                 )
                 .toList()
@@ -1241,7 +1188,6 @@ class MockBleService implements BleService {
             as T?,
       ),
       RecordingControlCommand() => BleCommandResponse.ok(null as T?),
-      RawCaptureControlCommand() => BleCommandResponse.ok(null as T?),
       StreamingControlCommand() => BleCommandResponse.ok(null as T?),
       MatchControlCommand() => BleCommandResponse.ok(null as T?),
       ScoreUpdateCommand() => BleCommandResponse.ok(null as T?),
@@ -1340,7 +1286,6 @@ class MockBleService implements BleService {
       // of drift from the mock-parity learning).
       isRecording: b.isRecording || isRecordingActive,
       isStreaming: b.isStreaming || isStreamingActive,
-      isRawCapturing: isRawCapturingActive,
       camera0Health: _dartCameraHealthToProto(mockCamera0Health),
       camera1Health: _dartCameraHealthToProto(mockCamera1Health),
     );
@@ -1359,7 +1304,6 @@ class MockBleService implements BleService {
     uptimeSeconds: p.uptimeSeconds.toInt(),
     isRecording: p.isRecording,
     isStreaming: p.isStreaming,
-    isRawCapturing: p.isRawCapturing,
     camera0Health: p.hasCamera0Health()
         ? _protoCameraHealth(p.camera0Health)
         : null,
@@ -1488,7 +1432,6 @@ class MockBleService implements BleService {
         : null,
     isRecording: s.hasIsRecording() ? s.isRecording : null,
     isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
-    isRawCapturing: s.hasIsRawCapturing() ? s.isRawCapturing : null,
     recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
         ? s.recordingElapsedSeconds
         : null,
@@ -1648,7 +1591,7 @@ class MockBleService implements BleService {
   /// test-inspection log and never resets.
   bool _sessionConfigured = false;
 
-  /// Whether the current session wrote a file (recording/raw start seen) —
+  /// Whether the current session wrote a file (recording start seen) —
   /// feeds LastSessionSummary.file_valid on finalize.
   bool _sessionHadFile = false;
 
@@ -1659,8 +1602,7 @@ class MockBleService implements BleService {
   Timer? _autoStopTimer;
   final Map<int, Timer> _healthScriptTimers = {};
 
-  bool get _sessionActive =>
-      isRecordingActive || isRawCapturingActive || isStreamingActive;
+  bool get _sessionActive => isRecordingActive || isStreamingActive;
 
   /// The match state reported in the session snapshot, by GetMatchState AND
   /// by the 2 s poll. Null = no session config was ever pushed (snapshot
@@ -1711,9 +1653,9 @@ class MockBleService implements BleService {
   /// Injectable per-camera health. Rides the session snapshot AND every
   /// telemetry sample; while either camera is [CameraHealth.down],
   /// start-class capture commands are refused with DEVICE_INOPERABLE
-  /// (firmware parity). Setting DOWN while a recording/raw capture runs
-  /// triggers the firmware plan U3 hook: the session finalizes cleanly with
-  /// end-reason camera-failure.
+  /// (firmware parity). Setting DOWN while a recording runs triggers the
+  /// firmware plan U3 hook: the session finalizes cleanly with end-reason
+  /// camera-failure.
   CameraHealth get mockCamera0Health => _camera0Health;
   set mockCamera0Health(CameraHealth h) {
     _camera0Health = h;
@@ -1735,7 +1677,7 @@ class MockBleService implements BleService {
     // watchdog hold window). Streaming-only sessions ride out camera loss.
     if ((_camera0Health == CameraHealth.down ||
             _camera1Health == CameraHealth.down) &&
-        (isRecordingActive || isRawCapturingActive)) {
+        isRecordingActive) {
       _finalize(SessionEndReason.cameraFailure);
     }
   }
@@ -1809,7 +1751,6 @@ class MockBleService implements BleService {
     final matchUuid =
         _liveMatch?.matchUuid ?? lastPushedConfig?.matchUuid ?? '';
     isRecordingActive = false;
-    isRawCapturingActive = false;
     isStreamingActive = false;
     _recordingStartedAt = null;
     snapshotRecordingElapsedSeconds = null;
@@ -1888,7 +1829,7 @@ class MockBleService implements BleService {
 
   /// Test seam (firmware plan U1 boot-orphan path): the camera loses power
   /// and reboots. The link dies bare (no `disconnecting` first), ALL
-  /// in-memory session state is lost, and — when a recording/raw capture was
+  /// in-memory session state is lost, and — when a recording was
   /// orphaned — the boot-time scan records a LastSessionSummary with
   /// SESSION_END_REBOOT and file_valid=false (crash artifact, moov never
   /// written). The next connect's snapshot looks like a first-ever connect
@@ -1904,7 +1845,7 @@ class MockBleService implements BleService {
       t.cancel();
     }
     _healthScriptTimers.clear();
-    final orphanedFile = isRecordingActive || isRawCapturingActive;
+    final orphanedFile = isRecordingActive;
     mockLastSessionSummary = orphanedFile
         ? LastSessionSummary(
             matchUuid:
@@ -1915,7 +1856,6 @@ class MockBleService implements BleService {
         : null;
     _finalizing = false;
     isRecordingActive = false;
-    isRawCapturingActive = false;
     isStreamingActive = false;
     _recordingStartedAt = null;
     snapshotRecordingElapsedSeconds = null;
@@ -1940,8 +1880,6 @@ class MockBleService implements BleService {
     RecordingControlCommand(:final action) =>
       action == RecordingControlAction.start ||
           action == RecordingControlAction.resume,
-    RawCaptureControlCommand(:final action) =>
-      action == RecordingControlAction.start,
     StreamingControlCommand(:final action) =>
       action == StreamingControlAction.start,
     _ => false,
@@ -1990,7 +1928,6 @@ class MockBleService implements BleService {
           : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
       isRecording: isRecordingActive,
       isStreaming: isStreamingActive,
-      isRawCapturing: isRawCapturingActive,
       recordingElapsedSeconds: _recordingElapsedSeconds,
       matchState: match == null ? null : _dartMatchStateToProto(match),
       camera0Health: _dartCameraHealthToProto(mockCamera0Health),
@@ -2027,13 +1964,6 @@ class MockBleService implements BleService {
 
   /// True when recording is active (toggled by [RecordingControlCommand]).
   bool isRecordingActive = false;
-
-  /// True when raw dual-camera capture is active (toggled by
-  /// [RawCaptureControlCommand]); surfaced via telemetry `isRawCapturing`.
-  bool isRawCapturingActive = false;
-
-  /// The app-minted capture group id from the last raw-capture start.
-  String? lastRawCaptureGroupId;
 
   /// True when streaming is active (toggled by [StreamingControlCommand]).
   bool isStreamingActive = false;
