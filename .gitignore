@@ -58,6 +58,7 @@ protoc-*.zip
 .windsurf/
 .continue/
 .aider*
+.serena/
 
 # Generated protobuf Dart bindings — run `just gen-proto` to regenerate
 lib/models/proto/
