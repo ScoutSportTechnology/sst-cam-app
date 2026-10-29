@@ -450,8 +450,9 @@ void main() {
         );
         // DiscoveryPage was pushed.
         expect(find.byType(DiscoveryPage), findsOneWidget);
-        // The connect attempt was made.
-        expect(spy.connectCalls, [_kFakeDeviceId]);
+        // The connect attempt was made, plus the single transparent retry
+        // ConnectController does on any non-version failure.
+        expect(spy.connectCalls, [_kFakeDeviceId, _kFakeDeviceId]);
 
         await spy.stopScan();
       },
