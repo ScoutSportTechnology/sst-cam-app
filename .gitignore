@@ -59,6 +59,7 @@ protoc-*.zip
 .continue/
 .aider*
 .serena/
+.devcontainer/devcontainer-lock.json
 
 # Generated protobuf Dart bindings — run `just gen-proto` to regenerate
 lib/models/proto/
