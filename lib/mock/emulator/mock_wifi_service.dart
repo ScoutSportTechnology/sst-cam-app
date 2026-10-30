@@ -67,6 +67,8 @@ class MockWifiService implements WifiService {
     this.downloadFailureRate = 0.0,
     this.mockSsid = 'DIRECT-mock-sst-cam',
     this.mockPsk = 'mock-psk-1234',
+    this.mockPhoneSsid = 'Emulated-Home-WiFi',
+    this.mockPhoneFrequencyMhz = 5180,
     int? randomSeed,
     VideoPathService? videoPathService,
     Dio? httpClient,
@@ -98,6 +100,34 @@ class MockWifiService implements WifiService {
   /// PSK used when building the fake [WifiDirectGroup]. Override in tests to
   /// avoid compile-time credential constants in production paths.
   final String mockPsk;
+
+  /// The phone's "current" WiFi SSID reported by [currentSsid]. Null simulates a
+  /// phone that is not on WiFi (provisioning disabled / streaming greyed).
+  final String? mockPhoneSsid;
+
+  /// The phone's "current" WiFi frequency (MHz) reported by
+  /// [currentWifiFrequencyMhz]. Defaults to 5 GHz so the provisioning happy-path
+  /// tests aren't blocked by the band guard; a test can pass 2437 to exercise the
+  /// 2.4 GHz "needs 5 GHz" path.
+  final int mockPhoneFrequencyMhz;
+
+  @override
+  Future<String?> currentSsid() async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    return mockPhoneSsid;
+  }
+
+  @override
+  Future<int> currentWifiFrequencyMhz() async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    return mockPhoneFrequencyMhz;
+  }
+
+  @override
+  Future<bool> bindProcessToWifi(String host) async => true;
+
+  @override
+  Future<void> clearProcessNetworkBinding() async {}
 
   final Random _rng;
   final VideoPathService _videoPathService;

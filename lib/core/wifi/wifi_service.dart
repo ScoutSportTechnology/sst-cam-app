@@ -16,6 +16,40 @@ import '../models/wifi.dart';
 /// dance is hidden behind [connectGroup].
 abstract class WifiService {
   // ---------------------------------------------------------------------------
+  // Phone network (for app-provisioned shared-WiFi — INV1)
+  // ---------------------------------------------------------------------------
+
+  /// The SSID of the WiFi network the PHONE is currently joined to, or null when
+  /// the phone is not on WiFi (or the SSID can't be read). Used by the
+  /// provisioning flow to offer the operator ONLY the phone's current network
+  /// (INV1 — never a scan/pick-any-SSID list; Android 10+ blocks reading the
+  /// saved passphrase, so the operator types it once). Concrete default returns
+  /// null so test fakes need not implement it.
+  Future<String?> currentSsid() async => null;
+
+  /// The phone's current WiFi frequency in MHz (0 = unknown / not on WiFi).
+  /// ~2400-2500 = 2.4 GHz, ~4900-5900 = 5 GHz. The provisioning flow validates
+  /// this up front: the camera's single radio carries Bluetooth on 2.4 GHz, so it
+  /// can only join a 5 GHz Wi-Fi. Concrete default returns 0 so fakes need not
+  /// implement it.
+  Future<int> currentWifiFrequencyMhz() async => 0;
+
+  /// Pin the process's sockets to the phone's infrastructure Wi-Fi (STA) network
+  /// so a reachability probe reaches a camera on the shared Wi-Fi. Both the
+  /// WiFi-Direct (P2P) group and the STA link are TRANSPORT_WIFI, so an unbound
+  /// socket can egress the P2P interface and never reach the STA subnet — the
+  /// migration preview probe binds here first (OQ2). [host] is the camera IP the
+  /// probe will reach — the native side binds to the Wi-Fi link that owns a route
+  /// to it (the STA subnet, not the P2P group). Returns true when bound; concrete
+  /// default returns true (a no-op "bound") so fakes/mocks need not implement it.
+  /// Always pair with [clearProcessNetworkBinding] in a finally.
+  Future<bool> bindProcessToWifi(String host) async => true;
+
+  /// Undo [bindProcessToWifi] — return the process to default network selection.
+  /// Concrete default is a no-op so fakes/mocks need not implement it.
+  Future<void> clearProcessNetworkBinding() async {}
+
+  // ---------------------------------------------------------------------------
   // Group lifecycle
   // ---------------------------------------------------------------------------
 

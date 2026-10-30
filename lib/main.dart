@@ -20,6 +20,7 @@ import 'core/wifi/wifi_providers.dart';
 import 'features/discovery/debug_page.dart';
 import 'features/settings/developer/developer_settings_page.dart';
 import 'mock/emulator/mock_ble_service.dart';
+import 'mock/emulator/mock_wifi_connectivity_service.dart';
 import 'mock/emulator/mock_wifi_service.dart';
 import 'mock/internal/mock_data_service.dart';
 import 'mock/mock_video_fetcher.dart';
@@ -168,6 +169,15 @@ Future<ProviderContainer> _bootstrapDev() async {
       wifiServiceProvider.overrideWith((ref) {
         ref.onDispose(wifiMock.dispose);
         return wifiMock;
+      }),
+    );
+    // Emulated phone-Wi-Fi observer (U5): stays "available" so the dev backend
+    // never auto-reverts. A test scripts loss/recovery via its own override.
+    overrides.add(
+      wifiConnectivityServiceProvider.overrideWith((ref) {
+        final mock = MockWifiConnectivityService();
+        ref.onDispose(mock.dispose);
+        return mock;
       }),
     );
   }

@@ -4,6 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.net.wifi.p2p.*
 import android.os.Build
 import android.util.Log
@@ -64,7 +67,134 @@ class WifiDirectChannel(private val context: Context) : MethodCallHandler, Event
                 connect(ssid, psk, result)
             }
             "disconnect" -> disconnect(result)
+            "currentSsid" -> result.success(currentSsid())
+            "currentWifiFrequencyMhz" -> result.success(currentWifiFrequencyMhz())
+            "bindProcessToWifi" ->
+                result.success(bindProcessToWifi(call.argument<String>("host")))
+            "clearProcessNetworkBinding" -> {
+                clearProcessNetworkBinding()
+                result.success(null)
+            }
             else -> result.notImplemented()
+        }
+    }
+
+    // The SSID of the WiFi network the phone is currently joined to, or null when
+    // not on WiFi / unavailable. WifiInfo.getSSID() returns the SSID wrapped in
+    // double quotes, or the sentinel "<unknown ssid>" without the location
+    // permission — the Dart side normalizes both. Never throws.
+    private fun currentSsid(): String? {
+        return try {
+            val wifi = context.applicationContext
+                .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            @Suppress("DEPRECATION")
+            val info = wifi?.connectionInfo ?: return null
+            @Suppress("DEPRECATION")
+            val ssid = info.ssid
+            if (ssid.isNullOrEmpty()) null else ssid
+        } catch (e: Throwable) {
+            Log.w(TAG, "currentSsid failed: $e")
+            null
+        }
+    }
+
+    // The frequency (MHz) of the WiFi the phone is currently joined to, or 0 when
+    // not on WiFi / unavailable. ~2400-2500 = 2.4 GHz, ~4900-5900 = 5 GHz. Lets the
+    // app validate the band BEFORE provisioning (the camera's RTL8822CE can't hold
+    // a 2.4 GHz STA while Bluetooth is active). Never throws.
+    private fun currentWifiFrequencyMhz(): Int {
+        return try {
+            val wifi = context.applicationContext
+                .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            @Suppress("DEPRECATION")
+            wifi?.connectionInfo?.frequency ?: 0
+        } catch (e: Throwable) {
+            Log.w(TAG, "currentWifiFrequencyMhz failed: $e")
+            0
+        }
+    }
+
+    // Pin this process's sockets to the Wi-Fi network that can actually reach the
+    // camera, for the duration of a reachability probe. During a migration the
+    // phone is on BOTH the camera's WiFi-Direct group (P2P, 192.168.49.x) AND the
+    // shared infrastructure Wi-Fi (STA, e.g. 10.10.1.x) — and BOTH report
+    // TRANSPORT_WIFI, so a bare socket (or a naive "any Wi-Fi" pick) egresses the
+    // P2P interface and gets errno 113 / 110 to the STA-subnet camera IP.
+    //
+    // Select by ROUTE: the Wi-Fi network that owns an address in [targetHost]'s
+    // subnet is, by construction, the one that can reach it. Fall back to a
+    // non-p2p Wi-Fi link with internet. Returns true when bound. Always pair with
+    // clearProcessNetworkBinding() in a finally. Never throws.
+    private fun bindProcessToWifi(targetHost: String?): Boolean {
+        return try {
+            val cm = context.applicationContext
+                .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return false
+            val wifiNets = cm.allNetworks.filter { net ->
+                cm.getNetworkCapabilities(net)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+            val target = targetHost
+                ?.let { runCatching { java.net.InetAddress.getByName(it) }.getOrNull() }
+            // 1. The Wi-Fi link with an address in the target's subnet — the only
+            //    one with a route to it.
+            val byRoute = target?.let { t ->
+                wifiNets.firstOrNull { net ->
+                    cm.getLinkProperties(net)?.linkAddresses?.any { la ->
+                        addressInSubnet(la, t)
+                    } == true
+                }
+            }
+            // 2. Fallbacks: a non-p2p Wi-Fi link, preferring one with internet.
+            val staNet = byRoute
+                ?: wifiNets.firstOrNull { net ->
+                    val caps = cm.getNetworkCapabilities(net)
+                    caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+                        cm.getLinkProperties(net)?.interfaceName?.startsWith("p2p") != true
+                }
+                ?: wifiNets.firstOrNull { net ->
+                    cm.getLinkProperties(net)?.interfaceName?.startsWith("p2p") != true
+                }
+                ?: return false
+            val iface = cm.getLinkProperties(staNet)?.interfaceName
+            val ok = cm.bindProcessToNetwork(staNet)
+            Log.i(TAG, "bindProcessToWifi target=$targetHost -> iface=$iface ok=$ok")
+            ok
+        } catch (e: Throwable) {
+            Log.w(TAG, "bindProcessToWifi failed: $e")
+            false
+        }
+    }
+
+    // True when [target] falls within [la]'s address/prefix (same L3 subnet).
+    private fun addressInSubnet(
+        la: android.net.LinkAddress,
+        target: java.net.InetAddress,
+    ): Boolean {
+        return runCatching {
+            val net = la.address.address
+            val host = target.address
+            if (net.size != host.size) return false
+            val prefix = la.prefixLength
+            for (bit in 0 until prefix) {
+                val byteIdx = bit / 8
+                val mask = 1 shl (7 - (bit % 8))
+                if ((net[byteIdx].toInt() and mask) != (host[byteIdx].toInt() and mask)) {
+                    return false
+                }
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    // Undo bindProcessToWifi() — return the process to the system default
+    // network selection. Never throws.
+    private fun clearProcessNetworkBinding() {
+        try {
+            val cm = context.applicationContext
+                .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            cm?.bindProcessToNetwork(null)
+        } catch (e: Throwable) {
+            Log.w(TAG, "clearProcessNetworkBinding failed: $e")
         }
     }
 

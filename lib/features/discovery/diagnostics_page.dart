@@ -345,8 +345,13 @@ class _CameraLogsCard extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right, color: T.ink3),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) =>
-                  const LogViewerPage(title: 'Camera', filter: isCameraLinkLog),
+              builder: (_) => const LogViewerPage(
+                title: 'Camera',
+                filter: isCameraLinkLog,
+                // U8: the camera-link comms can carry an SSID / passphrase from
+                // the WiFi handoff — redact this connectivity debug affordance.
+                redact: true,
+              ),
             ),
           ),
         ),

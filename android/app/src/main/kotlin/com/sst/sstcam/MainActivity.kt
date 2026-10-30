@@ -18,6 +18,7 @@ import java.nio.ByteBuffer
 class MainActivity : FlutterActivity() {
     private val mediaChannel = "com.sst.sstcam/media"
     private lateinit var wifiDirectChannel: WifiDirectChannel
+    private lateinit var wifiConnectivityChannel: WifiConnectivityChannel
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -29,6 +30,10 @@ class MainActivity : FlutterActivity() {
         } catch (e: Throwable) {
             android.util.Log.e("MainActivity", "WifiDirectChannel.initialize failed: $e")
         }
+
+        // D1a (U5): phone-Wi-Fi transport observer for shared-WiFi auto-revert.
+        wifiConnectivityChannel = WifiConnectivityChannel(applicationContext)
+        wifiConnectivityChannel.register(flutterEngine)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mediaChannel)
             .setMethodCallHandler { call, result ->

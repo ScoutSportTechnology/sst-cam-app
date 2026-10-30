@@ -9,6 +9,7 @@ import '../../features/teams/teams_page.dart';
 import '../../features/video/video_page.dart';
 import '../state/camera_selection.dart' show activeTabProvider;
 import '../state/reconnect_controller.dart';
+import '../wifi/wifi_auto_revert.dart';
 import '../wifi/wifi_handoff.dart';
 
 class AppShell extends ConsumerStatefulWidget {
@@ -68,10 +69,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   Widget build(BuildContext context) {
     ref.watch(wifiHandoffProvider);
-    // U6 auto-reconnect loop — mounted for the app's lifetime alongside the
-    // WiFi handoff so an unexpected BLE drop is always observed (Notifiers
-    // are lazy; without a reader the loop would never arm).
     ref.watch(reconnectControllerProvider);
+    ref.watch(wifiAutoRevertProvider);
     ref.listen<int>(activeTabProvider, (_, i) => setState(() => _index = i));
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),

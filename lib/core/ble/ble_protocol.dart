@@ -491,6 +491,23 @@ class BleProtocol {
       correlationId: correlationId,
       getNetworkConfig: proto.GetNetworkConfigCommand(),
     ),
+    ConfirmPreviewReachableCommand(:final migrationId, :final reachable) =>
+      proto.Command(
+        correlationId: correlationId,
+        confirmPreviewReachable: proto.ConfirmPreviewReachableCommand(
+          migrationId: migrationId,
+          reachable: reachable,
+        ),
+      ),
+    ConfirmLanPathCommand(:final confirmId, :final path, :final reachable) =>
+      proto.Command(
+        correlationId: correlationId,
+        confirmLanPath: proto.ConfirmLanPathCommand(
+          confirmId: confirmId,
+          path: _dartLanPathToProto(path),
+          reachable: reachable,
+        ),
+      ),
   };
 
   /// Maps the dart [NetworkConfig] view model to the wire `proto.NetworkConfig`
@@ -661,6 +678,53 @@ class BleProtocol {
                 ethernetAddress: nc.ethernetAddress,
                 wifiUp: nc.wifiUp,
                 wifiStatus: nc.wifiStatus,
+                // Shared-WiFi (STA) migration handshake (protocol_version >= 4):
+                // populated only on the SetNetworkConfig reply that begins a
+                // migration; zero/empty otherwise.
+                migrationId: nc.migrationId,
+                previewEndpoint: nc.previewEndpoint,
+                previewCredential: nc.previewCredential,
+                // Ambient connected-state (R3): the arbiter's settled S2 mode +
+                // SSID, on both Set and Get replies. Defaults false/'' against
+                // firmware that predates these additive fields.
+                inSharedWifi: nc.inSharedWifi,
+                currentSsid: nc.currentSsid,
+                // Single LAN-path selection (proto v5, R3/R8/R13). The enum is
+                // converted defensively (unknown → none). The Ethernet-LAN
+                // handshake fields default empty/zero; ethernet_dhcp is proto3
+                // `optional`, so it is null unless has_ethernet_dhcp() (down vs
+                // known-mode distinction — the DHCP-when-static fix).
+                lanPath: _protoLanPath(nc.lanPath),
+                ethernetEndpoint: nc.ethernetEndpoint,
+                ethernetCredential: nc.ethernetCredential,
+                ethernetConfirmId: nc.ethernetConfirmId,
+                ethernetDhcp: nc.hasEthernetDhcp() ? nc.ethernetDhcp : null,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.confirmPreviewReachable:
+        // The connectivity arbiter's verdict after the app's reachability
+        // confirm/deny: whether the camera finalized S2 (shared WiFi) or
+        // reverted to S1.
+        final cpr = resp.confirmPreviewReachable;
+        return BleCommandResponse.ok(
+          ConfirmPreviewReachableResult(
+                migrationId: cpr.migrationId,
+                inSharedWifi: cpr.inSharedWifi,
+              )
+              as T?,
+        );
+      case proto.CommandResponse_Payload.confirmLanPath:
+        // The Ethernet-LAN confirmation-handshake verdict (proto v5, R11): the
+        // path the arbiter settled into after the app probed the camera's
+        // Ethernet IP and sent its reachable/unreachable verdict. `committed`
+        // true = the Ethernet LAN is live; false = de-selected (fell to STA/P2P).
+        final clp = resp.confirmLanPath;
+        return BleCommandResponse.ok(
+          ConfirmLanPathResult(
+                confirmId: clp.confirmId,
+                committedPath: _protoLanPath(clp.committedPath),
+                committed: clp.committed,
               )
               as T?,
         );
@@ -731,6 +795,26 @@ class BleProtocol {
           ),
         ),
       );
+
+  /// Converts the proto `LanPath` enum to the Dart [LanPath] defensively — an
+  /// unrecognised value (a future firmware adding a path) maps to [LanPath.none]
+  /// rather than throwing at the single mapper boundary.
+  static LanPath _protoLanPath(proto.LanPath p) => switch (p) {
+    proto.LanPath.LAN_PATH_ETHERNET => LanPath.ethernet,
+    proto.LanPath.LAN_PATH_WIFI_STA => LanPath.wifiSta,
+    proto.LanPath.LAN_PATH_P2P => LanPath.p2p,
+    _ => LanPath.none,
+  };
+
+  /// Converts the Dart [LanPath] to the wire `proto.LanPath` for the
+  /// Ethernet-LAN confirmation handshake (the app confirms only a concrete
+  /// path; [LanPath.none] maps to the proto's zero value).
+  static proto.LanPath _dartLanPathToProto(LanPath p) => switch (p) {
+    LanPath.ethernet => proto.LanPath.LAN_PATH_ETHERNET,
+    LanPath.wifiSta => proto.LanPath.LAN_PATH_WIFI_STA,
+    LanPath.p2p => proto.LanPath.LAN_PATH_P2P,
+    LanPath.none => proto.LanPath.LAN_PATH_NONE,
+  };
 
   static DeviceTelemetry _dartTelemetry(proto.DeviceTelemetry p) =>
       DeviceTelemetry(

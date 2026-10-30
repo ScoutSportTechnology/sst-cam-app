@@ -168,6 +168,52 @@ class WifiServiceImpl implements WifiService {
   };
 
   @override
+  Future<String?> currentSsid() async {
+    // iOS: reading the current SSID needs special entitlements we don't hold;
+    // the provisioning flow is Android-only in practice, so treat as unknown.
+    if (Platform.isIOS) return null;
+    // Android 10+ gates WifiInfo.getSSID() behind the (fine) LOCATION permission
+    // + location services — without it the OS returns the "<unknown ssid>"
+    // sentinel. Ensure the permission (prompting once) so we can offer the phone's
+    // real network. A denial leaves the SSID unknown (the provisioning card falls
+    // back to its offline hint), never throws.
+    var status = await Permission.locationWhenInUse.status;
+    if (!status.isGranted) {
+      status = await Permission.locationWhenInUse.request();
+    }
+    if (!status.isGranted) return null;
+    final ssid = await _channel.currentSsid();
+    if (ssid == null) return null;
+    // Android's WifiInfo.getSSID() wraps the SSID in double quotes and returns
+    // the sentinel "<unknown ssid>" when it can't read it (permission / not
+    // connected) — normalize both to a clean value / null.
+    var s = ssid.trim();
+    if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+      s = s.substring(1, s.length - 1);
+    }
+    if (s.isEmpty || s.toLowerCase() == '<unknown ssid>') return null;
+    return s;
+  }
+
+  @override
+  Future<int> currentWifiFrequencyMhz() async {
+    if (Platform.isIOS) return 0;
+    return _channel.currentWifiFrequencyMhz();
+  }
+
+  @override
+  Future<bool> bindProcessToWifi(String host) async {
+    if (Platform.isIOS) return true; // no P2P/STA split to disambiguate on iOS
+    return _channel.bindProcessToWifi(host);
+  }
+
+  @override
+  Future<void> clearProcessNetworkBinding() async {
+    if (Platform.isIOS) return;
+    await _channel.clearProcessNetworkBinding();
+  }
+
+  @override
   Future<WifiDirectGroup> connectGroup(String deviceId) async {
     // Serialize concurrent calls for the same device — second caller awaits the
     // already-running connect sequence instead of starting a duplicate.

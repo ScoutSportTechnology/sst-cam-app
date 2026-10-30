@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
@@ -31,6 +34,204 @@ class WifiBringUpRetry {
 final wifiBringUpRetryProvider = Provider<WifiBringUpRetry>(
   (_) => const WifiBringUpRetry(),
 );
+
+// ---------------------------------------------------------------------------
+// Shared-WiFi (STA) migration — authenticated preview reachability probe (U6)
+// ---------------------------------------------------------------------------
+
+/// How long the app waits for the authenticated STA/LAN preview to answer
+/// before declaring the network unreachable (isolation) and denying the
+/// migration. This MUST be strictly shorter than [kFirmwareSelfRevertWindow]
+/// so the app's confirm/deny always beats the firmware's backstop timer — the
+/// app owns the verdict; the firmware timeout only covers a crashed app
+/// (KTD5 / OQ1). Enforced by an assertion at construction and in tests.
+///
+/// U2 (R2): this is the retry BUDGET, and it is the load-bearing fix for
+/// one-tap connect — NOT the firmware's best-effort gratuitous ARP (U1), which
+/// a neighbour is free to ignore for a FAILED neigh entry. On the first tap the
+/// phone may hold a stale/negative ARP entry for the camera's just-appeared STA
+/// IP, so the first attempt fails fast (EHOSTUNREACH); the loop must fit several
+/// retries so at least one lands after the kernel re-resolves. At [_kProbeRetryDelay]
+/// (1.2s) spacing, a 12s budget affords ~9 fast-fail retries while still leaving
+/// an 8s margin under the 20s self-revert for the BLE confirm round-trip.
+const Duration kPreviewProbeTimeout = Duration(seconds: 12);
+
+/// The firmware's self-revert backstop: if no confirm arrives within this
+/// window after entering `Migrating`, the camera reverts to S1 on its own.
+/// Mirrored here only to keep the app probe strictly shorter (documented, not
+/// enforced on the wire).
+const Duration kFirmwareSelfRevertWindow = Duration(seconds: 20);
+
+/// Fixed RTSP port + path the firmware serves the migration preview on
+/// (`rtsp://<previewEndpoint>:8554/preview`).
+const int _kPreviewRtspPort = 8554;
+const String _kPreviewRtspPath = '/preview';
+
+/// Delay between probe attempts. The camera's STA IP only appeared moments ago,
+/// so the first connect can hit a STALE NEGATIVE ARP entry on the phone
+/// (EHOSTUNREACH / errno 113 returned instantly without re-resolving). That
+/// failed connect kicks a fresh ARP resolution; this delay (> the ~1s ARP
+/// retransmit) lets the retry resolve and succeed.
+const Duration _kProbeRetryDelay = Duration(milliseconds: 1200);
+
+/// Per-attempt connect/read ceiling so one stuck attempt can't eat the whole
+/// probe budget (the outer [RtspDescribeProbe.timeout] bounds the retry loop).
+const Duration _kProbeAttemptTimeout = Duration(seconds: 3);
+
+/// Probes whether the camera's authenticated STA/LAN preview is reachable
+/// (OQ2). Injected via [previewProbeProvider] so tests drive the reachable /
+/// isolated branches without a real socket.
+abstract class PreviewReachabilityProbe {
+  /// Returns true when the preview at [endpoint] answers an AUTHENTICATED probe
+  /// (so it exercises both routing AND auth), false on isolation / auth failure
+  /// / timeout. [credential] is the "user:pass" Basic-auth pair. Never throws.
+  Future<bool> probe(String endpoint, String credential);
+}
+
+/// Default probe: an authenticated RTSP `DESCRIBE` against
+/// `rtsp://<endpoint>:8554/preview`. This is the cheapest check that also
+/// exercises auth — a client-isolated AP fails the TCP connect (routing) while
+/// a routable-but-unauthorized endpoint answers `401`; only a `2xx` counts as
+/// reachable. Bounded by [kPreviewProbeTimeout].
+class RtspDescribeProbe implements PreviewReachabilityProbe {
+  // Not const: the invariant is a runtime assert (a Duration comparison is not
+  // const-evaluable) — the app probe timeout MUST be strictly shorter than the
+  // firmware self-revert window.
+  RtspDescribeProbe({
+    this.timeout = kPreviewProbeTimeout,
+    this.port = _kPreviewRtspPort,
+    Future<bool> Function(String host)? bindToWifi,
+    Future<void> Function()? clearBinding,
+  }) : _bindToWifi = bindToWifi,
+       _clearBinding = clearBinding,
+       assert(
+         timeout < kFirmwareSelfRevertWindow,
+         'app probe timeout must be strictly shorter than the firmware '
+         'self-revert window',
+       );
+
+  final Duration timeout;
+
+  /// The RTSP port to probe. Fixed at [_kPreviewRtspPort] in production;
+  /// injectable so tests can point at a local server.
+  final int port;
+
+  /// Pins the process to the phone's Wi-Fi (STA) network before the connect and
+  /// clears it after — without this, on Android a bare socket can egress the
+  /// WiFi-Direct (P2P) interface and never reach a camera on the shared Wi-Fi,
+  /// which reads as a false "isolation" (OQ2). Injected so tests assert the
+  /// bind-before-connect / clear-in-finally order without a real socket.
+  final Future<bool> Function(String host)? _bindToWifi;
+  final Future<void> Function()? _clearBinding;
+
+  @override
+  Future<bool> probe(String endpoint, String credential) async {
+    final host = endpoint.trim();
+    if (host.isEmpty) return false;
+    var bound = false;
+    final deadline = DateTime.now().add(timeout);
+    try {
+      // Route the probe over the phone's Wi-Fi (STA), not the WiFi-Direct (P2P)
+      // interface, before opening the socket (OQ2). Bind once — it holds for the
+      // whole retry loop. Best-effort: on failure we fall back to unbound.
+      bound = _bindToWifi != null && await _bindToWifi(host);
+
+      // Retry until reachable or the deadline: the camera holds its STA IP for
+      // the whole self-revert window, and the first attempt often fails on a
+      // stale negative ARP entry (see [_kProbeRetryDelay]).
+      while (true) {
+        if (await _attemptOnce(host, credential, deadline)) return true;
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining <= _kProbeRetryDelay) return false;
+        await Future<void>.delayed(_kProbeRetryDelay);
+      }
+    } finally {
+      if (bound) await _clearBinding?.call();
+    }
+  }
+
+  /// One connect → authenticated RTSP DESCRIBE → status-line read. Returns true
+  /// only on a 2xx; never throws (failures resolve to false so the caller can
+  /// retry). Bounded by [deadline] and [_kProbeAttemptTimeout].
+  Future<bool> _attemptOnce(
+    String host,
+    String credential,
+    DateTime deadline,
+  ) async {
+    Socket? socket;
+    try {
+      var remaining = deadline.difference(DateTime.now());
+      if (remaining.isNegative) return false;
+      final connectTimeout = remaining < _kProbeAttemptTimeout
+          ? remaining
+          : _kProbeAttemptTimeout;
+      socket = await Socket.connect(host, port, timeout: connectTimeout);
+      final url = 'rtsp://$host:$port$_kPreviewRtspPath';
+      final auth = base64.encode(utf8.encode(credential));
+      socket.write(
+        'DESCRIBE $url RTSP/1.0\r\n'
+        'CSeq: 1\r\n'
+        'Authorization: Basic $auth\r\n'
+        'Accept: application/sdp\r\n'
+        '\r\n',
+      );
+      await socket.flush();
+
+      remaining = deadline.difference(DateTime.now());
+      if (remaining.isNegative) return false;
+      // Read ONLY until the RTSP status line arrives — RTSP is a persistent
+      // connection (the server keeps the socket open after answering), so
+      // reading to EOF would hang. A 2xx means routed AND authenticated.
+      final buffer = StringBuffer();
+      final readCap = remaining < _kProbeAttemptTimeout
+          ? remaining
+          : _kProbeAttemptTimeout;
+      try {
+        await for (final chunk
+            in socket
+                .cast<List<int>>()
+                .transform(utf8.decoder)
+                .timeout(readCap)) {
+          buffer.write(chunk);
+          if (buffer.toString().contains('\r\n')) break;
+        }
+      } on TimeoutException {
+        // No response this attempt → parsed as unreachable below.
+      }
+      final statusLine = buffer.toString().split('\r\n').firstOrNull ?? '';
+      final match = RegExp(r'RTSP/\d\.\d\s+(\d{3})').firstMatch(statusLine);
+      final code = match == null ? 0 : int.tryParse(match.group(1)!) ?? 0;
+      final reachable = code >= 200 && code < 300;
+      if (!reachable) {
+        debugPrint('[preview-probe] non-2xx status "$statusLine" → retrying');
+      }
+      return reachable;
+    } on SocketException catch (e) {
+      // No route to host (stale ARP) / refused / timeout → retry.
+      debugPrint('[preview-probe] socket failure → retrying: ${e.osError}');
+      return false;
+    } on TimeoutException {
+      debugPrint('[preview-probe] timed out → retrying');
+      return false;
+    } on Object catch (e) {
+      debugPrint('[preview-probe] unexpected failure → retrying: $e');
+      return false;
+    } finally {
+      socket?.destroy();
+    }
+  }
+}
+
+/// The active preview-reachability probe. Defaults to [RtspDescribeProbe] wired
+/// to bind the process to the phone's Wi-Fi (STA) network for the probe;
+/// overridden in tests with a fake that scripts reachable / isolated.
+final previewProbeProvider = Provider<PreviewReachabilityProbe>((ref) {
+  final wifi = ref.read(wifiServiceProvider);
+  return RtspDescribeProbe(
+    bindToWifi: wifi.bindProcessToWifi,
+    clearBinding: wifi.clearProcessNetworkBinding,
+  );
+});
 
 /// Single owner of the WiFi Direct group lifecycle. Watches the active BLE
 /// camera and its connection state; brings the WiFi group up automatically

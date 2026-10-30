@@ -36,6 +36,14 @@ const _kNamePrefix = 'sst-cam-';
 // Overall budget for one command round-trip (ack-gated frame writes + response).
 const _kCommandTimeout = Duration(seconds: 10);
 
+/// SetNetworkConfig that begins a Wi-Fi migration blocks the firmware response
+/// on the FULL STA join (regdomain scan + wpa association + DHCP), which can run
+/// well past the default 10s command budget. A short timeout surfaces as a bare
+/// "setNetworkConfig failed: null" even though the camera is still joining. Give
+/// the migration command a generous ceiling; a real failure (wrong password)
+/// still returns its reason well before this.
+const _kNetworkMigrationTimeout = Duration(seconds: 45);
+
 // Time remaining until [deadline], clamped at zero so Future.timeout never gets a
 // negative Duration.
 Duration _remainingUntil(DateTime deadline) {
@@ -470,13 +478,14 @@ class BleServiceImpl implements BleService {
       ensureCurrent();
       conn._startResponseListener();
 
-      // Link is up and the command channel works, but the §9b handshake
-      // (protocol gate → time push → snapshot → rehydrate → reconcile) has
-      // not run yet — that is the connect controller's job. Expose
-      // `reconciling` so session-affecting UI (which gates on `connected`
-      // only) stays locked until completeHandshake().
       conn._connController.add(CameraConnectionState.reconciling);
       _log.info('camera $deviceId link up — awaiting handshake');
+      unawaited(
+        ensureBonded(deviceId).catchError(
+          (Object e) =>
+              _log.warning('bond on connect failed for $deviceId: $e'),
+        ),
+      );
 
       // Listen for unexpected disconnection. Keep the slot (replays
       // disconnected to existing/late subscribers) — only tear down the
@@ -640,8 +649,9 @@ class BleServiceImpl implements BleService {
   @override
   Future<BleCommandResponse<T>> sendCommand<T>(
     String deviceId,
-    BleCommand command,
-  ) async {
+    BleCommand command, {
+    Duration? timeout,
+  }) async {
     final conn = _devices[deviceId];
     if (conn == null || conn._cmdWrite == null) {
       return BleCommandResponse.error('Device $deviceId not connected');
@@ -658,6 +668,7 @@ class BleServiceImpl implements BleService {
         corrId,
         frames,
         'Command ${command.runtimeType} for $deviceId',
+        timeout: timeout,
       );
       return BleProtocol.decodeResponse<T>(responseBytes, corrId);
     } on BleTimeoutException {
@@ -830,11 +841,113 @@ class BleServiceImpl implements BleService {
     deviceId,
     SetNetworkConfigCommand(config: config),
     'setNetworkConfig',
+    timeout: _kNetworkMigrationTimeout,
   );
 
   @override
   Future<NetworkConfigResult> getNetworkConfig(String deviceId) =>
       _networkConfig(deviceId, GetNetworkConfigCommand(), 'getNetworkConfig');
+
+  @override
+  Future<ConfirmPreviewReachableResult> confirmPreviewReachable(
+    String deviceId, {
+    required int migrationId,
+    required bool reachable,
+  }) async {
+    final resp = await sendCommand<ConfirmPreviewReachableResult>(
+      deviceId,
+      ConfirmPreviewReachableCommand(
+        migrationId: migrationId,
+        reachable: reachable,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'confirmPreviewReachable failed: ${resp.errorMessage}',
+      );
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw const BleConnectionException(
+        'confirmPreviewReachable: firmware returned no '
+        'ConfirmPreviewReachableResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ConfirmLanPathResult> confirmLanPath(
+    String deviceId, {
+    required int confirmId,
+    required LanPath path,
+    required bool reachable,
+  }) async {
+    final resp = await sendCommand<ConfirmLanPathResult>(
+      deviceId,
+      ConfirmLanPathCommand(
+        confirmId: confirmId,
+        path: path,
+        reachable: reachable,
+      ),
+    );
+    if (!resp.isOk) {
+      throw BleConnectionException(
+        'confirmLanPath failed: ${resp.errorMessage}',
+      );
+    }
+    final result = resp.payload;
+    if (result == null) {
+      throw const BleConnectionException(
+        'confirmLanPath: firmware returned no ConfirmLanPathResponse',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<void> ensureBonded(String deviceId) async {
+    final device = BluetoothDevice(remoteId: DeviceIdentifier(deviceId));
+    // bondState replays the current value, so .first is the live state.
+    final current = await device.bondState.first;
+    if (current == BluetoothBondState.bonded) {
+      _log.info('link to $deviceId already bonded');
+      return;
+    }
+    _log.info(
+      'bonding link to $deviceId (createBond) before sending credentials',
+    );
+    try {
+      // Android Just Works pairing against the camera's NoInputNoOutput agent —
+      // no user prompt. Completes when the link is bonded (hence encrypted).
+      await device.createBond();
+    } catch (e) {
+      // Asymmetric-bond self-heal. A failed createBond is almost always a stale
+      // half-bond: the camera's BlueZ was re-flashed / restarted and dropped its
+      // key while this phone still had one, or a prior pair half-completed. The
+      // pairing then fails SMP re-keying ("could not secure"). Clear the
+      // phone-side bond and retry ONCE so it re-keys from scratch, instead of
+      // dead-ending the user on an unrecoverable pairing error.
+      _log.warning(
+        'createBond failed for $deviceId ($e) — clearing stale bond, retrying once',
+      );
+      try {
+        await device.removeBond();
+      } catch (_) {
+        // Nothing to remove (phone had no bond) — fine, fall through to retry.
+      }
+      try {
+        await device.createBond();
+      } catch (e2) {
+        throw BleConnectionException(
+          'could not secure (pair) the connection: $e2',
+        );
+      }
+    }
+    _log.info(
+      'link to $deviceId bonded — credentials will cross an encrypted link',
+    );
+  }
 
   @override
   Future<DeviceInfoResponse?> getDeviceInfo(String deviceId) async {
@@ -850,9 +963,14 @@ class BleServiceImpl implements BleService {
   Future<NetworkConfigResult> _networkConfig(
     String deviceId,
     BleCommand command,
-    String label,
-  ) async {
-    final resp = await sendCommand<NetworkConfigResult>(deviceId, command);
+    String label, {
+    Duration? timeout,
+  }) async {
+    final resp = await sendCommand<NetworkConfigResult>(
+      deviceId,
+      command,
+      timeout: timeout,
+    );
     if (!resp.isOk) {
       if (resp.isUnsupported) {
         // Old firmware predating the NetworkConfig command surface — surface a
@@ -1037,14 +1155,15 @@ class _ConnectedDevice {
   Future<List<int>> _sendFramesAndAwait(
     String corrId,
     List<Uint8List> frames,
-    String timeoutLabel,
-  ) async {
+    String timeoutLabel, {
+    Duration? timeout,
+  }) async {
     final completer = Completer<List<int>>();
     _pendingRequests[corrId] = completer;
     try {
       // One shared deadline spans the ack-gated writes AND the response wait, so
       // a multi-chunk command cannot stack per-chunk timeouts past the budget.
-      final deadline = DateTime.now().add(_kCommandTimeout);
+      final deadline = DateTime.now().add(timeout ?? _kCommandTimeout);
       await _writeFrames(corrId, frames, deadline);
       return await completer.future.timeout(
         _remainingUntil(deadline),

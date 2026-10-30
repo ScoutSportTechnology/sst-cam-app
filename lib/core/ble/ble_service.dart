@@ -206,6 +206,43 @@ abstract class BleService {
   /// Read the camera's current uplink config + live status.
   Future<NetworkConfigResult> getNetworkConfig(String deviceId);
 
+  /// Report the app's shared-WiFi (STA) migration reachability verdict back to
+  /// the camera (protocol_version >= 4). [migrationId] echoes the value the
+  /// migration [NetworkConfigResult] carried; [reachable] true finalizes S2
+  /// (streaming enabled), false reverts to S1. Returns the mode the arbiter
+  /// settled into. Concrete default throws so only the real/mock services that
+  /// actually drive provisioning need to implement it — existing test fakes are
+  /// unaffected.
+  Future<ConfirmPreviewReachableResult> confirmPreviewReachable(
+    String deviceId, {
+    required int migrationId,
+    required bool reachable,
+  }) async => throw UnimplementedError('confirmPreviewReachable not supported');
+
+  /// Report the app's Ethernet-LAN reachability verdict back to the camera
+  /// (proto v5, R11) — the PARALLEL of [confirmPreviewReachable] for the Ethernet
+  /// path. [confirmId] echoes [NetworkConfigResult.ethernetConfirmId]; [path] is
+  /// the path being confirmed ([LanPath.ethernet]); [reachable] true finalizes
+  /// the Ethernet LAN, false de-selects it (firmware falls to STA/P2P per R19).
+  /// Returns the path the arbiter settled into. Concrete default throws so only
+  /// the real/mock services that drive provisioning implement it.
+  Future<ConfirmLanPathResult> confirmLanPath(
+    String deviceId, {
+    required int confirmId,
+    required LanPath path,
+    required bool reachable,
+  }) async => throw UnimplementedError('confirmLanPath not supported');
+
+  /// Ensure the BLE link to [deviceId] is BONDED before sending secrets. A bonded
+  /// link is encrypted at the link layer, so the WiFi passphrase (sent over the
+  /// write-without-response command characteristic) never crosses a cleartext
+  /// channel (INV6/AE7). Idempotent — returns immediately if already bonded.
+  /// Throws if bonding is rejected/times out (the caller must NOT send credentials
+  /// then; the firmware gate rejects an unbonded link anyway). Concrete default
+  /// throws so only the real/mock services that drive provisioning implement it.
+  Future<void> ensureBonded(String deviceId) async =>
+      throw UnimplementedError('ensureBonded not supported');
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------

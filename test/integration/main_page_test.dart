@@ -4,6 +4,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sst_cam_app/app.dart';
 import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
+import 'package:sst_cam_app/mock/emulator/mock_wifi_connectivity_service.dart';
 import 'package:sst_cam_app/mock/emulator/mock_wifi_service.dart';
 import 'package:sst_cam_app/features/discovery/discovery_page.dart';
 import 'package:sst_cam_app/core/ble/ble_providers.dart';
@@ -41,6 +42,11 @@ void main() {
         overrides: [
           bleServiceProvider.overrideWithValue(mock),
           wifiServiceProvider.overrideWithValue(MockWifiService()),
+          // The shared-WiFi auto-revert observer (mounted in AppShell) activates
+          // a native EventChannel on connect — mock it so the test has no plugin.
+          wifiConnectivityServiceProvider.overrideWithValue(
+            MockWifiConnectivityService(),
+          ),
           ...dbOverrides(db),
         ],
         child: const SstCamApp(),

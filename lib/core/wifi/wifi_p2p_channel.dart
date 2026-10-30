@@ -30,6 +30,82 @@ class WifiP2pChannel {
         .timeout(const Duration(seconds: 15));
   }
 
+  /// The SSID of the WiFi network the phone is currently joined to, or null when
+  /// the phone is not on WiFi (or the SSID is unavailable — e.g. location
+  /// permission not granted, or the OS returns `<unknown ssid>`). Never throws:
+  /// a [MissingPluginException]/[PlatformException] resolves to null so callers
+  /// treat "SSID unknown" the same as "phone offline".
+  Future<String?> currentSsid() async {
+    try {
+      final ssid = await _method
+          .invokeMethod<String>('currentSsid')
+          .timeout(const Duration(seconds: 5));
+      if (ssid == null || ssid.isEmpty) return null;
+      return ssid;
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    } on Exception {
+      return null;
+    }
+  }
+
+  /// The phone's current WiFi frequency in MHz (0 = unknown / not on WiFi).
+  /// ~2400-2500 = 2.4 GHz, ~4900-5900 = 5 GHz. Any failure resolves to 0.
+  Future<int> currentWifiFrequencyMhz() async {
+    try {
+      final mhz = await _method
+          .invokeMethod<int>('currentWifiFrequencyMhz')
+          .timeout(const Duration(seconds: 5));
+      return mhz ?? 0;
+    } on PlatformException {
+      return 0;
+    } on MissingPluginException {
+      return 0;
+    } on Exception {
+      return 0;
+    }
+  }
+
+  /// Pin the process's sockets to the phone's infrastructure Wi-Fi (STA)
+  /// network. Both the WiFi-Direct (P2P) group and the STA link report
+  /// TRANSPORT_WIFI, so an unbound socket can egress the P2P interface and never
+  /// reach a camera on the shared Wi-Fi; the native side selects the STA link by
+  /// its internet capability. Returns true when bound. Any failure resolves to
+  /// false (probe falls back to unbound behaviour). Always pair with
+  /// [clearProcessNetworkBinding] in a finally.
+  Future<bool> bindProcessToWifi(String host) async {
+    try {
+      final ok = await _method
+          .invokeMethod<bool>('bindProcessToWifi', {'host': host})
+          .timeout(const Duration(seconds: 5));
+      return ok ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    } on Exception {
+      return false;
+    }
+  }
+
+  /// Undo [bindProcessToWifi] — return the process to default network selection.
+  /// Never throws.
+  Future<void> clearProcessNetworkBinding() async {
+    try {
+      await _method
+          .invokeMethod<void>('clearProcessNetworkBinding')
+          .timeout(const Duration(seconds: 5));
+    } on PlatformException {
+      // ignore — best-effort cleanup
+    } on MissingPluginException {
+      // ignore
+    } on Exception {
+      // ignore
+    }
+  }
+
   /// Integer state codes pushed by the native `BroadcastReceiver`:
   ///   0 = idle
   ///   1 = starting
