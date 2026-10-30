@@ -1,0 +1,80 @@
+name: publish
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      prerelease:
+        type: boolean
+        required: true
+      notes:
+        type: string
+        required: true
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+      ANDROID_STORE_PASSWORD:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to re-publish"
+        required: true
+      prerelease:
+        description: "Prerelease"
+        type: boolean
+        default: true
+      notes:
+        description: "Release notes"
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Validate manual re-publish tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$(git rev-parse HEAD)"
+      - uses: devcontainers/ci@v0.3
+        env:
+          TAG: ${{ inputs.tag }}
+          CHANNEL: ${{ contains(inputs.tag, '-alpha.') && 'alpha' || contains(inputs.tag, '-beta.') && 'beta' || 'rc' }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        with:
+          push: never
+          env: |
+            TAG
+            CHANNEL
+            ANDROID_KEYSTORE_BASE64
+            ANDROID_KEY_ALIAS
+            ANDROID_KEY_PASSWORD
+            ANDROID_STORE_PASSWORD
+          runCmd: just build
+      - name: Publish release
+        uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
+        with:
+          tag: ${{ inputs.tag }}
+          files: ${{ contains(inputs.tag, '-alpha.') && format('dist/sst-cam-app-{0}-developer.apk', inputs.tag) || 'dist/*.apk' }}
+          prerelease: ${{ inputs.prerelease }}
+          notes: ${{ inputs.notes }}

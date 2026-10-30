@@ -51,6 +51,7 @@ ENV FLUTTER_SDK_ROOT=/home/vscode/flutter
 ENV PATH=$PATH:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin
 ENV PATH=$PATH:${ANDROID_SDK_ROOT}/platform-tools
 ENV PATH=$PATH:${FLUTTER_SDK_ROOT}/bin
+ENV PATH=$PATH:/home/vscode/.pub-cache/bin
 
 RUN dpkg --add-architecture amd64 \
     && apt-get update \
@@ -67,6 +68,8 @@ RUN dpkg --add-architecture amd64 \
     openssh-client \
     sudo \
     python3 \
+    protobuf-compiler \
+    shellcheck \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
