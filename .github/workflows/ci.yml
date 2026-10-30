@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [development, "release/**", main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'lib/**'
+              - 'test/**'
+              - 'integration_test/**'
+              - 'android/**'
+              - 'ios/**'
+              - 'proto/**'
+              - 'scripts/**'
+              - '.devcontainer/**'
+              - 'pubspec.yaml'
+              - 'pubspec.lock'
+              - 'analysis_options.yaml'
+              - 'flutter_launcher_icons-*.yaml'
+              - 'justfile'
+              - '.github/workflows/**'
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: devcontainers/ci@v0.3
+        env:
+          BASE: ${{ github.base_ref || 'development' }}
+        with:
+          push: never
+          env: BASE
+          runCmd: just lint
+
+  compile:
+    needs: changes
+    if: github.event_name != 'pull_request' || (github.base_ref != 'main' && needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: just compile
+
+  test:
+    needs: changes
+    if: github.event_name != 'pull_request' || (github.base_ref != 'main' && needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: just test

@@ -14,11 +14,19 @@ name: release
 
 on:
   push:
-    branches: [main]
+    branches: [development, "release/**", main]
   workflow_dispatch:
     inputs:
+      to:
+        description: "Set to rc to promote the latest beta"
+        required: false
+        default: ""
       version:
-        description: "X.Y.Z to promote (overrides detection from the merge commit)"
+        description: "Alpha base override or X.Y.Z to promote (optional)"
+        required: false
+        default: ""
+      bump:
+        description: "Alpha bump override (patch, minor, major)"
         required: false
         default: ""
 
@@ -26,27 +34,81 @@ permissions:
   contents: write
 
 concurrency:
-  group: promote
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate dispatch inputs
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REF: ${{ github.ref_name }}
+          TO: ${{ inputs.to }}
+          VERSION: ${{ inputs.version }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          case "$REF:$TO" in
+            development:|main:|release/*:|release/*:rc) ;;
+            *) exit 1 ;;
+          esac
+          case "$BUMP" in ''|patch|minor|major) ;; *) exit 1 ;; esac
+          if [ "$REF" != development ] && [ -n "$BUMP" ]; then exit 1; fi
+          if [[ "$REF" == release/* && "$TO" != rc && -n "$VERSION" ]]; then exit 1; fi
+
+  version:
+    needs: validate
+    if: github.ref_name != 'main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.to != 'rc'))
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      released: ${{ steps.ver.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: ver
+        if: ${{ (github.ref_name == 'development' && hashFiles('.github/workflows/release-alpha.yml') == '') || (github.ref_name != 'development' && hashFiles('.github/workflows/release-beta.yml') == '') }}
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: ${{ github.ref_name == 'development' && 'alpha' || 'release' }}
+          version: ${{ github.ref_name == 'development' && inputs.version || '' }}
+          bump: ${{ inputs.bump }}
+
+  publish:
+    needs: version
+    if: needs.version.outputs.released == 'true'
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ needs.version.outputs.tag }}
+      prerelease: true
+      notes: "${{ github.ref_name == 'development' && '' || 'Prerelease for hardware sign-off: production + developer APK.' }}"
+    permissions:
+      contents: write
+    secrets: inherit
+
   promote:
-    name: Promote rc to stable (no build)
+    name: Promote existing release (no build)
+    needs: validate
+    if: github.ref_name == 'main' || (github.event_name == 'workflow_dispatch' && inputs.to == 'rc')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Promote the last rc to stable
+      - name: Promote existing release
         id: promote
+        if: ${{ github.ref_name == 'main' || hashFiles('.github/workflows/promote-rc.yml') == '' }}
         uses: ScoutSportTechnology/.github/actions/promote@v1.1.0
         with:
-          to: stable
+          to: ${{ github.ref_name == 'main' && 'stable' || 'rc' }}
           version: ${{ inputs.version }}
-          assets: "*-production.apk"
+          assets: ${{ github.ref_name == 'main' && '*-production.apk' || '*' }}
 
       - name: Post-promotion reminder (manual maintainer steps)
+        if: github.ref_name == 'main'
         run: |
           {
             echo "## Promoted ${{ steps.promote.outputs.tag }} (from ${{ steps.promote.outputs.source }})"

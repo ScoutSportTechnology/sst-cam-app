@@ -30,11 +30,11 @@ default:
 
 # Start the dev container (no-op if already running).
 up:
-    @_DC="$(command -v devcontainer || echo "$HOME/.devcontainers/bin/devcontainer")"; "$_DC" up --workspace-folder "{{justfile_directory()}}"
+    @docker image inspect flutter4android >/dev/null
 
 # Open an interactive shell in the dev container.
 shell:
-    @_DC="$(command -v devcontainer || echo "$HOME/.devcontainers/bin/devcontainer")"; "$_DC" exec --workspace-folder "{{justfile_directory()}}" bash
+    @just _run 'exec bash'
 
 # --- dev recipes (auto native-or-delegated) -------------------------------
 
@@ -42,9 +42,9 @@ shell:
 get:
     @just _run "flutter pub get"
 
-# Run unit + widget tests. Extra args pass through: `just test test/wifi/`.
+# Run unit + widget tests and script checks.
 test *args:
-    @just _run "flutter test {{args}}"
+    @just _run 'flock /tmp/sst-cam-app-setup.lock just _prepare && flutter test --concurrency="$(nproc)" {{args}} && bash -n scripts/ci/*.sh'
 
 # Integration tests (needs a connected device/emulator).
 test-integration:
@@ -65,8 +65,27 @@ format:
 format-check:
     @just _run "dart format --set-exit-if-changed lib test integration_test"
 
-# Full CI gate: format-check + analyze + test.
-ci: format-check analyze test
+lint:
+    @just _run 'flock /tmp/sst-cam-app-setup.lock just _prepare && git ls-files -z -- "*.dart" | xargs -0 -r dart format --set-exit-if-changed && flutter analyze && shellcheck scripts/ci/*.sh && scripts/ci/check-proto-pin.sh "${BASE:-development}"'
+
+fmt:
+    @just _run 'dirs="lib test"; [ ! -d integration_test ] || dirs="$dirs integration_test"; dart format $dirs'
+
+compile:
+    @just _run 'flock /tmp/sst-cam-app-setup.lock just _prepare && flutter build apk --debug --flavor dev --dart-define=APP_ENV=dev'
+
+test-device:
+    @just _run 'flutter test test/integration/ -d "${DEVICE_ID:?DEVICE_ID is required}"'
+
+build:
+    @just _run 'flock /tmp/sst-cam-app-setup.lock just _prepare && TAG="${TAG:-$(git describe --tags --always)}" && CHANNEL="${CHANNEL:-$(case "$TAG" in *-alpha.*) printf alpha;; *-beta.*) printf beta;; *) printf rc;; esac)}" && if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then printf "%s\n" "Warning: release APK uses debug signing" >&2; fi && if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then umask 077 && printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks && printf "storeFile=upload-keystore.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n" "$ANDROID_STORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" > android/key.properties; fi && dart run flutter_launcher_icons && mkdir -p dist && flutter build apk --release --flavor stage --dart-define=APP_ENV=stage --dart-define=APP_VERSION="${TAG:?TAG is required}" --dart-define=APP_CHANNEL="${CHANNEL:?CHANNEL is required}" --dart-define=PROTO_VERSION="$(git -C proto describe --tags --always 2>/dev/null || echo dev)" --target-platform android-arm64 && cp build/app/outputs/apk/stage/release/app-stage-release.apk "dist/sst-cam-app-${TAG}-developer.apk" && if [ "$CHANNEL" != alpha ]; then flutter build apk --release --flavor prod --dart-define=APP_ENV=prod --dart-define=APP_VERSION="$TAG" --dart-define=APP_CHANNEL="$CHANNEL" --dart-define=PROTO_VERSION="$(git -C proto describe --tags --always 2>/dev/null || echo dev)" --target-platform android-arm64 && cp build/app/outputs/apk/prod/release/app-prod-release.apk "dist/sst-cam-app-${TAG}-production.apk"; fi'
+
+ci:
+    @just lint & lint_pid=$!; just compile && just test; result=$?; wait "$lint_pid" || exit $?; exit "$result"
+
+[private]
+_prepare:
+    @flutter pub get && dart pub global activate protoc_plugin 21.1.2 && export PATH="$HOME/.pub-cache/bin:$PATH" && mkdir -p lib/models/proto && protoc --dart_out=lib/models/proto -I proto proto/*.proto
 
 # Three canonical builds, one per env, all on the single entry (lib/main.dart);
 # backend + tooling are selected by APP_ENV, the flavor gives each its own
@@ -171,12 +190,20 @@ gen-db:
 
 # --- internals ------------------------------------------------------------
 
-# Run CMD natively inside the container, else delegate to it via the CLI.
+# Run CMD inside the container, or use the existing image from the host.
 [private]
 _run +cmd:
-    @if [ -f /.dockerenv ]; then \
-        bash -lc "{{cmd}}"; \
+    @if [ -f /.dockerenv ] && [ -d /workspaces/sst-cam-app ]; then \
+        bash -uc {{ quote(cmd) }}; \
     else \
-        _DC="$(command -v devcontainer || echo "$HOME/.devcontainers/bin/devcontainer")"; \
-        "$_DC" exec --workspace-folder "{{justfile_directory()}}" bash -lc "{{cmd}}"; \
+        docker run --rm -u "$(id -u):$(id -g)" \
+            -e HOME=/home/vscode -e BASE="${BASE:-development}" -e TAG="${TAG:-}" -e CHANNEL="${CHANNEL:-}" \
+            -e ANDROID_KEYSTORE_BASE64 -e ANDROID_KEY_ALIAS -e ANDROID_KEY_PASSWORD -e ANDROID_STORE_PASSWORD \
+            -e GIT_CONFIG_COUNT=3 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/workspaces/sst-cam-app \
+            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1=/workspaces/sst-cam-app/proto \
+            -e GIT_CONFIG_KEY_2=safe.directory -e GIT_CONFIG_VALUE_2=/home/vscode/flutter \
+            -v "{{justfile_directory()}}:/workspaces/sst-cam-app" \
+            -v "{{justfile_directory()}}:{{justfile_directory()}}" \
+            -v "$(git rev-parse --path-format=absolute --git-common-dir):$(git rev-parse --path-format=absolute --git-common-dir)" \
+            -w /workspaces/sst-cam-app flutter4android bash -uc {{ quote(cmd) }}; \
     fi
