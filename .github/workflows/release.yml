@@ -69,7 +69,6 @@ jobs:
         with:
           fetch-depth: 0
       - id: ver
-        if: ${{ (github.ref_name == 'development' && hashFiles('.github/workflows/release-alpha.yml') == '') || (github.ref_name != 'development' && hashFiles('.github/workflows/release-beta.yml') == '') }}
         uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
         with:
           mode: ${{ github.ref_name == 'development' && 'alpha' || 'release' }}
@@ -100,7 +99,6 @@ jobs:
 
       - name: Promote existing release
         id: promote
-        if: ${{ github.ref_name == 'main' || hashFiles('.github/workflows/promote-rc.yml') == '' }}
         uses: ScoutSportTechnology/.github/actions/promote@v1.1.0
         with:
           to: ${{ github.ref_name == 'main' && 'stable' || 'rc' }}
