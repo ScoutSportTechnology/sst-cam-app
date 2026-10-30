@@ -79,7 +79,7 @@ SDK, `protoc`, mock-camera WiFi service). Then:
 just get      # flutter pub get
 just run      # dev build (mock backend)
 just test     # unit + widget tests
-just ci       # format-check + analyze + test
+just ci       # lint + debug compile + parallel tests (pre-PR gate)
 ```
 
 iOS builds need macOS + Xcode (devcontainer is Linux-only). See
@@ -95,20 +95,18 @@ maturity ladder:
 
 | Stage | Tag | Built on | Fidelity |
 | ----- | --- | -------- | -------- |
-| **alpha** | `vX.Y.Z-alpha.N` | push to `development` | automated tests vs mock + emulator |
-| **beta** | `vX.Y.Z-beta.N` | push to `release/X.Y.Z` | release candidate, manual sign-off vs real firmware |
-| **stable** | `vX.Y.Z` | merge to `main` | shipped — the promoted beta APK (same bytes) |
+| **alpha** | `vX.Y.Z-alpha.N` | push to `development` | developer APK; automated checks vs mock |
+| **beta** | `vX.Y.Z-beta.N` | push to `release/X.Y.Z` | developer + production APKs; hardware sign-off pending |
+| **rc** | `vX.Y.Z-rc.N` | dispatch `release.yml` with `to: rc` after hardware sign-off, then release-branch fixes | same beta APK bytes for rc.1 |
+| **stable** | `vX.Y.Z` | merge to `main` | promoted rc production APK (same bytes) |
 
-Two non-negotiables: the APK **build is a required check in the PR** (build-in-PR
-/ tag-on-merge), and **`main` never builds** — promotion only copies the
-already-built beta artifact. Three branch-scoped workflows
-(`release-alpha` owns `development`, `release-beta` owns `release/**`, `release` owns
-`main`), each folding its PR gate in — no separate `ci` workflow; version math is
-`scripts/ci/resolve-version.sh`.
-Each release publishes a **developer** APK (`stage` flavor, `APP_ENV=stage`) and,
-from beta on, a **production** APK (`prod` flavor, `APP_ENV=prod`) — both from the
-single `lib/main.dart` entry. See [`AGENTS.md`](AGENTS.md) and `docs/ci/` for the
-full model and maintainer runbooks.
+`ci.yml` requires `lint`, `compile`, and `test` on PRs; `compile` checks a debug
+APK, while `just ci` is the local pre-PR gate. `release.yml` resolves alpha,
+beta, and rc tags and calls `publish.yml` for release APKs. `main` only
+promotes the last rc; it never rebuilds. Alpha publishes a **developer** APK
+(`stage` flavor, `APP_ENV=stage`); beta/rc also publish a **production** APK
+(`prod` flavor, `APP_ENV=prod`), both from `lib/main.dart`. See
+[`AGENTS.md`](AGENTS.md) and `docs/ci/` for release procedures.
 
 ---
 

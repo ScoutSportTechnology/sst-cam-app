@@ -14,23 +14,20 @@ and is tested without hardware.
 ```bash
 just get              # flutter pub get
 just run              # dev build on a local device/emulator (mock backend)
-just test             # unit + widget tests
-just test-integration # integration tests (needs device/emulator)
-just test-all         # test + test-integration
-just analyze          # flutter analyze
-just format           # dart format
-just format-check     # CI format check (exits non-zero on diff)
-just gen-proto        # regenerate lib/models/proto/ from proto/*.proto (devcontainer)
-just gen-db           # regenerate Drift *.g.dart from tables/daos (devcontainer)
+just lint             # format check + analysis + shellcheck + proto pin check
+just fmt              # format Dart sources
+just compile          # debug dev-flavor APK
+just test             # unit + widget tests and script checks, parallel
+just test-device      # integration tests (DEVICE_ID required)
+just build            # release APKs in dist/ (developer; production from beta onward)
+just ci               # lint + compile + test (pre-PR gate)
+just gen-proto        # regenerate lib/models/proto/ from proto/*.proto
+just gen-db           # regenerate Drift *.g.dart from tables/daos
 just gen-icons        # regenerate per-flavor launcher icons (dev/stage/prod)
-just build-dev-app    # dev APK: debug + real backend (mock = EMULATE_CAMERA flag / in-app toggle)
-just build-stage-app  # stage APK: release + real backend + dev tooling
-just build-prod-app   # prod APK: release + real backend, tooling compiled out (shipped)
 just deploy-dev-app ADDR   # build + install on phone (dev/stage/prod variants)
 just deploy-stage-app ADDR # ADDR = adb serial (USB) or ip:port (wireless)
 just deploy-prod-app ADDR
-just iterate-app ADDR      # phone hot-reload loop (stage, real backend)
-just ci               # format-check + analyze + test (mirrors CI)
+just iterate-app ADDR      # phone hot-reload loop (dev, real backend)
 ```
 
 ## Dev container
@@ -52,18 +49,18 @@ Open in VS Code → "Reopen in Container". Docker Compose
 backend + tooling from the compile-time `kAppEnv` (`--dart-define=APP_ENV=…`) —
 there is no second `main`:
 
-| Build (`just`)                    | Mode    | Flavor  | `APP_ENV` | applicationId          | Backend            | Debuggable | Dev tooling |
-|-----------------------------------|---------|---------|-----------|------------------------|--------------------|------------|-------------|
-| `build-dev-app` / `deploy-dev-app`     | debug   | `dev`   | `dev`     | `com.sst.sstcam.dev`   | real (mock = flag) | yes        | yes         |
-| `build-stage-app` / `deploy-stage-app` | release | `stage` | `stage`   | `com.sst.sstcam.stage` | real               | no         | yes         |
-| `build-prod-app` / `deploy-prod-app`   | release | `prod`  | `prod`    | `com.sst.sstcam`       | real               | no         | no          |
+| Build (`just`)       | Mode    | Flavor  | `APP_ENV` | applicationId          | Backend            | Debuggable | Dev tooling |
+|----------------------|---------|---------|-----------|------------------------|--------------------|------------|-------------|
+| `compile` / `deploy-dev-app` | debug   | `dev`   | `dev`     | `com.sst.sstcam.dev`   | real (mock = flag) | yes        | yes         |
+| `build` / `deploy-stage-app` | release | `stage` | `stage`   | `com.sst.sstcam.stage` | real               | no         | yes         |
+| `build` (beta/rc) / `deploy-prod-app` | release | `prod`  | `prod`    | `com.sst.sstcam`       | real               | no         | no          |
 
 **Three orthogonal axes** — the table just names the common combos:
-- **Mode** (debug/profile/release) = **debuggability** (hot reload, DevTools, assertions). `dev` is debug; stage/prod are release.
+- **Mode** (debug/profile/release) = **debuggability** (hot reload, DevTools, assertions). `compile` builds dev in debug mode; `build` produces stage (and beta/rc prod) in release mode.
 - **Backend + seed** = two *flags* independent of mode: `--dart-define=EMULATE=true|false` (mock vs real BLE/WiFi) and `--dart-define=SEED=true|false` (dev fixtures in the DB). Both default **off** and seed `DevConfig.defaults`; the in-app Developer switches override them at runtime. Only the `dev` env reads them — a stage/prod build skips the dev bootstrap, so both are forced false. `just run` (offline) sets both on; `deploy-dev-app` (on hardware) leaves both off.
 - **Dev tooling** = the in-app debug page + developer settings (`kAppEnv.showsDevTooling`, != prod). Distinct from Flutter DevTools, which come from debug **mode**.
 
-So "a debuggable build against the real camera" = **dev flavor** (`deploy-dev-app` / `iterate-app`), not stage. `build-*-app` produces the APK; `deploy-*-app ADDR` builds then installs on a phone via host adb (`ADDR` = USB serial or wireless `ip:port`); `iterate-app ADDR` is the dev hot-reload loop against the Jetson.
+So "a debuggable build against the real camera" = **dev flavor** (`deploy-dev-app` / `iterate-app`), not stage. `compile` builds a debug dev APK; `build` writes release APKs to `dist/`; `deploy-*-app ADDR` builds then installs on a phone via host adb (`ADDR` = USB serial or wireless `ip:port`); `iterate-app ADDR` is the dev hot-reload loop against the Jetson.
 
 - `main.dart` branches on `kAppEnv.isDevBackend`: **dev** runs `_bootstrapDev()`
   (overrides `bleServiceProvider`/`wifiServiceProvider` with mocks + seedable dev
@@ -180,25 +177,23 @@ repos (proto, firmware, app); **levels are tags, not branches**:
 
 - **alpha** (`vX.Y.Z-alpha.N`) — construction; automated tests vs **mock + emulator**; developer APK.
 - **beta** (`vX.Y.Z-beta.N`) — feature freeze for X.Y.Z, fixes only; production + developer APK.
-- **rc** (`vX.Y.Z-rc.N`) — after the hardware test (real Jetson + real firmware + this app on a phone): `promote-rc.yml` re-tags the newest beta as `rc.1` on the **same commit** (same APKs); later merges to `release/X.Y.Z` mint `rc.N`.
+- **rc** (`vX.Y.Z-rc.N`) — after the hardware test (real Jetson + real firmware + this app on a phone): dispatch `release.yml` with `to: rc` to re-tag the newest beta as `rc.1` on the **same commit** (same APKs); later merges to `release/X.Y.Z` mint `rc.N`.
 - **stable** (`vX.Y.Z`) — merge `release/X.Y.Z → main`: the last rc's production APK promoted unchanged (SHA-256 verified).
 - **hotfix** — `hotfix/X.Y.Z+1` from `main` → PR to `main` → `vX.Y.(Z+1)` → PR `main → development`.
 
-Two non-negotiables: **gate-in-PR / build-and-tag-on-merge** (the APK is built
-only on push, not in the PR — the PR gate is `Analyze & Test` + `CI Scripts`),
-and **`main` never builds** (it only promotes an already-built rc APK).
+**PR gate:** run `just ci` locally before opening a PR. `.github/workflows/ci.yml`
+runs required jobs `lint`, `compile`, `test` on PRs to `development`,
+`release/**`, and `main`. `lint` always runs (format, analysis, shellcheck,
+**proto pin check**); `compile` and `test` skip docs-only and `main` PRs.
+`compile` builds a debug APK as a check, not a release artifact.
 
-Branch-scoped workflows — each owns one branch class and folds its PR gate in
-(gated to `pull_request`); there is no standalone `ci.yml`:
-
-- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `development`.** `pull_request:[development]` runs the gate checks `CI Scripts (shellcheck + version tests)` (shellcheck, actionlint, **proto pin check**) and `Analyze & Test (Linux)` (`dart format` → generate protos (pinned `protoc_plugin 21.1.2`) → `flutter analyze` → `flutter test`). `push:[development]` (+ `workflow_dispatch`) → `resolve-version` (`mode: alpha`; docs/chore-only → **skip**) → builds the **developer** APK (`--flavor stage --dart-define=APP_ENV=stage`) → `publish-release` prerelease.
-- `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`.** Same two gate checks on PRs. `push:[release/**]` (+ `workflow_dispatch`) → `resolve-version` (`mode: release`, X.Y.Z from the branch name: `beta.N`, or `rc.N` after promote-rc) → builds **both** APKs (production `--flavor prod --dart-define=APP_ENV=prod`, developer `--flavor stage`) → `publish-release` prerelease carrying both, with their SHA-256.
-- `.github/workflows/promote-rc.yml` (name `promote-rc`) — `workflow_dispatch` on `release/X.Y.Z` after the hardware sign-off: newest beta → `rc.1`.
-- `.github/workflows/release.yml` (name `release`) — **owns `main`.** `push:[main]` (+ dispatch) → `promote` (`to: stable`, `assets: "*-production.apk"`): highest `vX.Y.Z-rc.N` → `vX.Y.Z`, APK SHA-256 verified, same bytes renamed. **No `flutter`/Gradle step exists.**
+- `.github/workflows/release.yml` — on push to `development`, resolves the next alpha (docs/chore-only → skip); on push to `release/**`, resolves beta or rc; dispatch with `to: rc` on the release branch promotes the latest beta without rebuilding; on push to `main`, promotes the last rc to stable without rebuilding.
+- `.github/workflows/publish.yml` — called by `release.yml` for prereleases (or dispatched to re-publish an existing tag). Runs `just build` and publishes the developer APK for alpha, both developer and production APKs for beta/rc, with SHA-256 digests. Stable promotion retains only the production APK.
 
 Version math and publishing are the shared actions of
 [`ScoutSportTechnology/.github`](https://github.com/ScoutSportTechnology/.github)
-(`resolve-version`, `publish-release`, `promote`, pinned `@v1.1.0`): alpha base =
+(`resolve-version`, `publish-release`, `promote`, pinned `@v1.1.0`). `main`
+never runs `just build` or Gradle; it promotes an already-built rc APK. Alpha base =
 max(Conventional-Commit bump from the last stable, **release floor**
 `X.(Y+1).0` while a `release/X.Y.Z` with beta/rc tags is open); breaking bumps the
 minor while the major is 0 (`1.0.0` is cut with dispatch `bump: major`).
@@ -212,14 +207,14 @@ signing. Default `GITHUB_TOKEN` only — no PAT/App. Operational runbooks:
 - `main` is promote-only: no direct push; PR (from `release/*`) + 1 approval + green required checks. **No build runs on `main`** (`release.yml` only promotes).
 - Tags `v*` are immutable semver (`-alpha.N` < `-beta.N` < `-rc.N` < stable; no delete/move/force-push); only workflows create them.
 - Use Conventional Commits; the squash-merge subjects drive the alpha bump (`feat:` → minor, `fix:`/`perf:` → patch, `type(scope)!:`/`BREAKING CHANGE:` → major but minor while the major is 0, docs/chore-only → **skip**).
-- A cross-repo change uses the same `feat/<slug>` branch name in every repo; proto merges first, then `proto/` is re-pinned to the **merged** proto commit (`CI Scripts` checks the pin is on the proto branch named like the PR base).
+- A cross-repo change uses the same `feat/<slug>` branch name in every repo; proto merges first, then `proto/` is re-pinned to the **merged** proto commit (`lint` checks the pin is on the proto branch named like the PR base).
 
 ### Releasing
 - Alpha: merge a `feat:`/`fix:`/… PR into `development` → `vX.Y.Z-alpha.N` + developer APK (docs/chore-only → no release).
-- Beta: `git switch -c release/X.Y.Z development && git push` (same X.Y.Z in all three repos) → both APKs + `vX.Y.Z-beta.1`; `fix/*` PRs into the branch → `beta.N`.
-- rc: test the newest beta APK on a phone against the real firmware on a Jetson; when it passes, run `promote-rc` on `release/X.Y.Z` (`gh workflow run promote-rc.yml --ref release/X.Y.Z`) in each repo → `rc.1`; later fixes → `rc.N`.
-- Stable: PR `release/X.Y.Z → main` and merge → `release.yml` tags `vX.Y.Z` and copies the rc production APK (no rebuild). Then delete the release branch and PR `main → development`.
-- Manual: `gh workflow run release-alpha.yml -f version=v0.2.0` or `-f bump=minor`; `gh workflow run release.yml -f version=X.Y.Z`.
+- Beta: at feature freeze, create `release/X.Y.Z` from `development` in all three repos (proto first); the branch push → both APKs + `vX.Y.Z-beta.1`; `fix/*` PRs into the branch → `beta.N`.
+- rc: test the newest beta APK on a phone against the real firmware on a Jetson; after hardware sign-off, `gh workflow run release.yml --ref release/X.Y.Z -f to=rc` in each repo → `rc.1`; later fixes → `rc.N`.
+- Stable: after approval, merge the PR `release/X.Y.Z → main` → `release.yml` tags `vX.Y.Z` and copies the rc production APK (no rebuild). Then delete the release branch and PR `main → development`.
+- Manual alpha override: `gh workflow run release.yml --ref development -f version=0.2.0` or `-f bump=minor`; manual re-publish: `gh workflow run publish.yml --ref development -f tag=vX.Y.Z-alpha.N`.
 - For release-signed (not debug) APKs, set repo secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `ANDROID_STORE_PASSWORD`.
 
 ## Release lifecycle
@@ -227,7 +222,7 @@ signing. Default `GITHUB_TOKEN` only — no PAT/App. Operational runbooks:
 ```
 development:   alpha.1 → alpha.2 → alpha.3
                                      │ cut release/0.1.0 (feature freeze)
-release/0.1.0:                       └► beta.1 → beta.2 ─► promote-rc ─► rc.1 → rc.2
+release/0.1.0:                       └► beta.1 → beta.2 ─► release.yml (to=rc) ─► rc.1 → rc.2
                                                          (hardware OK)          │ merge → main
 main:                                                                           └► v0.1.0
 ```

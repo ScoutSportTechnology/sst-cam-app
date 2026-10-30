@@ -46,25 +46,6 @@ get:
 test *args:
     @just _run 'flock /tmp/sst-cam-app-setup.lock just _prepare && flutter test --concurrency="$(nproc)" {{args}} && bash -n scripts/ci/*.sh'
 
-# Integration tests (needs a connected device/emulator).
-test-integration:
-    @just _run "flutter test test/integration/"
-
-# Unit + integration tests.
-test-all: test test-integration
-
-# Static analysis.
-analyze:
-    @just _run "flutter analyze"
-
-# Format sources.
-format:
-    @just _run "dart format lib test integration_test"
-
-# Format check (CI — non-zero exit on diff).
-format-check:
-    @just _run "dart format --set-exit-if-changed lib test integration_test"
-
 lint:
     @just _run 'flock /tmp/sst-cam-app-setup.lock just _prepare && git ls-files -z -- "*.dart" | xargs -0 -r dart format --set-exit-if-changed && flutter analyze && shellcheck scripts/ci/*.sh && scripts/ci/check-proto-pin.sh "${BASE:-development}"'
 
@@ -95,22 +76,12 @@ _prepare:
 #   prod  → release, --flavor prod  APP_ENV=prod   shipped (tooling compiled out)
 # Mode (debug/profile/release) is orthogonal — profile any env on demand.
 
-# build-<env>-app → build that env's APK in the dev container; the APK lands in
-# build/app/outputs/flutter-apk/app-<flavor>-<mode>.apk. No device needed.
 # EMULATE (mock backend) + SEED (dev fixtures) are two orthogonal flags read only
 # by the dev env — stage/prod force both false. Both are ORTHOGONAL to MODE: a
 # debug build is debuggable regardless.
 [private]
 _build-app MODE FLAVOR ENV EMULATE SEED: gen-icons
     @just _run "flutter build apk --{{MODE}} --flavor {{FLAVOR}} --dart-define=APP_ENV={{ENV}} --dart-define=EMULATE={{EMULATE}} --dart-define=SEED={{SEED}} {{version_defines}}"
-
-# dev   → debug, REAL backend, no seed (flags off) — debuggable, on hardware.
-#         Flip mock/seed via the in-app Developer switches, or EMULATE/SEED=true.
-build-dev-app: (_build-app "debug" "dev" "dev" "false" "false")
-# stage → release, real backend + dev tooling (CI's developer APK; NOT debuggable).
-build-stage-app: (_build-app "release" "stage" "stage" "false" "false")
-# prod  → release, real backend, tooling compiled out (the shipped artifact).
-build-prod-app: (_build-app "release" "prod" "prod" "false" "false")
 
 # Run the dev build on a local emulator — mock backend + seed data (no hardware).
 run: gen-icons
