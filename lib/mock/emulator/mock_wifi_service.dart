@@ -10,6 +10,7 @@ import '../../core/models/wifi.dart';
 import '../../core/services/video_path_service.dart';
 import '../../core/wifi/wifi_service.dart';
 import '../mock_video_fetcher.dart';
+import 'mock_ble_service.dart';
 
 class _GroupState {
   _GroupState()
@@ -26,12 +27,14 @@ class _GroupState {
   PreviewStreamDescriptor? previewDescriptor;
   Timer? frameTimer;
   Timer? statsTimer;
+  Timer? idleTimer;
   int sequence = 0;
   int statsTick = 0;
 
   void dispose() {
     frameTimer?.cancel();
     statsTimer?.cancel();
+    idleTimer?.cancel();
     connController.close();
     previewController.close();
     statsController.close();
@@ -62,6 +65,8 @@ class MockWifiService implements WifiService {
     this.previewBaseUrl = 'rtsp://localhost:8554',
     this.downloadBaseUrl = 'http://localhost:8080',
     this.pairingDelay = const Duration(milliseconds: 900),
+    this.idleTimeout = const Duration(minutes: 10),
+    this.bleService,
     this.previewFps = 15,
     this.downloadDuration = const Duration(seconds: 6),
     this.downloadFailureRate = 0.0,
@@ -89,6 +94,8 @@ class MockWifiService implements WifiService {
   /// Base URL for HTTP recording downloads (`<downloadBaseUrl>/recordings/<id>`).
   final String downloadBaseUrl;
   final Duration pairingDelay;
+  final Duration idleTimeout;
+  final MockBleService? bleService;
   final int previewFps;
   final Duration downloadDuration;
   final double downloadFailureRate;
@@ -171,6 +178,8 @@ class MockWifiService implements WifiService {
       }
       if (state.group != null) return state.group!;
     }
+    _idleTimedOut.remove(deviceId);
+    state.idleTimer?.cancel();
     state.state = WifiDirectState.starting;
     state.connController.add(WifiDirectState.starting);
     groupFormationCount++;
@@ -200,15 +209,25 @@ class MockWifiService implements WifiService {
     );
     state.state = WifiDirectState.connected;
     state.connController.add(WifiDirectState.connected);
+    if (bleService != null) bleService!.mockWifiGroupUp = true;
+    _touchGroup(deviceId);
 
     _startPreview(deviceId);
     return group;
+  }
+
+  void _touchGroup(String deviceId) {
+    final state = _groups[deviceId];
+    if (state == null || state.state != WifiDirectState.connected) return;
+    state.idleTimer?.cancel();
+    state.idleTimer = Timer(idleTimeout, () => simulateIdleTimeout(deviceId));
   }
 
   @override
   Future<void> disconnectGroup(String deviceId) async {
     final state = _groups[deviceId];
     if (state == null) return;
+    state.idleTimer?.cancel();
     state.frameTimer?.cancel();
     state.statsTimer?.cancel();
     state.frameTimer = null;
@@ -219,6 +238,7 @@ class MockWifiService implements WifiService {
     state.state = WifiDirectState.idle;
     state.group = null;
     state.previewDescriptor = null;
+    if (bleService != null) bleService!.mockWifiGroupUp = false;
     state.connController.add(WifiDirectState.idle);
   }
 
@@ -229,10 +249,38 @@ class MockWifiService implements WifiService {
   /// rejoined the saved network yet. Reachable by default once a group exists.
   bool mockReachable = true;
 
+  /// Internal flag: firmware closed the group due to idle timeout. When true,
+  /// [isCameraReachable] returns false until the next [connectGroup] call
+  /// re-forms the group. This simulates the firmware's idle group timeout
+  /// behavior and the phone OS's rejoin delay.
+  final Set<String> _idleTimedOut = {};
+
   @override
   Future<bool> isCameraReachable(String deviceId) async {
-    if (_groups[deviceId] == null) return false;
-    return mockReachable;
+    if (_idleTimedOut.contains(deviceId)) {
+      await connectGroup(deviceId);
+    }
+    return _groups[deviceId]?.group != null && mockReachable;
+  }
+
+  /// Simulates the firmware closing the WiFi Direct group due to idle timeout.
+  /// This sets the group state to idle and marks it as timed out so that
+  /// [isCameraReachable] returns false until the next [connectGroup] call.
+  void simulateIdleTimeout(String deviceId) {
+    final state = _groups[deviceId];
+    if (state == null || state.state != WifiDirectState.connected) return;
+    state.idleTimer?.cancel();
+    state.idleTimer = null;
+    state.frameTimer?.cancel();
+    state.statsTimer?.cancel();
+    state.frameTimer = null;
+    state.statsTimer = null;
+    state.state = WifiDirectState.idle;
+    state.group = null;
+    state.previewDescriptor = null;
+    state.connController.add(WifiDirectState.idle);
+    if (bleService != null) bleService!.mockWifiGroupUp = false;
+    _idleTimedOut.add(deviceId);
   }
 
   @override
@@ -280,6 +328,10 @@ class MockWifiService implements WifiService {
       state.previewController.add(
         PreviewFrame(sequence: state.sequence++, capturedAt: DateTime.now()),
       );
+      if (state.previewController.hasListener ||
+          state.statsController.hasListener) {
+        _touchGroup(deviceId);
+      }
     });
 
     state.statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -340,6 +392,7 @@ class MockWifiService implements WifiService {
       timer: null,
     );
     _downloads[downloadId] = entry;
+    _touchGroup(deviceId);
     _publish(entry, initial);
 
     // Tick at 50 ms intervals; ramp to 100% over `downloadDuration`.
@@ -382,6 +435,7 @@ class MockWifiService implements WifiService {
         kbps: 8000 + sin(tick * 0.3) * 1500,
       );
       _publish(entry, next);
+      if (!isDone) _touchGroup(deviceId);
       if (isDone) {
         timer.cancel();
         controller.close();
@@ -450,6 +504,7 @@ class MockWifiService implements WifiService {
       timer: null,
     );
     _downloads[downloadId] = entry;
+    _touchGroup(deviceId);
     _publish(entry, initial);
 
     final ticks = downloadDuration.inMilliseconds ~/ 50;
@@ -480,6 +535,7 @@ class MockWifiService implements WifiService {
       final fraction = (tick / ticks).clamp(0.0, 1.0);
       final bytes = (totalBytes * fraction).toInt();
       final isDone = fraction >= 1.0;
+      _touchGroup(deviceId);
 
       if (!isDone) {
         _publish(

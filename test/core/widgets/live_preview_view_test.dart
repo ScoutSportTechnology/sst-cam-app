@@ -72,7 +72,70 @@ VlcPlayerController _controllerOf(WidgetTester tester) =>
 ProviderContainer _containerOf(WidgetTester tester) =>
     ProviderScope.containerOf(tester.element(find.byType(LivePreviewView)));
 
+class _FailedReconnectWifi extends MockWifiService {
+  _FailedReconnectWifi() : super(pairingDelay: Duration.zero);
+
+  @override
+  Future<bool> isCameraReachable(String deviceId) async => false;
+}
+
 void main() {
+  testWidgets('failed WiFi recovery is shown rather than waiting forever', (
+    tester,
+  ) async {
+    final wifi = _FailedReconnectWifi();
+    await tester.runAsync(() => wifi.connectGroup(_kDeviceId));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wifiServiceProvider.overrideWithValue(wifi),
+          captureBlockedProvider.overrideWithValue(false),
+          previewDescriptorProvider(_kDeviceId).overrideWith((_) => null),
+          livePreviewEnabledProvider(_kDeviceId).overrideWith((_) => true),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: LivePreviewView(deviceId: _kDeviceId)),
+        ),
+      ),
+    );
+    await tester.pump();
+    wifi.simulateIdleTimeout(_kDeviceId);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('WIFI · FAILED'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await wifi.dispose();
+  });
+
+  testWidgets('idle group close re-forms WiFi for an active preview', (
+    tester,
+  ) async {
+    final wifi = MockWifiService(pairingDelay: Duration.zero);
+    await tester.runAsync(() => wifi.connectGroup(_kDeviceId));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wifiServiceProvider.overrideWithValue(wifi),
+          captureBlockedProvider.overrideWithValue(false),
+          previewDescriptorProvider(_kDeviceId).overrideWith((_) => null),
+          livePreviewEnabledProvider(_kDeviceId).overrideWith((_) => true),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: LivePreviewView(deviceId: _kDeviceId)),
+        ),
+      ),
+    );
+    await tester.pump();
+    wifi.simulateIdleTimeout(_kDeviceId);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump();
+    expect(wifi.groupFormationCount, 2);
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    wifi.dispose();
+  });
+
   group('LivePreviewView — RTSP preview', () {
     testWidgets(
       'drives VlcPlayer from the descriptor URL when preview is on + connected',

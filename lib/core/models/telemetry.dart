@@ -15,6 +15,8 @@ class DeviceTelemetry {
     this.batteryLevelPct,
     this.camera0Health,
     this.camera1Health,
+    this.isFinalizing,
+    this.components,
   });
 
   final int storageFreeBytes;
@@ -44,9 +46,48 @@ class DeviceTelemetry {
   /// source and wins over the connect-time session snapshot.
   final CameraHealth? camera0Health;
   final CameraHealth? camera1Health;
+  final bool? isFinalizing;
+  final DeviceComponents? components;
 
   double get storageUsedPct =>
       storageTotalBytes == 0 ? 0 : 1 - (storageFreeBytes / storageTotalBytes);
+}
+
+enum ComponentHealth { unknown, ok, degraded, missing }
+
+class DeviceComponents {
+  const DeviceComponents({
+    this.gpu = ComponentHealth.unknown,
+    this.wifi = ComponentHealth.unknown,
+    this.ethernet = ComponentHealth.unknown,
+    this.bluetooth = ComponentHealth.unknown,
+    this.storage = ComponentHealth.unknown,
+    this.clockSynced,
+  });
+
+  final ComponentHealth gpu;
+  final ComponentHealth wifi;
+  final ComponentHealth ethernet;
+  final ComponentHealth bluetooth;
+  final ComponentHealth storage;
+  final bool? clockSynced;
+
+  List<String> get faults => [
+    if (gpu == ComponentHealth.degraded || gpu == ComponentHealth.missing)
+      'GPU',
+    if (wifi == ComponentHealth.degraded || wifi == ComponentHealth.missing)
+      'WiFi',
+    if (ethernet == ComponentHealth.degraded ||
+        ethernet == ComponentHealth.missing)
+      'Ethernet',
+    if (bluetooth == ComponentHealth.degraded ||
+        bluetooth == ComponentHealth.missing)
+      'Bluetooth',
+    if (storage == ComponentHealth.degraded ||
+        storage == ComponentHealth.missing)
+      'Storage',
+    if (clockSynced == false) 'Clock',
+  ];
 }
 
 enum WifiState { unknown, disabled, disconnected, connected }

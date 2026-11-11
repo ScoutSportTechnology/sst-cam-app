@@ -129,6 +129,7 @@ class _MatchPageState extends ConsumerState<MatchPage> {
     // runtime flags) alive for the whole app session — MatchPage stays
     // mounted in the shell's IndexedStack.
     ref.watch(liveMatchFirmwareSyncProvider);
+    ref.watch(recordingFinalizeSyncProvider);
 
     final selected = _selected;
 

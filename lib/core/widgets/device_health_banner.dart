@@ -41,10 +41,12 @@ class DeviceHealthNotice extends ConsumerWidget {
     // Disconnected is a normal state with its own affordances — no notice.
     if (!connected) return const SizedBox.shrink();
 
-    return switch (ref.watch(deviceHealthProvider).device) {
+    final health = ref.watch(deviceHealthProvider);
+    final faults = health.components?.faults ?? const <String>[];
+    final cameraNotice = switch (health.device) {
       DeviceHealth.ok => const SizedBox.shrink(),
       DeviceHealth.recovering => _softNote(
-        'Camera recovering — capture may stutter briefly.',
+        'Camera recovering — waiting for both cameras before capture.',
       ),
       DeviceHealth.unknown => _softNote(
         'Camera health unknown — waiting for the camera. '
@@ -52,6 +54,13 @@ class DeviceHealthNotice extends ConsumerWidget {
       ),
       DeviceHealth.inoperable => _inoperableBanner(context, camId),
     };
+    if (faults.isEmpty) return cameraNotice;
+    return Column(
+      children: [
+        cameraNotice,
+        for (final fault in faults) _softNote('$fault needs attention.'),
+      ],
+    );
   }
 
   Widget _softNote(String text) {

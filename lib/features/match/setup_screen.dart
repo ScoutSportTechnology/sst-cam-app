@@ -27,7 +27,9 @@ import '../settings/sport_presets/sport_presets_state.dart'
 import '../settings/users/users_state.dart' show activeUserProvider;
 import 'match_state.dart' show UpcomingMatch;
 import 'setup_widgets.dart';
-import 'session/session_state.dart' show liveMatchProvider;
+import 'session/session_state.dart'
+    show liveMatchProvider, recordingSavingProvider;
+import '../../core/state/connect_controller.dart' show sessionSnapshotProvider;
 
 /// The preferred default record/stream mode when the firmware advertises it:
 /// 1080p30 is a sensible middle of the ladder. Falls back to the first
@@ -140,6 +142,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     // U3 health gate: starting a match leads straight into capture — blocked
     // while the device is inoperable (or health unknown while connected).
     final captureBlocked = ref.watch(captureBlockedProvider);
+    final saving =
+        ref.watch(recordingSavingProvider) ||
+        ref.watch(sessionSnapshotProvider)?.isFinalizing == true;
 
     // Saved destinations (Settings → Streaming) offered as one-tap fills in
     // the Streaming card below.
@@ -381,7 +386,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               size: WfButtonSize.lg,
               full: true,
               onPressed:
-                  (_pushing || !connected || !_streamReady() || captureBlocked)
+                  (_pushing ||
+                      !connected ||
+                      !_streamReady() ||
+                      captureBlocked ||
+                      saving)
                   ? null
                   : () => _startMatch(
                       periods,
@@ -418,7 +427,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     label: 'Retry',
                     variant: WfButtonVariant.outline,
                     full: true,
-                    onPressed: (connected && _streamReady() && !captureBlocked)
+                    onPressed:
+                        (!_pushing &&
+                            connected &&
+                            _streamReady() &&
+                            !captureBlocked &&
+                            !saving)
                         ? () => _startMatch(
                             periods,
                             _preset?.periodLengthSeconds ??

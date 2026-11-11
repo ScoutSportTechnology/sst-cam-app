@@ -64,7 +64,7 @@ void main() {
       connectionDelay: Duration.zero,
       failureRate: 0.0,
       randomSeed: 42,
-    );
+    )..finalizeDuration = Duration.zero;
   });
 
   tearDown(() => mock.dispose());
@@ -235,17 +235,53 @@ void main() {
       final during = await snapshot();
       expect(during.sessionPhase, SessionPhase.finalizing);
       expect(during.isRecording, isFalse, reason: 'EOS already issued');
+      expect(during.isFinalizing, isTrue);
       expect(during.lastSession, isNull, reason: 'summary not yet written');
       expect(during.camera0Health, CameraHealth.down);
 
       await Future<void>.delayed(const Duration(milliseconds: 400));
       final after = await snapshot();
       expect(after.sessionPhase, SessionPhase.idle);
+      expect(after.isFinalizing, isFalse);
       final summary = after.lastSession!;
       expect(summary.endReason, SessionEndReason.cameraFailure);
       expect(summary.endClockSeconds, 240);
       expect(summary.fileValid, isTrue, reason: 'finalized cleanly');
     });
+
+    test(
+      'stop acknowledges before saving finishes and rejects a new start',
+      () async {
+        mock.finalizeDuration = const Duration(milliseconds: 400);
+        await mock.pushSessionConfig(_kDeviceId, _config());
+        await startRecording();
+
+        final stop = await mock.sendCommand<void>(
+          _kDeviceId,
+          RecordingControlCommand(action: RecordingControlAction.stop),
+        );
+        expect(stop.isOk, isTrue);
+        final during = await snapshot();
+        expect(during.isFinalizing, isTrue);
+        expect(during.isRecording, isFalse);
+        expect(during.lastSession, isNull);
+        final telemetry = await mock.sendCommand<DeviceTelemetry>(
+          _kDeviceId,
+          GetTelemetryCommand(),
+        );
+        expect(telemetry.payload!.isFinalizing, isTrue);
+        final start = await mock.sendCommand<void>(
+          _kDeviceId,
+          RecordingControlCommand(action: RecordingControlAction.start),
+        );
+        expect(start.isOk, isFalse);
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        final after = await snapshot();
+        expect(after.isFinalizing, isFalse);
+        expect(after.lastSession!.endReason, SessionEndReason.appStop);
+        expect(after.lastSession!.fileValid, isTrue);
+      },
+    );
 
     test('app-commanded stop is a finalize trigger too: idle snapshot '
         'carries an app-stop summary; the group is NOT torn down', () async {
@@ -281,6 +317,54 @@ void main() {
       );
       expect(mock.mockLastSessionSummary, isNull);
     });
+  });
+
+  test(
+    'recovering or unknown camera refuses record and stream start',
+    () async {
+      for (final health in [CameraHealth.recovering, CameraHealth.unknown]) {
+        mock.mockCamera1Health = health;
+        final rec = await mock.sendCommand<void>(
+          _kDeviceId,
+          RecordingControlCommand(action: RecordingControlAction.start),
+        );
+        final stream = await mock.sendCommand<void>(
+          _kDeviceId,
+          StreamingControlCommand(action: StreamingControlAction.start),
+        );
+        expect(rec.isDeviceInoperable, isTrue);
+        expect(stream.isDeviceInoperable, isTrue);
+        expect(mock.isRecordingActive, isFalse);
+        expect(mock.isStreamingActive, isFalse);
+      }
+    },
+  );
+
+  test('clean shutdown finalizes recording with saved summary', () async {
+    await mock.pushSessionConfig(_kDeviceId, _config());
+    await startRecording();
+    mock.simulateCleanShutdown();
+    final during = await snapshot();
+    expect(during.isRecording, isFalse);
+    final summary = during.lastSession;
+    expect(summary!.endReason, SessionEndReason.shutdown);
+    expect(summary.fileValid, isTrue);
+  });
+
+  test('mock reports component faults on snapshot and telemetry', () async {
+    mock.mockComponents = const DeviceComponents(
+      gpu: ComponentHealth.degraded,
+      wifi: ComponentHealth.missing,
+      clockSynced: false,
+    );
+    final snap = await snapshot();
+    final tel = await mock.sendCommand<DeviceTelemetry>(
+      _kDeviceId,
+      GetTelemetryCommand(),
+    );
+    expect(snap.components!.gpu, ComponentHealth.degraded);
+    expect(tel.payload!.components!.wifi, ComponentHealth.missing);
+    expect(tel.payload!.components!.clockSynced, isFalse);
   });
 
   group('Per-camera health (fw U3 / proto DeviceTelemetry 15-16)', () {

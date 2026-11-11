@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:sst_cam_app/core/models/overlay.dart';
+import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/recording.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
 import 'package:sst_cam_app/core/services/video_path_service.dart';
@@ -325,6 +326,113 @@ void main() {
       final path = await videoPathService.recordingPath(uuid);
       expect(File(path).existsSync(), isTrue);
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Idle timeout & transparent reconnect (U8)
+  // ---------------------------------------------------------------------------
+
+  group('idle timeout and transparent reconnect', () {
+    test('preview activity keeps the group up until preview closes', () async {
+      final wifi = MockWifiService(
+        pairingDelay: Duration.zero,
+        idleTimeout: const Duration(milliseconds: 120),
+        previewFps: 50,
+      );
+      addTearDown(wifi.dispose);
+      await wifi.connectGroup('device-1');
+      final stats = wifi.previewStats('device-1').listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(wifi.currentGroup('device-1'), isNotNull);
+      await stats.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      expect(wifi.currentGroup('device-1'), isNull);
+    });
+
+    test('download progress keeps the group up until transfer ends', () async {
+      final wifi = MockWifiService(
+        pairingDelay: Duration.zero,
+        idleTimeout: const Duration(milliseconds: 120),
+        downloadDuration: const Duration(milliseconds: 400),
+      );
+      addTearDown(wifi.dispose);
+      await wifi.connectGroup('device-1');
+      final token = DownloadToken(
+        recordingId: 'rec-1',
+        httpUrl: 'http://localhost/rec-1',
+        authToken: 'token',
+        expiresAt: DateTime.now().add(const Duration(hours: 1)),
+      );
+      final handle = await wifi.startDownload(
+        'device-1',
+        token,
+        saveAs: 'unused',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      expect(wifi.currentGroup('device-1'), isNotNull);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      expect(wifi.currentGroup('device-1'), isNull);
+      await handle.cancel();
+    });
+
+    test(
+      'idle timeout closes both mock group views, then a probe rejoins',
+      () async {
+        final ble = MockBleService(advertiseDevices: false, failureRate: 0);
+        addTearDown(ble.dispose);
+        final timedWifi = MockWifiService(
+          pairingDelay: Duration.zero,
+          idleTimeout: const Duration(milliseconds: 40),
+          bleService: ble,
+        );
+        addTearDown(timedWifi.dispose);
+        await timedWifi.connectGroup('device-1');
+        expect(ble.mockWifiGroupUp, isTrue);
+        await Future<void>.delayed(const Duration(milliseconds: 90));
+        expect(timedWifi.currentGroup('device-1'), isNull);
+        expect(ble.mockWifiGroupUp, isFalse);
+        expect(await timedWifi.isCameraReachable('device-1'), isTrue);
+        expect(ble.mockWifiGroupUp, isTrue);
+        expect(timedWifi.groupFormationCount, 2);
+      },
+    );
+
+    test('U8: mock simulates firmware idle group close — isCameraReachable '
+        'reconnects when preview or download probes reachability', () async {
+      await svc.connectGroup('device-1');
+      expect(svc.groupFormationCount, 1);
+
+      // Simulate firmware closing the group due to idle timeout.
+      svc.simulateIdleTimeout('device-1');
+
+      // Phone has not rejoined yet — reachable is false.
+      expect(await svc.isCameraReachable('device-1'), isTrue);
+
+      await svc.connectGroup('device-1');
+      expect(svc.groupFormationCount, 2);
+      expect(svc.previewDescriptor('device-1'), isNotNull);
+
+      // Now reachable is true again.
+      expect(await svc.isCameraReachable('device-1'), isTrue);
+    });
+
+    test(
+      'U8: multiple idle timeouts each re-form the group (idempotent)',
+      () async {
+        await svc.connectGroup('device-1');
+        expect(svc.groupFormationCount, 1);
+
+        for (var i = 0; i < 3; i++) {
+          svc.simulateIdleTimeout('device-1');
+          expect(await svc.isCameraReachable('device-1'), isTrue);
+          await svc.connectGroup('device-1');
+          expect(svc.groupFormationCount, 2 + i);
+          expect(await svc.isCameraReachable('device-1'), isTrue);
+          expect(svc.previewDescriptor('device-1'), isNotNull);
+        }
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

@@ -94,6 +94,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
   String? _vlcUrl;
   bool _vlcError = false;
   bool _vlcPlaying = false;
+  bool _wifiRecoveryFailed = false;
   Timer? _vlcRestartTimer;
 
   // Silent-stall watchdog state — see [LivePreviewView.stallWindow]. Progress
@@ -286,6 +287,7 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
 
     // Preview is off — show placeholder (and optional Preview button).
     if (!previewEnabled) {
+      _wifiRecoveryFailed = false;
       final offBody = widget.showButtons
           ? Stack(
               fit: StackFit.expand,
@@ -326,6 +328,39 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
     final descriptor = ref.watch(previewDescriptorProvider(deviceId));
 
     final wifiConnected = wifiState == WifiDirectState.connected;
+    if (wifiConnected) _wifiRecoveryFailed = false;
+    ref.listen(wifiConnectionStateProvider(deviceId), (previous, next) {
+      if (previous?.valueOrNull != WifiDirectState.connected &&
+          next.valueOrNull != WifiDirectState.connected) {
+        return;
+      }
+      if (previewEnabled &&
+          !widget.paused &&
+          !captureBlocked &&
+          (next.valueOrNull == WifiDirectState.idle ||
+              next.valueOrNull == WifiDirectState.failed) &&
+          next.valueOrNull != previous?.valueOrNull) {
+        ref
+            .read(wifiServiceProvider)
+            .isCameraReachable(deviceId)
+            .then((reachable) {
+              if (mounted &&
+                  !reachable &&
+                  ref.read(wifiConnectionStateProvider(deviceId)).valueOrNull !=
+                      WifiDirectState.connected) {
+                setState(() => _wifiRecoveryFailed = true);
+              }
+            })
+            .catchError((Object e) {
+              if (mounted &&
+                  ref.read(wifiConnectionStateProvider(deviceId)).valueOrNull !=
+                      WifiDirectState.connected) {
+                setState(() => _wifiRecoveryFailed = true);
+              }
+              _log.warn('WiFi recovery failed: $e');
+            });
+      }
+    });
 
     // Spin up / replace the VLC controller only while it can actually attach +
     // play: preview on, this surface visible (not paused), and WiFi connected
@@ -383,6 +418,8 @@ class _LivePreviewViewState extends ConsumerState<LivePreviewView> {
         ? (widget.label ?? 'PREVIEW')
         : captureBlocked
         ? 'CAMERA UNAVAILABLE'
+        : _wifiRecoveryFailed && !wifiConnected
+        ? 'WIFI · FAILED'
         : switch (wifiState) {
             WifiDirectState.starting ||
             WifiDirectState.failed ||

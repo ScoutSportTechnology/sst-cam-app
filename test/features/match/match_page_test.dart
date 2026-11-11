@@ -23,6 +23,9 @@ import 'package:sst_cam_app/mock/emulator/mock_ble_service.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/features/match/match_page.dart';
+import 'package:sst_cam_app/features/match/session/session_state.dart'
+    show recordingSavingProvider;
+import 'package:sst_cam_app/core/widgets/wf_button.dart';
 import 'package:sst_cam_app/features/camera/camera_state.dart'
     show activeCameraIdProvider;
 import 'package:sst_cam_app/features/settings/users/users_state.dart'
@@ -105,7 +108,10 @@ Widget _buildHarness({
       healthyDeviceOverride(),
       activeUserProvider.overrideWith((_) => 'user-1'),
     ],
-    child: const MaterialApp(home: MatchPage()),
+    child: MaterialApp(
+      theme: ThemeData(splashFactory: NoSplash.splashFactory),
+      home: const MatchPage(),
+    ),
   );
 }
 
@@ -298,6 +304,26 @@ void main() {
         expect(mock.lastPushedConfig, isNotNull);
       },
     );
+
+    testWidgets('Retry is disabled while recording is saving', (tester) async {
+      final mock = _newMock()..failNextPushSessionConfig = true;
+      addTearDown(mock.dispose);
+      await tester.pumpWidget(_buildHarness(service: mock, db: db));
+      await _navigateToSetup(tester);
+      await _tapSetupButton(tester, 'Start match');
+      await _pumpAfterTap(tester);
+      expect(find.text('Retry'), findsOneWidget);
+      final container = ProviderScope.containerOf(
+        tester.element(find.text('Retry')),
+      );
+      container.read(recordingSavingProvider.notifier).state = true;
+      await tester.pump();
+      final retry = tester.widget<WfButton>(
+        find.byWidgetPredicate((w) => w is WfButton && w.label == 'Retry'),
+      );
+      expect(retry.onPressed, isNull);
+      expect(mock.lastPushedConfig, isNull);
+    });
 
     testWidgets('Start match button is disabled when camera is disconnected', (
       tester,

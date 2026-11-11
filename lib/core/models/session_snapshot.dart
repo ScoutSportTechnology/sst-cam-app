@@ -7,7 +7,7 @@
 
 import 'match.dart';
 import 'preview_layout.dart';
-import 'telemetry.dart' show CameraHealth;
+import 'telemetry.dart' show CameraHealth, DeviceComponents;
 
 /// Firmware session lifecycle, one axis of the snapshot. [finalizing] is a
 /// real, observable state: finalize (EOS, stream stop, summary write) is
@@ -17,7 +17,14 @@ enum SessionPhase { unknown, idle, configured, ready, recording, finalizing }
 
 /// Why the previous session ended — carried in [LastSessionSummary] so a
 /// reconnecting app can explain "ended while away" to the operator.
-enum SessionEndReason { unknown, appStop, autoStop, cameraFailure, reboot }
+enum SessionEndReason {
+  unknown,
+  appStop,
+  autoStop,
+  cameraFailure,
+  reboot,
+  shutdown,
+}
 
 /// How the previous session ended. Populated in [SessionSnapshot] ONLY when
 /// `sessionPhase == SessionPhase.idle` and a previous session exists. The app
@@ -56,6 +63,8 @@ class SessionSnapshot {
     this.camera1Health,
     this.lastSession,
     this.wifiGroupUp,
+    this.isFinalizing,
+    this.components,
   });
 
   final SessionPhase sessionPhase;
@@ -85,4 +94,6 @@ class SessionSnapshot {
   /// WiFi-Direct group currently up (rejoin path: StartWifiDirectCommand is
   /// idempotent and returns the existing credentials).
   final bool? wifiGroupUp;
+  final bool? isFinalizing;
+  final DeviceComponents? components;
 }

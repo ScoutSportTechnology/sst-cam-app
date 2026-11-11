@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sst_cam_app/core/ble/ble_protocol.dart';
 import 'package:sst_cam_app/core/models/command.dart';
 import 'package:sst_cam_app/core/models/video_mode.dart';
+import 'package:sst_cam_app/core/models/session_snapshot.dart';
+import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/models/proto/bluetooth.pb.dart' as proto;
 
 proto.Command _decodeCommand(List<int> frame) {
@@ -19,6 +21,98 @@ List<int> _wrap(proto.CommandResponse resp, String corrId) {
 }
 
 void main() {
+  test('snapshot maps saving, shutdown and partial component status', () {
+    const id = 'snapshot';
+    final response = BleProtocol.decodeResponse<SessionSnapshot>(
+      _wrap(
+        proto.CommandResponse(
+          correlationId: id,
+          status: proto.ResponseStatus.OK,
+          sessionSnapshot: proto.SessionSnapshotResponse(
+            sessionPhase: proto.SessionPhase.SESSION_FINALIZING,
+            isRecording: false,
+            isFinalizing: true,
+            components: proto.DeviceComponents(
+              gpu: proto.ComponentStatus.COMPONENT_STATUS_DEGRADED,
+              clockSynced: false,
+            ),
+            lastSession: proto.LastSessionSummary(
+              matchUuid: 'm-1',
+              endReason: proto.SessionEndReason.SESSION_END_SHUTDOWN,
+            ),
+          ),
+        ),
+        id,
+      ),
+      id,
+    );
+    final snapshot = response.payload!;
+    expect(snapshot.isFinalizing, isTrue);
+    expect(snapshot.isRecording, isFalse);
+    expect(snapshot.lastSession!.endReason, SessionEndReason.shutdown);
+    expect(snapshot.components!.gpu, ComponentHealth.degraded);
+    expect(snapshot.components!.wifi, ComponentHealth.unknown);
+    expect(snapshot.components!.clockSynced, isFalse);
+  });
+
+  test('telemetry maps finalizing and missing components stay unreported', () {
+    const id = 'telemetry';
+    final response = BleProtocol.decodeResponse<DeviceTelemetry>(
+      _wrap(
+        proto.CommandResponse(
+          correlationId: id,
+          status: proto.ResponseStatus.OK,
+          telemetry: proto.DeviceTelemetry(isFinalizing: false),
+        ),
+        id,
+      ),
+      id,
+    );
+    expect(response.payload!.isFinalizing, isFalse);
+    expect(response.payload!.components, isNull);
+    final absent = BleProtocol.decodeResponse<SessionSnapshot>(
+      _wrap(
+        proto.CommandResponse(
+          correlationId: id,
+          status: proto.ResponseStatus.OK,
+          sessionSnapshot: proto.SessionSnapshotResponse(),
+        ),
+        id,
+      ),
+      id,
+    );
+    expect(absent.payload!.isFinalizing, isNull);
+    expect(absent.payload!.components, isNull);
+  });
+
+  test('telemetry maps all component faults', () {
+    const id = 'components';
+    final response = BleProtocol.decodeResponse<DeviceTelemetry>(
+      _wrap(
+        proto.CommandResponse(
+          correlationId: id,
+          status: proto.ResponseStatus.OK,
+          telemetry: proto.DeviceTelemetry(
+            components: proto.DeviceComponents(
+              wifi: proto.ComponentStatus.COMPONENT_STATUS_MISSING,
+              ethernet: proto.ComponentStatus.COMPONENT_STATUS_DEGRADED,
+              bluetooth: proto.ComponentStatus.COMPONENT_STATUS_MISSING,
+              storage: proto.ComponentStatus.COMPONENT_STATUS_DEGRADED,
+            ),
+          ),
+        ),
+        id,
+      ),
+      id,
+    );
+    final components = response.payload!.components!;
+    expect(components.wifi, ComponentHealth.missing);
+    expect(components.ethernet, ComponentHealth.degraded);
+    expect(components.bluetooth, ComponentHealth.missing);
+    expect(components.storage, ComponentHealth.degraded);
+    expect(components.clockSynced, isNull);
+  });
+
   group('record/stream quality encode (U12/R15)', () {
     test('recording start carries record quality on the wire', () {
       final cmd = _decodeCommand(
