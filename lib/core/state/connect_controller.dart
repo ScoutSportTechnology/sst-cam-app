@@ -313,12 +313,10 @@ class ConnectController {
     final ms = snapshot.matchState;
     final msUuid = ms?.matchUuid;
     final runningUuid = (msUuid != null && msUuid.isNotEmpty) ? msUuid : null;
-    // A session is RUNNING only outside idle/finalizing — an idle snapshot
-    // that still reports the last match's state is an ended session.
+    // Finalizing is still an active session: its MP4 and summary are not yet
+    // saved, so it must not be settled as an ended-away match.
     final sessionActive =
-        runningUuid != null &&
-        snapshot.sessionPhase != SessionPhase.idle &&
-        snapshot.sessionPhase != SessionPhase.finalizing;
+        runningUuid != null && snapshot.sessionPhase != SessionPhase.idle;
 
     PersistedLiveMatch? persisted;
     try {

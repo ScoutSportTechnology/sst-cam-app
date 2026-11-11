@@ -309,6 +309,54 @@ Future<void> confirmSessionEnd(
     askStopStream: streamOn,
   );
   if (choice == null) return;
+  // Stop recording/streaming on the camera per the prompt. endMatch only flips
+  // local state; without these the firmware keeps recording and the mp4 never
+  // finalizes (no moov atom → unplayable, file grows unbounded).
+  if (choice.$1 == true) {
+    final id = ref.read(activeCameraIdProvider);
+    if (id != null &&
+        ref.read(connectionStateProvider(id)).valueOrNull ==
+            CameraConnectionState.connected) {
+      try {
+        final resp = await ref
+            .read(bleServiceProvider)
+            .sendCommand<void>(
+              id,
+              RecordingControlCommand(action: RecordingControlAction.stop),
+            );
+        if (resp.isOk) {
+          ref.read(recordingSavingProvider.notifier).state = true;
+          ref.read(sessionNoticeProvider.notifier).state = null;
+        } else {
+          showErrorSnack(
+            // ignore: use_build_context_synchronously
+            context,
+            'Could not stop recording.',
+            source: 'SessionActions',
+          );
+          return;
+        }
+      } catch (e, st) {
+        showErrorSnack(
+          // ignore: use_build_context_synchronously
+          context,
+          'Could not stop recording.',
+          source: 'SessionActions',
+          error: e,
+          stackTrace: st,
+        );
+        return;
+      }
+    } else {
+      showErrorSnack(
+        // ignore: use_build_context_synchronously
+        context,
+        'Could not stop recording — camera disconnected.',
+        source: 'SessionActions',
+      );
+      return;
+    }
+  }
   sendIfConnected(
     ref,
     MatchControlCommand(
@@ -316,15 +364,6 @@ Future<void> confirmSessionEnd(
       period: state.currentPeriod,
     ),
   );
-  // Stop recording/streaming on the camera per the prompt. endMatch only flips
-  // local state; without these the firmware keeps recording and the mp4 never
-  // finalizes (no moov atom → unplayable, file grows unbounded).
-  if (choice.$1 == true) {
-    sendIfConnected(
-      ref,
-      RecordingControlCommand(action: RecordingControlAction.stop),
-    );
-  }
   if (choice.$2 == true) {
     sendIfConnected(
       ref,

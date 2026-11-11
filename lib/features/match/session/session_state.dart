@@ -24,7 +24,10 @@ import '../../../core/models/device.dart' show CameraConnectionState;
 import '../../../core/models/match.dart' show MatchState, MatchStatus;
 import '../../../core/models/overlay_layout.dart';
 import '../../../core/models/session_snapshot.dart'
-    show LastSessionSummary, SessionEndReason;
+    show LastSessionSummary, SessionEndReason, SessionSnapshot, SessionPhase;
+import '../../../core/state/connect_controller.dart'
+    show sessionSnapshotProvider;
+import '../../../core/models/command.dart' show GetSessionSnapshotCommand;
 import '../../../core/models/team.dart' show opponentDisplayName;
 import '../../../core/models/telemetry.dart' show DeviceTelemetry;
 import '../../../core/models/video_mode.dart';
@@ -559,6 +562,8 @@ class LiveMatchController extends Notifier<LiveMatchState> {
     _fwRecordingObserved = t.isRecording;
     if (wasObserved == true &&
         !t.isRecording &&
+        t.isFinalizing != true &&
+        !ref.read(recordingSavingProvider) &&
         state.rec == RecState.recording) {
       state = state.copyWith(rec: RecState.idle);
       ref.read(sessionNoticeProvider.notifier).state =
@@ -655,6 +660,58 @@ class LiveMatchController extends Notifier<LiveMatchState> {
 /// banner (or a new session starting).
 final sessionNoticeProvider = StateProvider<String?>((_) => null);
 
+final recordingSavingProvider = StateProvider<bool>((_) => false);
+
+final recordingFinalizeSyncProvider = Provider<void>((ref) {
+  final deviceId = ref.watch(activeCameraIdProvider);
+  if (deviceId == null) return;
+  var awaitingFinalSnapshot = false;
+  ref.listen(telemetryProvider(deviceId), (_, next) {
+    final t = next.valueOrNull;
+    if (t == null) return;
+    if (t.isFinalizing == true) {
+      ref.read(recordingSavingProvider.notifier).state = true;
+      return;
+    }
+    if (t.isFinalizing != false ||
+        !(ref.read(recordingSavingProvider) ||
+            ref.read(sessionSnapshotProvider)?.isFinalizing == true) ||
+        awaitingFinalSnapshot) {
+      return;
+    }
+    awaitingFinalSnapshot = true;
+    unawaited(() async {
+      try {
+        final resp = await ref
+            .read(bleServiceProvider)
+            .sendCommand<SessionSnapshot>(
+              deviceId,
+              GetSessionSnapshotCommand(),
+            );
+        final snapshot = resp.payload;
+        if (!resp.isOk ||
+            snapshot == null ||
+            snapshot.isFinalizing != false ||
+            snapshot.sessionPhase != SessionPhase.idle) {
+          return;
+        }
+        ref.read(sessionSnapshotProvider.notifier).state = snapshot;
+        final summary = snapshot.lastSession;
+        ref
+            .read(sessionNoticeProvider.notifier)
+            .state = summary?.fileValid == true
+            ? 'Recording saved (${summary!.endReason.name}).'
+            : 'Recording not saved — ${summary?.endReason.name ?? 'status unknown'}, check the camera.';
+        ref.read(recordingSavingProvider.notifier).state = false;
+      } catch (e) {
+        _log.warn('final recording snapshot failed: $e');
+      } finally {
+        awaitingFinalSnapshot = false;
+      }
+    }());
+  });
+});
+
 /// THE single team_matches finalize used by every flow — normal end,
 /// away-ended reconcile, stale-persisted settlement. Idempotent (the library
 /// write is a plain row UPDATE keyed by the match id: re-running writes the
@@ -701,6 +758,10 @@ String awayEndedNoticeText(LastSessionSummary? summary) {
     case SessionEndReason.cameraFailure:
     case SessionEndReason.reboot:
       return 'Match ended while away — camera restarted, check the recording.';
+    case SessionEndReason.shutdown:
+      return summary.fileValid == true
+          ? 'Match ended while away — camera shut down cleanly, recording saved.'
+          : 'Match ended while away — camera shut down, check the recording.';
     case SessionEndReason.appStop:
       final t = summary.endClockSeconds;
       return t == null

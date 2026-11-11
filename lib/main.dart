@@ -154,6 +154,7 @@ Future<ProviderContainer> _bootstrapDev() async {
     final wifiMock = MockWifiService(
       previewBaseUrl: devConfig.previewBaseUrl,
       downloadBaseUrl: devConfig.downloadBaseUrl,
+      bleService: bleMock,
     );
     // Use overrideWith (not overrideWithValue) so Riverpod runs the factory and
     // honours ref.onDispose — otherwise the mocks' scan timers/streams leak on

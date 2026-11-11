@@ -726,6 +726,8 @@ class MockBleService implements BleService {
       // plan U3) — the app's health gate folds this with the snapshot.
       camera0Health: mockCamera0Health,
       camera1Health: mockCamera1Health,
+      isFinalizing: _finalizing,
+      components: mockComponents,
     );
   }
 
@@ -820,8 +822,9 @@ class MockBleService implements BleService {
     // the wire backstop behind the app-side gate. Stops/pauses, downloads and
     // WiFi commands are never health-gated. Refused BEFORE side effects so a
     // rejected start never flips the mock's activity flags.
-    if ((mockCamera0Health == CameraHealth.down ||
-            mockCamera1Health == CameraHealth.down) &&
+    if ((mockCamera0Health != CameraHealth.ok ||
+            mockCamera1Health != CameraHealth.ok ||
+            _finalizing) &&
         _isCaptureStart(cmd)) {
       return proto.CommandResponse(
         correlationId: correlationId,
@@ -1295,6 +1298,10 @@ class MockBleService implements BleService {
       isStreaming: b.isStreaming || isStreamingActive,
       camera0Health: _dartCameraHealthToProto(mockCamera0Health),
       camera1Health: _dartCameraHealthToProto(mockCamera1Health),
+      isFinalizing: _finalizing,
+      components: mockComponents == null
+          ? null
+          : _protoComponents(mockComponents!),
     );
   }
 
@@ -1311,6 +1318,10 @@ class MockBleService implements BleService {
     uptimeSeconds: p.uptimeSeconds.toInt(),
     isRecording: p.isRecording,
     isStreaming: p.isStreaming,
+    isFinalizing: p.hasIsFinalizing() ? p.isFinalizing : null,
+    components: p.hasComponents()
+        ? BleProtocol.dartComponents(p.components)
+        : null,
     camera0Health: p.hasCamera0Health()
         ? _protoCameraHealth(p.camera0Health)
         : null,
@@ -1407,16 +1418,34 @@ class MockBleService implements BleService {
     _ => CameraHealth.unknown,
   };
 
-  proto.SessionEndReason _dartEndReasonToProto(SessionEndReason r) =>
-      switch (r) {
-        SessionEndReason.appStop => proto.SessionEndReason.SESSION_END_APP_STOP,
-        SessionEndReason.autoStop =>
-          proto.SessionEndReason.SESSION_END_AUTO_STOP,
-        SessionEndReason.cameraFailure =>
-          proto.SessionEndReason.SESSION_END_CAMERA_FAILURE,
-        SessionEndReason.reboot => proto.SessionEndReason.SESSION_END_REBOOT,
-        SessionEndReason.unknown => proto.SessionEndReason.SESSION_END_UNKNOWN,
-      };
+  proto.SessionEndReason _dartEndReasonToProto(
+    SessionEndReason r,
+  ) => switch (r) {
+    SessionEndReason.appStop => proto.SessionEndReason.SESSION_END_APP_STOP,
+    SessionEndReason.autoStop => proto.SessionEndReason.SESSION_END_AUTO_STOP,
+    SessionEndReason.cameraFailure =>
+      proto.SessionEndReason.SESSION_END_CAMERA_FAILURE,
+    SessionEndReason.reboot => proto.SessionEndReason.SESSION_END_REBOOT,
+    SessionEndReason.shutdown => proto.SessionEndReason.SESSION_END_SHUTDOWN,
+    SessionEndReason.unknown => proto.SessionEndReason.SESSION_END_UNKNOWN,
+  };
+
+  proto.DeviceComponents _protoComponents(DeviceComponents c) =>
+      proto.DeviceComponents(
+        gpu: _protoComponentStatus(c.gpu),
+        wifi: _protoComponentStatus(c.wifi),
+        ethernet: _protoComponentStatus(c.ethernet),
+        bluetooth: _protoComponentStatus(c.bluetooth),
+        storage: _protoComponentStatus(c.storage),
+        clockSynced: c.clockSynced,
+      );
+
+  proto.ComponentStatus _protoComponentStatus(ComponentHealth s) => switch (s) {
+    ComponentHealth.ok => proto.ComponentStatus.COMPONENT_STATUS_OK,
+    ComponentHealth.degraded => proto.ComponentStatus.COMPONENT_STATUS_DEGRADED,
+    ComponentHealth.missing => proto.ComponentStatus.COMPONENT_STATUS_MISSING,
+    ComponentHealth.unknown => proto.ComponentStatus.COMPONENT_STATUS_UNKNOWN,
+  };
 
   SessionEndReason _protoEndReason(proto.SessionEndReason r) => switch (r) {
     proto.SessionEndReason.SESSION_END_APP_STOP => SessionEndReason.appStop,
@@ -1424,6 +1453,7 @@ class MockBleService implements BleService {
     proto.SessionEndReason.SESSION_END_CAMERA_FAILURE =>
       SessionEndReason.cameraFailure,
     proto.SessionEndReason.SESSION_END_REBOOT => SessionEndReason.reboot,
+    proto.SessionEndReason.SESSION_END_SHUTDOWN => SessionEndReason.shutdown,
     _ => SessionEndReason.unknown,
   };
 
@@ -1439,6 +1469,10 @@ class MockBleService implements BleService {
         : null,
     isRecording: s.hasIsRecording() ? s.isRecording : null,
     isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
+    isFinalizing: s.hasIsFinalizing() ? s.isFinalizing : null,
+    components: s.hasComponents()
+        ? BleProtocol.dartComponents(s.components)
+        : null,
     recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
         ? s.recordingElapsedSeconds
         : null,
@@ -1575,7 +1609,7 @@ class MockBleService implements BleService {
   /// write) takes. FINALIZING is a real observable state (proto §9b
   /// SessionPhase): inject a non-zero window to read a snapshot mid-finalize.
   /// Zero (default) completes synchronously — never a torn intermediate.
-  Duration finalizeDuration = Duration.zero;
+  Duration finalizeDuration = const Duration(seconds: 3);
 
   /// Number of ACTUAL WiFi-Direct group formations. StartWifiDirect while the
   /// group is already up returns the EXISTING credentials without re-forming
@@ -1677,6 +1711,7 @@ class MockBleService implements BleService {
 
   CameraHealth _camera0Health = CameraHealth.ok;
   CameraHealth _camera1Health = CameraHealth.ok;
+  DeviceComponents? mockComponents;
 
   void _onCameraHealthChanged() {
     // Firmware plan U3 session hook: recording + any camera DOWN →
@@ -1748,6 +1783,10 @@ class MockBleService implements BleService {
   /// because a crashed firmware never ran finalize). Activity stops
   /// immediately (EOS); the phase reports FINALIZING for [finalizeDuration];
   /// completion mints the LastSessionSummary and returns the session to idle.
+  void simulateCleanShutdown() {
+    if (_sessionActive) _finalize(SessionEndReason.shutdown);
+  }
+
   void _finalize(SessionEndReason reason) {
     if (_finalizing) return; // CAS parity: losers return immediately
     _finalizing = true;
@@ -1941,6 +1980,10 @@ class MockBleService implements BleService {
           : proto.PreviewLayout.PREVIEW_LAYOUT_SINGLE,
       isRecording: isRecordingActive,
       isStreaming: isStreamingActive,
+      isFinalizing: _finalizing,
+      components: mockComponents == null
+          ? null
+          : _protoComponents(mockComponents!),
       recordingElapsedSeconds: _recordingElapsedSeconds,
       matchState: match == null ? null : _dartMatchStateToProto(match),
       camera0Health: _dartCameraHealthToProto(mockCamera0Health),

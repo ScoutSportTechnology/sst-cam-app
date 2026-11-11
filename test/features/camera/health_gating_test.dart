@@ -24,6 +24,9 @@ import 'package:sst_cam_app/core/ble/ble_providers.dart';
 import 'package:sst_cam_app/core/models/device.dart';
 import 'package:sst_cam_app/core/models/telemetry.dart';
 import 'package:sst_cam_app/core/models/wifi.dart';
+import 'package:sst_cam_app/core/models/session_snapshot.dart';
+import 'package:sst_cam_app/core/state/connect_controller.dart'
+    show sessionSnapshotProvider;
 import 'package:sst_cam_app/core/services/video_path_service.dart';
 import 'package:sst_cam_app/core/state/db_providers.dart';
 import 'package:sst_cam_app/core/state/device_health.dart';
@@ -33,6 +36,8 @@ import 'package:sst_cam_app/features/camera/camera_state.dart'
     show activeCameraIdProvider;
 import 'package:sst_cam_app/features/camera/main_page.dart';
 import 'package:sst_cam_app/features/match/match_page.dart';
+import 'package:sst_cam_app/features/match/session/session_state.dart'
+    show liveMatchProvider, recordingSavingProvider;
 import 'package:sst_cam_app/features/settings/users/users_state.dart'
     show activeUserProvider;
 import 'package:sst_cam_app/features/video/playback/download_sheet.dart';
@@ -133,6 +138,25 @@ void main() {
     expect(_button(tester, 'Diagnostics').onPressed, isNotNull);
   });
 
+  testWidgets('component fault is visible even when cameras are OK', (
+    tester,
+  ) async {
+    final health = _TestHealth(
+      const DeviceHealthState(
+        camera0: CameraHealth.ok,
+        camera1: CameraHealth.ok,
+        components: DeviceComponents(
+          gpu: ComponentHealth.degraded,
+          clockSynced: false,
+        ),
+      ),
+    );
+    await pumpMainPage(tester, health);
+    expect(find.text('GPU needs attention.'), findsOneWidget);
+    expect(find.text('Clock needs attention.'), findsOneWidget);
+    expect(_button(tester, 'Preview').onPressed, isNotNull);
+  });
+
   testWidgets('main page — both OK: no banner, Preview enabled', (
     tester,
   ) async {
@@ -142,14 +166,14 @@ void main() {
     expect(_button(tester, 'Preview').onPressed, isNotNull);
   });
 
-  testWidgets('main page — recovering: soft note, no banner, no lockout', (
+  testWidgets('main page — recovering: soft note, no banner, start disabled', (
     tester,
   ) async {
     await pumpMainPage(tester, _TestHealth(_recovering));
 
     expect(find.text('Device inoperable'), findsNothing);
     expect(find.textContaining('Camera recovering'), findsOneWidget);
-    expect(_button(tester, 'Preview').onPressed, isNotNull);
+    expect(_button(tester, 'Preview').onPressed, isNull);
   });
 
   testWidgets('main page — banner is state-driven: appears when health flips '
@@ -190,7 +214,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [...dbOverrides(db), ..._connectedOverrides(mock, health)],
-        child: const MaterialApp(home: MatchPage()),
+        child: MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
+          home: const MatchPage(),
+        ),
       ),
     );
   }
@@ -264,13 +291,191 @@ void main() {
     await tester.pump();
     expect(find.text('Device inoperable'), findsNothing);
     expect(find.textContaining('Camera recovering'), findsOneWidget);
-    expect(_button(tester, 'Record').onPressed, isNotNull);
-    expect(_button(tester, 'Start streaming').onPressed, isNotNull);
+    expect(_button(tester, 'Record').onPressed, isNull);
+    expect(_button(tester, 'Start streaming').onPressed, isNull);
   });
 
   // ---------------------------------------------------------------------
   // Downloads stay enabled (AE5) — the gate never touches retrieval
   // ---------------------------------------------------------------------
+
+  testWidgets('paused recording cannot resume while camera recovers', (
+    tester,
+  ) async {
+    final health = _TestHealth(_ok);
+    await pumpMatchPage(tester, health);
+    await reachSetupScreen(tester);
+    await tester.scrollUntilVisible(find.text('Start match'), 200);
+    await tester.tap(find.text('Start match'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('Record'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Pause'));
+    await tester.pump(const Duration(milliseconds: 100));
+    health.set(_recovering);
+    await tester.pump();
+    expect(
+      tester
+          .widgetList<WfButton>(
+            find.byWidgetPredicate((w) => w is WfButton && w.label == 'Resume'),
+          )
+          .every((b) => b.onPressed == null),
+      isTrue,
+    );
+  });
+
+  testWidgets('pending stop immediately shows saving and blocks record/start', (
+    tester,
+  ) async {
+    final health = _TestHealth(_ok);
+    await pumpMatchPage(tester, health);
+    await reachSetupScreen(tester);
+    await tester.scrollUntilVisible(find.text('Start match'), 200);
+    await tester.tap(find.text('Start match'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    final element = tester.element(find.text('Kickoff'));
+    final container = ProviderScope.containerOf(element);
+    container.read(recordingSavingProvider.notifier).state = true;
+    await tester.pump();
+    expect(find.text('SAVING'), findsOneWidget);
+    expect(_button(tester, 'Saving…').onPressed, isNull);
+    expect(_button(tester, 'Start streaming').onPressed, isNull);
+    expect(_button(tester, 'Kickoff').onPressed, isNull);
+    expect(container.read(liveMatchProvider).currentPeriod, 0);
+    container.read(recordingSavingProvider.notifier).state = false;
+  });
+
+  testWidgets(
+    'saving prevents starting the next period without advancing state',
+    (tester) async {
+      await pumpMatchPage(tester, _TestHealth(_ok));
+      await reachSetupScreen(tester);
+      await tester.scrollUntilVisible(find.text('Start match'), 200);
+      await tester.tap(find.text('Start match'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      final container = ProviderScope.containerOf(
+        tester.element(find.text('Kickoff')),
+      );
+      final ctl = container.read(liveMatchProvider.notifier);
+      ctl.startPeriod();
+      ctl.endPeriod();
+      await tester.pump();
+      expect(_button(tester, 'Start period 2').onPressed, isNotNull);
+      container.read(recordingSavingProvider.notifier).state = true;
+      await tester.pump();
+      expect(_button(tester, 'Start period 2').onPressed, isNull);
+      expect(container.read(liveMatchProvider).currentPeriod, 1);
+    },
+  );
+
+  testWidgets('setup cannot start a second session while saving', (
+    tester,
+  ) async {
+    final health = _TestHealth(_ok);
+    await pumpMatchPage(tester, health);
+    await reachSetupScreen(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('Start match')),
+    );
+    container.read(recordingSavingProvider.notifier).state = true;
+    await tester.pump();
+    expect(_button(tester, 'Start match').onPressed, isNull);
+  });
+
+  testWidgets(
+    'rejoined finalizing snapshot shows saving and disables actions',
+    (tester) async {
+      final health = _TestHealth(_ok);
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ...dbOverrides(db),
+            ..._connectedOverrides(mock, health),
+            sessionSnapshotProvider.overrideWith(
+              (_) => const SessionSnapshot(
+                sessionPhase: SessionPhase.finalizing,
+                isRecording: false,
+                isFinalizing: true,
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData(splashFactory: NoSplash.splashFactory),
+            home: const MatchPage(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await reachSetupScreen(tester);
+      expect(_button(tester, 'Start match').onPressed, isNull);
+      final container = ProviderScope.containerOf(
+        tester.element(find.text('Start match')),
+      );
+      container.read(recordingSavingProvider.notifier).state = true;
+      await tester.pump();
+      expect(_button(tester, 'Start match').onPressed, isNull);
+    },
+  );
+
+  testWidgets(
+    'saving state clears when live telemetry reports finalization done',
+    (tester) async {
+      final health = _TestHealth(_ok);
+      final mock = _newMock();
+      addTearDown(mock.dispose);
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ...dbOverrides(db),
+            ..._connectedOverrides(mock, health),
+            sessionSnapshotProvider.overrideWith(
+              (_) => const SessionSnapshot(
+                sessionPhase: SessionPhase.finalizing,
+                isFinalizing: true,
+              ),
+            ),
+            telemetryProvider(_kDeviceId).overrideWith(
+              (_) => Stream.value(
+                const DeviceTelemetry(
+                  storageFreeBytes: 1,
+                  storageTotalBytes: 2,
+                  wifiState: WifiState.connected,
+                  internetReachable: false,
+                  tempCelsius: 40,
+                  ramUsedPct: 10,
+                  cpuUsedPct: 10,
+                  uptimeSeconds: 10,
+                  isRecording: false,
+                  isStreaming: false,
+                  isFinalizing: false,
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData(splashFactory: NoSplash.splashFactory),
+            home: const MatchPage(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await reachSetupScreen(tester);
+      await tester.scrollUntilVisible(find.text('Start match'), 200);
+      await tester.tap(find.text('Start match'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('SAVING'), findsNothing);
+    },
+  );
 
   testWidgets('download sheet — starting a download works while the device '
       'is inoperable', (tester) async {
@@ -299,6 +504,7 @@ void main() {
           videoPathServiceProvider.overrideWithValue(_AbsentPathSvc()),
         ],
         child: MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
           home: Scaffold(
             body: DownloadSheet(
               match: const LibraryMatch(

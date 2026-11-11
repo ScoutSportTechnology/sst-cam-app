@@ -23,6 +23,7 @@ class _FakeBle implements BleService {
   _FakeBle(this._group);
   final WifiDirectGroup _group;
   final List<BleCommand> sent = [];
+  bool failNextStart = false;
 
   @override
   Future<BleCommandResponse<T>> sendCommand<T>(
@@ -31,6 +32,10 @@ class _FakeBle implements BleService {
   ) async {
     sent.add(command);
     if (command is StartWifiDirectCommand) {
+      if (failNextStart) {
+        failNextStart = false;
+        return BleCommandResponse.error('group unavailable');
+      }
       return BleCommandResponse.ok(_group as T?);
     }
     // StopWifiDirectCommand and others — OK with no payload.
@@ -130,6 +135,65 @@ void main() {
       await svc.dispose();
     },
   );
+
+  test('reused phone group still observes a later idle closure', () async {
+    final svc = WifiServiceImpl(ble: _FakeBle(_group('GO')));
+    await emitState(2);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final group = await svc.connectGroup('dev-1');
+    expect(connectCalls, 0);
+    expect(svc.currentGroup('dev-1'), group);
+
+    await emitState(0);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(svc.currentGroup('dev-1'), isNull);
+    expect(
+      await svc.connectionStateStream('dev-1').first,
+      WifiDirectState.idle,
+    );
+    await svc.dispose();
+  });
+
+  test('idle group close reconnects on next reachability check', () async {
+    final ble = _FakeBle(_group('GO'));
+    final svc = WifiServiceImpl(ble: ble);
+    await svc.connectGroup('dev-1');
+    expect(connectCalls, 1);
+
+    await emitState(0);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(svc.currentGroup('dev-1'), isNull);
+
+    await svc.isCameraReachable('dev-1');
+    expect(connectCalls, 2);
+    expect(ble.sent.whereType<StartWifiDirectCommand>(), hasLength(2));
+    expect(svc.currentGroup('dev-1'), isNotNull);
+    await svc.dispose();
+  });
+
+  test('idle timeout does not reuse a stale phone-side group', () async {
+    final ble = _FakeBle(_group('GO'));
+    final svc = WifiServiceImpl(ble: ble);
+    await svc.connectGroup('dev-1');
+    await emitState(0);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await svc.isCameraReachable('dev-1');
+    expect(connectCalls, 2);
+    await svc.dispose();
+  });
+
+  test('failed reconnect can retry on next reachability check', () async {
+    final ble = _FakeBle(_group('GO'));
+    final svc = WifiServiceImpl(ble: ble);
+    await svc.connectGroup('dev-1');
+    await emitState(0);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    ble.failNextStart = true;
+    expect(await svc.isCameraReachable('dev-1'), isFalse);
+    expect(await svc.isCameraReachable('dev-1'), isFalse);
+    expect(ble.sent.whereType<StartWifiDirectCommand>(), hasLength(3));
+    await svc.dispose();
+  });
 
   test('previewDescriptor is null before a group is up', () {
     final svc = WifiServiceImpl(ble: _FakeBle(_group('GO')));

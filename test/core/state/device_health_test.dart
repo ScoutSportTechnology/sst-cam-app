@@ -90,6 +90,90 @@ void main() {
   }
 
   group('Fold — snapshot health at connect', () {
+    test(
+      'recovering and partial unknown health block capture starts',
+      () async {
+        mock.mockCamera1Health = CameraHealth.recovering;
+        final container = makeContainer();
+        await connect(container);
+        expect(container.read(captureBlockedProvider), isTrue);
+        expect(
+          container.read(deviceHealthProvider).startBlockedReason,
+          contains('recovering'),
+        );
+        mock.mockCamera1Health = CameraHealth.unknown;
+        await emit(
+          _telemetry(cam0: CameraHealth.ok, cam1: CameraHealth.unknown),
+        );
+        expect(container.read(captureBlockedProvider), isTrue);
+      },
+    );
+
+    test(
+      'component faults from snapshot update with telemetry without inventing OK',
+      () async {
+        mock.mockComponents = const DeviceComponents(
+          gpu: ComponentHealth.missing,
+        );
+        final container = makeContainer();
+        await connect(container);
+        expect(
+          container.read(deviceHealthProvider).components!.gpu,
+          ComponentHealth.missing,
+        );
+        mock.mockComponents = const DeviceComponents(
+          storage: ComponentHealth.degraded,
+        );
+        final response = await mock.sendCommand<DeviceTelemetry>(
+          _kDeviceId,
+          GetTelemetryCommand(),
+        );
+        await emit(response.payload!);
+        expect(
+          container.read(deviceHealthProvider).components!.storage,
+          ComponentHealth.degraded,
+        );
+        expect(
+          container.read(deviceHealthProvider).components!.gpu,
+          ComponentHealth.unknown,
+        );
+      },
+    );
+
+    test('component-only telemetry keeps the last camera readings', () async {
+      mock.mockCamera0Health = CameraHealth.down;
+      final container = makeContainer();
+      await connect(container);
+      expect(
+        container.read(deviceHealthProvider).device,
+        DeviceHealth.inoperable,
+      );
+
+      await emit(
+        const DeviceTelemetry(
+          storageFreeBytes: 1000,
+          storageTotalBytes: 2000,
+          wifiState: WifiState.connected,
+          internetReachable: false,
+          tempCelsius: 40,
+          ramUsedPct: 10,
+          cpuUsedPct: 10,
+          uptimeSeconds: 100,
+          isRecording: false,
+          isStreaming: false,
+          components: DeviceComponents(storage: ComponentHealth.degraded),
+        ),
+      );
+
+      expect(container.read(deviceHealthProvider).camera0, CameraHealth.down);
+      expect(container.read(deviceHealthProvider).camera1, CameraHealth.ok);
+      expect(container.read(captureBlockedProvider), isTrue);
+      expect(
+        container.read(deviceHealthProvider).components!.storage,
+        ComponentHealth.degraded,
+      );
+    });
+
     test('both cameras OK → device ok, gate open', () async {
       final container = makeContainer();
       await connect(container);
@@ -169,7 +253,7 @@ void main() {
       },
     );
 
-    test('RECOVERING → recovering, no lockout', () async {
+    test('RECOVERING → recovering, capture start blocked', () async {
       final container = makeContainer();
       await connect(container);
 
@@ -181,43 +265,39 @@ void main() {
         container.read(deviceHealthProvider).device,
         DeviceHealth.recovering,
       );
-      expect(
-        container.read(captureBlockedProvider),
-        isFalse,
-        reason:
-            'recovering shows a soft indicator only — the firmware '
-            'DEVICE_INOPERABLE refusal is the backstop, not an app lockout',
-      );
+      expect(container.read(captureBlockedProvider), isTrue);
     });
 
-    test('OK↔RECOVERING flapping never reaches inoperable and never closes '
-        'the gate', () async {
-      final container = makeContainer();
-      await connect(container);
+    test(
+      'OK↔RECOVERING flapping blocks starts only while recovering',
+      () async {
+        final container = makeContainer();
+        await connect(container);
 
-      final seenDevice = <DeviceHealth>[];
-      container.listen(
-        deviceHealthProvider,
-        (_, next) => seenDevice.add(next.device),
-      );
-      final seenBlocked = <bool>[];
-      container.listen(
-        captureBlockedProvider,
-        (_, next) => seenBlocked.add(next),
-      );
+        final seenDevice = <DeviceHealth>[];
+        container.listen(
+          deviceHealthProvider,
+          (_, next) => seenDevice.add(next.device),
+        );
+        final seenBlocked = <bool>[];
+        container.listen(
+          captureBlockedProvider,
+          (_, next) => seenBlocked.add(next),
+        );
 
-      for (final h in [
-        CameraHealth.recovering,
-        CameraHealth.ok,
-        CameraHealth.recovering,
-        CameraHealth.ok,
-      ]) {
-        await emit(_telemetry(cam0: h, cam1: CameraHealth.ok));
-      }
+        for (final h in [
+          CameraHealth.recovering,
+          CameraHealth.ok,
+          CameraHealth.recovering,
+          CameraHealth.ok,
+        ]) {
+          await emit(_telemetry(cam0: h, cam1: CameraHealth.ok));
+        }
 
-      expect(seenDevice, isNot(contains(DeviceHealth.inoperable)));
-      expect(seenBlocked, isNot(contains(true)));
-    });
+        expect(seenDevice, isNot(contains(DeviceHealth.inoperable)));
+        expect(seenBlocked, [true, false, true, false]);
+      },
+    );
 
     test('health-less telemetry sample is NOT a reading — it neither '
         'fabricates OK nor overwrites the last real value', () async {

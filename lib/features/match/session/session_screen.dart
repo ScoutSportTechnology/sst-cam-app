@@ -12,6 +12,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/ble/ble_providers.dart';
 import '../../../core/models/command.dart';
 import '../../../core/models/device.dart';
+import '../../../core/state/connect_controller.dart'
+    show sessionSnapshotProvider;
 import '../../../core/state/device_health.dart' show captureBlockedProvider;
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/device_health_banner.dart';
@@ -43,19 +45,32 @@ class SessionScreen extends ConsumerWidget {
             CameraConnectionState.connected;
 
     final isEnded = state.phase == MatchPhase.ended;
+    final liveFinalizing = activeId == null
+        ? null
+        : ref.watch(telemetryProvider(activeId)).valueOrNull?.isFinalizing;
+    final isFinalizing =
+        ref.watch(recordingSavingProvider) ||
+        (liveFinalizing ?? ref.watch(sessionSnapshotProvider)?.isFinalizing) ==
+            true;
     final isPeriodActive = state.phase == MatchPhase.period;
 
-    final indicator = switch (state.rec) {
-      RecState.recording => 'REC',
-      RecState.paused => 'REC PAUSE',
-      RecState.idle =>
-        isEnded
-            ? 'FT'
-            : isPeriodActive
-            ? 'LIVE'
-            : 'READY',
-    };
-    final indicatorColor = state.rec == RecState.recording ? T.accent : T.ink2;
+    final indicator = isFinalizing
+        ? 'SAVING'
+        : switch (state.rec) {
+            RecState.recording => 'REC',
+            RecState.paused => 'REC PAUSE',
+            RecState.idle =>
+              isEnded
+                  ? 'FT'
+                  : isPeriodActive
+                  ? 'LIVE'
+                  : 'READY',
+          };
+    final indicatorColor = isFinalizing
+        ? T.warn
+        : state.rec == RecState.recording
+        ? T.accent
+        : T.ink2;
 
     final previewOn = ref.watch(livePreviewEnabledProvider(activeId));
     // U3 health gate: preview / recording START / streaming START are blocked
@@ -115,7 +130,9 @@ class SessionScreen extends ConsumerWidget {
                       homeTeamId: match.team.id,
                     )
                   : null,
-              onKickoff: () => sessionKickoff(context, ref, ctl, state),
+              onKickoff: isFinalizing
+                  ? null
+                  : () => sessionKickoff(context, ref, ctl, state),
               onEndPeriod: () {
                 sendIfConnected(
                   ref,
@@ -126,17 +143,21 @@ class SessionScreen extends ConsumerWidget {
                 );
                 ctl.endPeriod();
               },
-              onStartNextPeriod: () {
-                sendIfConnected(
-                  ref,
-                  MatchControlCommand(
-                    action: BleMatchControlAction.periodStart,
-                    period: state.currentPeriod + 1,
-                  ),
-                );
-                ctl.startPeriod();
-              },
-              onEndMatch: () => confirmSessionEnd(context, ref, ctl, state),
+              onStartNextPeriod: isFinalizing
+                  ? null
+                  : () {
+                      sendIfConnected(
+                        ref,
+                        MatchControlCommand(
+                          action: BleMatchControlAction.periodStart,
+                          period: state.currentPeriod + 1,
+                        ),
+                      );
+                      ctl.startPeriod();
+                    },
+              onEndMatch: isFinalizing
+                  ? () {}
+                  : () => confirmSessionEnd(context, ref, ctl, state),
             ),
             if (isEnded) const SessionEndedBanner(),
             const Divider(height: 1, color: T.rule),
@@ -147,6 +168,7 @@ class SessionScreen extends ConsumerWidget {
             Expanded(child: _buildEventLog(state)),
             SessionBottomControls(
               state: state,
+              isFinalizing: isFinalizing,
               onTimerTap: () {
                 final isRunning = state.timer == MatchTimer.running;
                 sendIfConnected(
@@ -164,8 +186,11 @@ class SessionScreen extends ConsumerWidget {
               // recording stays available (the firmware refuses a resume with
               // DEVICE_INOPERABLE if the camera died meanwhile — surfaced by
               // the snackbar backstop in sendStartIfConnected).
+              // Finalizing: no new start, no second stop.
               onRecToggle:
-                  (connected && !(captureBlocked && state.rec == RecState.idle))
+                  (connected &&
+                      !isFinalizing &&
+                      !(captureBlocked && state.rec != RecState.recording))
                   ? () {
                       final currentRec = state.rec;
                       ctl.toggleRecPause();
@@ -197,9 +222,11 @@ class SessionScreen extends ConsumerWidget {
                     }
                   : null,
               // Streaming START is health-gated; stopping a running stream is
-              // always allowed.
+              // always allowed. Finalizing: no new start, no second stop.
               onStreamToggle:
-                  (connected && !(captureBlocked && !state.streaming))
+                  (connected &&
+                      !isFinalizing &&
+                      !(captureBlocked && !state.streaming))
                   ? () => toggleSessionStream(context, ref, ctl, state)
                   : null,
             ),

@@ -56,7 +56,11 @@ enum DeviceHealth { unknown, ok, recovering, inoperable }
 /// Latest known per-camera health. U4's diagnostics tiles consume the
 /// per-camera values; the gate + banner consume the folded [device] level.
 class DeviceHealthState {
-  const DeviceHealthState({required this.camera0, required this.camera1});
+  const DeviceHealthState({
+    required this.camera0,
+    required this.camera1,
+    this.components,
+  });
 
   /// No health reported by any source (disconnected, stale, or absent fields).
   static const unreported = DeviceHealthState(
@@ -66,6 +70,14 @@ class DeviceHealthState {
 
   final CameraHealth camera0;
   final CameraHealth camera1;
+  final DeviceComponents? components;
+
+  String get startBlockedReason => switch (device) {
+    DeviceHealth.inoperable => 'A camera is down.',
+    DeviceHealth.recovering => 'A camera is recovering.',
+    DeviceHealth.unknown => 'Waiting for both cameras to report healthy.',
+    DeviceHealth.ok => '',
+  };
 
   DeviceHealth get device {
     if (camera0 == CameraHealth.down || camera1 == CameraHealth.down) {
@@ -75,7 +87,7 @@ class DeviceHealthState {
         camera1 == CameraHealth.recovering) {
       return DeviceHealth.recovering;
     }
-    if (camera0 == CameraHealth.unknown && camera1 == CameraHealth.unknown) {
+    if (camera0 != CameraHealth.ok || camera1 != CameraHealth.ok) {
       return DeviceHealth.unknown;
     }
     return DeviceHealth.ok;
@@ -85,10 +97,11 @@ class DeviceHealthState {
   bool operator ==(Object other) =>
       other is DeviceHealthState &&
       other.camera0 == camera0 &&
-      other.camera1 == camera1;
+      other.camera1 == camera1 &&
+      other.components == components;
 
   @override
-  int get hashCode => Object.hash(camera0, camera1);
+  int get hashCode => Object.hash(camera0, camera1, components);
 }
 
 class DeviceHealthController extends Notifier<DeviceHealthState> {
@@ -118,7 +131,9 @@ class DeviceHealthController extends Notifier<DeviceHealthState> {
     ref.listen(telemetryProvider(camId), (_, next) {
       final t = next.valueOrNull;
       if (t == null) return;
-      if (t.camera0Health == null && t.camera1Health == null) {
+      if (t.camera0Health == null &&
+          t.camera1Health == null &&
+          t.components == null) {
         // Health-less sample: NOT a reading — it neither updates the values
         // nor refreshes the freshness clock (absent must never fabricate OK,
         // and must not silently keep an old reading "fresh" either... the old
@@ -128,8 +143,9 @@ class DeviceHealthController extends Notifier<DeviceHealthState> {
       _armStaleTimer();
       _apply(
         DeviceHealthState(
-          camera0: t.camera0Health ?? CameraHealth.unknown,
-          camera1: t.camera1Health ?? CameraHealth.unknown,
+          camera0: t.camera0Health ?? state.camera0,
+          camera1: t.camera1Health ?? state.camera1,
+          components: t.components ?? state.components,
         ),
         'telemetry',
       );
@@ -139,11 +155,14 @@ class DeviceHealthController extends Notifier<DeviceHealthState> {
     final snap = ref.watch(sessionSnapshotProvider);
     final c0 = snap?.camera0Health;
     final c1 = snap?.camera1Health;
-    if (c0 == null && c1 == null) return DeviceHealthState.unreported;
+    if (c0 == null && c1 == null && snap?.components == null) {
+      return DeviceHealthState.unreported;
+    }
     _armStaleTimer();
     return DeviceHealthState(
       camera0: c0 ?? CameraHealth.unknown,
       camera1: c1 ?? CameraHealth.unknown,
+      components: snap?.components,
     );
   }
 
@@ -204,5 +223,5 @@ final captureBlockedProvider = Provider<bool>((ref) {
       CameraConnectionState.connected;
   if (!connected) return false;
   final device = ref.watch(deviceHealthProvider).device;
-  return device == DeviceHealth.inoperable || device == DeviceHealth.unknown;
+  return device != DeviceHealth.ok;
 });

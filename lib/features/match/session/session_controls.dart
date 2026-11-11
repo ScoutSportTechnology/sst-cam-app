@@ -24,9 +24,9 @@ class SessionPrimaryActionRow extends StatelessWidget {
   });
   final LiveMatchState state;
   final VoidCallback? onMarkEvent;
-  final VoidCallback onKickoff;
+  final VoidCallback? onKickoff;
   final VoidCallback onEndPeriod;
-  final VoidCallback onStartNextPeriod;
+  final VoidCallback? onStartNextPeriod;
   final VoidCallback onEndMatch;
 
   @override
@@ -112,12 +112,14 @@ class SessionBottomControls extends StatelessWidget {
   const SessionBottomControls({
     super.key,
     required this.state,
+    this.isFinalizing = false,
     required this.onTimerTap,
     required this.onRecToggle,
     required this.onStreamToggle,
   });
 
   final LiveMatchState state;
+  final bool isFinalizing;
   final VoidCallback onTimerTap;
   final VoidCallback? onRecToggle;
   final VoidCallback? onStreamToggle;
@@ -167,7 +169,9 @@ class SessionBottomControls extends StatelessWidget {
                   // once, at match end ("Also stop recording"). Pause through
                   // anything you don't want recorded.
                   body: WfButton(
-                    label: state.rec == RecState.recording
+                    label: isFinalizing
+                        ? 'Saving…'
+                        : state.rec == RecState.recording
                         ? 'Pause'
                         : state.rec == RecState.paused
                         ? 'Resume'

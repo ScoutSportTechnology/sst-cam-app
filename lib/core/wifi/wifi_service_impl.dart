@@ -103,6 +103,8 @@ class WifiServiceImpl implements WifiService {
   // _channel.connect AFTER a _channel.disconnect.
   final Map<String, int> _connectGen = {};
 
+  final Set<String> _expiredGroups = {};
+
   // Device ids whose connect retry loop is currently running. While present,
   // the shared state listener suppresses transient `failed`/`idle` codes (a
   // formation attempt that didn't take) so the hero card doesn't flash
@@ -290,6 +292,11 @@ class WifiServiceImpl implements WifiService {
             (st == WifiDirectState.failed || st == WifiDirectState.idle)) {
           return;
         }
+        if (st == WifiDirectState.idle || st == WifiDirectState.failed) {
+          if (_currentGroups.remove(deviceId) != null) {
+            _expiredGroups.add(deviceId);
+          }
+        }
         _emitState(deviceId, st);
       },
       onError: (Object e) {
@@ -376,8 +383,8 @@ class WifiServiceImpl implements WifiService {
     // preview's RTSP client unopened. Reuse the live association instead.
     if (_lastP2pStateCode == _kStateConnected) {
       _log.info('phone already in a P2P group — reusing (skipping re-join)');
-      await _stateSubscriptions.remove(deviceId)?.cancel();
       _currentGroups[deviceId] = group;
+      _expiredGroups.remove(deviceId);
       _emitState(deviceId, WifiDirectState.connected);
       return group;
     }
@@ -452,6 +459,7 @@ class WifiServiceImpl implements WifiService {
 
     _log.info('P2P group joined ssid=${group.ssid}');
     _currentGroups[deviceId] = group;
+    _expiredGroups.remove(deviceId);
     return group;
   }
 
@@ -523,6 +531,7 @@ class WifiServiceImpl implements WifiService {
     }
 
     _currentGroups.remove(deviceId);
+    _expiredGroups.remove(deviceId);
     _emitState(deviceId, WifiDirectState.idle);
   }
 
@@ -535,7 +544,14 @@ class WifiServiceImpl implements WifiService {
 
   @override
   Future<bool> isCameraReachable(String deviceId) async {
-    final group = _currentGroups[deviceId];
+    var group = _currentGroups[deviceId];
+    if (group == null && _expiredGroups.contains(deviceId)) {
+      try {
+        group = await connectGroup(deviceId);
+      } on Exception {
+        return false;
+      }
+    }
     if (group == null ||
         group.groupOwnerIp.isEmpty ||
         group.downloadPort <= 0) {

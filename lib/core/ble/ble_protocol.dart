@@ -830,6 +830,8 @@ class BleProtocol {
         uptimeSeconds: p.uptimeSeconds.toInt(),
         isRecording: p.isRecording,
         isStreaming: p.isStreaming,
+        isFinalizing: p.hasIsFinalizing() ? p.isFinalizing : null,
+        components: p.hasComponents() ? dartComponents(p.components) : null,
         batteryLevelPct: p.hasBatteryLevelPct() ? p.batteryLevelPct : null,
         // Absent ⇒ null (unreported) — never fabricate OK for a firmware that
         // doesn't report health (proto DeviceTelemetry 15–16 are optional).
@@ -839,6 +841,25 @@ class BleProtocol {
         camera1Health: p.hasCamera1Health()
             ? dartCameraHealth(p.camera1Health)
             : null,
+      );
+
+  static ComponentHealth _dartComponentStatus(
+    proto.ComponentStatus s,
+  ) => switch (s) {
+    proto.ComponentStatus.COMPONENT_STATUS_OK => ComponentHealth.ok,
+    proto.ComponentStatus.COMPONENT_STATUS_DEGRADED => ComponentHealth.degraded,
+    proto.ComponentStatus.COMPONENT_STATUS_MISSING => ComponentHealth.missing,
+    _ => ComponentHealth.unknown,
+  };
+
+  static DeviceComponents dartComponents(proto.DeviceComponents p) =>
+      DeviceComponents(
+        gpu: _dartComponentStatus(p.gpu),
+        wifi: _dartComponentStatus(p.wifi),
+        ethernet: _dartComponentStatus(p.ethernet),
+        bluetooth: _dartComponentStatus(p.bluetooth),
+        storage: _dartComponentStatus(p.storage),
+        clockSynced: p.hasClockSynced() ? p.clockSynced : null,
       );
 
   static WifiState _dartWifiState(proto.WifiState s) => switch (s) {
@@ -1009,16 +1030,17 @@ class BleProtocol {
     _ => SessionPhase.unknown,
   };
 
-  static SessionEndReason _dartEndReason(proto.SessionEndReason r) =>
-      switch (r) {
-        proto.SessionEndReason.SESSION_END_APP_STOP => SessionEndReason.appStop,
-        proto.SessionEndReason.SESSION_END_AUTO_STOP =>
-          SessionEndReason.autoStop,
-        proto.SessionEndReason.SESSION_END_CAMERA_FAILURE =>
-          SessionEndReason.cameraFailure,
-        proto.SessionEndReason.SESSION_END_REBOOT => SessionEndReason.reboot,
-        _ => SessionEndReason.unknown,
-      };
+  static SessionEndReason _dartEndReason(
+    proto.SessionEndReason r,
+  ) => switch (r) {
+    proto.SessionEndReason.SESSION_END_APP_STOP => SessionEndReason.appStop,
+    proto.SessionEndReason.SESSION_END_AUTO_STOP => SessionEndReason.autoStop,
+    proto.SessionEndReason.SESSION_END_CAMERA_FAILURE =>
+      SessionEndReason.cameraFailure,
+    proto.SessionEndReason.SESSION_END_REBOOT => SessionEndReason.reboot,
+    proto.SessionEndReason.SESSION_END_SHUTDOWN => SessionEndReason.shutdown,
+    _ => SessionEndReason.unknown,
+  };
 
   static SessionSnapshot _dartSessionSnapshot(
     proto.SessionSnapshotResponse s,
@@ -1030,6 +1052,8 @@ class BleProtocol {
         : null,
     isRecording: s.hasIsRecording() ? s.isRecording : null,
     isStreaming: s.hasIsStreaming() ? s.isStreaming : null,
+    isFinalizing: s.hasIsFinalizing() ? s.isFinalizing : null,
+    components: s.hasComponents() ? dartComponents(s.components) : null,
     recordingElapsedSeconds: s.hasRecordingElapsedSeconds()
         ? s.recordingElapsedSeconds
         : null,
