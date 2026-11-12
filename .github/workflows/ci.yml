@@ -97,9 +97,9 @@ jobs:
         run: |
           mkdir -p .ci-cache/pub .ci-cache/gradle
           if [ ! -d .ci-cache/pub/hosted ] || [ ! -x .ci-cache/pub/bin/protoc-gen-dart ]; then
-            docker run --rm -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
+            docker run --rm --user root -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
               "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
-              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/'
+              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
           fi
           docker run --rm -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w "$PWD" \
             -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
@@ -134,9 +134,9 @@ jobs:
       - run: |
           mkdir -p .ci-cache/pub .ci-cache/gradle
           if [ ! -d .ci-cache/pub/hosted ] || [ ! -x .ci-cache/pub/bin/protoc-gen-dart ]; then
-            docker run --rm -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
+            docker run --rm --user root -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
               "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
-              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/'
+              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
           fi
           docker run --rm -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w "$PWD" \
             -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
@@ -171,9 +171,9 @@ jobs:
       - run: |
           mkdir -p .ci-cache/pub .ci-cache/gradle
           if [ ! -d .ci-cache/pub/hosted ] || [ ! -x .ci-cache/pub/bin/protoc-gen-dart ]; then
-            docker run --rm -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
+            docker run --rm --user root -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
               "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
-              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/'
+              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
           fi
           docker run --rm -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w "$PWD" \
             -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
