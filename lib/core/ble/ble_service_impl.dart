@@ -1159,6 +1159,7 @@ class _ConnectedDevice {
     Duration? timeout,
   }) async {
     final completer = Completer<List<int>>();
+    completer.future.ignore();
     _pendingRequests[corrId] = completer;
     try {
       // One shared deadline spans the ack-gated writes AND the response wait, so
@@ -1198,6 +1199,7 @@ class _ConnectedDevice {
     }
     for (var i = 0; i < frames.length; i++) {
       final ackCompleter = Completer<void>();
+      ackCompleter.future.ignore();
       (_pendingAcks[corrId] ??= {})[i] = ackCompleter;
       await write.write(frames[i], withoutResponse: true);
       try {
