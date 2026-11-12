@@ -66,14 +66,16 @@ class _FakeFirmware {
     // Symmetric flow control (proto/README.md): the firmware acks every
     // received payload chunk. The app's ack-gated multi-frame write loop
     // stalls without this — exactly like the real peer.
-    platform.notifyResponse(
-      remoteId,
-      proto.ChunkedPayload(
-        correlationId: chunk.correlationId,
-        chunkIndex: chunk.chunkIndex,
-        totalChunks: 0,
-      ).writeToBuffer(),
-    );
+    if (!platform.suppressAck) {
+      platform.notifyResponse(
+        remoteId,
+        proto.ChunkedPayload(
+          correlationId: chunk.correlationId,
+          chunkIndex: chunk.chunkIndex,
+          totalChunks: 0,
+        ).writeToBuffer(),
+      );
+    }
     final byIndex = _partial.putIfAbsent(chunk.correlationId, () => {});
     byIndex[chunk.chunkIndex] = chunk.data;
     if (byIndex.length < chunk.totalChunks) return;
@@ -181,6 +183,10 @@ final class _FakeBlePlatform extends FlutterBluePlusPlatform {
 
   /// Fails the next CCCD write once — models a transient post-link failure.
   bool failNextSetNotify = false;
+  bool suppressAck = false;
+  Completer<void>? blockedWrite;
+  Completer<void>? writeStarted;
+  Completer<void>? writeFinished;
 
   /// Counters for asserting the impl re-runs platform setup on reconnect.
   int connectCalls = 0;
@@ -402,6 +408,11 @@ final class _FakeBlePlatform extends FlutterBluePlusPlatform {
   @override
   Future<bool> writeCharacteristic(BmWriteCharacteristicRequest request) async {
     final bytes = List<int>.from(request.value);
+    if (blockedWrite case final blocked?) {
+      writeStarted?.complete();
+      await blocked.future;
+    }
+    writeFinished?.complete();
     scheduleMicrotask(() {
       // The platform reports the packet as sent (FBP awaits this even for
       // write-without-response), then the peripheral processes it.
@@ -470,6 +481,10 @@ void main() {
     platform.setNotifyCalls = 0;
     platform.stallConnect = false;
     platform.failNextSetNotify = false;
+    platform.suppressAck = false;
+    platform.blockedWrite = null;
+    platform.writeStarted = null;
+    platform.writeFinished = null;
     platform.connecting.clear();
     // Every device id used in this file advertises by default — connect()
     // scan-resolves the live address before dialing, so an unadvertised id
@@ -480,6 +495,95 @@ void main() {
         for (var i = 1; i <= 9; i++) DeviceIdentifier('AA:BB:CC:00:00:0$i'),
       ]);
     platform.advertisedNames.clear();
+  });
+
+  group('disconnect during a command write', () {
+    test(
+      'single-frame write fails its caller without an uncaught response error',
+      () async {
+        const deviceId = 'AA:BB:CC:00:00:01';
+        final svc = BleServiceImpl(disconnectSettle: Duration.zero);
+        addTearDown(svc.dispose);
+        final uncaught = <Object>[];
+
+        final done = Completer<void>();
+        runZonedGuarded(() {
+          () async {
+            await svc.connect(deviceId);
+            platform.blockedWrite = Completer<void>();
+            platform.writeStarted = Completer<void>();
+            final command = svc.pushSessionConfig(
+              deviceId,
+              const PushSessionConfig(
+                matchUuid: 'match',
+                userUuid: 'user',
+                sport: 'soccer',
+                numPeriods: 2,
+                periodLengthSeconds: 900,
+                videoOutputPath: '/video',
+                thumbnailOutputPath: '/thumbnail',
+              ),
+            );
+            final result = expectLater(
+              command,
+              throwsA(isA<BleConnectionException>()),
+            );
+            await platform.writeStarted!.future.timeout(
+              const Duration(seconds: 2),
+            );
+            platform.dropLink(DeviceIdentifier(deviceId));
+            await Future<void>.delayed(Duration.zero);
+            platform.blockedWrite!.completeError(
+              const BleConnectionException('write interrupted'),
+            );
+            platform.blockedWrite = null;
+            await result;
+            expect(await svc.getDeviceInfo(deviceId), isNull);
+            await svc.connect(deviceId);
+            expect(await svc.getDeviceInfo(deviceId), isNotNull);
+          }().then(done.complete, onError: done.completeError);
+        }, (error, _) => uncaught.add(error));
+        await done.future;
+        await Future<void>.delayed(Duration.zero);
+        expect(uncaught, isEmpty);
+      },
+    );
+
+    test(
+      'multi-frame ack wait fails without an uncaught response error',
+      () async {
+        const deviceId = 'AA:BB:CC:00:00:02';
+        final svc = BleServiceImpl(disconnectSettle: Duration.zero);
+        addTearDown(svc.dispose);
+        final uncaught = <Object>[];
+
+        final done = Completer<void>();
+        runZonedGuarded(() {
+          () async {
+            await svc.connect(deviceId);
+            platform.suppressAck = true;
+            platform.writeFinished = Completer<void>();
+            final command = svc.sendCommand<void>(
+              deviceId,
+              BannerEventCommand(templateId: 'x' * 1024, durationSeconds: 1),
+            );
+            await platform.writeFinished!.future.timeout(
+              const Duration(seconds: 2),
+            );
+            await Future<void>.delayed(Duration.zero);
+            platform.dropLink(DeviceIdentifier(deviceId));
+            await Future<void>.delayed(Duration.zero);
+            platform.suppressAck = false;
+            final response = await command;
+            expect(response.isOk, isFalse);
+            expect(response.errorMessage, contains('BleConnectionException'));
+          }().then(done.complete, onError: done.completeError);
+        }, (error, _) => uncaught.add(error));
+        await done.future;
+        await Future<void>.delayed(Duration.zero);
+        expect(uncaught, isEmpty);
+      },
+    );
   });
 
   group('BleServiceImpl reconnect (real impl over fake platform)', () {
