@@ -163,6 +163,30 @@ generated `*.g.dart` (`just gen-db`). `BackupService` exports/imports the full D
 Dark by default. Tokens live in `lib/core/theme/tokens.dart`; `lib/app.dart` builds
 `ThemeData` from them. Change a token, not a hardcoded color in a widget.
 
+## Running CI locally with act
+
+On rs-vm-37, `~/.actrc` maps `ubuntu-latest` and `ubuntu-24.04` to
+`catthehacker/ubuntu:act-24.04` with `--bind`, `--pull=false`, and
+`--container-daemon-socket /var/run/docker.sock`. Docker must be running.
+In a worktree, bind the Git common directory too:
+
+```bash
+# pr-event.json must contain a real pull_request.number and base.ref=development.
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+act pull_request -W .github/workflows/ci.yml -j test -e /path/to/pr-event.json \
+  -a rsantamaria01 -s GITHUB_TOKEN="$(gh auth token)" \
+  --container-options "-v ${common}:${common}:ro" --rm
+```
+
+`changes` queries GitHub for the event's real PR number; use a PR that changes
+code or workflow files, otherwise `test` is skipped. As tested on rs-vm-37,
+GHCR responds `403 Forbidden` to the `image` job's `buildx imagetools inspect`
+even with the CLI token, so `test` stops before Flutter tests. A local cached
+app image does not bypass that remote check. Use `just ci` against the cached
+pinned image to check code, `act -n -W .github/workflows/ci.yml` for workflow
+structure, and GitHub Actions for the end-to-end job until GHCR access works.
+`act` is not the pre-PR gate. Never store a token in `.actrc` or an event file.
+
 ## CI/CD & releasing
 
 PR-gated, Conventional-Commit driven. Same Git Flow model in all three sst-cam
