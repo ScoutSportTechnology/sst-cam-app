@@ -7,10 +7,9 @@
 services:
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
-    # Preserve the flutter4android image tag from the original build config.
-    image: flutter4android
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    image: ghcr.io/scoutsporttechnology/sst-cam-app-devcontainer:flutter_3.41.9-android_36-v1
     platform: linux/amd64
     stdin_open: true
     tty: true
