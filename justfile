@@ -6,9 +6,9 @@
 # the same in both places.
 #
 # Requirements:
-#   - Host:         `just` + the `devcontainer` CLI on PATH (or at ~/.devcontainers/bin).
-#   - In-container: `just` (installed via the devcontainer `just` feature).
-# Start the container once from the host with `just up` before delegating.
+#   - Host:         `just` + Docker and the pinned devcontainer image.
+#   - In-container: `just` (baked into the image).
+# Pull the pinned image once with `docker pull` before running recipes on the host.
 
 set shell := ["bash", "-uc"]
 
@@ -30,7 +30,7 @@ default:
 
 # Start the dev container (no-op if already running).
 up:
-    @docker image inspect flutter4android >/dev/null
+    @docker image inspect "ghcr.io/scoutsporttechnology/sst-cam-app-devcontainer:$(tr -d '[:space:]' < app-image/VERSION)" >/dev/null
 
 # Open an interactive shell in the dev container.
 shell:
@@ -93,7 +93,7 @@ run: gen-icons
 # `host_adb` defaults to PATH but can be overridden:
 #   just host_adb=./.devtools/platform-tools/adb deploy-stage-app 10.10.1.121:46273
 host_adb := justfile_directory() / "../.devtools/platform-tools/adb"
-fl_img := "flutter4android"
+fl_img := "ghcr.io/scoutsporttechnology/sst-cam-app-devcontainer:" + `tr -d '[:space:]' < app-image/VERSION`
 # Persist the Android SDK + Gradle cache across the ephemeral iterate-app
 # containers so the second run onward is fast (named volumes survive --rm).
 fl_cache := "-v sst_android_sdk:/home/vscode/android-sdk -v sst_gradle_cache:/home/vscode/.gradle -v sst_pub_cache:/home/vscode/.pub-cache"
@@ -161,7 +161,7 @@ gen-db:
 
 # --- internals ------------------------------------------------------------
 
-# Run CMD inside the container, or use the existing image from the host.
+# Run CMD inside the container, or use the pinned image from the host.
 [private]
 _run +cmd:
     @if [ -f /.dockerenv ] && [ -d /workspaces/sst-cam-app ]; then \
@@ -176,5 +176,5 @@ _run +cmd:
             -v "{{justfile_directory()}}:/workspaces/sst-cam-app" \
             -v "{{justfile_directory()}}:{{justfile_directory()}}" \
             -v "$(git rev-parse --path-format=absolute --git-common-dir):$(git rev-parse --path-format=absolute --git-common-dir)" \
-            -w /workspaces/sst-cam-app flutter4android bash -uc {{ quote(cmd) }}; \
+            -w /workspaces/sst-cam-app {{fl_img}} bash -uc {{ quote(cmd) }}; \
     fi

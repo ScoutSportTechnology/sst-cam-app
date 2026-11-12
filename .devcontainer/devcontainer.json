@@ -11,11 +11,6 @@
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
-  "features": {
-    //"ghcr.io/devcontainers-extra/features/go-task:1": {}
-    // `just` task runner — backs the repo's justfile (build/test recipes).
-    "ghcr.io/guiyomh/features/just:0": {}
-  },
   "remoteUser": "vscode",
   "mounts": [
     "source=${localWorkspaceFolder}/.devcontainer/.bashrc,target=/home/vscode/.bashrc.1,readonly,type=bind"

@@ -32,7 +32,7 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
 
 # Accept Android SDK licenses and install necessary components
 RUN yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses && \
-    ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" "ndk;${ANDROID_NDK_VERSION}" "platform-tools" "platforms;${ANDROID_PLATFORM_VERSION}"
+    ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" "ndk;${ANDROID_NDK_VERSION}" "platform-tools" "platforms;android-34" "platforms;android-35" "platforms;${ANDROID_PLATFORM_VERSION}"
 
 # Download and install Flutter
 RUN mkdir -p ${FLUTTER_SDK_ROOT} \
@@ -92,3 +92,13 @@ USER vscode
 # Copy SDKs from the builder stage to the user's home directory
 COPY --from=builder --chown=vscode:vscode /android-sdk ${ANDROID_SDK_ROOT}
 COPY --from=builder --chown=vscode:vscode /flutter ${FLUTTER_SDK_ROOT}
+
+USER root
+RUN curl -fsSL https://github.com/casey/just/releases/download/1.59.0/just-1.59.0-x86_64-unknown-linux-musl.tar.gz \
+    | tar xz -C /usr/local/bin just
+USER vscode
+
+COPY --chown=vscode:vscode pubspec.yaml pubspec.lock /tmp/app/
+RUN cd /tmp/app && flutter pub get && dart pub global activate protoc_plugin 21.1.2 \
+    && rm -rf /tmp/app
+RUN cp -a /home/vscode/.pub-cache /home/vscode/.pub-cache-seed

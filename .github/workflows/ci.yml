@@ -7,7 +7,11 @@ on:
 
 permissions:
   contents: read
+  packages: read
   pull-requests: read
+
+env:
+  IMAGE: ghcr.io/scoutsporttechnology/sst-cam-app-devcontainer
 
 jobs:
   changes:
@@ -29,6 +33,7 @@ jobs:
               - 'proto/**'
               - 'scripts/**'
               - '.devcontainer/**'
+              - 'app-image/**'
               - 'pubspec.yaml'
               - 'pubspec.lock'
               - 'analysis_options.yaml'
@@ -36,42 +41,145 @@ jobs:
               - 'justfile'
               - '.github/workflows/**'
 
+  image:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        run: |
+          set -euo pipefail
+          tag="$(tr -d '[:space:]' < app-image/VERSION)"
+          dev="$(sed -n 's#^    image: ghcr.io/scoutsporttechnology/sst-cam-app-devcontainer:\([^ ]*\).*#\1#p' .devcontainer/docker-compose.yml)"
+          test "$tag" = "$dev"
+          recipe="$(git ls-files -s .devcontainer/Dockerfile .devcontainer/devcontainer.json pubspec.yaml pubspec.lock android/gradle/wrapper/gradle-wrapper.properties | sha256sum | cut -d' ' -f1)"
+          echo "recipe=$recipe" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          RECIPE: ${{ steps.tag.outputs.recipe }}
+        run: |
+          have="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ index .Image.Config.Labels "io.sst.app-image.recipe" }}')"
+          test "$have" = "$RECIPE"
+
   lint:
+    needs: image
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
+      - run: test '${{ needs.image.result }}' = success
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: devcontainers/ci@v0.3
-        env:
-          BASE: ${{ github.base_ref || 'development' }}
+      - uses: docker/login-action@v3
         with:
-          push: never
-          env: BASE
-          runCmd: just lint
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker pull "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/pub
+            .ci-cache/gradle
+          key: app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-lint-${{ github.run_id }}
+          restore-keys: |
+            app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-lint-
+            app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-
+      - env:
+          BASE: ${{ github.base_ref || 'development' }}
+        run: |
+          mkdir -p .ci-cache/pub .ci-cache/gradle
+          if [ ! -d .ci-cache/pub/hosted ] || [ ! -x .ci-cache/pub/bin/protoc-gen-dart ]; then
+            docker run --rm --user root -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
+              "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
+              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
+          fi
+          docker run --rm --user root -e HOME=/home/vscode -v "$PWD":/workspaces/sst-cam-app -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w /workspaces/sst-cam-app \
+            -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
+            -e BASE -e GIT_CONFIG_COUNT=3 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/workspaces/sst-cam-app \
+            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1=/workspaces/sst-cam-app/proto \
+            -e GIT_CONFIG_KEY_2=safe.directory -e GIT_CONFIG_VALUE_2=/home/vscode/flutter \
+            "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" just lint
 
   compile:
-    needs: changes
-    if: github.event_name != 'pull_request' || (github.base_ref != 'main' && needs.changes.outputs.code == 'true')
+    needs: [changes, image]
+    if: ${{ always() && (github.event_name != 'pull_request' || (github.base_ref != 'main' && needs.changes.outputs.code == 'true')) }}
     runs-on: ubuntu-latest
     steps:
+      - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: devcontainers/ci@v0.3
+      - uses: docker/login-action@v3
         with:
-          push: never
-          runCmd: just compile
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker pull "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/pub
+            .ci-cache/gradle
+          key: app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-compile-${{ github.run_id }}
+          restore-keys: |
+            app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-compile-
+            app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-
+      - run: |
+          mkdir -p .ci-cache/pub .ci-cache/gradle
+          if [ ! -d .ci-cache/pub/hosted ] || [ ! -x .ci-cache/pub/bin/protoc-gen-dart ]; then
+            docker run --rm --user root -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
+              "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
+              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
+          fi
+          docker run --rm --user root -e HOME=/home/vscode -v "$PWD":/workspaces/sst-cam-app -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w /workspaces/sst-cam-app \
+            -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
+            -e GIT_CONFIG_COUNT=3 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/workspaces/sst-cam-app \
+            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1=/workspaces/sst-cam-app/proto \
+            -e GIT_CONFIG_KEY_2=safe.directory -e GIT_CONFIG_VALUE_2=/home/vscode/flutter \
+            "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" just compile
 
   test:
-    needs: changes
-    if: github.event_name != 'pull_request' || (github.base_ref != 'main' && needs.changes.outputs.code == 'true')
+    needs: [changes, image]
+    if: ${{ always() && (github.event_name != 'pull_request' || (github.base_ref != 'main' && needs.changes.outputs.code == 'true')) }}
     runs-on: ubuntu-latest
     steps:
+      - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: devcontainers/ci@v0.3
+      - uses: docker/login-action@v3
         with:
-          push: never
-          runCmd: just test
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker pull "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/pub
+            .ci-cache/gradle
+          key: app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-test-${{ github.run_id }}
+          restore-keys: |
+            app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-test-
+            app-deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}-
+      - run: |
+          mkdir -p .ci-cache/pub .ci-cache/gradle
+          if [ ! -d .ci-cache/pub/hosted ] || [ ! -x .ci-cache/pub/bin/protoc-gen-dart ]; then
+            docker run --rm --user root -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache \
+              "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
+              'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
+          fi
+          docker run --rm --user root -e HOME=/home/vscode -v "$PWD":/workspaces/sst-cam-app -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w /workspaces/sst-cam-app \
+            -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
+            -e GIT_CONFIG_COUNT=3 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/workspaces/sst-cam-app \
+            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1=/workspaces/sst-cam-app/proto \
+            -e GIT_CONFIG_KEY_2=safe.directory -e GIT_CONFIG_VALUE_2=/home/vscode/flutter \
+            "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" just test
