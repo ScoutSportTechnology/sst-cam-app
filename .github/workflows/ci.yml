@@ -101,10 +101,10 @@ jobs:
               "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
               'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
           fi
-          docker run --rm -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w "$PWD" \
+          docker run --rm --user root -e HOME=/home/vscode -v "$PWD":/workspaces/sst-cam-app -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w /workspaces/sst-cam-app \
             -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
-            -e BASE -e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$PWD" \
-            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1="$PWD/proto" \
+            -e BASE -e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/workspaces/sst-cam-app \
+            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1=/workspaces/sst-cam-app/proto \
             "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" just lint
 
   compile:
@@ -138,10 +138,10 @@ jobs:
               "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
               'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
           fi
-          docker run --rm -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w "$PWD" \
+          docker run --rm --user root -e HOME=/home/vscode -v "$PWD":/workspaces/sst-cam-app -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w /workspaces/sst-cam-app \
             -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
-            -e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$PWD" \
-            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1="$PWD/proto" \
+            -e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/workspaces/sst-cam-app \
+            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1=/workspaces/sst-cam-app/proto \
             "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" just compile
 
   test:
@@ -175,8 +175,8 @@ jobs:
               "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" bash -c \
               'cp -a /home/vscode/.pub-cache-seed/. /home/vscode/.pub-cache/ && chown -R vscode:vscode /home/vscode/.pub-cache'
           fi
-          docker run --rm -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w "$PWD" \
+          docker run --rm --user root -e HOME=/home/vscode -v "$PWD":/workspaces/sst-cam-app -v "$PWD":"$PWD" -v "$(git rev-parse --path-format=absolute --git-common-dir)":"$(git rev-parse --path-format=absolute --git-common-dir)":ro -w /workspaces/sst-cam-app \
             -v "$PWD/.ci-cache/pub":/home/vscode/.pub-cache -v "$PWD/.ci-cache/gradle":/home/vscode/.gradle \
-            -e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$PWD" \
-            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1="$PWD/proto" \
+            -e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/workspaces/sst-cam-app \
+            -e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1=/workspaces/sst-cam-app/proto \
             "${IMAGE}:$(tr -d '[:space:]' < app-image/VERSION)" just test
