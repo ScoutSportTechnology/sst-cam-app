@@ -420,7 +420,7 @@ void main() {
         expect(stream.isOk, isTrue, reason: stream.errorMessage);
         expect((await _snapshot(ble, device.id)).isStreaming, isTrue);
         // ignore: avoid_print
-        print('HIL_SHUTDOWN_READY');
+        print('HIL_SHUTDOWN_READY ${config.matchUuid}');
         await _until(
           tester,
           'firmware shutdown disconnect',
